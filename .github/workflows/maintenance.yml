@@ -1,0 +1,126 @@
+# ============================================
+# AI Gateway - Dependency Updates
+# Automated dependency management
+# ============================================
+
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run weekly on Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  # ===========================================
+  # Check for outdated dependencies
+  # ===========================================
+  check-dependencies:
+    name: Check Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Check Go dependencies
+        run: |
+          go list -u -m -json all | grep -E '"Path"|"Version"|"Time"|"Update"' || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Check npm dependencies
+        working-directory: ./web
+        run: |
+          npm outdated || true
+
+  # ===========================================
+  # Security audit
+  # ===========================================
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run Go security audit
+        run: |
+          go list -m -json all | nancy sleuth || true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Run npm security audit
+        working-directory: ./web
+        run: |
+          npm audit --audit-level=moderate || true
+
+  # ===========================================
+  # Update dependencies (creates PR)
+  # ===========================================
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    needs: [check-dependencies, security-audit]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Update Go dependencies
+        run: |
+          go get -u ./...
+          go mod tidy
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Update npm dependencies
+        working-directory: ./web
+        run: |
+          npm update
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          title: 'chore: automated dependency update'
+          body: |
+            ## Automated Dependency Update
+
+            This PR contains automated dependency updates.
+
+            ### Changes
+            - Updated Go dependencies
+            - Updated npm dependencies
+
+            Please review and test before merging.
+          branch: automated/dependency-update
+          delete-branch: true

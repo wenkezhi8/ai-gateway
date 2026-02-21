@@ -1,0 +1,72 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ai-gateway
+gateway
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+coverage/
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Config files with secrets
+configs/config.json
+!configs/config.example.json
+
+# Data directory
+data/
+*.db
+*.db-journal
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# Temporary files
+tmp/
+temp/
+
+# Frontend
+web/node_modules/
+web/dist/
+web/.npm/
+web/.eslintcache
+web/*.local
+
+# Test artifacts (local only)
+test-screenshots/
+playwright-report/
+test-results/
+.nyc_output/

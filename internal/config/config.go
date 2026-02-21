@@ -1,0 +1,374 @@
+package config
+
+import (
+	"ai-gateway/internal/constants"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// Config holds all configuration for the AI Gateway
+type Config struct {
+	Server    ServerConfig     `json:"server"`
+	Redis     RedisConfig      `json:"redis"`
+	Database  DatabaseConfig   `json:"database"`
+	Providers []ProviderConfig `json:"providers"`
+	Limiter   LimiterConfig    `json:"limiter"`
+	Accounts  []AccountConfig  `json:"accounts"`
+}
+
+// ServerConfig holds HTTP server configuration
+type ServerConfig struct {
+	Port string `json:"port"`
+	Mode string `json:"mode"`
+}
+
+// RedisConfig holds Redis connection configuration
+type RedisConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
+}
+
+// DatabaseConfig holds SQLite configuration
+type DatabaseConfig struct {
+	Path string `json:"path"`
+}
+
+// ProviderConfig holds AI provider configuration
+type ProviderConfig struct {
+	Name    string   `json:"name"`
+	APIKey  string   `json:"api_key"`
+	BaseURL string   `json:"base_url"`
+	Enabled bool     `json:"enabled"`
+	Models  []string `json:"models,omitempty"`
+}
+
+// LimiterConfig holds rate limiter configuration
+type LimiterConfig struct {
+	Enabled          bool    `json:"enabled"`
+	Rate             int     `json:"rate"`              // requests per second
+	Burst            int     `json:"burst"`             // burst size
+	PerUser          bool    `json:"per_user"`          // limit per user
+	SwitchTimeoutMs  int     `json:"switch_timeout_ms"` // max time for account switch (ms)
+	WarningThreshold float64 `json:"warning_threshold"` // warning threshold (0.9 = 90%)
+	CheckIntervalMs  int     `json:"check_interval_ms"` // usage check interval (ms)
+}
+
+// AccountConfig holds account configuration with limits
+type AccountConfig struct {
+	ID       string                 `json:"id"`
+	Name     string                 `json:"name"`
+	Provider string                 `json:"provider"`
+	APIKey   string                 `json:"api_key"`
+	BaseURL  string                 `json:"base_url"`
+	Enabled  bool                   `json:"enabled"`
+	Priority int                    `json:"priority"`
+	Limits   map[string]LimitConfig `json:"limits"`
+}
+
+// LimitConfig holds a single limit configuration
+type LimitConfig struct {
+	Type    string  `json:"type"`    // token, rpm, concurrent
+	Period  string  `json:"period"`  // minute, hour, day, month
+	Limit   int64   `json:"limit"`   // max value
+	Warning float64 `json:"warning"` // warning threshold
+}
+
+// DefaultConfig returns a configuration with sensible defaults
+func DefaultConfig() *Config {
+	return &Config{
+		Server: ServerConfig{
+			Port: constants.ServerPort,
+			Mode: "debug",
+		},
+		Redis: RedisConfig{
+			Host: "localhost",
+			Port: 6379,
+			DB:   0,
+		},
+		Database: DatabaseConfig{
+			Path: "./data/ai-gateway.db",
+		},
+		Providers: []ProviderConfig{},
+		Limiter: LimiterConfig{
+			Enabled:          true,
+			Rate:             100,
+			Burst:            200,
+			PerUser:          true,
+			SwitchTimeoutMs:  3000,
+			WarningThreshold: 0.9,
+			CheckIntervalMs:  5000,
+		},
+		Accounts: []AccountConfig{},
+	}
+}
+
+// Load reads configuration from file and environment
+func Load() (*Config, error) {
+	cfg := DefaultConfig()
+
+	// Try to load from config file
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "./configs/config.json"
+	}
+
+	if _, err := os.Stat(configPath); err == nil {
+		file, err := os.ReadFile(filepath.Clean(configPath))
+		if err != nil {
+			return nil, err
+		}
+
+		// Expand environment variables in the config file
+		file = []byte(expandEnvVars(string(file)))
+
+		if err := json.Unmarshal(file, cfg); err != nil {
+			return nil, err
+		}
+	}
+
+	// Override with environment variables if set
+	// Server configuration
+	if port := os.Getenv("SERVER_PORT"); port != "" {
+		cfg.Server.Port = port
+	}
+	if mode := os.Getenv("GIN_MODE"); mode != "" {
+		cfg.Server.Mode = mode
+	}
+
+	// Redis configuration
+	if redisHost := os.Getenv("REDIS_HOST"); redisHost != "" {
+		cfg.Redis.Host = redisHost
+	}
+	if redisPort := os.Getenv("REDIS_PORT"); redisPort != "" {
+		if p, err := strconv.Atoi(redisPort); err == nil {
+			cfg.Redis.Port = p
+		}
+	}
+	if redisPassword := os.Getenv("REDIS_PASSWORD"); redisPassword != "" {
+		cfg.Redis.Password = redisPassword
+	}
+	if redisDB := os.Getenv("REDIS_DB"); redisDB != "" {
+		if d, err := strconv.Atoi(redisDB); err == nil {
+			cfg.Redis.DB = d
+		}
+	}
+
+	// Database configuration
+	if dbPath := os.Getenv("DATABASE_PATH"); dbPath != "" {
+		cfg.Database.Path = dbPath
+	}
+
+	// Load providers from environment variables (takes precedence over config file)
+	// Format: PROVIDER_<NAME>_API_KEY (e.g., PROVIDER_OPENAI_API_KEY)
+	cfg.loadProvidersFromEnv()
+
+	return cfg, nil
+}
+
+// expandEnvVars expands environment variables in the format ${VAR_NAME} or $VAR_NAME
+func expandEnvVars(s string) string {
+	return os.Expand(s, func(key string) string {
+		// Handle ${VAR} format
+		if strings.HasPrefix(key, "{") && strings.HasSuffix(key, "}") {
+			key = key[1 : len(key)-1]
+		}
+		return os.Getenv(key)
+	})
+}
+
+// loadProvidersFromEnv loads provider configurations from environment variables
+// Environment variable format:
+//   - PROVIDER_<NAME>_API_KEY: API key for the provider
+//   - PROVIDER_<NAME>_BASE_URL: Base URL for the provider (optional)
+//   - PROVIDER_<NAME>_ENABLED: Enable/disable the provider (default: true if API key is set)
+//
+// Example:
+//
+//	PROVIDER_OPENAI_API_KEY=sk-xxx
+//	PROVIDER_OPENAI_BASE_URL=https://api.openai.com/v1
+//	PROVIDER_ANTHROPIC_API_KEY=sk-ant-xxx
+func (c *Config) loadProvidersFromEnv() {
+	// Define known providers and their env var prefixes
+	providerPrefixes := []string{"OPENAI", "ANTHROPIC", "AZURE", "VOLCENGINE", "CLAUDE"}
+
+	for _, prefix := range providerPrefixes {
+		apiKeyEnv := "PROVIDER_" + prefix + "_API_KEY"
+		apiKey := os.Getenv(apiKeyEnv)
+
+		if apiKey == "" {
+			continue
+		}
+
+		// Get provider name (lowercase)
+		providerName := strings.ToLower(prefix)
+		if prefix == "CLAUDE" {
+			providerName = "anthropic" // Claude uses Anthropic API
+		}
+
+		// Get base URL from env (optional)
+		baseURLEnv := "PROVIDER_" + prefix + "_BASE_URL"
+		baseURL := os.Getenv(baseURLEnv)
+
+		// Get enabled status from env (optional, default true)
+		enabled := true
+		if enabledEnv := os.Getenv("PROVIDER_" + prefix + "_ENABLED"); enabledEnv != "" {
+			enabled = strings.ToLower(enabledEnv) == "true" || enabledEnv == "1"
+		}
+
+		// Check if provider already exists in config
+		found := false
+		for i, p := range c.Providers {
+			if strings.EqualFold(p.Name, providerName) {
+				// Override with env values
+				c.Providers[i].APIKey = apiKey
+				if baseURL != "" {
+					c.Providers[i].BaseURL = baseURL
+				}
+				c.Providers[i].Enabled = enabled
+				found = true
+				break
+			}
+		}
+
+		// Add new provider if not found
+		if !found {
+			c.Providers = append(c.Providers, ProviderConfig{
+				Name:    providerName,
+				APIKey:  apiKey,
+				BaseURL: baseURL,
+				Enabled: enabled,
+			})
+		}
+	}
+}
+
+// Validate validates the configuration and returns an error if invalid
+func (c *Config) Validate() error {
+	// Validate server configuration
+	if c.Server.Port == "" {
+		return &ValidationError{Field: "server.port", Message: "port is required"}
+	}
+
+	// Validate port is a valid number
+	if port, err := strconv.Atoi(c.Server.Port); err != nil || port <= 0 || port > 65535 {
+		return &ValidationError{Field: "server.port", Message: "port must be a valid number between 1 and 65535"}
+	}
+
+	if c.Server.Mode != "debug" && c.Server.Mode != "release" && c.Server.Mode != "test" {
+		return &ValidationError{Field: "server.mode", Message: "mode must be 'debug', 'release', or 'test'"}
+	}
+
+	// Validate at least one provider is configured
+	hasEnabledProvider := false
+	providerNames := make(map[string]bool)
+	for i, p := range c.Providers {
+		if p.Enabled {
+			if p.Name == "" {
+				return &ValidationError{Field: "providers", Message: "provider name is required"}
+			}
+
+			// Check for duplicate provider names
+			if providerNames[p.Name] {
+				return &ValidationError{Field: "providers", Message: "duplicate provider name: " + p.Name}
+			}
+			providerNames[p.Name] = true
+
+			// Validate provider name is supported
+			supportedProviders := []string{
+				"openai", "anthropic", "azure-openai", "volcengine",
+				"deepseek", "zhipu", "qwen", "moonshot", "minimax",
+				"baichuan", "yi", "google", "mistral",
+			}
+			isSupported := false
+			for _, supported := range supportedProviders {
+				if strings.EqualFold(p.Name, supported) {
+					isSupported = true
+					break
+				}
+			}
+			if !isSupported {
+				return &ValidationError{Field: "providers[" + strconv.Itoa(i) + "].name",
+					Message: "unsupported provider: " + p.Name + ", supported: " + strings.Join(supportedProviders, ", ")}
+			}
+
+			// Note: API key validation is optional as some providers may use auth headers
+			hasEnabledProvider = true
+		}
+	}
+
+	if !hasEnabledProvider {
+		return &ValidationError{Field: "providers", Message: "at least one enabled provider is required"}
+	}
+
+	// Validate limiter configuration if enabled
+	if c.Limiter.Enabled {
+		if c.Limiter.Rate <= 0 {
+			return &ValidationError{Field: "limiter.rate", Message: "rate must be positive"}
+		}
+		if c.Limiter.Burst <= 0 {
+			return &ValidationError{Field: "limiter.burst", Message: "burst must be positive"}
+		}
+		if c.Limiter.WarningThreshold <= 0 || c.Limiter.WarningThreshold > 1 {
+			return &ValidationError{Field: "limiter.warning_threshold", Message: "warning_threshold must be between 0 and 1"}
+		}
+		if c.Limiter.SwitchTimeoutMs < 0 {
+			return &ValidationError{Field: "limiter.switch_timeout_ms", Message: "switch_timeout_ms cannot be negative"}
+		}
+		if c.Limiter.CheckIntervalMs <= 0 {
+			return &ValidationError{Field: "limiter.check_interval_ms", Message: "check_interval_ms must be positive"}
+		}
+	}
+
+	// Validate account configurations
+	accountIDs := make(map[string]bool)
+	for i, acc := range c.Accounts {
+		if acc.Enabled {
+			if acc.ID == "" {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "account ID is required"}
+			}
+
+			// Check for duplicate account IDs
+			if accountIDs[acc.ID] {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "duplicate account ID: " + acc.ID}
+			}
+			accountIDs[acc.ID] = true
+
+			if acc.Provider == "" {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].provider", Message: "provider is required"}
+			}
+
+			// Validate limits if present
+			for limitName, limit := range acc.Limits {
+				if limit.Type == "" {
+					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".type",
+						Message: "limit type is required"}
+				}
+				if limit.Limit <= 0 {
+					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".limit",
+						Message: "limit must be positive"}
+				}
+				if limit.Warning < 0 || limit.Warning > 1 {
+					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".warning",
+						Message: "warning must be between 0 and 1"}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// ValidationError represents a configuration validation error
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return "validation error in " + e.Field + ": " + e.Message
+}

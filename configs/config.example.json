@@ -1,0 +1,35 @@
+{
+  "server": {
+    "port": "8080",
+    "mode": "debug"
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0
+  },
+  "database": {
+    "path": "./data/ai-gateway.db"
+  },
+  "providers": [
+    {
+      "name": "openai",
+      "api_key": "your-openai-api-key-here",
+      "base_url": "https://api.openai.com",
+      "enabled": true
+    },
+    {
+      "name": "anthropic",
+      "api_key": "your-anthropic-api-key-here",
+      "base_url": "https://api.anthropic.com",
+      "enabled": true
+    }
+  ],
+  "limiter": {
+    "enabled": true,
+    "rate": 100,
+    "burst": 200,
+    "per_user": true
+  }
+}
