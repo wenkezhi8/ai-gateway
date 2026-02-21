@@ -37,6 +37,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.webui_secret_key
 
 # Config files with secrets
 configs/config.json
