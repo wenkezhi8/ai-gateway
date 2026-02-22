@@ -494,6 +494,141 @@ func main() {
     fmt.Println(resp.Choices[0].Message.Content)
 }</code></pre>
           </div>
+
+          <h2>opencode CLI</h2>
+          <p>
+            <a href="https://opencode.ai" target="_blank">opencode</a> 
+            是一个强大的终端 AI 编程助手，可以直接配置使用 AI Gateway 作为后端。
+          </p>
+
+          <h3>安装 opencode</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('opencode-install')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-opencode-install"># macOS / Linux
+curl -fsSL https://opencode.ai/install | bash
+
+# 或使用 npm
+npm install -g opencode-ai
+
+# 或使用 Homebrew
+brew install anomalyco/tap/opencode</code></pre>
+          </div>
+
+          <h3>配置 AI Gateway</h3>
+          <p>创建或编辑 <code>~/.config/opencode/opencode.json</code>：</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span>json</span>
+              <button @click="copyCode('opencode-config')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-opencode-config">{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "ai-gateway": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "AI Gateway",
+      "options": {
+        "baseURL": "http://localhost:8566/api/v1"
+      },
+      "models": {
+        "auto": {
+          "name": "Auto (智能选择)",
+          "limit": { "context": 128000, "output": 4096 }
+        },
+        "glm-4-flash": { "name": "GLM-4-Flash" },
+        "glm-4.7": { "name": "GLM-4.7" },
+        "glm-4-plus": { "name": "GLM-4-Plus" }
+      }
+    }
+  }
+}</code></pre>
+          </div>
+
+          <h3>添加 API Key 认证</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('opencode-auth')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-opencode-auth"># 交互式登录
+opencode auth login
+
+# 或手动添加凭证
+mkdir -p ~/.local/share/opencode
+echo '{"ai-gateway":{"apiKey":"YOUR_API_KEY"}}' > ~/.local/share/opencode/auth.json</code></pre>
+          </div>
+
+          <h3>使用示例</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('opencode-usage')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-opencode-usage"># 进入项目目录
+cd /path/to/your/project
+
+# 交互模式
+opencode
+
+# 非交互模式 - 指定模型
+opencode run -m ai-gateway/auto '解释这个函数的作用'
+
+# 使用 GLM-4-Flash 模型
+opencode run -m ai-gateway/glm-4-flash '帮我写一个冒泡排序'
+
+# 使用 GLM-4.7 模型
+opencode run -m ai-gateway/glm-4.7 '分析这段代码的性能问题'
+
+# 指定工作目录
+opencode -c /path/to/project '添加单元测试'
+
+# 输出 JSON 格式
+opencode run -f json '列出所有 TODO'</code></pre>
+          </div>
+
+          <h3>常用模型</h3>
+          <table class="config-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>说明</th>
+                <th>适用场景</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ai-gateway/auto</code></td>
+                <td>智能选择</td>
+                <td>推荐：自动选择最优模型</td>
+              </tr>
+              <tr>
+                <td><code>ai-gateway/glm-4-flash</code></td>
+                <td>快速响应</td>
+                <td>简单问答、代码补全</td>
+              </tr>
+              <tr>
+                <td><code>ai-gateway/glm-4.7</code></td>
+                <td>最新版本</td>
+                <td>复杂推理、代码生成</td>
+              </tr>
+              <tr>
+                <td><code>ai-gateway/glm-4-plus</code></td>
+                <td>高级版</td>
+                <td>复杂任务、长文本处理</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h3>注意事项</h3>
+          <ul>
+            <li>确保 AI Gateway 服务正在运行 (<code>http://localhost:8566</code>)</li>
+            <li>如果使用远程服务器，将 <code>baseURL</code> 改为服务器地址</li>
+            <li><code>auto</code> 模型会根据请求自动选择最优模型</li>
+            <li>可通过 <code>-m</code> 参数指定具体模型</li>
+          </ul>
         </div>
       </el-tab-pane>
 

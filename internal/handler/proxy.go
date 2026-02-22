@@ -399,7 +399,31 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 		}
 	}
 
-	// Fallback to registry lookup by model
+	// Check if any accounts exist for this provider
+	if h.accountManager != nil && providerName != "" {
+		hasAccounts := false
+		hasEnabledAccounts := false
+		for _, acc := range h.accountManager.GetAllAccounts() {
+			if acc.Provider == providerName || acc.Provider == mapProviderName(providerName) {
+				hasAccounts = true
+				if acc.Enabled {
+					hasEnabledAccounts = true
+					break
+				}
+			}
+		}
+
+		// If accounts exist but none are enabled, return error (don't fallback to static config)
+		if hasAccounts && !hasEnabledAccounts {
+			return nil, &provider.ProviderError{
+				Message:   "Provider '" + providerName + "' is disabled. Please enable it in the provider settings.",
+				Code:      http.StatusServiceUnavailable,
+				Retryable: false,
+			}
+		}
+	}
+
+	// Fallback to registry lookup by model (only when no dynamic accounts configured)
 	targetProvider, ok := h.registry.GetByModel(model)
 	if !ok {
 		return nil, &provider.ProviderError{
