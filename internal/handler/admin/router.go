@@ -3,6 +3,7 @@ package admin
 import (
 	"ai-gateway/internal/routing"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -365,5 +366,151 @@ func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "TTL configuration updated",
+	})
+}
+
+// CascadeRuleResponse represents cascade rule in response
+type CascadeRuleResponse struct {
+	TaskType        string `json:"task_type"`
+	Difficulty      string `json:"difficulty"`
+	StartLevel      string `json:"start_level"`
+	MaxLevel        string `json:"max_level"`
+	FallbackEnabled bool   `json:"fallback_enabled"`
+	MaxRetries      int    `json:"max_retries"`
+	TimeoutSeconds  int    `json:"timeout_seconds"`
+}
+
+// GetCascadeRules returns all cascade routing rules
+// GET /api/admin/router/cascade-rules
+func (h *RouterHandler) GetCascadeRules(c *gin.Context) {
+	rules := h.router.GetCascadeRules()
+
+	response := make([]CascadeRuleResponse, 0, len(rules))
+	for _, rule := range rules {
+		response = append(response, CascadeRuleResponse{
+			TaskType:        string(rule.TaskType),
+			Difficulty:      string(rule.Difficulty),
+			StartLevel:      string(rule.StartLevel),
+			MaxLevel:        string(rule.MaxLevel),
+			FallbackEnabled: rule.FallbackEnabled,
+			MaxRetries:      rule.MaxRetries,
+			TimeoutSeconds:  int(rule.TimeoutPerLevel.Seconds()),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+	})
+}
+
+// GetCascadeRule returns a specific cascade rule
+// GET /api/admin/router/cascade-rules/:taskType/:difficulty
+func (h *RouterHandler) GetCascadeRule(c *gin.Context) {
+	taskType := c.Param("taskType")
+	difficulty := c.Param("difficulty")
+
+	rule := h.router.GetCascadeRule(routing.TaskType(taskType), routing.DifficultyLevel(difficulty))
+	if rule == nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_found",
+				"message": "Cascade rule not found",
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": CascadeRuleResponse{
+			TaskType:        string(rule.TaskType),
+			Difficulty:      string(rule.Difficulty),
+			StartLevel:      string(rule.StartLevel),
+			MaxLevel:        string(rule.MaxLevel),
+			FallbackEnabled: rule.FallbackEnabled,
+			MaxRetries:      rule.MaxRetries,
+			TimeoutSeconds:  int(rule.TimeoutPerLevel.Seconds()),
+		},
+	})
+}
+
+// UpdateCascadeRuleRequest represents cascade rule update request
+type UpdateCascadeRuleRequest struct {
+	TaskType        string `json:"task_type"`
+	Difficulty      string `json:"difficulty"`
+	StartLevel      string `json:"start_level"`
+	MaxLevel        string `json:"max_level"`
+	FallbackEnabled bool   `json:"fallback_enabled"`
+	MaxRetries      int    `json:"max_retries"`
+	TimeoutSeconds  int    `json:"timeout_seconds"`
+}
+
+// UpdateCascadeRule updates or creates a cascade rule
+// PUT /api/admin/router/cascade-rules
+func (h *RouterHandler) UpdateCascadeRule(c *gin.Context) {
+	var req UpdateCascadeRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	rule := &routing.CascadeRule{
+		TaskType:        routing.TaskType(req.TaskType),
+		Difficulty:      routing.DifficultyLevel(req.Difficulty),
+		StartLevel:      routing.CascadeLevel(req.StartLevel),
+		MaxLevel:        routing.CascadeLevel(req.MaxLevel),
+		FallbackEnabled: req.FallbackEnabled,
+		MaxRetries:      req.MaxRetries,
+		TimeoutPerLevel: time.Duration(req.TimeoutSeconds) * time.Second,
+	}
+
+	h.router.SetCascadeRule(rule)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cascade rule updated",
+	})
+}
+
+// DeleteCascadeRule deletes a cascade rule
+// DELETE /api/admin/router/cascade-rules/:taskType/:difficulty
+func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
+	taskType := c.Param("taskType")
+	difficulty := c.Param("difficulty")
+
+	deleted := h.router.DeleteCascadeRule(routing.TaskType(taskType), routing.DifficultyLevel(difficulty))
+	if !deleted {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_found",
+				"message": "Cascade rule not found",
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cascade rule deleted",
+	})
+}
+
+// ResetCascadeRules resets all cascade rules to defaults
+// POST /api/admin/router/cascade-rules/reset
+func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
+	h.router.ResetCascadeRules()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cascade rules reset to defaults",
 	})
 }

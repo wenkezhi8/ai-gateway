@@ -118,6 +118,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.PUT("/provider-defaults", handlers.SmartRouter.UpdateProviderDefaults)
 		routerGroup.GET("/ttl-config", handlers.SmartRouter.GetTTLConfig)
 		routerGroup.PUT("/ttl-config", handlers.SmartRouter.UpdateTTLConfig)
+		// Cascade rules
+		routerGroup.GET("/cascade-rules", handlers.SmartRouter.GetCascadeRules)
+		routerGroup.GET("/cascade-rules/:taskType/:difficulty", handlers.SmartRouter.GetCascadeRule)
+		routerGroup.PUT("/cascade-rules", handlers.SmartRouter.UpdateCascadeRule)
+		routerGroup.DELETE("/cascade-rules/:taskType/:difficulty", handlers.SmartRouter.DeleteCascadeRule)
+		routerGroup.POST("/cascade-rules/reset", handlers.SmartRouter.ResetCascadeRules)
 	}
 
 	// Cache management routes

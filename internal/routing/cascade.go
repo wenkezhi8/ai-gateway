@@ -481,3 +481,67 @@ func (c *CascadeRouter) SetModelLevel(model string, level CascadeLevel) {
 
 	c.modelLevels[level] = append(c.modelLevels[level], model)
 }
+
+// GetCascadeRules returns all cascade rules
+func (c *CascadeRouter) GetCascadeRules() map[string]*CascadeRule {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make(map[string]*CascadeRule)
+	for k, v := range c.rules {
+		ruleCopy := *v
+		result[k] = &ruleCopy
+	}
+	return result
+}
+
+// GetCascadeRule returns a specific cascade rule
+func (c *CascadeRouter) GetCascadeRule(taskType TaskType, difficulty DifficultyLevel) *CascadeRule {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	ruleKey := string(taskType) + ":" + string(difficulty)
+	if rule, ok := c.rules[ruleKey]; ok {
+		ruleCopy := *rule
+		return &ruleCopy
+	}
+	return nil
+}
+
+// SetCascadeRule sets a cascade rule
+func (c *CascadeRouter) SetCascadeRule(rule *CascadeRule) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	ruleKey := string(rule.TaskType) + ":" + string(rule.Difficulty)
+	c.rules[ruleKey] = rule
+
+	cascadeLogger.WithFields(logrus.Fields{
+		"task_type":   rule.TaskType,
+		"difficulty":  rule.Difficulty,
+		"start_level": rule.StartLevel,
+		"max_level":   rule.MaxLevel,
+	}).Info("Cascade rule updated")
+}
+
+// DeleteCascadeRule deletes a cascade rule
+func (c *CascadeRouter) DeleteCascadeRule(taskType TaskType, difficulty DifficultyLevel) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	ruleKey := string(taskType) + ":" + string(difficulty)
+	if _, ok := c.rules[ruleKey]; ok {
+		delete(c.rules, ruleKey)
+		return true
+	}
+	return false
+}
+
+// ResetCascadeRules resets all rules to default
+func (c *CascadeRouter) ResetCascadeRules() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.rules = DefaultCascadeRules()
+	cascadeLogger.Info("Cascade rules reset to defaults")
+}

@@ -736,6 +736,31 @@ func (r *SmartRouter) GetCascadeRouter() *CascadeRouter {
 	return r.cascade
 }
 
+// GetCascadeRules returns all cascade rules
+func (r *SmartRouter) GetCascadeRules() map[string]*CascadeRule {
+	return r.cascade.GetCascadeRules()
+}
+
+// GetCascadeRule returns a specific cascade rule
+func (r *SmartRouter) GetCascadeRule(taskType TaskType, difficulty DifficultyLevel) *CascadeRule {
+	return r.cascade.GetCascadeRule(taskType, difficulty)
+}
+
+// SetCascadeRule sets a cascade rule
+func (r *SmartRouter) SetCascadeRule(rule *CascadeRule) {
+	r.cascade.SetCascadeRule(rule)
+}
+
+// DeleteCascadeRule deletes a cascade rule
+func (r *SmartRouter) DeleteCascadeRule(taskType TaskType, difficulty DifficultyLevel) bool {
+	return r.cascade.DeleteCascadeRule(taskType, difficulty)
+}
+
+// ResetCascadeRules resets all cascade rules to defaults
+func (r *SmartRouter) ResetCascadeRules() {
+	r.cascade.ResetCascadeRules()
+}
+
 // SelectModelWithAssessment selects model with difficulty assessment
 // 改动点: 集成难度评估到模型选择
 func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt string, context string, availableModels []string) (string, *AssessmentResult) {
