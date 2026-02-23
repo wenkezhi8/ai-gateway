@@ -34,15 +34,50 @@ export const API = {
     LOGOUT: '/api/auth/logout',
     ME: '/api/auth/me',
     REFRESH: '/api/auth/refresh',
+    CHANGE_PASSWORD: '/api/auth/change-password',
+    PROFILE: '/api/auth/profile',
+    VALIDATE: '/api/auth/validate',
   },
   
   // 管理接口
   ADMIN: {
     ACCOUNTS: '/api/admin/accounts',
     PROVIDERS: '/api/admin/providers',
+    ROUTING: '/api/admin/routing',
     ROUTER: '/api/admin/router',
     DASHBOARD: '/api/admin/dashboard',
     CACHE: '/api/admin/cache',
     API_KEYS: '/api/admin/api-keys',
+    FEEDBACK: '/api/admin/feedback',
+    ALERTS: '/api/admin/alerts',
+  },
+  
+  // 子路径
+  ROUTER: {
+    CONFIG: '/api/admin/router/config',
+    MODELS: '/api/admin/router/models',
+    AVAILABLE_MODELS: '/api/admin/router/available-models',
+    TOP_MODELS: '/api/admin/router/top-models',
+    PROVIDER_DEFAULTS: '/api/admin/router/provider-defaults',
+    TTL_CONFIG: '/api/admin/router/ttl-config',
+    CASCADE_RULES: '/api/admin/router/cascade-rules',
+  },
+  
+  FEEDBACK: {
+    STATS: '/api/admin/feedback/stats',
+    PERFORMANCE: '/api/admin/feedback/performance',
+    TOP_MODELS: '/api/admin/feedback/top-models',
+    RECENT: '/api/admin/feedback/recent',
+    TASK_TYPE_DISTRIBUTION: '/api/admin/feedback/task-type-distribution',
+    OPTIMIZE: '/api/admin/feedback/optimize',
+  },
+  
+  CACHE: {
+    STATS: '/api/admin/cache/stats',
+    CONFIG: '/api/admin/cache/config',
+    HEALTH: '/api/admin/cache/health',
+    SUMMARY: '/api/admin/cache/summary',
+    QUALITY_CONFIG: '/api/admin/cache/quality-config',
+    INVALIDATE_LOW_QUALITY: '/api/admin/cache/invalidate-low-quality',
   },
 } as const

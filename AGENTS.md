@@ -359,7 +359,7 @@ git push origin feature/your-feature
 | MINOR | 向下兼容的新功能 | 1.1.0 → 1.2.0 |
 | PATCH | 向下兼容的问题修复 | 1.1.0 → 1.1.1 |
 
-**当前版本**: `v1.2.0`
+**当前版本**: `v1.2.4`
 
 ### 强制提交规范
 
@@ -801,7 +801,7 @@ export REDIS_DB=0
 
 ### 当前版本
 
-**v1.2.2** (2026-02-23)
+**v1.2.4** (2026-02-23)
 
 ### 当前迭代 (v1.2)
 
@@ -824,6 +824,11 @@ export REDIS_DB=0
 | 缓存管理 UI | ✅ 完成 | web/src/views/cache/index.vue - Redis状态、请求去重、语义缓存配置 |
 | 前后端 API 统一 | ✅ 完成 | 所有页面调用真实 API，移除模拟数据 |
 | 环境变量配置 | ✅ 完成 | API Key 改用环境变量，移除硬编码 |
+| 任务类型分布统计 | ✅ 完成 | GET /api/admin/feedback/task-type-distribution |
+| TTL 配置 API | ✅ 完成 | GET/PUT /api/admin/router/ttl-config - 按任务类型配置 TTL |
+| 缓存质量校验 | ✅ 完成 | QualityChecker 接口 + DefaultQualityChecker 实现 |
+| 级联路由配置 API | ✅ 完成 | CRUD /api/admin/router/cascade-rules |
+| API 常量完善 | ✅ 完成 | web/src/constants/api.ts 包含所有端点 |
 
 ### 测试覆盖率
 

@@ -140,6 +140,11 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.GET("/quality-config", handlers.Cache.GetCacheQualityConfig)
 		cacheGroup.PUT("/quality-config", handlers.Cache.UpdateCacheQualityConfig)
 		cacheGroup.POST("/invalidate-low-quality", handlers.Cache.InvalidateLowQualityCache)
+		// Cache rules
+		cacheGroup.GET("/rules", handlers.Cache.GetCacheRules)
+		cacheGroup.POST("/rules", handlers.Cache.CreateCacheRule)
+		cacheGroup.PUT("/rules/:id", handlers.Cache.UpdateCacheRule)
+		cacheGroup.DELETE("/rules/:id", handlers.Cache.DeleteCacheRule)
 	}
 
 	// Dashboard routes

@@ -3,6 +3,7 @@ package admin
 import (
 	"ai-gateway/internal/cache"
 	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
@@ -375,5 +376,193 @@ func (h *CacheHandler) InvalidateLowQualityCache(c *gin.Context) {
 			"invalidated": count,
 			"message":     "Low quality cache entries invalidated",
 		},
+	})
+}
+
+// CacheRule represents a cache rule configuration
+type CacheRule struct {
+	ID          int    `json:"id"`
+	Pattern     string `json:"pattern"`      // 匹配模式 (e.g., "chat:*", "gpt-4:*")
+	ModelFilter string `json:"model_filter"` // 模型过滤
+	TTL         int    `json:"ttl"`          // TTL in seconds
+	Priority    string `json:"priority"`     // high, medium, low
+	Enabled     bool   `json:"enabled"`
+}
+
+// CacheRulesStore stores cache rules in memory
+var cacheRules = make(map[int]*CacheRule)
+var nextRuleID = 1
+var rulesMu sync.RWMutex
+
+// GetCacheRules returns all cache rules
+// GET /api/admin/cache/rules
+func (h *CacheHandler) GetCacheRules(c *gin.Context) {
+	rulesMu.RLock()
+	defer rulesMu.RUnlock()
+
+	rules := make([]*CacheRule, 0, len(cacheRules))
+	for _, rule := range cacheRules {
+		rules = append(rules, rule)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    rules,
+	})
+}
+
+// CreateCacheRuleRequest represents create cache rule request
+type CreateCacheRuleRequest struct {
+	Pattern     string `json:"pattern" binding:"required"`
+	ModelFilter string `json:"model_filter"`
+	TTL         int    `json:"ttl" binding:"required"`
+	Priority    string `json:"priority"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// CreateCacheRule creates a new cache rule
+// POST /api/admin/cache/rules
+func (h *CacheHandler) CreateCacheRule(c *gin.Context) {
+	var req CreateCacheRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	rulesMu.Lock()
+	defer rulesMu.Unlock()
+
+	rule := &CacheRule{
+		ID:          nextRuleID,
+		Pattern:     req.Pattern,
+		ModelFilter: req.ModelFilter,
+		TTL:         req.TTL,
+		Priority:    req.Priority,
+		Enabled:     req.Enabled,
+	}
+	nextRuleID++
+	cacheRules[rule.ID] = rule
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    rule,
+	})
+}
+
+// UpdateCacheRuleRequest represents update cache rule request
+type UpdateCacheRuleRequest struct {
+	Pattern     *string `json:"pattern"`
+	ModelFilter *string `json:"model_filter"`
+	TTL         *int    `json:"ttl"`
+	Priority    *string `json:"priority"`
+	Enabled     *bool   `json:"enabled"`
+}
+
+// UpdateCacheRule updates a cache rule
+// PUT /api/admin/cache/rules/:id
+func (h *CacheHandler) UpdateCacheRule(c *gin.Context) {
+	id := c.Param("id")
+	ruleID := 0
+	if _, err := fmt.Sscanf(id, "%d", &ruleID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_id",
+				"message": "Invalid rule ID",
+			},
+		})
+		return
+	}
+
+	var req UpdateCacheRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	rulesMu.Lock()
+	defer rulesMu.Unlock()
+
+	rule, ok := cacheRules[ruleID]
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_found",
+				"message": "Cache rule not found",
+			},
+		})
+		return
+	}
+
+	if req.Pattern != nil {
+		rule.Pattern = *req.Pattern
+	}
+	if req.ModelFilter != nil {
+		rule.ModelFilter = *req.ModelFilter
+	}
+	if req.TTL != nil {
+		rule.TTL = *req.TTL
+	}
+	if req.Priority != nil {
+		rule.Priority = *req.Priority
+	}
+	if req.Enabled != nil {
+		rule.Enabled = *req.Enabled
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    rule,
+	})
+}
+
+// DeleteCacheRule deletes a cache rule
+// DELETE /api/admin/cache/rules/:id
+func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
+	id := c.Param("id")
+	ruleID := 0
+	if _, err := fmt.Sscanf(id, "%d", &ruleID); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_id",
+				"message": "Invalid rule ID",
+			},
+		})
+		return
+	}
+
+	rulesMu.Lock()
+	defer rulesMu.Unlock()
+
+	if _, ok := cacheRules[ruleID]; !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_found",
+				"message": "Cache rule not found",
+			},
+		})
+		return
+	}
+
+	delete(cacheRules, ruleID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cache rule deleted",
 	})
 }
