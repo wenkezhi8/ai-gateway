@@ -212,6 +212,60 @@
               </div>
             </el-tab-pane>
 
+            <el-tab-pane label="任务类型TTL" name="task-ttl">
+              <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px">
+                <template #title>
+                  根据任务类型设置缓存过期时间。内容越稳定、调用成本越高的任务，TTL 应越长。
+                </template>
+              </el-alert>
+              
+              <el-table :data="taskTTLList" stripe>
+                <el-table-column prop="name" label="任务类型" width="150" />
+                <el-table-column prop="description" label="说明" min-width="200" />
+                <el-table-column label="TTL (小时)" width="180">
+                  <template #default="{ row }">
+                    <el-input-number 
+                      v-model="row.ttl" 
+                      :min="0" 
+                      :max="2160" 
+                      :step="24"
+                      size="small"
+                      style="width: 120px"
+                    />
+                  </template>
+                </el-table-column>
+                <el-table-column label="缓存策略" width="120">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.ttl === 0" type="danger" size="small">不缓存</el-tag>
+                    <el-tag v-else-if="row.ttl <= 24" type="warning" size="small">短期</el-tag>
+                    <el-tag v-else-if="row.ttl <= 168" type="primary" size="small">中期</el-tag>
+                    <el-tag v-else type="success" size="small">长期</el-tag>
+                  </template>
+                </el-table-column>
+              </el-table>
+              
+              <div style="margin-top: 16px">
+                <el-button type="primary" @click="saveTaskTTLConfig" :loading="saving">
+                  <el-icon><Check /></el-icon>
+                  保存配置
+                </el-button>
+                <el-button @click="resetTaskTTLConfig">
+                  <el-icon><Refresh /></el-icon>
+                  恢复默认
+                </el-button>
+              </div>
+              
+              <el-divider />
+              
+              <h4>TTL 设置规则</h4>
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="不缓存 (0h)">创意写作、个性化内容</el-descriptions-item>
+                <el-descriptions-item label="短期 (1-24h)">日常对话、实时信息、个性化咨询</el-descriptions-item>
+                <el-descriptions-item label="中期 (168h)">代码生成、工具模板、事实查询</el-descriptions-item>
+                <el-descriptions-item label="长期 (360-720h)">数学计算、多模态理解、专业知识</el-descriptions-item>
+              </el-descriptions>
+            </el-tab-pane>
+
             <el-tab-pane label="高级功能" name="advanced">
               <el-row :gutter="24">
                 <!-- Redis 状态 -->
@@ -439,6 +493,7 @@ interface HotCache {
 }
 
 const loading = ref(false)
+const saving = ref(false)
 const activeTab = ref('general')
 const ruleDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
@@ -492,6 +547,38 @@ const dedupConfig = reactive({
   maxPending: 100,
   requestTimeout: 30
 })
+
+// 任务类型 TTL 配置
+interface TaskTTLItem {
+  key: string
+  name: string
+  description: string
+  ttl: number
+}
+
+const taskTTLList = ref<TaskTTLItem[]>([
+  { key: 'fact', name: '事实查询', description: '公共事实、政策、常识等，可能定期更新', ttl: 24 },
+  { key: 'code', name: '代码生成', description: '通用代码片段，更新频率低', ttl: 168 },
+  { key: 'math', name: '数学计算', description: '数学题结果，几乎不会变化', ttl: 720 },
+  { key: 'chat', name: '日常对话', description: '个性化对话，上下文相关性强', ttl: 1 },
+  { key: 'creative', name: '创意写作', description: '个性化创意内容，默认不缓存', ttl: 0 },
+  { key: 'reasoning', name: '逻辑推理', description: '推理结果，稳定性高', ttl: 168 },
+  { key: 'translate', name: '翻译', description: '标准翻译结果，仅术语更新时变化', ttl: 360 },
+  { key: 'long_text', name: '长文本处理', description: '文档摘要、PDF解析等，同一文本结果固定', ttl: 360 },
+  { key: 'other', name: '其他类型', description: '未分类任务', ttl: 24 }
+])
+
+const defaultTaskTTL = {
+  fact: 24,
+  code: 168,
+  math: 720,
+  chat: 1,
+  creative: 0,
+  reasoning: 168,
+  translate: 360,
+  long_text: 360,
+  other: 24
+}
 
 const cacheRules = ref<CacheRule[]>([])
 
@@ -875,11 +962,53 @@ async function saveDedupConfig() {
   }
 }
 
+async function loadTaskTTLConfig() {
+  try {
+    const data: any = await request.get('/api/admin/router/ttl-config')
+    if (data?.data?.task_type_defaults) {
+      const defaults = data.data.task_type_defaults
+      taskTTLList.value = taskTTLList.value.map(item => ({
+        ...item,
+        ttl: defaults[item.key] ?? defaultTaskTTL[item.key as keyof typeof defaultTaskTTL] ?? 24
+      }))
+    }
+  } catch (e) {
+    console.warn('Failed to load task TTL config:', e)
+  }
+}
+
+async function saveTaskTTLConfig() {
+  saving.value = true
+  try {
+    const taskTypeDefaults: Record<string, number> = {}
+    for (const item of taskTTLList.value) {
+      taskTypeDefaults[item.key] = item.ttl
+    }
+    await request.put('/api/admin/router/ttl-config', {
+      task_type_defaults: taskTypeDefaults
+    })
+    handleSuccess('任务类型 TTL 配置已保存')
+  } catch (e) {
+    handleApiError(e, '保存失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+function resetTaskTTLConfig() {
+  taskTTLList.value = taskTTLList.value.map(item => ({
+    ...item,
+    ttl: defaultTaskTTL[item.key as keyof typeof defaultTaskTTL] ?? 24
+  }))
+  handleSuccess('已恢复默认配置')
+}
+
 onMounted(() => {
   loadCacheStats()
   loadCacheConfig()
   loadCacheHealth()
   loadCacheRules()
+  loadTaskTTLConfig()
 })
 
 onUnmounted(() => {
