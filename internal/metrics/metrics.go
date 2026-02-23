@@ -23,8 +23,8 @@ type Metrics struct {
 	RequestsFailed  *prometheus.CounterVec
 
 	// Response time metrics
-	ResponseTime     *prometheus.HistogramVec
-	ResponseTimeP99  *prometheus.GaugeVec
+	ResponseTime    *prometheus.HistogramVec
+	ResponseTimeP99 *prometheus.GaugeVec
 
 	// Token consumption metrics
 	TokensTotal       *prometheus.CounterVec
@@ -49,6 +49,27 @@ type Metrics struct {
 
 	// Active connections
 	ActiveConnections *prometheus.GaugeVec
+
+	// Multimodal metrics
+	MultimodalRequests *prometheus.CounterVec
+	ImageUploads       *prometheus.CounterVec
+	FileUploads        *prometheus.CounterVec
+
+	// Web search metrics
+	WebSearchRequests *prometheus.CounterVec
+	WebSearchLatency  *prometheus.HistogramVec
+	WebSearchSuccess  *prometheus.CounterVec
+	WebSearchFailures *prometheus.CounterVec
+
+	// Deep thinking metrics
+	DeepThinkRequests *prometheus.CounterVec
+	DeepThinkLatency  *prometheus.HistogramVec
+	ReasoningLength   *prometheus.HistogramVec
+
+	// Routing metrics
+	ModelSwitches    *prometheus.CounterVec
+	CascadeFallbacks *prometheus.CounterVec
+	RouteFailures    *prometheus.CounterVec
 }
 
 // Default buckets for response time histogram (in seconds)
@@ -267,6 +288,134 @@ func NewMetrics() *Metrics {
 			},
 			[]string{"endpoint"},
 		),
+
+		// Multimodal metrics
+		MultimodalRequests: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "multimodal",
+				Name:      "requests_total",
+				Help:      "Total number of multimodal requests",
+			},
+			[]string{"provider", "model"},
+		),
+		ImageUploads: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "multimodal",
+				Name:      "image_uploads_total",
+				Help:      "Total number of image uploads",
+			},
+			[]string{"provider"},
+		),
+		FileUploads: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "multimodal",
+				Name:      "file_uploads_total",
+				Help:      "Total number of file uploads",
+			},
+			[]string{"provider", "file_type"},
+		),
+
+		// Web search metrics
+		WebSearchRequests: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "websearch",
+				Name:      "requests_total",
+				Help:      "Total number of web search requests",
+			},
+			[]string{"provider"},
+		),
+		WebSearchLatency: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: Namespace,
+				Subsystem: "websearch",
+				Name:      "latency_seconds",
+				Help:      "Web search latency in seconds",
+				Buckets:   []float64{0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
+			},
+			[]string{"provider"},
+		),
+		WebSearchSuccess: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "websearch",
+				Name:      "success_total",
+				Help:      "Total number of successful web searches",
+			},
+			[]string{"provider"},
+		),
+		WebSearchFailures: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "websearch",
+				Name:      "failures_total",
+				Help:      "Total number of failed web searches",
+			},
+			[]string{"provider", "error_type"},
+		),
+
+		// Deep thinking metrics
+		DeepThinkRequests: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "deepthink",
+				Name:      "requests_total",
+				Help:      "Total number of deep thinking requests",
+			},
+			[]string{"provider", "model"},
+		),
+		DeepThinkLatency: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: Namespace,
+				Subsystem: "deepthink",
+				Name:      "latency_seconds",
+				Help:      "Deep thinking latency in seconds",
+				Buckets:   []float64{1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0},
+			},
+			[]string{"provider", "model"},
+		),
+		ReasoningLength: promauto.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: Namespace,
+				Subsystem: "deepthink",
+				Name:      "reasoning_length_chars",
+				Help:      "Length of reasoning content in characters",
+				Buckets:   []float64{100, 500, 1000, 2500, 5000, 10000, 25000},
+			},
+			[]string{"provider", "model"},
+		),
+
+		// Routing metrics
+		ModelSwitches: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "routing",
+				Name:      "model_switches_total",
+				Help:      "Total number of model switches",
+			},
+			[]string{"from_model", "to_model", "reason"},
+		),
+		CascadeFallbacks: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "routing",
+				Name:      "cascade_fallbacks_total",
+				Help:      "Total number of cascade fallbacks",
+			},
+			[]string{"from_tier", "to_tier"},
+		),
+		RouteFailures: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: "routing",
+				Name:      "failures_total",
+				Help:      "Total number of routing failures",
+			},
+			[]string{"reason"},
+		),
 	}
 
 	return m
@@ -328,6 +477,59 @@ func (m *Metrics) RecordCacheMiss(cacheType string) {
 // SetCacheHitRate sets the cache hit rate
 func (m *Metrics) SetCacheHitRate(cacheType string, rate float64) {
 	m.CacheHitRate.WithLabelValues(cacheType).Set(rate)
+}
+
+// RecordMultimodalRequest records a multimodal request
+func (m *Metrics) RecordMultimodalRequest(provider, model string) {
+	m.MultimodalRequests.WithLabelValues(provider, model).Inc()
+}
+
+// RecordImageUpload records an image upload
+func (m *Metrics) RecordImageUpload(provider string) {
+	m.ImageUploads.WithLabelValues(provider).Inc()
+}
+
+// RecordFileUpload records a file upload
+func (m *Metrics) RecordFileUpload(provider, fileType string) {
+	m.FileUploads.WithLabelValues(provider, fileType).Inc()
+}
+
+// RecordWebSearch records a web search request
+func (m *Metrics) RecordWebSearch(provider string, duration time.Duration, success bool, err error) {
+	m.WebSearchRequests.WithLabelValues(provider).Inc()
+	m.WebSearchLatency.WithLabelValues(provider).Observe(duration.Seconds())
+
+	if success {
+		m.WebSearchSuccess.WithLabelValues(provider).Inc()
+	} else {
+		errorType := "unknown"
+		if err != nil {
+			errorType = categorizeError(err)
+		}
+		m.WebSearchFailures.WithLabelValues(provider, errorType).Inc()
+	}
+}
+
+// RecordDeepThink records a deep thinking request
+func (m *Metrics) RecordDeepThink(provider, model string, duration time.Duration, reasoningLength int) {
+	m.DeepThinkRequests.WithLabelValues(provider, model).Inc()
+	m.DeepThinkLatency.WithLabelValues(provider, model).Observe(duration.Seconds())
+	m.ReasoningLength.WithLabelValues(provider, model).Observe(float64(reasoningLength))
+}
+
+// RecordModelSwitch records a model switch event
+func (m *Metrics) RecordModelSwitch(fromModel, toModel, reason string) {
+	m.ModelSwitches.WithLabelValues(fromModel, toModel, reason).Inc()
+}
+
+// RecordCascadeFallback records a cascade fallback event
+func (m *Metrics) RecordCascadeFallback(fromTier, toTier string) {
+	m.CascadeFallbacks.WithLabelValues(fromTier, toTier).Inc()
+}
+
+// RecordRouteFailure records a routing failure
+func (m *Metrics) RecordRouteFailure(reason string) {
+	m.RouteFailures.WithLabelValues(reason).Inc()
 }
 
 // RecordRateLimitExceeded records a rate limit exceeded event
