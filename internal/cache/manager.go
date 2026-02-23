@@ -17,19 +17,22 @@ type Manager struct {
 	ResponseCache *ResponseCache
 	UsageCache    *UsageCache
 
+	// Semantic cache (optional)
+	semanticCache *SemanticCache
+
 	// Statistics
 	stats *StatsCollector
 }
 
 // ManagerConfig holds configuration for the cache manager
 type ManagerConfig struct {
-	Redis           RedisConfig
-	ContextConfig   ContextCacheConfig
-	RequestConfig   RequestCacheConfig
-	RouteConfig     RouteCacheConfig
-	UsageConfig     UsageCacheConfig
-	ResponseTTL     time.Duration
-	UseRedis        bool
+	Redis         RedisConfig
+	ContextConfig ContextCacheConfig
+	RequestConfig RequestCacheConfig
+	RouteConfig   RouteCacheConfig
+	UsageConfig   UsageCacheConfig
+	ResponseTTL   time.Duration
+	UseRedis      bool
 }
 
 // DefaultManagerConfig returns default configuration
@@ -40,12 +43,12 @@ func DefaultManagerConfig() ManagerConfig {
 			Port: 6379,
 			DB:   0,
 		},
-		ContextConfig:  DefaultContextCacheConfig(),
-		RequestConfig:  DefaultRequestCacheConfig(),
-		RouteConfig:    DefaultRouteCacheConfig(),
-		UsageConfig:    DefaultUsageCacheConfig(),
-		ResponseTTL:    30 * time.Minute,
-		UseRedis:       false,
+		ContextConfig: DefaultContextCacheConfig(),
+		RequestConfig: DefaultRequestCacheConfig(),
+		RouteConfig:   DefaultRouteCacheConfig(),
+		UsageConfig:   DefaultUsageCacheConfig(),
+		ResponseTTL:   30 * time.Minute,
+		UseRedis:      false,
 	}
 }
 
@@ -141,6 +144,16 @@ func (m *Manager) GetRouteCacheStats() StatsSnapshot {
 // GetUsageCacheStats returns usage cache statistics
 func (m *Manager) GetUsageCacheStats() StatsSnapshot {
 	return m.UsageCache.GetStats()
+}
+
+// GetSemanticCache returns the semantic cache
+func (m *Manager) GetSemanticCache() *SemanticCache {
+	return m.semanticCache
+}
+
+// SetSemanticCache sets the semantic cache
+func (m *Manager) SetSemanticCache(sc *SemanticCache) {
+	m.semanticCache = sc
 }
 
 // GetTokenSavings returns total tokens saved across all caches

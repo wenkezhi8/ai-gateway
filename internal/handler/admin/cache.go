@@ -277,3 +277,103 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 
 	c.Data(http.StatusOK, "application/json", summary)
 }
+
+// GetCacheQualityConfig returns cache quality configuration
+// GET /api/admin/cache/quality-config
+func (h *CacheHandler) GetCacheQualityConfig(c *gin.Context) {
+	// 获取语义缓存的质量配置
+	semanticCache := h.manager.GetSemanticCache()
+	if semanticCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"enabled":           false,
+				"min_quality_score": 0,
+				"message":           "Semantic cache not available",
+			},
+		})
+		return
+	}
+
+	config := semanticCache.GetQualityConfig()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"enabled":           true,
+			"min_quality_score": config["min_quality_score"],
+			"checker_type":      config["checker_type"],
+		},
+	})
+}
+
+// UpdateCacheQualityConfigRequest represents quality config update request
+type UpdateCacheQualityConfigRequest struct {
+	MinQualityScore *float64 `json:"min_quality_score"`
+}
+
+// UpdateCacheQualityConfig updates cache quality configuration
+// PUT /api/admin/cache/quality-config
+func (h *CacheHandler) UpdateCacheQualityConfig(c *gin.Context) {
+	var req UpdateCacheQualityConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	semanticCache := h.manager.GetSemanticCache()
+	if semanticCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_available",
+				"message": "Semantic cache not available",
+			},
+		})
+		return
+	}
+
+	if req.MinQualityScore != nil {
+		semanticCache.SetMinQualityScore(*req.MinQualityScore)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cache quality configuration updated",
+		"data": gin.H{
+			"min_quality_score": *req.MinQualityScore,
+		},
+	})
+}
+
+// InvalidateLowQualityCache removes low quality cache entries
+// POST /api/admin/cache/invalidate-low-quality
+func (h *CacheHandler) InvalidateLowQualityCache(c *gin.Context) {
+	semanticCache := h.manager.GetSemanticCache()
+	if semanticCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"invalidated": 0,
+				"message":     "Semantic cache not available",
+			},
+		})
+		return
+	}
+
+	count := semanticCache.InvalidateLowQuality()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"invalidated": count,
+			"message":     "Low quality cache entries invalidated",
+		},
+	})
+}

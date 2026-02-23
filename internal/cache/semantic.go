@@ -25,27 +25,139 @@ type SemanticCacheConfig struct {
 
 // SemanticEntry represents a cached semantic entry
 type SemanticEntry struct {
-	ID          string                 `json:"id"`
-	Query       string                 `json:"query"`
-	QueryVector []float64              `json:"query_vector"`
-	Response    json.RawMessage        `json:"response"`
-	Model       string                 `json:"model"`
-	Provider    string                 `json:"provider"`
-	TaskType    string                 `json:"task_type"`
-	CreatedAt   time.Time              `json:"created_at"`
-	ExpiresAt   time.Time              `json:"expires_at"`
-	HitCount    int                    `json:"hit_count"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID           string                 `json:"id"`
+	Query        string                 `json:"query"`
+	QueryVector  []float64              `json:"query_vector"`
+	Response     json.RawMessage        `json:"response"`
+	Model        string                 `json:"model"`
+	Provider     string                 `json:"provider"`
+	TaskType     string                 `json:"task_type"`
+	CreatedAt    time.Time              `json:"created_at"`
+	ExpiresAt    time.Time              `json:"expires_at"`
+	HitCount     int                    `json:"hit_count"`
+	Metadata     map[string]interface{} `json:"metadata"`
+	QualityScore float64                `json:"quality_score"` // 质量评分 0-100
+	Validated    bool                   `json:"validated"`     // 是否已通过质量校验
+}
+
+// QualityChecker defines the interface for cache quality validation
+type QualityChecker interface {
+	Validate(entry *SemanticEntry) (bool, float64, string)
+	// 返回: 是否通过, 质量评分, 原因
+}
+
+// DefaultQualityChecker provides basic quality validation
+type DefaultQualityChecker struct {
+	minResponseLength int
+	maxResponseLength int
+}
+
+// NewDefaultQualityChecker creates a new quality checker
+func NewDefaultQualityChecker() *DefaultQualityChecker {
+	return &DefaultQualityChecker{
+		minResponseLength: 10,
+		maxResponseLength: 100000,
+	}
+}
+
+// Validate checks if a cache entry meets quality standards
+func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, string) {
+	// 1. 响应完整性检查
+	if len(entry.Response) == 0 {
+		return false, 0, "empty response"
+	}
+
+	// 2. 响应长度检查
+	respLen := len(entry.Response)
+	if respLen < qc.minResponseLength {
+		return false, 30, "response too short"
+	}
+	if respLen > qc.maxResponseLength {
+		return false, 50, "response too long"
+	}
+
+	// 3. JSON 有效性检查
+	var jsonObj interface{}
+	if err := json.Unmarshal(entry.Response, &jsonObj); err != nil {
+		return false, 40, "invalid JSON response"
+	}
+
+	// 4. 基础质量评分
+	baseScore := 70.0
+
+	// 响应长度加分（适中长度更好）
+	if respLen > 100 && respLen < 10000 {
+		baseScore += 10
+	}
+
+	// 模型加分（已知高质量模型）
+	highQualityModels := map[string]bool{
+		"gpt-4": true, "gpt-4o": true, "gpt-4-turbo": true,
+		"claude-3-5-sonnet": true, "claude-3-opus": true,
+		"deepseek-chat": true, "deepseek-coder": true,
+	}
+	if highQualityModels[entry.Model] {
+		baseScore += 10
+	}
+
+	// 任务类型加分
+	taskTypeBonus := map[string]float64{
+		"math": 10, // 数学结果确定性高
+		"fact": 5,  // 事实查询
+		"code": 5,  // 代码生成
+	}
+	if bonus, ok := taskTypeBonus[entry.TaskType]; ok {
+		baseScore += bonus
+	}
+
+	// 确保分数在 0-100 之间
+	if baseScore > 100 {
+		baseScore = 100
+	}
+
+	return true, baseScore, "passed validation"
+}
+
+// FactFreshnessChecker checks if fact-based entries are still fresh
+type FactFreshnessChecker struct {
+	maxAge time.Duration
+}
+
+// NewFactFreshnessChecker creates a checker for fact-based content
+func NewFactFreshnessChecker() *FactFreshnessChecker {
+	return &FactFreshnessChecker{
+		maxAge: 7 * 24 * time.Hour, // 7 天
+	}
+}
+
+// Validate checks fact freshness
+func (fc *FactFreshnessChecker) Validate(entry *SemanticEntry) (bool, float64, string) {
+	if entry.TaskType != "fact" {
+		return true, 100, "not a fact query"
+	}
+
+	age := time.Since(entry.CreatedAt)
+	if age > fc.maxAge {
+		return false, 50, "fact entry expired"
+	}
+
+	// 根据新鲜度计算评分
+	freshnessRatio := 1 - (float64(age) / float64(fc.maxAge))
+	score := 60 + freshnessRatio*40
+
+	return true, score, "fact entry is fresh"
 }
 
 // SemanticCache provides semantic caching with vector similarity
 type SemanticCache struct {
-	mu      sync.RWMutex
-	config  SemanticCacheConfig
-	entries map[string]*SemanticEntry // id -> entry
-	index   []*SemanticEntry          // for similarity search
-	stats   SemanticCacheStats
-	backend Cache // 可选：Redis 缓存后端
+	mu              sync.RWMutex
+	config          SemanticCacheConfig
+	entries         map[string]*SemanticEntry // id -> entry
+	index           []*SemanticEntry          // for similarity search
+	stats           SemanticCacheStats
+	backend         Cache          // 可选：Redis 缓存后端
+	qualityChecker  QualityChecker // 质量校验器
+	minQualityScore float64        // 最低质量分阈值
 }
 
 // SemanticCacheStats tracks semantic cache statistics
@@ -80,10 +192,12 @@ func DefaultSemanticCacheConfig() SemanticCacheConfig {
 // backend: 可选的 Redis 缓存后端，用于持久化
 func NewSemanticCache(config SemanticCacheConfig, backend Cache) *SemanticCache {
 	cache := &SemanticCache{
-		config:  config,
-		entries: make(map[string]*SemanticEntry),
-		index:   make([]*SemanticEntry, 0),
-		backend: backend,
+		config:          config,
+		entries:         make(map[string]*SemanticEntry),
+		index:           make([]*SemanticEntry, 0),
+		backend:         backend,
+		qualityChecker:  NewDefaultQualityChecker(),
+		minQualityScore: 60.0, // 默认最低质量分
 	}
 
 	// 如果有后端，从后端加载缓存
@@ -153,17 +267,10 @@ func (c *SemanticCache) Get(ctx context.Context, query string, queryVector []flo
 }
 
 // Set stores a response in the semantic cache
+// 改动点: 添加质量校验，只有通过校验的响应才会被缓存
 func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []float64, response json.RawMessage, model, provider, taskType string, ttl time.Duration) string {
 	if !c.config.Enabled {
 		return ""
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Check if we need to evict
-	if len(c.entries) >= c.config.MaxEntries {
-		c.evictOldest()
 	}
 
 	id := generateSemanticID(query, model)
@@ -173,17 +280,55 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 	}
 
 	entry := &SemanticEntry{
-		ID:          id,
-		Query:       query,
-		QueryVector: queryVector,
-		Response:    response,
-		Model:       model,
-		Provider:    provider,
-		TaskType:    taskType,
-		CreatedAt:   now,
-		ExpiresAt:   now.Add(ttl),
-		HitCount:    0,
-		Metadata:    make(map[string]interface{}),
+		ID:           id,
+		Query:        query,
+		QueryVector:  queryVector,
+		Response:     response,
+		Model:        model,
+		Provider:     provider,
+		TaskType:     taskType,
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(ttl),
+		HitCount:     0,
+		Metadata:     make(map[string]interface{}),
+		QualityScore: 0,
+		Validated:    false,
+	}
+
+	// 质量校验
+	if c.qualityChecker != nil {
+		passed, score, reason := c.qualityChecker.Validate(entry)
+		entry.QualityScore = score
+		entry.Validated = passed
+
+		if !passed {
+			semanticLogger.WithFields(logrus.Fields{
+				"query_id": id,
+				"model":    model,
+				"score":    score,
+				"reason":   reason,
+			}).Warn("Cache entry rejected by quality checker")
+			return "" // 不缓存低质量响应
+		}
+
+		// 低于最低质量分阈值也不缓存
+		if score < c.minQualityScore {
+			semanticLogger.WithFields(logrus.Fields{
+				"query_id":          id,
+				"model":             model,
+				"score":             score,
+				"min_quality_score": c.minQualityScore,
+			}).Debug("Cache entry quality score below threshold")
+			return ""
+		}
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if we need to evict
+	if len(c.entries) >= c.config.MaxEntries {
+		c.evictOldest()
 	}
 
 	c.entries[id] = entry
@@ -200,11 +345,12 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 	}
 
 	semanticLogger.WithFields(logrus.Fields{
-		"query_id":  id,
-		"model":     model,
-		"task_type": taskType,
-		"ttl":       ttl,
-		"backend":   c.backend != nil,
+		"query_id":      id,
+		"model":         model,
+		"task_type":     taskType,
+		"ttl":           ttl,
+		"quality_score": entry.QualityScore,
+		"backend":       c.backend != nil,
 	}).Debug("Semantic cache entry stored")
 
 	return id
@@ -263,6 +409,56 @@ func (c *SemanticCache) loadFromBackend() {
 // GetBackend returns the backend cache
 func (c *SemanticCache) GetBackend() Cache {
 	return c.backend
+}
+
+// SetQualityChecker sets the quality checker
+func (c *SemanticCache) SetQualityChecker(checker QualityChecker) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.qualityChecker = checker
+}
+
+// SetMinQualityScore sets the minimum quality score threshold
+func (c *SemanticCache) SetMinQualityScore(score float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.minQualityScore = score
+}
+
+// GetQualityConfig returns current quality configuration
+func (c *SemanticCache) GetQualityConfig() map[string]interface{} {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return map[string]interface{}{
+		"min_quality_score": c.minQualityScore,
+		"checker_type":      "default",
+	}
+}
+
+// InvalidateLowQuality removes entries below the quality threshold
+func (c *SemanticCache) InvalidateLowQuality() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	count := 0
+	for id, entry := range c.entries {
+		if entry.QualityScore < c.minQualityScore {
+			delete(c.entries, id)
+			count++
+		}
+	}
+
+	// Rebuild index
+	c.index = make([]*SemanticEntry, 0, len(c.entries))
+	for _, entry := range c.entries {
+		c.index = append(c.index, entry)
+	}
+
+	if count > 0 {
+		semanticLogger.WithField("count", count).Info("Invalidated low quality cache entries")
+	}
+
+	return count
 }
 
 // Cleanup removes expired entries
