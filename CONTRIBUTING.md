@@ -15,7 +15,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-org/ai-gateway.git
+git clone https://github.com/wenkezhi8/ai-gateway.git
 cd ai-gateway
 
 # 初始化项目

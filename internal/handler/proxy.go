@@ -159,9 +159,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	contextStr := ""
 	for _, msg := range req.Messages {
 		if msg.Role == "user" {
-			prompt = msg.Content
+			prompt = getTextContent(msg.Content)
 		} else if msg.Role == "system" {
-			contextStr = msg.Content
+			contextStr = getTextContent(msg.Content)
 		}
 	}
 
@@ -906,7 +906,7 @@ func (h *ProxyHandler) Completions(c *gin.Context) {
 
 	var content string
 	if len(resp.Choices) > 0 {
-		content = resp.Choices[0].Message.Content
+		content = getTextContent(resp.Choices[0].Message.Content)
 	}
 
 	Success(c, CompletionResponse{
@@ -1232,4 +1232,23 @@ func getDefaultTemperature(model string) float64 {
 
 	// Default temperature
 	return 0.7
+}
+
+// getTextContent extracts text from Content which can be string or []interface{} (multimodal)
+func getTextContent(content interface{}) string {
+	switch v := content.(type) {
+	case string:
+		return v
+	case []interface{}:
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				if m["type"] == "text" {
+					if text, ok := m["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
 }

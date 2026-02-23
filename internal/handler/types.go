@@ -24,11 +24,11 @@ type ChatCompletionRequest struct {
 
 // ChatMessage represents a single message in the conversation
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	Name       string     `json:"name,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content"` // string 或 []ContentPart (多模态)
+	Name       string      `json:"name,omitempty"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
 }
 
 // Tool represents a tool definition
@@ -182,11 +182,25 @@ func (r *ChatCompletionRequest) Validate() error {
 		if msg.Role == "" {
 			return &ValidationError{Field: "messages[" + string(rune(i)) + "].role", Message: "role is required"}
 		}
-		if msg.Content == "" && msg.Role != "system" {
-			return &ValidationError{Field: "messages[" + string(rune(i)) + "].content", Message: "content is required"}
+		if msg.Role != "system" {
+			if !hasContent(msg.Content) {
+				return &ValidationError{Field: "messages[" + string(rune(i)) + "].content", Message: "content is required"}
+			}
 		}
 	}
 	return nil
+}
+
+// hasContent checks if content is non-empty (supports string and []ContentPart)
+func hasContent(content interface{}) bool {
+	switch v := content.(type) {
+	case string:
+		return v != ""
+	case []interface{}:
+		return len(v) > 0
+	default:
+		return content != nil
+	}
 }
 
 // ValidationError represents a validation error

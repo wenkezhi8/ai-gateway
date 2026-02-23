@@ -115,10 +115,10 @@ type ChatRequest struct {
 
 // ChatMessage represents a message in Volcengine chat
 type ChatMessage struct {
-	Role      string     `json:"role"`
-	Content   string     `json:"content,omitempty"`
-	Name      string     `json:"name,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role      string      `json:"role"`
+	Content   interface{} `json:"content,omitempty"` // 支持 string 或 []interface{} (多模态)
+	Name      string      `json:"name,omitempty"`
+	ToolCalls []ToolCall  `json:"tool_calls,omitempty"`
 }
 
 // Tool represents a tool definition

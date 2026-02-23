@@ -632,7 +632,7 @@ const getPriorityText = (priority: string) => {
 
 const handleTypeChange = async (type: CacheType) => {
   try {
-    await request.put('/api/admin/cache/config', {
+    await request.put('/admin/cache/config', {
       [type.id]: { enabled: type.enabled }
     })
     ElMessage.success(`${type.name} 已${type.enabled ? '启用' : '禁用'}`)
@@ -645,7 +645,7 @@ const handleTypeChange = async (type: CacheType) => {
 const clearCacheType = async (type: CacheType) => {
   try {
     await ElMessageBox.confirm(`确定清空 ${type.name} 的所有缓存吗？`, '警告', { type: 'warning' })
-    await request.delete(`/api/admin/cache?type=${type.id}`)
+    await request.delete(`/admin/cache?type=${type.id}`)
     type.entries = 0
     type.size = '0 MB'
     type.hitRate = 0
@@ -660,11 +660,11 @@ const clearCacheType = async (type: CacheType) => {
 const viewCacheDetail = (type: CacheType) => {
   cacheDetail.value = {
     ...type,
-    memoryUsage: Math.random() * 60 + 20,
-    totalHits: Math.floor(Math.random() * 100000),
-    totalMisses: Math.floor(Math.random() * 20000),
-    avgResponse: `${Math.floor(Math.random() * 20 + 5)}ms`,
-    lastCleared: '2 hours ago'
+    memoryUsage: type.memoryUsage || 0,
+    totalHits: type.totalHits || 0,
+    totalMisses: type.totalMisses || 0,
+    avgResponse: type.avgResponse || '0ms',
+    lastCleared: type.lastCleared || '-'
   }
   detailDialogVisible.value = true
 
@@ -681,7 +681,8 @@ const initDetailChart = () => {
   }
   detailChart = echarts.init(detailChartRef.value)
   const hours = Array.from({ length: 24 }, (_, i) => `${23 - i}h ago`).reverse()
-  const data = Array.from({ length: 24 }, () => Math.floor(Math.random() * 30 + 60))
+  const hitRate = cacheDetail.value?.hitRate || 0
+  const data = Array.from({ length: 24 }, () => hitRate)
 
   detailChart.setOption({
     tooltip: {
@@ -773,7 +774,7 @@ const editRule = (rule: CacheRule) => {
 const deleteRule = async (rule: CacheRule) => {
   try {
     await ElMessageBox.confirm(`确定删除规则 "${rule.pattern}" 吗？`, '警告', { type: 'warning' })
-    await request.delete(`/api/admin/cache/rules/${rule.id}`)
+    await request.delete(`/admin/cache/rules/${rule.id}`)
     handleSuccess('规则已删除')
     loadCacheRules()
   } catch (e: any) {
@@ -785,7 +786,7 @@ const deleteRule = async (rule: CacheRule) => {
 
 const handleRuleChange = async (rule: CacheRule) => {
   try {
-    await request.put(`/api/admin/cache/rules/${rule.id}`, {
+    await request.put(`/admin/cache/rules/${rule.id}`, {
       enabled: rule.enabled
     })
     handleSuccess(`规则已${rule.enabled ? '启用' : '禁用'}`)
@@ -808,7 +809,7 @@ const submitRule = async () => {
       }
 
       if (isEditRule.value) {
-        await request.put(`/api/admin/cache/rules/${ruleForm.id}`, {
+        await request.put(`/admin/cache/rules/${ruleForm.id}`, {
           pattern: ruleForm.pattern,
           model_filter: ruleForm.modelFilter,
           ttl: ttl,
@@ -817,7 +818,7 @@ const submitRule = async () => {
         })
         handleSuccess('规则已更新')
       } else {
-        await request.post('/api/admin/cache/rules', {
+        await request.post('/admin/cache/rules', {
           pattern: ruleForm.pattern,
           model_filter: ruleForm.modelFilter,
           ttl: ttl,
@@ -836,7 +837,7 @@ const submitRule = async () => {
 
 async function loadCacheRules() {
   try {
-    const data: any = await request.get('/api/admin/cache/rules')
+    const data: any = await request.get('/admin/cache/rules')
     if (data?.data) {
       cacheRules.value = data.data.map((r: any) => ({
         id: r.id,
@@ -855,7 +856,7 @@ async function loadCacheRules() {
 async function loadCacheStats() {
   loading.value = true
   try {
-    const data: any = await request.get('/api/admin/cache/stats')
+    const data: any = await request.get('/admin/cache/stats')
     if (data) {
       const stats = data.data || data
       
@@ -905,7 +906,7 @@ async function loadCacheStats() {
 
 async function loadCacheConfig() {
   try {
-    const data: any = await request.get('/api/admin/cache/config')
+    const data: any = await request.get('/admin/cache/config')
     if (data) {
       const cfg = data.data || data
       cacheConfig.enabled = cfg.enabled ?? true
@@ -922,7 +923,7 @@ async function loadCacheConfig() {
 
 async function loadCacheHealth() {
   try {
-    const data: any = await request.get('/api/admin/cache/health')
+    const data: any = await request.get('/admin/cache/health')
     if (data) {
       const health = data.data || data
       redisHealth.status = health.status || 'unknown'
@@ -938,7 +939,7 @@ async function loadCacheHealth() {
 
 async function runHealthCheck() {
   try {
-    await request.get('/api/admin/cache/health')
+    await request.get('/admin/cache/health')
     await loadCacheHealth()
     await loadCacheStats()
     handleSuccess('健康检查完成')
@@ -949,7 +950,7 @@ async function runHealthCheck() {
 
 async function saveDedupConfig() {
   try {
-    await request.put('/api/admin/cache/config', {
+    await request.put('/admin/cache/config', {
       dedup: {
         enabled: dedupConfig.enabled,
         max_pending: dedupConfig.maxPending,
@@ -964,7 +965,7 @@ async function saveDedupConfig() {
 
 async function loadTaskTTLConfig() {
   try {
-    const data: any = await request.get('/api/admin/router/ttl-config')
+    const data: any = await request.get('/admin/router/ttl-config')
     if (data?.data?.task_type_defaults) {
       const defaults = data.data.task_type_defaults
       taskTTLList.value = taskTTLList.value.map(item => ({
@@ -984,7 +985,7 @@ async function saveTaskTTLConfig() {
     for (const item of taskTTLList.value) {
       taskTypeDefaults[item.key] = item.ttl
     }
-    await request.put('/api/admin/router/ttl-config', {
+    await request.put('/admin/router/ttl-config', {
       task_type_defaults: taskTypeDefaults
     })
     handleSuccess('任务类型 TTL 配置已保存')

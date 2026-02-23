@@ -62,7 +62,7 @@
 
 ```bash
 # 下载项目
-git clone https://github.com/your-org/ai-gateway.git
+git clone https://github.com/wenkezhi8/ai-gateway.git
 
 # 进入项目目录
 cd ai-gateway

@@ -24,7 +24,7 @@ A unified API gateway for multiple AI service providers with intelligent rate li
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-org/ai-gateway.git
+   git clone https://github.com/wenkezhi8/ai-gateway.git
    cd ai-gateway
    ```
 

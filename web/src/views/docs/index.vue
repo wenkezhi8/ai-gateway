@@ -31,7 +31,7 @@
               <button @click="copyCode('docker')"><el-icon><CopyDocument /></el-icon> 复制</button>
             </div>
             <pre><code id="code-docker"># 克隆项目
-git clone https://github.com/your-org/ai-gateway.git
+git clone https://github.com/wenkezhi8/ai-gateway.git
 cd ai-gateway
 
 # 使用 Docker Compose 启动

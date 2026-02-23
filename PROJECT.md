@@ -457,7 +457,7 @@ type RoutingDecision struct {
 **后端开发环境**：
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-org/ai-gateway.git
+git clone https://github.com/wenkezhi8/ai-gateway.git
 cd ai-gateway
 
 # 2. 启动依赖服务（Redis，可选）

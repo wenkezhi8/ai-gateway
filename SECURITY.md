@@ -14,7 +14,7 @@
 如果您发现安全漏洞，请通过以下方式报告：
 
 1. **Email**: security@your-domain.com
-2. **GitHub Security Advisory**: 使用 GitHub 的 [Private Security Advisory](https://github.com/your-org/ai-gateway/security/advisories) 功能
+2. **GitHub Security Advisory**: 使用 GitHub 的 [Private Security Advisory](https://github.com/wenkezhi8/ai-gateway/security/advisories) 功能
 
 我们承诺：
 - 在 48 小时内确认收到报告

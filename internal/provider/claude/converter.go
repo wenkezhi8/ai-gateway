@@ -49,12 +49,7 @@ func ConvertRequest(req *provider.ChatRequest) *MessagesRequest {
 			continue
 		}
 
-		content := []ContentBlock{
-			{
-				Type: "text",
-				Text: m.Content,
-			},
-		}
+		content := convertContentToBlocks(m.Content)
 
 		messages = append(messages, Message{
 			Role:    convertRole(m.Role),
@@ -186,6 +181,63 @@ func ConvertStreamEvent(event *StreamEvent, model string) *provider.StreamChunk 
 		return &provider.StreamChunk{
 			Done: true,
 		}
+	}
+	return nil
+}
+
+// convertContentToBlocks convertsinterface{}Content to Claude ContentBlock array
+func convertContentToBlocks(content interface{}) []ContentBlock {
+	switch v := content.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []ContentBlock{{Type: "text", Text: v}}
+	case []interface{}:
+		blocks := make([]ContentBlock, 0, len(v))
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				switch m["type"] {
+				case "text":
+					if text, ok := m["text"].(string); ok {
+						blocks = append(blocks, ContentBlock{Type: "text", Text: text})
+					}
+				case "image_url":
+					if imgURL, ok := m["image_url"].(map[string]interface{}); ok {
+						if url, ok := imgURL["url"].(string); ok {
+							// Claude uses different image format
+							blocks = append(blocks, ContentBlock{
+								Type: "image",
+								Source: &ImageSource{
+									Type: "url",
+									URL:  url,
+								},
+							})
+						}
+					}
+				}
+			}
+		}
+		return blocks
+	case []provider.ContentPart:
+		blocks := make([]ContentBlock, 0, len(v))
+		for _, part := range v {
+			switch part.Type {
+			case "text":
+				blocks = append(blocks, ContentBlock{Type: "text", Text: part.Text})
+			case "image_url":
+				if part.ImageURL != nil {
+					blocks = append(blocks, ContentBlock{
+						Type: "image",
+						Source: &ImageSource{
+							Type: "url",
+							URL:  part.ImageURL.URL,
+						},
+					})
+				}
+			}
+		}
+		return blocks
 	}
 	return nil
 }

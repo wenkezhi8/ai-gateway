@@ -394,7 +394,7 @@ function getScoreTagType(score: number): string {
 
 async function loadConfig() {
   try {
-    const data: any = await request.get('/api/admin/router/config')
+    const data: any = await request.get('/admin/router/config')
     if (data?.data) {
       config.defaultStrategy = data.data.default_strategy || 'auto'
       config.defaultModel = data.data.default_model || 'deepseek-chat'
@@ -406,7 +406,7 @@ async function loadConfig() {
     
     // 加载任务类型模型映射
     try {
-      const mappingData: any = await request.get('/api/admin/router/task-model-mapping')
+      const mappingData: any = await request.get('/admin/router/task-model-mapping')
       if (mappingData?.data) {
         for (const [taskType, model] of Object.entries(mappingData.data)) {
           if (taskModelMapping[taskType]) {
@@ -425,7 +425,7 @@ async function loadConfig() {
 
 async function loadModelScores() {
   try {
-    const data: any = await request.get('/api/admin/router/models')
+    const data: any = await request.get('/admin/router/models')
     if (data) {
       const scores = data.data || data
       modelScores.value = Object.entries(scores).map(([model, score]) => ({
@@ -445,7 +445,7 @@ async function loadModelScores() {
 
 async function loadAvailableModels() {
   try {
-    const data: any = await request.get('/api/admin/router/available-models')
+    const data: any = await request.get('/admin/router/available-models')
     if (data?.data) {
       availableModels.value = data.data
     }
@@ -456,7 +456,7 @@ async function loadAvailableModels() {
 
 async function loadFeedbackStats() {
   try {
-    const data: any = await request.get('/api/admin/feedback/stats')
+    const data: any = await request.get('/admin/feedback/stats')
     if (data) {
       const stats = data.data || data
       feedbackStats.total = stats.total_feedback || 0
@@ -476,7 +476,7 @@ async function saveConfig() {
   saving.value = true
   try {
     // 保存基本配置
-    await request.put('/api/admin/router/config', {
+    await request.put('/admin/router/config', {
       default_strategy: config.defaultStrategy,
       default_model: config.defaultModel,
       use_auto_mode: config.useAutoMode
@@ -489,7 +489,7 @@ async function saveConfig() {
         mappingData[taskType] = mapping.model
       }
     }
-    await request.put('/api/admin/router/task-model-mapping', mappingData)
+    await request.put('/admin/router/task-model-mapping', mappingData)
     
     handleSuccess('配置已保存')
   } catch (e) {
@@ -501,7 +501,7 @@ async function saveConfig() {
 
 async function toggleModelEnabled(model: ModelScore) {
   try {
-    await request.put(`/api/admin/router/models/${model.model}`, {
+    await request.put(`/admin/router/models/${model.model}`, {
       provider: model.provider,
       quality_score: model.quality_score,
       speed_score: model.speed_score,
@@ -518,7 +518,7 @@ async function toggleModelEnabled(model: ModelScore) {
 async function triggerOptimization() {
   try {
     await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分。', '确认', { type: 'info' })
-    await request.post('/api/admin/feedback/optimize')
+    await request.post('/admin/feedback/optimize')
     handleSuccess('优化已完成')
     loadModelScores()
     loadFeedbackStats()
@@ -531,34 +531,18 @@ async function triggerOptimization() {
 
 async function loadTaskTypeDistribution() {
   try {
-    const data: any = await request.get('/api/admin/feedback/task-type-distribution')
-    if (data?.distribution) {
-      const colorMap: Record<string, string> = {
-        code: '#007AFF',
-        chat: '#34C759',
-        reasoning: '#FF9500',
-        math: '#FF3B30',
-        fact: '#34C759',
-        creative: '#AF52DE',
-        translate: '#5856D6',
-        other: '#8E8E93'
+    const data: any = await request.get('/admin/feedback/task-type-distribution')
+    if (data?.distribution && data.distribution.length > 0) {
+      const countMap: Record<string, number> = {}
+      const percentMap: Record<string, number> = {}
+      for (const item of data.distribution) {
+        countMap[item.task_type] = item.count
+        percentMap[item.task_type] = item.percent
       }
-      const nameMap: Record<string, string> = {
-        code: '代码生成',
-        chat: '日常对话',
-        reasoning: '逻辑推理',
-        math: '数学计算',
-        fact: '事实查询',
-        creative: '创意写作',
-        translate: '翻译',
-        other: '其他'
-      }
-      taskTypes.value = data.distribution.map((item: any) => ({
-        type: item.task_type,
-        name: nameMap[item.task_type] || item.task_type,
-        count: item.count,
-        percentage: item.percent,
-        color: colorMap[item.task_type] || '#8E8E93'
+      taskTypes.value = taskTypes.value.map(task => ({
+        ...task,
+        count: countMap[task.type] || 0,
+        percentage: percentMap[task.type] || 0
       }))
     }
   } catch (e) {
@@ -568,7 +552,7 @@ async function loadTaskTypeDistribution() {
 
 async function loadTTLConfig() {
   try {
-    const data: any = await request.get('/api/admin/router/ttl-config')
+    const data: any = await request.get('/admin/router/ttl-config')
     if (data?.data) {
       ttlConfig.taskTypeDefaults = data.data.task_type_defaults || {}
       ttlConfig.difficultyMultipliers = data.data.difficulty_multipliers || { low: 0.5, medium: 1.0, high: 2.0 }

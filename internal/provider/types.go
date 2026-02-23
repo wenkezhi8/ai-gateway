@@ -19,11 +19,91 @@ type ChatRequest struct {
 
 // ChatMessage represents a message in a chat
 type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	Name       string     `json:"name,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content,omitempty"` // string 或 []ContentPart (多模态)
+	Name       string      `json:"name,omitempty"`
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID string      `json:"tool_call_id,omitempty"`
+}
+
+// ContentPart represents a part of multimodal content
+type ContentPart struct {
+	Type     string    `json:"type"` // "text" 或 "image_url"
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
+// ImageURL represents an image URL in multimodal content
+type ImageURL struct {
+	URL    string `json:"url"`
+	Detail string `json:"detail,omitempty"` // "low", "high", "auto"
+}
+
+// GetTextContent extracts text content from ChatMessage.Content
+func (m *ChatMessage) GetTextContent() string {
+	switch v := m.Content.(type) {
+	case string:
+		return v
+	case []ContentPart:
+		for _, part := range v {
+			if part.Type == "text" {
+				return part.Text
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			if pm, ok := item.(map[string]interface{}); ok {
+				if pm["type"] == "text" {
+					if text, ok := pm["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// IsMultimodal checks if the message contains multimodal content
+func (m *ChatMessage) IsMultimodal() bool {
+	switch m.Content.(type) {
+	case []ContentPart, []interface{}:
+		return true
+	}
+	return false
+}
+
+// GetContentParts returns content as []ContentPart if multimodal, nil otherwise
+func (m *ChatMessage) GetContentParts() []ContentPart {
+	switch v := m.Content.(type) {
+	case []ContentPart:
+		return v
+	case []interface{}:
+		parts := make([]ContentPart, 0, len(v))
+		for _, item := range v {
+			if pm, ok := item.(map[string]interface{}); ok {
+				part := ContentPart{}
+				if t, ok := pm["type"].(string); ok {
+					part.Type = t
+				}
+				if text, ok := pm["text"].(string); ok {
+					part.Text = text
+				}
+				if imgURL, ok := pm["image_url"].(map[string]interface{}); ok {
+					part.ImageURL = &ImageURL{}
+					if url, ok := imgURL["url"].(string); ok {
+						part.ImageURL.URL = url
+					}
+					if detail, ok := imgURL["detail"].(string); ok {
+						part.ImageURL.Detail = detail
+					}
+				}
+				parts = append(parts, part)
+			}
+		}
+		return parts
+	}
+	return nil
 }
 
 // Tool represents a tool definition

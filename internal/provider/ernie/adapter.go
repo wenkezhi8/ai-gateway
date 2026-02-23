@@ -126,7 +126,7 @@ type ChatRequest struct {
 
 type ChatMessage struct {
 	Role         string        `json:"role"`
-	Content      string        `json:"content"`
+	Content      interface{}   `json:"content,omitempty"` // 支持 string 或 []interface{} (多模态)
 	Name         string        `json:"name,omitempty"`
 	FunctionCall *FunctionCall `json:"function_call,omitempty"`
 }
