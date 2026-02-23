@@ -211,6 +211,80 @@
                 />
               </div>
             </el-tab-pane>
+
+            <el-tab-pane label="高级功能" name="advanced">
+              <el-row :gutter="24">
+                <!-- Redis 状态 -->
+                <el-col :span="12">
+                  <div class="advanced-section">
+                    <h4><el-icon><Coin /></el-icon> Redis 缓存状态</h4>
+                    <div class="status-card">
+                      <div class="status-item">
+                        <span class="label">连接状态</span>
+                        <el-tag :type="redisHealth.status === 'healthy' ? 'success' : 'danger'">
+                          {{ redisHealth.status === 'healthy' ? '已连接' : '未连接' }}
+                        </el-tag>
+                      </div>
+                      <div class="status-item">
+                        <span class="label">后端类型</span>
+                        <span class="value">{{ redisHealth.backend || '内存缓存' }}</span>
+                      </div>
+                      <div class="status-item">
+                        <span class="label">延迟</span>
+                        <span class="value">{{ redisHealth.latency_ms || 0 }} ms</span>
+                      </div>
+                    </div>
+                    <el-button type="primary" size="small" @click="runHealthCheck" style="margin-top: 12px">
+                      <el-icon><Refresh /></el-icon> 健康检查
+                    </el-button>
+                    <el-alert type="info" :closable="false" show-icon style="margin-top: 12px">
+                      <template #title>Redis 连接失败时自动降级到内存缓存</template>
+                    </el-alert>
+                  </div>
+                </el-col>
+
+                <!-- 请求去重 -->
+                <el-col :span="12">
+                  <div class="advanced-section">
+                    <h4><el-icon><Connection /></el-icon> 请求去重配置</h4>
+                    <el-form label-width="100px" size="small">
+                      <el-form-item label="启用去重">
+                        <el-switch v-model="dedupConfig.enabled" @change="saveDedupConfig" />
+                      </el-form-item>
+                      <el-form-item label="最大等待数">
+                        <el-input-number v-model="dedupConfig.maxPending" :min="1" :max="100" @change="saveDedupConfig" />
+                      </el-form-item>
+                      <el-form-item label="请求超时">
+                        <el-input-number v-model="dedupConfig.requestTimeout" :min="1" :max="300" @change="saveDedupConfig" />
+                        <span class="unit-label">秒</span>
+                      </el-form-item>
+                    </el-form>
+                    <el-alert type="success" :closable="false" show-icon style="margin-top: 12px">
+                      <template #title>相同请求自动合并，减少重复调用</template>
+                    </el-alert>
+                  </div>
+                </el-col>
+              </el-row>
+
+              <!-- 语义缓存 -->
+              <div class="advanced-section" style="margin-top: 20px">
+                <h4><el-icon><MagicStick /></el-icon> 语义缓存说明</h4>
+                <el-descriptions :column="2" border>
+                  <el-descriptions-item label="工作原理">
+                    基于向量相似度匹配，相似请求可复用缓存结果
+                  </el-descriptions-item>
+                  <el-descriptions-item label="相似度阈值">
+                    {{ cacheConfig.similarityThreshold }}% - 高于此值的请求将被视为相同
+                  </el-descriptions-item>
+                  <el-descriptions-item label="缓存策略">
+                    {{ cacheConfig.strategy === 'semantic' ? '语义相似度' : cacheConfig.strategy === 'exact' ? '精确匹配' : '前缀匹配' }}
+                  </el-descriptions-item>
+                  <el-descriptions-item label="自动降级">
+                    Redis 不可用时自动降级到内存缓存
+                  </el-descriptions-item>
+                </el-descriptions>
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
@@ -405,6 +479,18 @@ const cacheConfig = reactive({
   defaultTTL: 3600,
   maxSize: 1024,
   evictionPolicy: 'lru'
+})
+
+const redisHealth = reactive({
+  status: 'unknown',
+  backend: '',
+  latency_ms: 0
+})
+
+const dedupConfig = reactive({
+  enabled: true,
+  maxPending: 100,
+  requestTimeout: 30
 })
 
 const cacheRules = ref<CacheRule[]>([])
@@ -694,9 +780,52 @@ async function loadCacheConfig() {
   }
 }
 
+async function loadCacheHealth() {
+  try {
+    const data: any = await request.get('/api/admin/cache/health')
+    if (data) {
+      const health = data.data || data
+      redisHealth.status = health.status || 'unknown'
+      redisHealth.backend = health.backend || 'memory'
+      redisHealth.latency_ms = health.latency_ms || 0
+    }
+  } catch (e) {
+    redisHealth.status = 'unhealthy'
+    redisHealth.backend = 'memory'
+    console.warn('Failed to load cache health:', e)
+  }
+}
+
+async function runHealthCheck() {
+  try {
+    await request.get('/api/admin/cache/health')
+    await loadCacheHealth()
+    await loadCacheStats()
+    handleSuccess('健康检查完成')
+  } catch (e) {
+    handleApiError(e, '健康检查失败')
+  }
+}
+
+async function saveDedupConfig() {
+  try {
+    await request.put('/api/admin/cache/config', {
+      dedup: {
+        enabled: dedupConfig.enabled,
+        max_pending: dedupConfig.maxPending,
+        request_timeout: dedupConfig.requestTimeout
+      }
+    })
+    handleSuccess('请求去重配置已保存')
+  } catch (e) {
+    handleApiError(e, '保存失败')
+  }
+}
+
 onMounted(() => {
   loadCacheStats()
   loadCacheConfig()
+  loadCacheHealth()
 })
 
 onUnmounted(() => {
@@ -910,6 +1039,52 @@ onUnmounted(() => {
 
       .chart-container {
         height: 200px;
+      }
+    }
+
+    .advanced-section {
+      h4 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 16px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--el-text-color-primary);
+      }
+
+      .status-card {
+        background: var(--el-fill-color-light);
+        border-radius: 8px;
+        padding: 16px;
+
+        .status-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+          border-bottom: 1px solid var(--el-border-color-lighter);
+
+          &:last-child {
+            border-bottom: none;
+          }
+
+          .label {
+            color: var(--el-text-color-secondary);
+            font-size: 14px;
+          }
+
+          .value {
+            font-weight: 500;
+            color: var(--el-text-color-primary);
+          }
+        }
+      }
+
+      .unit-label {
+        margin-left: 8px;
+        color: var(--el-text-color-secondary);
+        font-size: 12px;
       }
     }
   }
