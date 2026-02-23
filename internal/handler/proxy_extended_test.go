@@ -444,3 +444,77 @@ func TestChatCompletions_ReadError(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+// TestMaskAPIKey tests API key masking
+func TestMaskAPIKey(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"sk-1234567890abcdef", "sk-1****cdef"},
+		{"short", "****"},
+		{"sk-test-key-12345678", "sk-t****5678"},
+		{"", "****"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := maskAPIKey(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+// TestGetFloat64 tests getFloat64 helper
+func TestGetFloat64(t *testing.T) {
+	val := 0.7
+	assert.Equal(t, 0.7, getFloat64(&val, 0.5))
+	assert.Equal(t, 0.5, getFloat64(nil, 0.5))
+}
+
+// TestGetInt tests getInt helper
+func TestGetInt(t *testing.T) {
+	val := 100
+	assert.Equal(t, 100, getInt(&val, 50))
+	assert.Equal(t, 50, getInt(nil, 50))
+}
+
+// TestGetDefaultTemperature tests temperature defaults
+func TestGetDefaultTemperature(t *testing.T) {
+	assert.Equal(t, 1.0, getDefaultTemperature("kimi-k2.5"))
+	assert.Equal(t, 1.0, getDefaultTemperature("kimi-k2.5-preview"))
+	assert.Equal(t, 1.0, getDefaultTemperature("kimi-k2-0905-preview"))
+	assert.Equal(t, 0.7, getDefaultTemperature("gpt-4"))
+	assert.Equal(t, 0.7, getDefaultTemperature("deepseek-chat"))
+	assert.Equal(t, 0.7, getDefaultTemperature("unknown-model"))
+}
+
+// TestIsContextCancelled tests context cancellation check
+func TestIsContextCancelled(t *testing.T) {
+	// Normal context
+	ctx := context.Background()
+	assert.False(t, isContextCancelled(ctx))
+
+	// Cancelled context
+	cancelCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.True(t, isContextCancelled(cancelCtx))
+}
+
+// TestListConfiguredProviders tests configured providers listing
+func TestListConfiguredProviders(t *testing.T) {
+	cfg := testConfig()
+	h := NewProxyHandler(cfg, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/api/v1/config/providers", nil)
+	c.Request = req
+
+	h.ListConfiguredProviders(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	// Response should contain "providers" key
+	assert.Contains(t, w.Body.String(), "providers")
+}
