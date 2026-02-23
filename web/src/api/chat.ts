@@ -144,4 +144,36 @@ export const chatApi = {
   streamCompletion
 }
 
+export interface SearchResult {
+  title: string
+  link: string
+  snippet: string
+}
+
+export interface SearchResponse {
+  success: boolean
+  data?: SearchResult[]
+  error?: string
+}
+
+export async function search(query: string, limit: number = 5): Promise<SearchResponse> {
+  const token = localStorage.getItem('token')
+  const response = await fetch(API.V1.SEARCH, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({ query, limit })
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}))
+    const errorMsg = errorData?.error || `HTTP error ${response.status}`
+    return { success: false, error: errorMsg }
+  }
+
+  return response.json()
+}
+
 export default chatApi

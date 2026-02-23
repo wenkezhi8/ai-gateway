@@ -26,6 +26,7 @@ export const API = {
     PROVIDERS: '/api/v1/providers',
     MODELS: '/api/v1/models',
     CONFIG_PROVIDERS: '/api/v1/config/providers',
+    SEARCH: '/api/v1/search',
   },
   
   // 认证接口

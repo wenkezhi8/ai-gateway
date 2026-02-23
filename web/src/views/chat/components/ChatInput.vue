@@ -12,12 +12,11 @@
             <span>多模态</span>
           </button>
         </el-tooltip>
-        <el-tooltip content="实时搜索互联网信息（开发中）" placement="top">
+        <el-tooltip content="实时搜索互联网信息" placement="top">
           <button 
             class="feature-btn" 
             :class="{ active: webSearchEnabled }"
             @click="toggleWebSearch"
-            disabled
           >
             <el-icon><Search /></el-icon>
             <span>联网搜索</span>

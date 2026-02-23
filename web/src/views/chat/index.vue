@@ -98,6 +98,8 @@
             :is-loading="isStreaming"
             @send="handleSend"
             @stop="handleStop"
+            @update:web-search-enabled="webSearchEnabled = $event"
+            @update:deep-think-enabled="deepThinkEnabled = $event"
           />
         </div>
       </template>
@@ -144,7 +146,7 @@ import { ElMessageBox, ElMessage } from 'element-plus'
 import { Plus, ChatDotRound, Delete, Operation, Loading } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import { useChatStore, initializeProviders } from '@/store/chat'
-import { streamCompletion } from '@/api/chat'
+import { streamCompletion, search } from '@/api/chat'
 import { createMessage, type ChatMessage as ChatMessageType } from '@/types/chat'
 import ChatMessage from './components/ChatMessage.vue'
 import ChatInput from './components/ChatInput.vue'
@@ -180,6 +182,10 @@ const selectAll = ref(false)
 const batchDialogVisible = ref(false)
 const batchQuestion = ref('')
 const batchSending = ref(false)
+
+// Feature toggles state
+const webSearchEnabled = ref(false)
+const deepThinkEnabled = ref(false)
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -402,15 +408,57 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
 
   chatStore.setLoading(true)
 
+  // Handle web search
+  let searchContext = ''
+  if (webSearchEnabled.value && text.trim()) {
+    try {
+      const searchResult = await search(text, 3)
+      if (searchResult.success && searchResult.data && searchResult.data.length > 0) {
+        searchContext = '\n\n### 联网搜索结果:\n'
+        for (let i = 0; i < searchResult.data.length; i++) {
+          const result = searchResult.data[i]
+          if (result) {
+            searchContext += `${i + 1}. **${result.title}**\n   ${result.snippet}\n   来源: ${result.link}\n`
+          }
+        }
+        searchContext += '\n请基于以上搜索结果回答问题。'
+      }
+    } catch (e) {
+      console.error('Search failed:', e)
+    }
+  }
+
+  // Build messages with search context if available
+  let finalText = text
+  if (searchContext) {
+    const lastUserMsg = chatStore.currentMessages
+      .filter(m => m.role === 'user')
+      .pop()
+    if (lastUserMsg) {
+      // Update the last user message content to include search results
+      const msgIndex = chatStore.currentMessages.findIndex(m => m.id === lastUserMsg.id)
+      if (msgIndex >= 0) {
+        const updatedContent = lastUserMsg.content + ' [联网搜索已启用]'
+        chatStore.updateMessage(lastUserMsg.id, { content: updatedContent })
+      }
+    }
+  }
+
   // Prepare messages for API
   const messages = chatStore.currentMessages
     .filter(m => m.id !== assistantMessage.id && (m.content || m.images?.length))
     .map(m => {
+      const content = m.content || ''
+      const hasSearch = content.includes('[联网搜索已启用]')
+      const finalContent = (hasSearch && searchContext) 
+        ? content.replace(' [联网搜索已启用]', '') + searchContext
+        : content
+      
       if (m.images && m.images.length > 0) {
         return {
           role: m.role,
           content: [
-            { type: 'text', text: m.content || '' },
+            { type: 'text', text: finalContent },
             ...m.images.map((url: string) => ({
               type: 'image_url',
               image_url: { url }
@@ -420,16 +468,43 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       }
       return {
         role: m.role,
-        content: m.content
+        content: finalContent
       }
     })
+  
+  // Add current message
+  if (imageUrls.length > 0) {
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: finalText },
+        ...imageUrls.map(url => ({
+          type: 'image_url',
+          image_url: { url }
+        }))
+      ]
+    })
+  } else {
+    messages.push({
+      role: 'user',
+      content: finalText
+    })
+  }
 
   // Track stats
   const startTime = Date.now()
   let firstTokenTime: number | undefined
   let outputChars = 0
   
-  const promptChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0)
+  const promptChars = messages.reduce((sum, m) => {
+    if (typeof m.content === 'string') {
+      return sum + m.content.length
+    }
+    if (Array.isArray(m.content)) {
+      return sum + m.content.reduce((s: number, p: any) => s + (p.text?.length || 0), 0)
+    }
+    return sum
+  }, 0)
 
   // Start streaming
   const controller = streamCompletion(

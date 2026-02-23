@@ -86,6 +86,7 @@ func NewFullWithConfig(
 
 	healthHandler := handler.NewHealthHandler()
 	proxyHandler := handler.NewProxyHandler(cfg, accountManager, cacheManager)
+	searchHandler := handler.NewSearchHandler()
 
 	r.GET("/health", healthHandler.Check)
 
@@ -103,6 +104,7 @@ func NewFullWithConfig(
 		apiV1.GET("/providers", proxyHandler.ListProviders)
 		apiV1.GET("/models", proxyHandler.ListModels)
 		apiV1.GET("/config/providers", proxyHandler.ListConfiguredProviders)
+		apiV1.POST("/search", searchHandler.Search)
 	}
 
 	if routerCfg.JWTConfig.Secret != "" {
