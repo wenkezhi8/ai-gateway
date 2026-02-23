@@ -256,6 +256,63 @@ func (fc *FeedbackCollector) GetTopModels(taskType TaskType, limit int) []string
 	return result
 }
 
+// TaskTypeDistribution represents the distribution of task types
+type TaskTypeDistribution struct {
+	TaskType string `json:"task_type"`
+	Count    int64  `json:"count"`
+	Percent  int    `json:"percent"`
+}
+
+// GetTaskTypeDistribution returns the distribution of task types from feedback
+func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
+	fc.mu.RLock()
+	defer fc.mu.RUnlock()
+
+	counts := make(map[string]int64)
+	var total int64
+
+	for _, f := range fc.feedback {
+		taskType := string(f.TaskType)
+		if taskType == "" {
+			taskType = "other"
+		}
+		counts[taskType]++
+		total++
+	}
+
+	// Also aggregate from performance data
+	for _, perf := range fc.performance {
+		for taskType, stat := range perf.TaskTypeStats {
+			counts[taskType] += stat.TotalRequests
+			total += stat.TotalRequests
+		}
+	}
+
+	result := make([]TaskTypeDistribution, 0, len(counts))
+	for taskType, count := range counts {
+		percent := 0
+		if total > 0 {
+			percent = int(float64(count) / float64(total) * 100)
+		}
+		result = append(result, TaskTypeDistribution{
+			TaskType: taskType,
+			Count:    count,
+			Percent:  percent,
+		})
+	}
+
+	// Sort by count descending
+	for i := 0; i < len(result); i++ {
+		for j := i + 1; j < len(result); j++ {
+			if result[j].Count > result[i].Count {
+				result[i], result[j] = result[j], result[i]
+			}
+		}
+	}
+
+	return result
+}
+
 // calculatePerformanceScore calculates a performance score for a model
 func (fc *FeedbackCollector) calculatePerformanceScore(perf *ModelPerformance, taskType TaskType) float64 {
 	score := 0.0

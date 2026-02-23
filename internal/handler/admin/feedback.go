@@ -141,3 +141,11 @@ func (h *FeedbackHandler) GetRecentFeedback(c *gin.Context) {
 		"count":    len(feedback),
 	})
 }
+
+// GetTaskTypeDistribution returns the distribution of task types
+func (h *FeedbackHandler) GetTaskTypeDistribution(c *gin.Context) {
+	distribution := h.collector.GetTaskTypeDistribution()
+	c.JSON(http.StatusOK, gin.H{
+		"distribution": distribution,
+	})
+}

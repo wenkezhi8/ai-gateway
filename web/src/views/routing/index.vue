@@ -303,6 +303,9 @@ const taskTypes = ref([
   { type: 'code', name: '代码生成', count: 0, percentage: 0, color: '#007AFF' },
   { type: 'chat', name: '日常对话', count: 0, percentage: 0, color: '#34C759' },
   { type: 'reasoning', name: '逻辑推理', count: 0, percentage: 0, color: '#FF9500' },
+  { type: 'math', name: '数学计算', count: 0, percentage: 0, color: '#FF3B30' },
+  { type: 'fact', name: '事实查询', count: 0, percentage: 0, color: '#34C759' },
+  { type: 'creative', name: '创意写作', count: 0, percentage: 0, color: '#AF52DE' },
   { type: 'translate', name: '翻译', count: 0, percentage: 0, color: '#5856D6' },
   { type: 'other', name: '其他', count: 0, percentage: 0, color: '#8E8E93' }
 ])
@@ -450,11 +453,49 @@ async function triggerOptimization() {
   }
 }
 
+async function loadTaskTypeDistribution() {
+  try {
+    const data: any = await request.get('/api/admin/feedback/task-type-distribution')
+    if (data?.distribution) {
+      const colorMap: Record<string, string> = {
+        code: '#007AFF',
+        chat: '#34C759',
+        reasoning: '#FF9500',
+        math: '#FF3B30',
+        fact: '#34C759',
+        creative: '#AF52DE',
+        translate: '#5856D6',
+        other: '#8E8E93'
+      }
+      const nameMap: Record<string, string> = {
+        code: '代码生成',
+        chat: '日常对话',
+        reasoning: '逻辑推理',
+        math: '数学计算',
+        fact: '事实查询',
+        creative: '创意写作',
+        translate: '翻译',
+        other: '其他'
+      }
+      taskTypes.value = data.distribution.map((item: any) => ({
+        type: item.task_type,
+        name: nameMap[item.task_type] || item.task_type,
+        count: item.count,
+        percentage: item.percent,
+        color: colorMap[item.task_type] || '#8E8E93'
+      }))
+    }
+  } catch (e) {
+    console.warn('Failed to load task type distribution:', e)
+  }
+}
+
 onMounted(() => {
   loadConfig()
   loadModelScores()
   loadAvailableModels()
   loadFeedbackStats()
+  loadTaskTypeDistribution()
 })
 </script>
 

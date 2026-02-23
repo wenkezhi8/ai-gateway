@@ -182,6 +182,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		feedback.GET("/performance/:model", handlers.Feedback.GetModelPerformance)
 		feedback.GET("/top-models", handlers.Feedback.GetTopModels)
 		feedback.GET("/recent", handlers.Feedback.GetRecentFeedback)
+		feedback.GET("/task-type-distribution", handlers.Feedback.GetTaskTypeDistribution)
 		feedback.POST("/optimize", handlers.Feedback.TriggerOptimization)
 	}
 }
