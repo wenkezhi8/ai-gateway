@@ -1,557 +1,623 @@
 <template>
   <div class="routing-page">
-    <el-row :gutter="24">
-      <!-- 路由规则列表 -->
-      <el-col :span="16">
-        <el-card shadow="never" class="page-card">
-          <template #header>
-            <div class="card-header">
-              <span>路由规则</span>
-              <el-button type="primary" @click="showAddRuleDialog">
-                <el-icon><Plus /></el-icon>
-                添加规则
-              </el-button>
+    <!-- 统计卡片 -->
+    <el-row :gutter="20" class="stats-row">
+      <el-col :span="6" v-for="stat in statsCards" :key="stat.title">
+        <el-card shadow="hover" class="stat-card">
+          <div class="stat-content">
+            <div class="stat-icon" :style="{ background: stat.color + '15' }">
+              <el-icon :size="28" :color="stat.color"><component :is="stat.icon" /></el-icon>
             </div>
-          </template>
-
-          <el-table :data="routingRules" stripe class="rules-table">
-            <el-table-column prop="name" label="规则名称" width="150">
-              <template #default="{ row }">
-                <div class="rule-name">
-                  <el-icon :size="16" class="rule-icon"><Guide /></el-icon>
-                  <span>{{ row.name }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="priority" label="优先级" width="80" align="center">
-              <template #default="{ row }">
-                <el-tag size="small" type="info">{{ row.priority }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="conditions" label="匹配条件" min-width="200">
-              <template #default="{ row }">
-                <div class="condition-tags">
-                  <el-tag v-for="c in row.conditions" :key="c" size="small" class="condition-tag">
-                    {{ c }}
-                  </el-tag>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="target" label="目标" width="120">
-              <template #default="{ row }">
-                <el-tag size="small" type="success">{{ row.target }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="hitRate" label="命中率" width="100">
-              <template #default="{ row }">
-                <div class="hit-rate">
-                  <el-progress :percentage="row.hitRate" :stroke-width="6" :show-text="false" />
-                  <span class="rate-text">{{ row.hitRate }}%</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="enabled" label="状态" width="80" align="center">
-              <template #default="{ row }">
-                <el-switch v-model="row.enabled" size="small" @change="handleRuleStatusChange(row)" />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="120" fixed="right">
-              <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="showEditRuleDialog(row)">编辑</el-button>
-                <el-button type="danger" link size="small" @click="handleDeleteRule(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="rules-footer">
-            <el-button @click="moveRuleUp" :disabled="!selectedRule">
-              <el-icon><Top /></el-icon>
-              上移
-            </el-button>
-            <el-button @click="moveRuleDown" :disabled="!selectedRule">
-              <el-icon><Bottom /></el-icon>
-              下移
-            </el-button>
-            <span class="priority-hint">选中规则后可调整优先级顺序</span>
-          </div>
-        </el-card>
-      </el-col>
-
-      <!-- 路由策略配置 -->
-      <el-col :span="8">
-        <el-card shadow="never" class="page-card strategy-card">
-          <template #header>
-            <div class="card-header">
-              <span>全局策略</span>
-            </div>
-          </template>
-
-          <el-form label-position="top" class="strategy-form">
-            <el-form-item label="负载均衡策略">
-              <el-select v-model="globalStrategy.loadBalance" style="width: 100%">
-                <el-option label="轮询 (Round Robin)" value="round-robin">
-                  <div class="option-content">
-                    <span>轮询</span>
-                    <span class="option-desc">按顺序依次分配</span>
-                  </div>
-                </el-option>
-                <el-option label="加权轮询 (Weighted)" value="weighted">
-                  <div class="option-content">
-                    <span>加权轮询</span>
-                    <span class="option-desc">按权重比例分配</span>
-                  </div>
-                </el-option>
-                <el-option label="最少连接 (Least Conn)" value="least-conn">
-                  <div class="option-content">
-                    <span>最少连接</span>
-                    <span class="option-desc">分配给连接数最少的</span>
-                  </div>
-                </el-option>
-                <el-option label="随机 (Random)" value="random">
-                  <div class="option-content">
-                    <span>随机</span>
-                    <span class="option-desc">随机选择服务商</span>
-                  </div>
-                </el-option>
-              </el-select>
-            </el-form-item>
-
-            <el-form-item label="故障转移">
-              <div class="form-row">
-                <el-switch v-model="globalStrategy.failover" />
-                <span class="form-hint">当主服务商不可用时自动切换</span>
-              </div>
-            </el-form-item>
-
-            <el-form-item label="健康检查间隔">
-              <el-input-number v-model="globalStrategy.healthCheckInterval" :min="5" :max="300" style="width: 100%" />
-              <span class="form-hint">秒</span>
-            </el-form-item>
-
-            <el-form-item label="请求超时">
-              <el-input-number v-model="globalStrategy.timeout" :min="1" :max="120" style="width: 100%" />
-              <span class="form-hint">秒</span>
-            </el-form-item>
-
-            <el-form-item label="重试次数">
-              <el-input-number v-model="globalStrategy.retryCount" :min="0" :max="5" style="width: 100%" />
-            </el-form-item>
-
-            <el-form-item>
-              <el-button type="primary" @click="saveGlobalStrategy" style="width: 100%">
-                <el-icon><Check /></el-icon>
-                保存配置
-              </el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-
-        <!-- 服务商权重 -->
-        <el-card shadow="never" class="page-card weight-card">
-          <template #header>
-            <div class="card-header">
-              <span>服务商权重</span>
-              <el-tag size="small" type="info">加权轮询模式</el-tag>
-            </div>
-          </template>
-
-          <div class="weight-list">
-            <div v-for="provider in providerWeights" :key="provider.name" class="weight-item">
-              <div class="weight-header">
-                <span class="provider-name">{{ provider.name }}</span>
-                <span class="weight-value">{{ provider.weight }}%</span>
-              </div>
-              <el-slider
-                v-model="provider.weight"
-                :min="0"
-                :max="100"
-                :format-tooltip="(val: number) => `${val}%`"
-              />
+            <div class="stat-info">
+              <div class="stat-value">{{ stat.value }}</div>
+              <div class="stat-title">{{ stat.title }}</div>
             </div>
           </div>
-
-          <el-button type="primary" link @click="saveWeights" style="margin-top: 16px">
-            <el-icon><Check /></el-icon>
-            保存权重配置
-          </el-button>
         </el-card>
       </el-col>
     </el-row>
 
-    <!-- 添加/编辑规则对话框 -->
-    <el-dialog
-      v-model="ruleDialogVisible"
-      :title="isEditRule ? '编辑路由规则' : '添加路由规则'"
-      width="600px"
-      destroy-on-close
-    >
-      <el-form :model="ruleForm" :rules="ruleFormRules" ref="ruleFormRef" label-width="100px">
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="ruleForm.name" placeholder="请输入规则名称" />
-        </el-form-item>
-        <el-form-item label="优先级" prop="priority">
-          <el-input-number v-model="ruleForm.priority" :min="1" :max="100" />
-          <span class="form-hint">数字越小优先级越高</span>
-        </el-form-item>
-        <el-form-item label="匹配条件">
-          <div class="condition-builder">
-            <div v-for="(condition, index) in ruleForm.conditionList" :key="index" class="condition-row">
-              <el-select v-model="condition.type" placeholder="条件类型" style="width: 120px">
-                <el-option label="模型" value="model" />
-                <el-option label="用户" value="user" />
-                <el-option label="成本" value="cost" />
-                <el-option label="延迟" value="latency" />
-                <el-option label="自定义" value="custom" />
-              </el-select>
-              <el-select v-model="condition.operator" placeholder="操作符" style="width: 100px">
-                <el-option label="=" value="eq" />
-                <el-option label="!=" value="neq" />
-                <el-option label="匹配" value="match" />
-                <el-option label="包含" value="contains" />
-              </el-select>
-              <el-input v-model="condition.value" placeholder="值" style="flex: 1" />
-              <el-button type="danger" link @click="removeCondition(index)" v-if="ruleForm.conditionList.length > 1">
-                <el-icon><Delete /></el-icon>
+    <el-row :gutter="24">
+      <!-- 左侧：智能路由配置 + 模型评分 -->
+      <el-col :span="16">
+        <!-- 智能路由配置 -->
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>智能路由配置</span>
+              <el-button type="primary" size="small" @click="saveConfig" :loading="saving">
+                <el-icon><Check /></el-icon>
+                保存配置
               </el-button>
             </div>
-            <el-button type="primary" link @click="addCondition">
-              <el-icon><Plus /></el-icon>
-              添加条件
-            </el-button>
+          </template>
+
+          <el-form label-width="120px">
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="路由模式">
+                  <el-switch v-model="config.useAutoMode" active-text="自动" inactive-text="手动" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="默认策略">
+                  <el-select v-model="config.defaultStrategy" style="width: 100%">
+                    <el-option
+                      v-for="s in strategies"
+                      :key="s.value"
+                      :label="s.label"
+                      :value="s.value"
+                    >
+                      <div class="strategy-option">
+                        <span>{{ s.label }}</span>
+                        <span class="strategy-desc">{{ s.description }}</span>
+                      </div>
+                    </el-option>
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="默认模型">
+                  <el-select v-model="config.defaultModel" filterable style="width: 100%">
+                    <el-option
+                      v-for="m in availableModels"
+                      :key="m"
+                      :label="m"
+                      :value="m"
+                    />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-form>
+        </el-card>
+
+        <!-- 模型评分 -->
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>模型评分管理</span>
+              <el-input
+                v-model="modelSearch"
+                placeholder="搜索模型..."
+                style="width: 200px"
+                clearable
+              >
+                <template #prefix>
+                  <el-icon><Search /></el-icon>
+                </template>
+              </el-input>
+            </div>
+          </template>
+
+          <el-table :data="filteredModels" stripe max-height="400">
+            <el-table-column prop="model" label="模型" width="180" fixed />
+            <el-table-column prop="provider" label="服务商" width="100" />
+            <el-table-column label="效果" width="120">
+              <template #default="{ row }">
+                <div class="score-cell">
+                  <el-progress
+                    :percentage="row.quality_score"
+                    :color="getScoreColor(row.quality_score)"
+                    :stroke-width="8"
+                    :show-text="false"
+                  />
+                  <span class="score-text">{{ row.quality_score }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="速度" width="120">
+              <template #default="{ row }">
+                <div class="score-cell">
+                  <el-progress
+                    :percentage="row.speed_score"
+                    :color="getScoreColor(row.speed_score)"
+                    :stroke-width="8"
+                    :show-text="false"
+                  />
+                  <span class="score-text">{{ row.speed_score }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="成本" width="120">
+              <template #default="{ row }">
+                <div class="score-cell">
+                  <el-progress
+                    :percentage="row.cost_score"
+                    :color="getScoreColor(row.cost_score)"
+                    :stroke-width="8"
+                    :show-text="false"
+                  />
+                  <span class="score-text">{{ row.cost_score }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="综合" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="getScoreTagType(calculateCompositeScore(row))" size="small">
+                  {{ calculateCompositeScore(row) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="80" align="center">
+              <template #default="{ row }">
+                <el-switch v-model="row.enabled" size="small" @change="toggleModelEnabled(row)" />
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+
+      <!-- 右侧：级联路由 + 任务类型 + 反馈统计 -->
+      <el-col :span="8">
+        <!-- 级联路由策略 -->
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>级联路由策略</span>
+              <el-tag size="small" type="success">自动升级</el-tag>
+            </div>
+          </template>
+
+          <div class="cascade-levels">
+            <div v-for="level in cascadeLevels" :key="level.key" class="cascade-level">
+              <div class="level-header">
+                <el-tag :type="level.type" size="small">{{ level.label }}</el-tag>
+                <span class="level-desc">{{ level.desc }}</span>
+              </div>
+              <div class="level-models">
+                <el-tag
+                  v-for="model in level.models"
+                  :key="model"
+                  size="small"
+                  class="model-tag"
+                >
+                  {{ model }}
+                </el-tag>
+              </div>
+            </div>
           </div>
-        </el-form-item>
-        <el-form-item label="目标服务商" prop="target">
-          <el-select v-model="ruleForm.target" placeholder="选择目标服务商" style="width: 100%">
-            <el-option-group label="国际服务商">
-              <el-option label="OpenAI" value="OpenAI" />
-              <el-option label="Azure" value="Azure" />
-              <el-option label="Anthropic" value="Anthropic" />
-              <el-option label="Google" value="Google" />
-            </el-option-group>
-            <el-option-group label="国内服务商">
-              <el-option label="火山方舟 (字节跳动)" value="Volcengine" />
-              <el-option label="阿里云通义千问" value="Qwen" />
-              <el-option label="百度文心一言" value="Ernie" />
-              <el-option label="智谱AI" value="Zhipu" />
-              <el-option label="腾讯混元" value="Hunyuan" />
-              <el-option label="月之暗面" value="Moonshot" />
-              <el-option label="MiniMax" value="MiniMax" />
-              <el-option label="百川智能" value="Baichuan" />
-              <el-option label="讯飞星火" value="Spark" />
-              <el-option label="DeepSeek" value="DeepSeek" />
-            </el-option-group>
-            <el-option-group label="智能策略">
-              <el-option label="成本最低" value="Least Cost" />
-              <el-option label="延迟最低" value="Fastest" />
-            </el-option-group>
-          </el-select>
-        </el-form-item>
-        <el-form-item label="备用目标">
-          <el-select v-model="ruleForm.fallback" placeholder="可选" clearable style="width: 100%">
-            <el-option label="OpenAI" value="OpenAI" />
-            <el-option label="Azure" value="Azure" />
-            <el-option label="Anthropic" value="Anthropic" />
-            <el-option label="阿里云通义千问" value="Qwen" />
-            <el-option label="百度文心一言" value="Ernie" />
-            <el-option label="智谱AI" value="Zhipu" />
-            <el-option label="月之暗面" value="Moonshot" />
-            <el-option label="DeepSeek" value="DeepSeek" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用状态">
-          <el-switch v-model="ruleForm.enabled" />
-        </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="ruleForm.remark" type="textarea" :rows="2" placeholder="可选备注" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="ruleDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitRuleForm">确定</el-button>
-      </template>
-    </el-dialog>
+
+          <el-alert type="info" :closable="false" show-icon style="margin-top: 16px">
+            <template #title>
+              当小模型无法处理时，自动升级到大模型
+            </template>
+          </el-alert>
+        </el-card>
+
+        <!-- 任务类型分布 -->
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>任务类型分布</span>
+            </div>
+          </template>
+
+          <div class="task-types">
+            <div v-for="task in taskTypes" :key="task.type" class="task-type-item">
+              <div class="task-header">
+                <span class="task-name">{{ task.name }}</span>
+                <span class="task-percent">{{ task.percentage }}%</span>
+              </div>
+              <el-progress
+                :percentage="task.percentage"
+                :color="task.color"
+                :stroke-width="8"
+                :show-text="false"
+              />
+            </div>
+          </div>
+        </el-card>
+
+        <!-- 反馈统计 -->
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>效果评估</span>
+              <el-button type="primary" link size="small" @click="loadFeedbackStats">
+                <el-icon><Refresh /></el-icon>
+                刷新
+              </el-button>
+            </div>
+          </template>
+
+          <div class="feedback-stats">
+            <div class="feedback-item">
+              <span class="label">总反馈数</span>
+              <span class="value">{{ feedbackStats.total }}</span>
+            </div>
+            <div class="feedback-item">
+              <span class="label">好评率</span>
+              <span class="value positive">{{ feedbackStats.positiveRate }}%</span>
+            </div>
+            <div class="feedback-item">
+              <span class="label">追踪模型数</span>
+              <span class="value">{{ feedbackStats.modelsTracked }}</span>
+            </div>
+            <div class="feedback-item">
+              <span class="label">平均评分</span>
+              <span class="value">{{ feedbackStats.avgRating.toFixed(1) }}</span>
+            </div>
+          </div>
+
+          <el-button type="primary" style="width: 100%; margin-top: 16px" @click="triggerOptimization">
+            <el-icon><MagicStick /></el-icon>
+            触发自动优化
+          </el-button>
+        </el-card>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ref, reactive, computed, onMounted } from 'vue'
+import { ElMessageBox } from 'element-plus'
+import { request } from '@/api/request'
+import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 
-interface RoutingRule {
-  id: number
-  name: string
-  priority: number
-  conditions: string[]
-  target: string
-  hitRate: number
+interface ModelScore {
+  model: string
+  provider: string
+  quality_score: number
+  speed_score: number
+  cost_score: number
   enabled: boolean
 }
 
-const selectedRule = ref<RoutingRule | null>(null)
-const ruleDialogVisible = ref(false)
-const isEditRule = ref(false)
-const ruleFormRef = ref<FormInstance>()
+const saving = ref(false)
+const modelSearch = ref('')
+const modelScores = ref<ModelScore[]>([])
+const availableModels = ref<string[]>([])
 
-const routingRules = ref<RoutingRule[]>([])
-
-const globalStrategy = reactive({
-  loadBalance: 'weighted',
-  failover: true,
-  healthCheckInterval: 30,
-  timeout: 30,
-  retryCount: 3
+const config = reactive({
+  defaultStrategy: 'auto',
+  defaultModel: 'deepseek-chat',
+  useAutoMode: true
 })
 
-const providerWeights = ref([
-  { name: 'OpenAI', weight: 0 },
-  { name: 'Azure', weight: 0 },
-  { name: 'Anthropic', weight: 0 },
-  { name: '阿里云通义千问', weight: 0 },
-  { name: '百度文心一言', weight: 0 },
-  { name: '智谱AI', weight: 0 },
-  { name: '腾讯混元', weight: 0 },
-  { name: '月之暗面', weight: 0 },
-  { name: 'DeepSeek', weight: 0 }
+const strategies = ref([
+  { value: 'auto', label: '智能平衡', description: '综合效果 + 速度 + 成本' },
+  { value: 'quality', label: '效果优先', description: '选择效果最好的模型' },
+  { value: 'speed', label: '速度优先', description: '选择响应最快的模型' },
+  { value: 'cost', label: '成本优先', description: '选择成本最低的模型' }
 ])
 
-const ruleForm = reactive({
-  id: 0,
-  name: '',
-  priority: 1,
-  conditionList: [{ type: 'model', operator: 'match', value: '' }],
-  target: '',
-  fallback: '',
-  enabled: true,
-  remark: ''
+const feedbackStats = reactive({
+  total: 0,
+  positive: 0,
+  positiveRate: 0,
+  avgRating: 0,
+  modelsTracked: 0
 })
 
-const ruleFormRules: FormRules = {
-  name: [{ required: true, message: '请输入规则名称', trigger: 'blur' }],
-  priority: [{ required: true, message: '请设置优先级', trigger: 'blur' }],
-  target: [{ required: true, message: '请选择目标服务商', trigger: 'change' }]
+const cascadeLevels = [
+  { key: 'small', label: '小型', type: 'success', desc: '快速响应，低成本', models: ['gpt-4o-mini', 'deepseek-chat', 'glm-4-flash', 'qwen-turbo'] },
+  { key: 'medium', label: '中型', type: 'warning', desc: '平衡质量与速度', models: ['gpt-4o', 'deepseek-coder', 'claude-3-5-haiku', 'qwen-plus'] },
+  { key: 'large', label: '大型', type: 'danger', desc: '最高质量，复杂任务', models: ['deepseek-reasoner', 'o1', 'claude-3-5-sonnet', 'gpt-4-turbo'] }
+]
+
+const taskTypes = ref([
+  { type: 'code', name: '代码生成', count: 0, percentage: 0, color: '#007AFF' },
+  { type: 'chat', name: '日常对话', count: 0, percentage: 0, color: '#34C759' },
+  { type: 'reasoning', name: '逻辑推理', count: 0, percentage: 0, color: '#FF9500' },
+  { type: 'translate', name: '翻译', count: 0, percentage: 0, color: '#5856D6' },
+  { type: 'other', name: '其他', count: 0, percentage: 0, color: '#8E8E93' }
+])
+
+const statsCards = computed(() => [
+  { title: '总反馈数', value: feedbackStats.total.toString(), icon: 'ChatDotRound', color: '#007AFF' },
+  { title: '好评率', value: `${feedbackStats.positiveRate}%`, icon: 'CircleCheckFilled', color: '#34C759' },
+  { title: '追踪模型', value: feedbackStats.modelsTracked.toString(), icon: 'DataAnalysis', color: '#FF9500' },
+  { title: '平均评分', value: feedbackStats.avgRating.toFixed(1), icon: 'StarFilled', color: '#5856D6' }
+])
+
+const filteredModels = computed(() => {
+  if (!modelSearch.value) return modelScores.value
+  const search = modelSearch.value.toLowerCase()
+  return modelScores.value.filter(m => 
+    m.model.toLowerCase().includes(search) || 
+    m.provider.toLowerCase().includes(search)
+  )
+})
+
+function calculateCompositeScore(row: ModelScore): number {
+  return Math.round(row.quality_score * 0.4 + row.speed_score * 0.35 + row.cost_score * 0.25)
 }
 
-const showAddRuleDialog = () => {
-  isEditRule.value = false
-  Object.assign(ruleForm, {
-    id: 0,
-    name: '',
-    priority: routingRules.value.length + 1,
-    conditionList: [{ type: 'model', operator: 'match', value: '' }],
-    target: '',
-    fallback: '',
-    enabled: true,
-    remark: ''
-  })
-  ruleDialogVisible.value = true
+function getScoreColor(score: number): string {
+  if (score >= 80) return '#67c23a'
+  if (score >= 60) return '#e6a23c'
+  return '#f56c6c'
 }
 
-const showEditRuleDialog = (row: RoutingRule) => {
-  isEditRule.value = true
-  Object.assign(ruleForm, {
-    id: row.id,
-    name: row.name,
-    priority: row.priority,
-    conditionList: row.conditions.map(c => {
-      const [type, value] = c.split('=')
-      return { type: type || 'model', operator: 'eq', value: value || '' }
-    }),
-    target: row.target,
-    fallback: '',
-    enabled: row.enabled,
-    remark: ''
-  })
-  ruleDialogVisible.value = true
+function getScoreTagType(score: number): string {
+  if (score >= 80) return 'success'
+  if (score >= 60) return 'warning'
+  return 'danger'
 }
 
-const addCondition = () => {
-  ruleForm.conditionList.push({ type: 'model', operator: 'match', value: '' })
-}
-
-const removeCondition = (index: number) => {
-  ruleForm.conditionList.splice(index, 1)
-}
-
-const submitRuleForm = async () => {
-  if (!ruleFormRef.value) return
+async function loadConfig() {
   try {
-    const valid = await ruleFormRef.value.validate()
-    if (valid) {
-      if (isEditRule.value) {
-        ElMessage.success('规则更新成功')
-      } else {
-        ElMessage.success('规则添加成功')
+    const data: any = await request.get('/api/admin/router/config')
+    if (data?.data) {
+      config.defaultStrategy = data.data.default_strategy || 'auto'
+      config.defaultModel = data.data.default_model || 'deepseek-chat'
+      config.useAutoMode = data.data.use_auto_mode ?? true
+      if (data.data.strategies) {
+        strategies.value = data.data.strategies
       }
-      ruleDialogVisible.value = false
     }
-  } catch (error) {
-    console.error('表单验证失败:', error)
+  } catch (e) {
+    console.warn('Failed to load config:', e)
   }
 }
 
-const handleDeleteRule = (row: RoutingRule) => {
-  ElMessageBox.confirm(`确定删除规则 ${row.name} 吗？`, '提示', {
-    type: 'warning'
-  }).then(() => {
-    ElMessage.success('删除成功')
-  }).catch(() => {})
+async function loadModelScores() {
+  try {
+    const data: any = await request.get('/api/admin/router/models')
+    if (data) {
+      const scores = data.data || data
+      modelScores.value = Object.entries(scores).map(([model, score]) => ({
+        model,
+        provider: (score as any).provider || 'unknown',
+        quality_score: (score as any).quality_score || 80,
+        speed_score: (score as any).speed_score || 80,
+        cost_score: (score as any).cost_score || 80,
+        enabled: (score as any).enabled ?? true
+      }))
+      availableModels.value = modelScores.value.map(m => m.model)
+    }
+  } catch (e) {
+    console.warn('Failed to load model scores:', e)
+  }
 }
 
-const handleRuleStatusChange = (row: RoutingRule) => {
-  ElMessage.success(`${row.name} 已${row.enabled ? '启用' : '禁用'}`)
+async function loadAvailableModels() {
+  try {
+    const data: any = await request.get('/api/admin/router/available-models')
+    if (data?.data) {
+      availableModels.value = data.data
+    }
+  } catch (e) {
+    console.warn('Failed to load available models:', e)
+  }
 }
 
-const moveRuleUp = () => {
-  ElMessage.info('规则优先级已调整')
+async function loadFeedbackStats() {
+  try {
+    const data: any = await request.get('/api/admin/feedback/stats')
+    if (data) {
+      const stats = data.data || data
+      feedbackStats.total = stats.total_feedback || 0
+      feedbackStats.positive = stats.positive_count || 0
+      feedbackStats.modelsTracked = stats.models_tracked || 0
+      feedbackStats.avgRating = stats.avg_rating || 0
+      if (feedbackStats.total > 0) {
+        feedbackStats.positiveRate = Math.round((feedbackStats.positive / feedbackStats.total) * 100)
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load feedback stats:', e)
+  }
 }
 
-const moveRuleDown = () => {
-  ElMessage.info('规则优先级已调整')
+async function saveConfig() {
+  saving.value = true
+  try {
+    await request.put('/api/admin/router/config', {
+      default_strategy: config.defaultStrategy,
+      default_model: config.defaultModel,
+      use_auto_mode: config.useAutoMode
+    })
+    handleSuccess('配置已保存')
+  } catch (e) {
+    handleApiError(e, '保存失败')
+  } finally {
+    saving.value = false
+  }
 }
 
-const saveGlobalStrategy = () => {
-  ElMessage.success('全局策略已保存')
+async function toggleModelEnabled(model: ModelScore) {
+  try {
+    await request.put(`/api/admin/router/models/${model.model}`, {
+      provider: model.provider,
+      quality_score: model.quality_score,
+      speed_score: model.speed_score,
+      cost_score: model.cost_score,
+      enabled: model.enabled
+    })
+    handleSuccess(`${model.model} 已${model.enabled ? '启用' : '禁用'}`)
+  } catch (e) {
+    model.enabled = !model.enabled
+    handleApiError(e, '操作失败')
+  }
 }
 
-const saveWeights = () => {
-  ElMessage.success('权重配置已保存')
+async function triggerOptimization() {
+  try {
+    await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分。', '确认', { type: 'info' })
+    await request.post('/api/admin/feedback/optimize')
+    handleSuccess('优化已完成')
+    loadModelScores()
+    loadFeedbackStats()
+  } catch (e) {
+    if ((e as any) !== 'cancel') {
+      handleApiError(e, '优化失败')
+    }
+  }
 }
+
+onMounted(() => {
+  loadConfig()
+  loadModelScores()
+  loadAvailableModels()
+  loadFeedbackStats()
+})
 </script>
 
 <style scoped lang="scss">
 .routing-page {
-  .page-card {
-    border-radius: var(--border-radius-lg);
+  .stats-row {
+    margin-bottom: 20px;
+  }
+
+  .stat-card {
+    border-radius: 12px;
     border: none;
-    margin-bottom: var(--spacing-xl);
-  }
 
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .rules-table {
-    .rule-name {
+    .stat-content {
       display: flex;
       align-items: center;
-      gap: var(--spacing-sm);
-      font-weight: var(--font-weight-medium);
+      gap: 16px;
 
-      .rule-icon {
-        color: var(--color-primary);
-      }
-    }
-
-    .condition-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-
-      .condition-tag {
-        font-size: 11px;
-      }
-    }
-
-    .hit-rate {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-sm);
-
-      .el-progress {
-        width: 60px;
-      }
-
-      .rate-text {
-        font-size: var(--font-size-sm);
-        color: var(--text-secondary);
-      }
-    }
-  }
-
-  .rules-footer {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    margin-top: var(--spacing-lg);
-    padding-top: var(--spacing-lg);
-    border-top: 1px solid var(--border-primary);
-
-    .priority-hint {
-      margin-left: auto;
-      font-size: var(--font-size-sm);
-      color: var(--text-tertiary);
-    }
-  }
-
-  .strategy-card {
-    .strategy-form {
-      .form-row {
+      .stat-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 12px;
         display: flex;
         align-items: center;
-        gap: var(--spacing-md);
+        justify-content: center;
       }
 
-      .form-hint {
-        font-size: var(--font-size-sm);
-        color: var(--text-tertiary);
-        margin-left: var(--spacing-sm);
-      }
-    }
+      .stat-info {
+        .stat-value {
+          font-size: 24px;
+          font-weight: 600;
+          color: var(--el-text-color-primary);
+        }
 
-    .option-content {
-      display: flex;
-      flex-direction: column;
-
-      .option-desc {
-        font-size: var(--font-size-xs);
-        color: var(--text-tertiary);
-      }
-    }
-  }
-
-  .weight-card {
-    .weight-list {
-      .weight-item {
-        margin-bottom: var(--spacing-lg);
-
-        .weight-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: var(--spacing-sm);
-
-          .provider-name {
-            font-weight: var(--font-weight-medium);
-          }
-
-          .weight-value {
-            font-size: var(--font-size-sm);
-            color: var(--color-primary);
-            font-weight: var(--font-weight-semibold);
-          }
+        .stat-title {
+          font-size: 14px;
+          color: var(--el-text-color-secondary);
         }
       }
     }
   }
 
-  .condition-builder {
-    .condition-row {
-      display: flex;
-      gap: var(--spacing-sm);
-      margin-bottom: var(--spacing-sm);
-    }
+  .page-card {
+    border-radius: 12px;
+    border: none;
+    margin-bottom: 20px;
 
-    .el-button {
-      margin-top: var(--spacing-sm);
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 600;
     }
   }
 
-  .form-hint {
-    font-size: var(--font-size-sm);
-    color: var(--text-tertiary);
-    margin-left: var(--spacing-sm);
+  .strategy-option {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .strategy-desc {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
+  }
+
+  .score-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .el-progress {
+      flex: 1;
+    }
+
+    .score-text {
+      width: 24px;
+      text-align: right;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
+  }
+
+  .cascade-levels {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    .cascade-level {
+      .level-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+
+        .level-desc {
+          font-size: 12px;
+          color: var(--el-text-color-secondary);
+        }
+      }
+
+      .level-models {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+
+        .model-tag {
+          font-size: 11px;
+        }
+      }
+    }
+  }
+
+  .task-types {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    .task-type-item {
+      .task-header {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 4px;
+
+        .task-name {
+          font-size: 14px;
+          color: var(--el-text-color-primary);
+        }
+
+        .task-percent {
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--el-text-color-secondary);
+        }
+      }
+    }
+  }
+
+  .feedback-stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+
+    .feedback-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+
+      .label {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+
+      .value {
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--el-text-color-primary);
+
+        &.positive {
+          color: #67c23a;
+        }
+      }
+    }
   }
 }
 </style>

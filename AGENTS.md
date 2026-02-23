@@ -1,7 +1,15 @@
 # AI Gateway - 企业级开发规范
 
 > 本文档定义了 AI Gateway 项目的开发规范和工作流程，所有贡献者必须遵循。
-
+你是资深开发工程师，处理我以下代码问题时严格按顺序输出：
+1. 先说明问题根因
+2. 给出修复后的代码，标注改动点
+3. 提供可直接运行的测试用例，覆盖故障场景和边界情况
+4. 给2-3个可落地的低风险优化建议
+5. 接口调用要统一，不要存在前后端调用不一致
+6. 每次修复问题后给我新的版本号
+不要输出无关内容，现在处理问题：
+<这里粘贴你的问题/代码/报错信息>
 ---
 
 ## 目录
@@ -696,6 +704,84 @@ A:
 | `data/provider_defaults.json` | 服务商默认模型 |
 | `data/api_keys.json` | API Keys |
 | `data/router_config.json` | 路由配置 |
+| `data/users.json` | 用户数据（密码等） |
+| `data/feedback.json` | 反馈数据 |
+
+### 缓存配置（生产环境）
+
+**所有缓存默认使用 Redis**，配置方式：
+
+```json
+// configs/config.json
+{
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0
+  }
+}
+```
+
+或环境变量：
+
+```bash
+export REDIS_HOST=localhost
+export REDIS_PORT=6379
+export REDIS_PASSWORD=your_password
+export REDIS_DB=0
+```
+
+> **注意**：如果 Redis 连接失败，会自动降级到内存缓存（重启丢失）。
+
+---
+
+## 开发规划
+
+### 当前迭代 (v1.1)
+
+| 任务 | 状态 | 说明 |
+|------|------|------|
+| 登录验证 | ✅ 完成 | 未登录跳转到 /login |
+| 修改密码 | ✅ 完成 | 支持修改密码，持久化到 data/users.json |
+| 修改用户名 | ✅ 完成 | PUT /auth/profile，支持修改用户名 |
+| 模型删除持久化 | ✅ 完成 | 删除后重启不再恢复 |
+| API Key 加密存储 | ✅ 完成 | pkg/crypto/encrypt.go |
+| JWT 安全配置 | ✅ 完成 | pkg/security/config.go |
+| 任务难度评估 | ✅ 完成 | internal/routing/difficulty.go - 基于长度/复杂度/历史成功率 |
+| 级联路由策略 | ✅ 完成 | internal/routing/cascade.go - 小模型→大模型逐级升路 |
+| 难度评估集成 | ✅ 完成 | SmartRouter 集成 DifficultyAssessor 和 CascadeRouter |
+| 缓存与路由联动 | ✅ 完成 | proxy.go 集成请求去重和按任务类型 TTL 缓存 |
+| 语义缓存 | ✅ 完成 | internal/cache/semantic.go - 向量相似度匹配，相似请求复用 |
+| 效果评估闭环 | ✅ 完成 | internal/routing/feedback.go - 自动收集反馈，迭代优化路由规则 |
+| 反馈 API | ✅ 完成 | internal/handler/admin/feedback.go - 反馈提交、性能查询、优化触发 |
+| 路由策略 UI | ✅ 完成 | web/src/views/routing/index.vue - 智能路由配置、模型评分、反馈统计 |
+
+### 测试覆盖率
+
+| 模块 | 覆盖率 |
+|------|--------|
+| internal/routing | 54.1% |
+| internal/cache | 30.2% |
+| pkg/crypto | 81.8% |
+| pkg/security | 62.5% |
+| internal/metrics | 98.2% |
+| internal/provider | 43.1% |
+
+### 待开发
+
+| 任务 | 优先级 | 说明 |
+|------|--------|------|
+| SQLite 持久化 | 低 | 可选，替代 JSON 文件存储 |
+| 单元测试补充 | 中 | 提升核心模块覆盖率至 80% |
+
+### 已知问题
+
+| 问题 | 状态 | 解决方案 |
+|------|------|---------|
+| 前端路由守卫延迟 | 已优化 | index.html 预检查 token |
+| 模型删除后刷新恢复 | 已修复 | loadFromFile 完全替换而非合并 |
+| 密码重启后重置 | 已修复 | 持久化到 data/users.json |
 
 ---
 

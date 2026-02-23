@@ -1,12 +1,14 @@
 package routing
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -57,8 +59,10 @@ type RouterConfig struct {
 
 // SmartRouter handles intelligent model selection
 type SmartRouter struct {
-	mu     sync.RWMutex
-	config *RouterConfig
+	mu       sync.RWMutex
+	config   *RouterConfig
+	assessor *DifficultyAssessor
+	cascade  *CascadeRouter
 }
 
 // DefaultModelScores returns default scoring for common models
@@ -159,15 +163,22 @@ func NewSmartRouter() *SmartRouter {
 			TaskRules:        DefaultTaskRules(),
 			ProviderDefaults: DefaultProviderDefaults(),
 		},
+		assessor: NewDifficultyAssessor(),
 	}
 
-	// Load persisted model scores
+	router.cascade = NewCascadeRouter(router, router.assessor)
+
 	router.loadFromFile()
+
+	if _, err := os.Stat(modelScoresFile); os.IsNotExist(err) {
+		router.SaveToFile()
+		routerLogger.Info("Saved default model scores to file")
+	}
 
 	return router
 }
 
-// SaveToFile saves the model scores to a file
+// SaveToFile saves ALL model scores to a file (complete snapshot)
 func (r *SmartRouter) SaveToFile() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -178,11 +189,14 @@ func (r *SmartRouter) SaveToFile() error {
 		return err
 	}
 
+	// Save complete model scores, not just modified ones
+	// This ensures deleted models stay deleted on next load
 	data, err := json.MarshalIndent(r.config.ModelScores, "", "  ")
 	if err != nil {
 		return err
 	}
 
+	routerLogger.Infof("Saving %d model scores to file", len(r.config.ModelScores))
 	return os.WriteFile(modelScoresFile, data, 0644)
 }
 
@@ -259,20 +273,22 @@ func (r *SmartRouter) loadFromFile() {
 		}
 	}
 
-	// Load model scores
+	// Load model scores - if file exists, completely replace defaults
 	data, err := os.ReadFile(modelScoresFile)
-	if err == nil {
+	if err == nil && len(data) > 2 {
 		var savedScores map[string]*ModelScore
-		if err := json.Unmarshal(data, &savedScores); err == nil {
+		if err := json.Unmarshal(data, &savedScores); err == nil && len(savedScores) > 0 {
 			r.mu.Lock()
-			for model, score := range savedScores {
-				r.config.ModelScores[model] = score
-			}
+			// Completely replace model scores with saved data
+			// This ensures deleted models stay deleted
+			r.config.ModelScores = savedScores
 			r.mu.Unlock()
-			routerLogger.Infof("Loaded %d model scores from persistence file", len(savedScores))
+			routerLogger.Infof("Loaded %d model scores from persistence file (replaced defaults)", len(savedScores))
 		} else {
 			routerLogger.WithError(err).Warn("Failed to parse model scores file")
 		}
+	} else {
+		routerLogger.Info("No saved model scores found, using defaults")
 	}
 
 	// Load provider defaults
@@ -708,4 +724,62 @@ func (r *SmartRouter) GetTopModels(strategy StrategyType, n int) []string {
 	}
 
 	return result
+}
+
+// GetDifficultyAssessor returns the difficulty assessor
+func (r *SmartRouter) GetDifficultyAssessor() *DifficultyAssessor {
+	return r.assessor
+}
+
+// GetCascadeRouter returns the cascade router
+func (r *SmartRouter) GetCascadeRouter() *CascadeRouter {
+	return r.cascade
+}
+
+// SelectModelWithAssessment selects model with difficulty assessment
+// 改动点: 集成难度评估到模型选择
+func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt string, context string, availableModels []string) (string, *AssessmentResult) {
+	assessment := r.assessor.AssessWithResult(prompt, context)
+
+	difficultyStrategy := r.getStrategyForDifficulty(assessment.Difficulty)
+
+	selectedModel := r.SelectModelWithStrategy(requestedModel, difficultyStrategy, prompt, availableModels)
+
+	return selectedModel, assessment
+}
+
+// SelectModelCascade selects model using cascade routing
+// 改动点: 使用级联路由策略选择模型
+func (r *SmartRouter) SelectModelCascade(ctx context.Context, prompt string, context string, availableModels []string) *CascadeResult {
+	return r.cascade.SelectCascadeModel(ctx, prompt, context, availableModels)
+}
+
+// getStrategyForDifficulty returns recommended strategy based on difficulty
+func (r *SmartRouter) getStrategyForDifficulty(difficulty DifficultyLevel) StrategyType {
+	switch difficulty {
+	case DifficultyLow:
+		return StrategySpeed
+	case DifficultyMedium:
+		return StrategyAuto
+	case DifficultyHigh:
+		return StrategyQuality
+	default:
+		return StrategyAuto
+	}
+}
+
+// AssessDifficulty assesses the difficulty of a prompt
+func (r *SmartRouter) AssessDifficulty(prompt string, context string) *AssessmentResult {
+	return r.assessor.AssessWithResult(prompt, context)
+}
+
+// UpdateModelSuccessRate updates the success rate for a model
+func (r *SmartRouter) UpdateModelSuccessRate(model string, taskType TaskType, success bool) {
+	r.assessor.UpdateSuccessRate(model, taskType, success)
+}
+
+// GetRecommendedTTL returns recommended cache TTL for a request
+func (r *SmartRouter) GetRecommendedTTL(prompt string, context string) time.Duration {
+	assessment := r.assessor.AssessWithResult(prompt, context)
+	return assessment.SuggestedTTL
 }

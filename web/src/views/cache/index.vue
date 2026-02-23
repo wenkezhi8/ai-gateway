@@ -328,6 +328,8 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { request } from '@/api/request'
+import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import * as echarts from 'echarts'
 
 interface CacheType {
@@ -362,6 +364,7 @@ interface HotCache {
   createdAt: string
 }
 
+const loading = ref(false)
 const activeTab = ref('general')
 const ruleDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
@@ -374,11 +377,18 @@ const hotCacheTotal = ref(100)
 const cacheDetail = ref<CacheType | null>(null)
 let detailChart: echarts.ECharts | null = null
 
+const overallStats = reactive({
+  hitRate: 0,
+  totalSize: '0 MB',
+  totalEntries: 0,
+  avgResponse: '0ms'
+})
+
 const cacheStats = computed(() => [
-  { title: '总命中率', value: '0%', icon: 'CircleCheckFilled', color: '#34C759' },
-  { title: '缓存大小', value: '0 MB', icon: 'Coin', color: '#007AFF' },
-  { title: '总条目数', value: '0', icon: 'Files', color: '#FF9500' },
-  { title: '平均响应', value: '0ms', icon: 'Timer', color: '#5856D6' }
+  { title: '总命中率', value: `${overallStats.hitRate.toFixed(1)}%`, icon: 'CircleCheckFilled', color: '#34C759' },
+  { title: '缓存大小', value: overallStats.totalSize, icon: 'Coin', color: '#007AFF' },
+  { title: '总条目数', value: overallStats.totalEntries.toString(), icon: 'Files', color: '#FF9500' },
+  { title: '平均响应', value: overallStats.avgResponse, icon: 'Timer', color: '#5856D6' }
 ])
 
 const cacheTypes = ref<CacheType[]>([
@@ -447,16 +457,31 @@ const getPriorityText = (priority: string) => {
   return texts[priority] || priority
 }
 
-const handleTypeChange = (type: CacheType) => {
-  ElMessage.success(`${type.name} 已${type.enabled ? '启用' : '禁用'}`)
+const handleTypeChange = async (type: CacheType) => {
+  try {
+    await request.put('/api/admin/cache/config', {
+      [type.id]: { enabled: type.enabled }
+    })
+    ElMessage.success(`${type.name} 已${type.enabled ? '启用' : '禁用'}`)
+  } catch (e) {
+    type.enabled = !type.enabled
+    handleApiError(e, '操作失败')
+  }
 }
 
-const clearCacheType = (type: CacheType) => {
-  ElMessageBox.confirm(`确定清空 ${type.name} 的所有缓存吗？`, '警告', { type: 'warning' })
-    .then(() => {
-      ElMessage.success(`${type.name} 已清空`)
-    })
-    .catch(() => {})
+const clearCacheType = async (type: CacheType) => {
+  try {
+    await ElMessageBox.confirm(`确定清空 ${type.name} 的所有缓存吗？`, '警告', { type: 'warning' })
+    await request.delete(`/api/admin/cache?type=${type.id}`)
+    type.entries = 0
+    type.size = '0 MB'
+    type.hitRate = 0
+    ElMessage.success(`${type.name} 已清空`)
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      handleApiError(e, '清空失败')
+    }
+  }
 }
 
 const viewCacheDetail = (type: CacheType) => {
@@ -590,19 +615,88 @@ const submitRule = async () => {
     const valid = await ruleFormRef.value.validate()
     if (valid) {
       if (isEditRule.value) {
-        ElMessage.success('规则已更新')
+        handleSuccess('规则已更新')
       } else {
-        ElMessage.success('规则已添加')
+        handleSuccess('规则已添加')
       }
       ruleDialogVisible.value = false
     }
   } catch (error) {
-    console.error('表单验证失败:', error)
+    handleApiError(error, '操作失败')
+  }
+}
+
+async function loadCacheStats() {
+  loading.value = true
+  try {
+    const data: any = await request.get('/api/admin/cache/stats')
+    if (data) {
+      const stats = data.data || data
+      
+      let totalHits = 0
+      let totalOps = 0
+      let totalEntries = 0
+      
+      const typeStats: Record<string, any> = {}
+      
+      for (const [key, value] of Object.entries(stats)) {
+        if (key.endsWith('_cache') || key === 'request_cache' || key === 'context_cache' || key === 'route_cache' || key === 'usage_cache' || key === 'response_cache') {
+          const typeName = key.replace('_cache', '')
+          const stat = value as any
+          typeStats[typeName] = stat
+          totalHits += stat.hits || 0
+          totalOps += (stat.hits || 0) + (stat.misses || 0)
+          totalEntries += stat.size || stat.entries || 0
+        }
+      }
+      
+      overallStats.hitRate = totalOps > 0 ? Math.round((totalHits / totalOps) * 100) : 0
+      overallStats.totalEntries = totalEntries
+      overallStats.totalSize = `${Math.round(totalEntries * 0.001)} MB`
+      
+      cacheTypes.value = cacheTypes.value.map(type => {
+        const stat = typeStats[type.id]
+        if (stat) {
+          const hits = stat.hits || 0
+          const misses = stat.misses || 0
+          const ops = hits + misses
+          return {
+            ...type,
+            hitRate: ops > 0 ? Math.round((hits / ops) * 100) : 0,
+            entries: stat.size || stat.entries || 0,
+            size: `${Math.round((stat.size || stat.entries || 0) * 0.001)} MB`
+          }
+        }
+        return type
+      })
+    }
+  } catch (e) {
+    console.warn('Failed to load cache stats:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadCacheConfig() {
+  try {
+    const data: any = await request.get('/api/admin/cache/config')
+    if (data) {
+      const cfg = data.data || data
+      cacheConfig.enabled = cfg.enabled ?? true
+      cacheConfig.strategy = cfg.strategy || 'semantic'
+      cacheConfig.similarityThreshold = cfg.similarity_threshold || cfg.similarityThreshold || 85
+      cacheConfig.defaultTTL = cfg.default_ttl || cfg.defaultTTL || 3600
+      cacheConfig.maxSize = cfg.max_size || cfg.maxSize || 1024
+      cacheConfig.evictionPolicy = cfg.eviction_policy || cfg.evictionPolicy || 'lru'
+    }
+  } catch (e) {
+    console.warn('Failed to load cache config:', e)
   }
 }
 
 onMounted(() => {
-  // Could fetch real data from API here
+  loadCacheStats()
+  loadCacheConfig()
 })
 
 onUnmounted(() => {

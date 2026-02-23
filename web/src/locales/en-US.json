@@ -43,7 +43,6 @@
     "routing": "Routing",
     "cache": "Cache",
     "alerts": "Alerts",
-    "testCenter": "Test Center",
     "chat": "AI Chat",
     "settings": "Settings"
   },
@@ -125,15 +124,6 @@
     "source": "Source",
     "message": "Message",
     "time": "Time"
-  },
-  "testCenter": {
-    "title": "Test Center",
-    "sendRequest": "Send Request",
-    "model": "Model",
-    "prompt": "Prompt",
-    "response": "Response",
-    "latency": "Latency",
-    "tokens": "Tokens"
   },
   "chat": {
     "title": "AI Chat",

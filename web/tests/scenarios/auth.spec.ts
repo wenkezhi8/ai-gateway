@@ -72,7 +72,7 @@ test.describe('Authentication Tests', () => {
   });
 
   test('should redirect to login when accessing protected routes without authentication', async ({ page, helper }) => {
-    const protectedRoutes = ['/dashboard', '/providers', '/accounts', '/routing', '/cache', '/alerts', '/test-center', '/settings'];
+    const protectedRoutes = ['/dashboard', '/providers', '/accounts', '/routing', '/cache', '/alerts', '/settings'];
 
     for (const route of protectedRoutes) {
       await helper.measurePerformance(`Access protected route ${route} without auth`, async () => {

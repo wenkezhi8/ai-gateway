@@ -12,27 +12,6 @@
       </div>
 
       <nav class="sidebar-nav">
-        <!-- 文档中心入口 -->
-        <el-tooltip
-          content="文档中心"
-          placement="right"
-          :disabled="!isCollapse"
-          :show-after="300"
-        >
-          <router-link
-            to="/docs"
-            class="nav-item docs-entry"
-            :class="{ active: isActive('/docs') }"
-          >
-            <el-icon :size="20"><Document /></el-icon>
-            <transition name="fade">
-              <span v-show="!isCollapse" class="nav-text">文档中心</span>
-            </transition>
-          </router-link>
-        </el-tooltip>
-
-        <div class="nav-divider" v-show="!isCollapse"></div>
-
         <el-tooltip
           v-for="item in menuItems"
           :key="item.path"
@@ -84,6 +63,14 @@
               <span class="chat-text">AI 对话</span>
               <span class="external-badge">↗</span>
             </a>
+          </el-tooltip>
+
+          <!-- 文档中心 -->
+          <el-tooltip content="文档中心" placement="bottom">
+            <router-link to="/docs" class="docs-btn" :class="{ active: isActive('/docs') }">
+              <el-icon :size="18"><Document /></el-icon>
+              <span class="docs-text">文档</span>
+            </router-link>
           </el-tooltip>
 
           <div class="header-divider"></div>
@@ -499,6 +486,40 @@ const handleUserCommand = (command: string) => {
   }
 
   .chat-text {
+    @media (max-width: 768px) {
+      display: none;
+    }
+  }
+}
+
+.docs-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--border-radius-lg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+
+  &:hover {
+    background: var(--color-gray-300);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+  }
+
+  &.active {
+    background: linear-gradient(135deg, rgba(103, 194, 58, 0.15), rgba(64, 158, 255, 0.15));
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+
+  .docs-text {
     @media (max-width: 768px) {
       display: none;
     }

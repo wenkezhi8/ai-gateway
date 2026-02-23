@@ -238,11 +238,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ref, computed, reactive, onMounted } from 'vue'
+import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { alertApi } from '@/api/alert'
+import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 
 interface AlertRule {
-  id: number
+  id: string
   name: string
   enabled: boolean
   condition: {
@@ -254,7 +256,7 @@ interface AlertRule {
 }
 
 interface Alert {
-  id: number
+  id: string
   time: string
   level: string
   source: string
@@ -272,6 +274,7 @@ const detailDialogVisible = ref(false)
 const isEditRule = ref(false)
 const ruleFormRef = ref<FormInstance>()
 const selectedAlert = ref<Alert | null>(null)
+const loading = ref(false)
 
 const alertStats = computed(() => [
   { title: '严重告警', value: alerts.value.filter(a => a.level === 'critical' && a.status !== 'resolved').length, icon: 'WarningFilled', color: '#FF3B30' },
@@ -285,7 +288,7 @@ const alertRules = ref<AlertRule[]>([])
 const alerts = ref<Alert[]>([])
 
 const ruleForm = reactive({
-  id: 0,
+  id: '',
   name: '',
   conditionType: '',
   operator: '>',
@@ -341,7 +344,7 @@ const getLevelText = (level: string) => {
 const showAddRuleDialog = () => {
   isEditRule.value = false
   Object.assign(ruleForm, {
-    id: 0,
+    id: '',
     name: '',
     conditionType: '',
     operator: '>',
@@ -372,16 +375,27 @@ const editRule = (rule: AlertRule) => {
   ruleDialogVisible.value = true
 }
 
-const deleteRule = (rule: AlertRule) => {
-  ElMessageBox.confirm(`确定删除规则 ${rule.name} 吗？`, '提示', { type: 'warning' })
-    .then(() => {
-      ElMessage.success('删除成功')
-    })
-    .catch(() => {})
+const deleteRule = async (rule: AlertRule) => {
+  try {
+    await ElMessageBox.confirm(`确定删除规则 ${rule.name} 吗？`, '提示', { type: 'warning' })
+    await alertApi.deleteRule(rule.id)
+    handleSuccess('删除成功')
+    fetchRules()
+  } catch (error) {
+    if ((error as any) !== 'cancel') {
+      handleApiError(error, '删除失败')
+    }
+  }
 }
 
-const handleRuleChange = (rule: AlertRule) => {
-  ElMessage.success(`${rule.name} 已${rule.enabled ? '启用' : '禁用'}`)
+const handleRuleChange = async (rule: AlertRule) => {
+  try {
+    await alertApi.updateRule(rule.id, { enabled: rule.enabled })
+    handleSuccess(`${rule.name} 已${rule.enabled ? '启用' : '禁用'}`)
+  } catch (error) {
+    rule.enabled = !rule.enabled
+    handleApiError(error, '状态更新失败')
+  }
 }
 
 const submitRule = async () => {
@@ -389,28 +403,123 @@ const submitRule = async () => {
   try {
     const valid = await ruleFormRef.value.validate()
     if (valid) {
+      const ruleData = {
+        name: ruleForm.name,
+        enabled: ruleForm.enabled,
+        condition: {
+          type: ruleForm.conditionType as 'error_rate' | 'latency' | 'quota' | 'availability',
+          operator: ruleForm.operator,
+          threshold: parseFloat(ruleForm.threshold) || 80
+        },
+        notifyChannels: ruleForm.channels
+      }
+      
       if (isEditRule.value) {
-        ElMessage.success('规则更新成功')
+        await alertApi.updateRule(ruleForm.id, ruleData as any)
+        handleSuccess('规则更新成功')
       } else {
-        ElMessage.success('规则添加成功')
+        await alertApi.createRule(ruleData as any)
+        handleSuccess('规则添加成功')
       }
       ruleDialogVisible.value = false
+      fetchRules()
     }
   } catch (error) {
-    console.error('表单验证失败:', error)
+    handleApiError(error, '操作失败')
   }
 }
 
-const resolveAlert = (alert: Alert) => {
-  alert.status = 'resolved'
-  ElMessage.success('告警已处理')
-  detailDialogVisible.value = false
+const resolveAlert = async (alert: Alert) => {
+  try {
+    await alertApi.resolveAlert(alert.id)
+    alert.status = 'resolved'
+    handleSuccess('告警已处理')
+    detailDialogVisible.value = false
+    fetchAlerts()
+  } catch (error) {
+    handleApiError(error, '处理失败')
+  }
 }
 
 const viewDetail = (alert: Alert) => {
   selectedAlert.value = alert
   detailDialogVisible.value = true
 }
+
+const fetchRules = async () => {
+  try {
+    const res = await alertApi.getRules()
+    const data = (res as any)?.data || res
+    if (Array.isArray(data)) {
+      alertRules.value = data.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        enabled: r.enabled ?? true,
+        condition: {
+          type: r.condition?.type || 'latency',
+          typeLabel: getConditionLabel(r.condition?.type || 'latency'),
+          text: `${getConditionLabel(r.condition?.type || 'latency')} ${r.condition?.operator || '>'} ${r.condition?.threshold || 80}`
+        },
+        channels: r.notifyChannels || []
+      }))
+    }
+  } catch (error) {
+    console.warn('Failed to fetch alert rules:', error)
+  }
+}
+
+const fetchAlerts = async () => {
+  loading.value = true
+  try {
+    const params: any = {}
+    if (selectedLevel.value) params.level = selectedLevel.value
+    if (dateRange.value && dateRange.value.length === 2) {
+      params.startDate = dateRange.value[0]
+      params.endDate = dateRange.value[1]
+    }
+    const res = await alertApi.getHistory(params)
+    const data = (res as any)?.data || res
+    if (data?.list) {
+      alerts.value = data.list.map((a: any) => ({
+        id: a.id,
+        time: a.time,
+        level: a.level,
+        source: a.source,
+        message: a.message,
+        status: a.status
+      }))
+      total.value = data.total || alerts.value.length
+    } else if (Array.isArray(data)) {
+      alerts.value = data.map((a: any) => ({
+        id: a.id,
+        time: a.time,
+        level: a.level,
+        source: a.source,
+        message: a.message,
+        status: a.status
+      }))
+    }
+  } catch (error) {
+    console.warn('Failed to fetch alerts:', error)
+  } finally {
+    loading.value = false
+  }
+}
+
+const getConditionLabel = (type: string) => {
+  const labels: Record<string, string> = {
+    latency: '延迟',
+    error_rate: '错误率',
+    quota: '配额',
+    availability: '可用性'
+  }
+  return labels[type] || type
+}
+
+onMounted(() => {
+  fetchRules()
+  fetchAlerts()
+})
 </script>
 
 <style scoped lang="scss">

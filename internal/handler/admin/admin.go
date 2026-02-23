@@ -22,6 +22,7 @@ type Handlers struct {
 	ApiKey      *ApiKeyHandler
 	Upload      *UploadHandler
 	Alert       *AlertHandler
+	Feedback    *FeedbackHandler
 }
 
 // NewHandlers creates all admin handlers
@@ -32,6 +33,11 @@ func NewHandlers(
 ) *Handlers {
 	smartRouter := routing.NewSmartRouter()
 	SetGlobalRouter(smartRouter)
+
+	// Initialize feedback collector
+	feedbackCollector := routing.NewFeedbackCollector(smartRouter.GetDifficultyAssessor(), smartRouter)
+	InitFeedbackHandler(feedbackCollector)
+
 	handlers := &Handlers{
 		Account:     NewAccountHandler(accountManager),
 		Provider:    NewProviderHandler(registry),
@@ -42,6 +48,7 @@ func NewHandlers(
 		ApiKey:      NewApiKeyHandler(),
 		Upload:      NewUploadHandler(),
 		Alert:       NewAlertHandler(),
+		Feedback:    GetFeedbackHandler(),
 	}
 	globalDashboardHandler = handlers.Dashboard
 	return handlers
@@ -164,5 +171,17 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		alerts.GET("/history", handlers.Alert.GetHistory)
 		alerts.GET("/:id", handlers.Alert.GetAlertDetail)
 		alerts.PUT("/:id/resolve", handlers.Alert.ResolveAlert)
+	}
+
+	// Feedback and evaluation routes
+	feedback := r.Group("/feedback")
+	{
+		feedback.POST("", handlers.Feedback.SubmitFeedback)
+		feedback.GET("/stats", handlers.Feedback.GetFeedbackStats)
+		feedback.GET("/performance", handlers.Feedback.GetAllPerformance)
+		feedback.GET("/performance/:model", handlers.Feedback.GetModelPerformance)
+		feedback.GET("/top-models", handlers.Feedback.GetTopModels)
+		feedback.GET("/recent", handlers.Feedback.GetRecentFeedback)
+		feedback.POST("/optimize", handlers.Feedback.TriggerOptimization)
 	}
 }

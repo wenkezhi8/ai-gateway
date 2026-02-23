@@ -13,7 +13,6 @@ test.describe('Navigation and Routing Tests', () => {
       { path: '/routing', title: '路由策略' },
       { path: '/cache', title: '缓存管理' },
       { path: '/alerts', title: '告警管理' },
-      { path: '/test-center', title: '测试中心' },
       { path: '/settings', title: '系统设置' }
     ];
 
@@ -60,7 +59,6 @@ test.describe('Navigation and Routing Tests', () => {
       '/routing',
       '/cache',
       '/alerts',
-      '/test-center',
       '/settings'
     ];
 

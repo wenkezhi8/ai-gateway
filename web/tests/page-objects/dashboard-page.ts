@@ -38,7 +38,6 @@ export class DashboardPage {
       'routing': '.el-menu-item:has-text("路由策略"), [href*="routing"], [data-testid="nav-routing"]',
       'cache': '.el-menu-item:has-text("缓存管理"), [href*="cache"], [data-testid="nav-cache"]',
       'alerts': '.el-menu-item:has-text("告警管理"), [href*="alerts"], [data-testid="nav-alerts"]',
-      'test-center': '.el-menu-item:has-text("测试中心"), [href*="test-center"], [data-testid="nav-test-center"]',
       'settings': '.el-menu-item:has-text("系统设置"), [href*="settings"], [data-testid="nav-settings"]'
     };
 

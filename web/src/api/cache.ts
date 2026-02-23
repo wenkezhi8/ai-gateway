@@ -1,6 +1,5 @@
 import { request } from './request'
 
-// 缓存管理相关API
 export interface CacheConfig {
   enabled: boolean
   strategy: 'semantic' | 'exact' | 'prefix'
@@ -9,60 +8,64 @@ export interface CacheConfig {
   maxSize: number
 }
 
-export interface CacheRule {
-  id: number
-  pattern: string
-  ttl: number
-  enabled: boolean
-}
-
-export interface CacheStats {
-  hitRate: number
+export interface CacheStatDetail {
+  hit_rate: number
+  hits: number
+  misses: number
   size: number
   entries: number
-  avgResponseTime: number
+}
+
+export interface CacheStatsResponse {
+  request_cache: CacheStatDetail
+  context_cache: CacheStatDetail
+  route_cache: CacheStatDetail
+  usage_cache: CacheStatDetail
+  response_cache: CacheStatDetail
+}
+
+export interface CacheHealthResponse {
+  status: string
+  backend: string
+  latency_ms: number
+}
+
+export interface CacheSummaryResponse {
+  total_entries: number
+  total_size: number
+  by_type: Record<string, number>
 }
 
 export const cacheApi = {
-  // 获取缓存配置
   getConfig() {
-    return request.get<CacheConfig>('/cache/config')
+    return request.get<CacheConfig>('/admin/cache/config')
   },
 
-  // 更新缓存配置
   updateConfig(data: Partial<CacheConfig>) {
-    return request.put<CacheConfig>('/cache/config', data)
+    return request.put<CacheConfig>('/admin/cache/config', data)
   },
 
-  // 获取缓存统计
   getStats() {
-    return request.get<CacheStats>('/cache/stats')
+    return request.get<CacheStatsResponse>('/admin/cache/stats')
   },
 
-  // 获取缓存规则
-  getRules() {
-    return request.get<CacheRule[]>('/cache/rules')
+  getHealth() {
+    return request.get<CacheHealthResponse>('/admin/cache/health')
   },
 
-  // 创建缓存规则
-  createRule(data: Omit<CacheRule, 'id'>) {
-    return request.post<CacheRule>('/cache/rules', data)
+  getSummary() {
+    return request.get<CacheSummaryResponse>('/admin/cache/summary')
   },
 
-  // 删除缓存规则
-  deleteRule(id: number) {
-    return request.delete(`/cache/rules/${id}`)
-  },
-
-  // 获取热门缓存
-  getHotCaches(limit?: number) {
-    return request.get<{ query: string; hits: number; lastHit: string }[]>('/cache/hot', {
-      params: { limit: limit || 10 }
-    })
-  },
-
-  // 清空缓存
   clearCache() {
-    return request.post('/cache/clear')
+    return request.delete('/admin/cache')
+  },
+
+  invalidateProvider(provider: string) {
+    return request.delete(`/admin/cache/provider/${provider}`)
+  },
+
+  invalidateModel(model: string) {
+    return request.delete(`/admin/cache/model/${model}`)
   }
 }

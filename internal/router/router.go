@@ -114,6 +114,7 @@ func NewFullWithConfig(
 			authGroup.POST("/logout", middleware.JWTAuth(routerCfg.JWTConfig), authH.Logout)
 			authGroup.GET("/me", middleware.JWTAuth(routerCfg.JWTConfig), authH.GetCurrentUser)
 			authGroup.POST("/change-password", middleware.JWTAuth(routerCfg.JWTConfig), authH.ChangePassword)
+			authGroup.PUT("/profile", middleware.JWTAuth(routerCfg.JWTConfig), authH.UpdateProfile)
 			authGroup.POST("/refresh", middleware.JWTAuth(routerCfg.JWTConfig), authH.RefreshToken)
 			authGroup.POST("/validate", authH.ValidateToken)
 

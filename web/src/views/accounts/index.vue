@@ -185,8 +185,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { accountApi } from '@/api/account'
+import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 
 interface Account {
   id: number
@@ -205,6 +207,7 @@ const selectedProvider = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(100)
+const loading = ref(false)
 
 const providers = ['OpenAI', 'Azure', 'Anthropic', 'Google', '火山方舟', '阿里云通义千问', '百度文心一言', '智谱AI', '腾讯混元', '月之暗面', 'MiniMax', '百川智能', '讯飞星火', 'DeepSeek']
 
@@ -341,42 +344,119 @@ const submitForm = async () => {
   try {
     const valid = await formRef.value.validate()
     if (valid) {
+      loading.value = true
       if (isEdit.value) {
-        ElMessage.success('账号更新成功')
+        await accountApi.update(String(accountForm.id), {
+          name: accountForm.name,
+          provider: accountForm.provider,
+          api_key: accountForm.apiKey,
+          enabled: accountForm.enabled,
+          remark: accountForm.remark
+        })
+        handleSuccess('账号更新成功')
       } else {
-        ElMessage.success('账号添加成功')
+        await accountApi.create({
+          name: accountForm.name,
+          provider: accountForm.provider,
+          api_key: accountForm.apiKey,
+          enabled: accountForm.enabled,
+          remark: accountForm.remark
+        })
+        handleSuccess('账号添加成功')
       }
       dialogVisible.value = false
+      fetchAccounts()
     }
   } catch (error) {
-    console.error('表单验证失败:', error)
+    handleApiError(error, '操作失败')
+  } finally {
+    loading.value = false
   }
 }
 
-const saveQuota = () => {
-  ElMessage.success('配额设置已保存')
-  quotaDialogVisible.value = false
+const saveQuota = async () => {
+  if (!selectedAccount.value) return
+  try {
+    await accountApi.updateLimits(String(selectedAccount.value.id), {
+      token: { type: 'token', period: 'month', limit: quotaForm.limit, warning: quotaForm.warningThreshold }
+    })
+    handleSuccess('配额设置已保存')
+    quotaDialogVisible.value = false
+    fetchAccounts()
+  } catch (error) {
+    handleApiError(error, '保存失败')
+  }
 }
 
-const resetQuota = () => {
-  ElMessageBox.confirm('确定要重置配额吗？', '提示', {
-    type: 'warning'
-  }).then(() => {
-    ElMessage.success('配额已重置')
-  }).catch(() => {})
+const resetQuota = async () => {
+  try {
+    await ElMessageBox.confirm('确定要重置配额吗？', '提示', { type: 'warning' })
+    if (selectedAccount.value) {
+      await accountApi.updateLimits(String(selectedAccount.value.id), {
+        token: { type: 'token', period: 'month', limit: quotaForm.limit, warning: quotaForm.warningThreshold }
+      })
+      handleSuccess('配额已重置')
+      fetchAccounts()
+    }
+  } catch (error) {
+    if ((error as any) !== 'cancel') {
+      handleApiError(error, '重置失败')
+    }
+  }
 }
 
-const handleDelete = (row: Account) => {
-  ElMessageBox.confirm(`确定删除账号 ${row.name} 吗？`, '提示', {
-    type: 'warning'
-  }).then(() => {
-    ElMessage.success('删除成功')
-  }).catch(() => {})
+const handleDelete = async (row: Account) => {
+  try {
+    await ElMessageBox.confirm(`确定删除账号 ${row.name} 吗？`, '提示', { type: 'warning' })
+    await accountApi.delete(String(row.id))
+    handleSuccess('删除成功')
+    fetchAccounts()
+  } catch (error) {
+    if ((error as any) !== 'cancel') {
+      handleApiError(error, '删除失败')
+    }
+  }
 }
 
-const handleStatusChange = (row: Account) => {
-  ElMessage.success(`${row.name} 已${row.enabled ? '启用' : '禁用'}`)
+const handleStatusChange = async (row: Account) => {
+  try {
+    await accountApi.toggleStatus(String(row.id), row.enabled)
+    handleSuccess(`${row.name} 已${row.enabled ? '启用' : '禁用'}`)
+  } catch (error) {
+    row.enabled = !row.enabled
+    handleApiError(error, '状态更新失败')
+  }
 }
+
+const fetchAccounts = async () => {
+  loading.value = true
+  try {
+    const res = await accountApi.getList({ page: currentPage.value, pageSize: pageSize.value })
+    const data = (res as any)?.data || res
+    if (Array.isArray(data)) {
+      accounts.value = data.map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        provider: a.provider,
+        apiKey: a.api_key || '',
+        quotaUsed: a.usage?.token?.percent_used || 0,
+        quotaUsedAmount: a.usage?.token?.used || 0,
+        enabled: a.enabled ?? true,
+        expireAt: a.usage?.month?.reset_at || '',
+        remark: a.remark || ''
+      }))
+      total.value = data.length
+    }
+  } catch (error) {
+    handleApiError(error, '加载账号列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchAccounts()
+})
 </script>
 
 <style scoped lang="scss">

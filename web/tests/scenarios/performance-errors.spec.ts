@@ -13,7 +13,6 @@ test.describe('Performance and Error Handling Tests', () => {
       '/routing',
       '/cache',
       '/alerts',
-      '/test-center',
       '/settings'
     ];
 

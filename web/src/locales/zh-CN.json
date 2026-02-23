@@ -43,7 +43,6 @@
     "routing": "路由策略",
     "cache": "缓存管理",
     "alerts": "告警管理",
-    "testCenter": "测试中心",
     "chat": "AI 对话",
     "settings": "系统设置"
   },
@@ -125,15 +124,6 @@
     "source": "告警来源",
     "message": "告警信息",
     "time": "告警时间"
-  },
-  "testCenter": {
-    "title": "测试中心",
-    "sendRequest": "发送请求",
-    "model": "模型",
-    "prompt": "提示词",
-    "response": "响应",
-    "latency": "延迟",
-    "tokens": "Token消耗"
   },
   "chat": {
     "title": "AI 对话",

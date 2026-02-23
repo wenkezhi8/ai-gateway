@@ -226,7 +226,21 @@ func main() {
 		}
 	}
 
-	cacheManager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	cacheManager, err := cache.NewManager(cache.ManagerConfig{
+		Redis: cache.RedisConfig{
+			Host:     cfg.Redis.Host,
+			Port:     cfg.Redis.Port,
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		},
+		UseRedis: true,
+	})
+	if err != nil {
+		logger.WithError(err).Warn("Failed to connect to Redis, falling back to memory cache")
+		cacheManager = cache.NewManagerWithCache(cache.NewMemoryCache())
+	} else {
+		logger.Infof("Connected to Redis at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
+	}
 
 	metricsPort := os.Getenv("METRICS_PORT")
 	if metricsPort == "" {

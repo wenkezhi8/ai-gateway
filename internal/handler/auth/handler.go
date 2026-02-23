@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -10,13 +13,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/sirupsen/logrus"
 )
+
+const usersDataFile = "data/users.json"
+
+var authLogger = logrus.New()
 
 type AuthHandler struct {
 	jwtConfig middleware.JWTConfig
 	users     map[string]*middleware.User
 	mu        sync.RWMutex
 	auditLog  *audit.Logger
+}
+
+type UserPersist struct {
+	ID           string `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+	Role         string `json:"role"`
+	CreatedAt    int64  `json:"created_at"`
+	UpdatedAt    int64  `json:"updated_at,omitempty"`
 }
 
 func NewAuthHandler(jwtConfig middleware.JWTConfig, auditLog *audit.Logger) *AuthHandler {
@@ -26,15 +43,74 @@ func NewAuthHandler(jwtConfig middleware.JWTConfig, auditLog *audit.Logger) *Aut
 		auditLog:  auditLog,
 	}
 
-	h.users["admin"] = &middleware.User{
-		ID:           "1",
-		Username:     "admin",
-		PasswordHash: mustHashPassword("admin123"),
-		Role:         "admin",
-		CreatedAt:    time.Now().Unix(),
+	h.loadFromFile()
+
+	if len(h.users) == 0 {
+		h.users["admin"] = &middleware.User{
+			ID:           "1",
+			Username:     "admin",
+			PasswordHash: mustHashPassword("admin123"),
+			Role:         "admin",
+			CreatedAt:    time.Now().Unix(),
+		}
+		h.saveToFile()
+		authLogger.Info("Created default admin user")
 	}
 
 	return h
+}
+
+func (h *AuthHandler) loadFromFile() {
+	data, err := os.ReadFile(usersDataFile)
+	if err != nil {
+		authLogger.WithError(err).Debug("No saved users file, will use defaults")
+		return
+	}
+
+	var savedUsers map[string]*UserPersist
+	if err := json.Unmarshal(data, &savedUsers); err != nil {
+		authLogger.WithError(err).Warn("Failed to parse users file")
+		return
+	}
+
+	for username, u := range savedUsers {
+		if u != nil {
+			h.users[username] = &middleware.User{
+				ID:           u.ID,
+				Username:     u.Username,
+				PasswordHash: u.PasswordHash,
+				Role:         u.Role,
+				CreatedAt:    u.CreatedAt,
+			}
+		}
+	}
+
+	authLogger.Infof("Loaded %d users from file", len(h.users))
+}
+
+func (h *AuthHandler) saveToFile() error {
+	dir := filepath.Dir(usersDataFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	savedUsers := make(map[string]*UserPersist)
+	for username, u := range h.users {
+		savedUsers[username] = &UserPersist{
+			ID:           u.ID,
+			Username:     u.Username,
+			PasswordHash: u.PasswordHash,
+			Role:         u.Role,
+			CreatedAt:    u.CreatedAt,
+		}
+	}
+
+	data, err := json.MarshalIndent(savedUsers, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(usersDataFile, data, 0644)
 }
 
 func mustHashPassword(password string) string {
@@ -159,9 +235,78 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 
 	user.PasswordHash = newHash
 
+	if err := h.saveToFile(); err != nil {
+		authLogger.WithError(err).Warn("Failed to save users to file after password change")
+	}
+
 	h.logAudit(userID, username, c.ClientIP(), c.Request.UserAgent(), audit.ActionUpdate, audit.ResourceAuth, userID, "Password changed", "success", "")
 
 	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully"})
+}
+
+// UpdateProfileRequest represents the request for updating user profile
+type UpdateProfileRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email"`
+}
+
+// UpdateProfile updates the current user's profile
+// 改动点: 新增用户资料更新接口，支持修改用户名
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	var req UpdateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+
+	userID, currentUsername, _ := middleware.GetCurrentUser(c)
+
+	if req.Username == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "Username cannot be empty"}})
+		return
+	}
+
+	if len(req.Username) < 3 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "invalid_request", "message": "Username must be at least 3 characters"}})
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	user, exists := h.users[currentUsername]
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "not_found", "message": "User not found"}})
+		return
+	}
+
+	// Check if new username is already taken by another user
+	if req.Username != currentUsername {
+		if _, exists := h.users[req.Username]; exists {
+			c.JSON(http.StatusConflict, gin.H{"error": gin.H{"code": "conflict", "message": "Username already exists"}})
+			return
+		}
+
+		// Remove old key and add new one
+		delete(h.users, currentUsername)
+		user.Username = req.Username
+		h.users[req.Username] = user
+	}
+
+	if err := h.saveToFile(); err != nil {
+		authLogger.WithError(err).Warn("Failed to save users to file after profile update")
+	}
+
+	h.logAudit(userID, currentUsername, c.ClientIP(), c.Request.UserAgent(), audit.ActionUpdate, audit.ResourceAuth, userID, "Profile updated", "success", "New username: "+req.Username)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Profile updated successfully",
+		"user": gin.H{
+			"id":       user.ID,
+			"username": user.Username,
+			"role":     user.Role,
+		},
+	})
 }
 
 func (h *AuthHandler) ListUsers(c *gin.Context) {
@@ -213,6 +358,10 @@ func (h *AuthHandler) CreateUser(c *gin.Context) {
 
 	h.users[req.Username] = newUser
 
+	if err := h.saveToFile(); err != nil {
+		authLogger.WithError(err).Warn("Failed to save users to file after creating user")
+	}
+
 	h.logAudit(userID, username, c.ClientIP(), c.Request.UserAgent(), audit.ActionCreate, audit.ResourceAuth, newUser.ID, "Created user: "+req.Username, "success", "")
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -243,6 +392,10 @@ func (h *AuthHandler) DeleteUser(c *gin.Context) {
 	}
 
 	delete(h.users, targetUsername)
+
+	if err := h.saveToFile(); err != nil {
+		authLogger.WithError(err).Warn("Failed to save users to file after deleting user")
+	}
 
 	h.logAudit(userID, username, c.ClientIP(), c.Request.UserAgent(), audit.ActionDelete, audit.ResourceAuth, targetUsername, "Deleted user: "+targetUsername, "success", "")
 

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import Layout from '@/components/Layout/index.vue'
+import { useUserStore } from '@/store/user'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -104,6 +105,22 @@ const router = createRouter({
 router.beforeEach((to, _from, next) => {
   // 设置页面标题
   document.title = `${to.meta.title || 'AI Gateway'} - AI Gateway`
+
+  // 公开页面不需要认证
+  if (to.meta.public || to.path === '/login') {
+    next()
+    return
+  }
+
+  // 检查是否已登录
+  const userStore = useUserStore()
+  const token = userStore.token || localStorage.getItem('token')
+
+  if (!token && to.path !== '/login') {
+    next('/login')
+    return
+  }
+
   next()
 })
 

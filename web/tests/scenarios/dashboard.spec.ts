@@ -47,7 +47,7 @@ test.describe('Dashboard Tests', () => {
   test('should navigate to all sections', async ({ helper }) => {
     await dashboardPage.navigate();
     
-    const sections = ['providers', 'accounts', 'routing', 'cache', 'alerts', 'test-center', 'settings'];
+    const sections = ['providers', 'accounts', 'routing', 'cache', 'alerts', 'settings'];
     
     for (const section of sections) {
       await helper.measurePerformance(`Navigate to ${section}`, async () => {

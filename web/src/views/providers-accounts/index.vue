@@ -584,9 +584,7 @@ const submitAccountForm = async () => {
       })
       ElMessage.success('账号更新成功')
     } else {
-      const accountId = `acc-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
       await accountApi.create({
-        id: accountId,
         name: accountForm.name,
         provider: accountForm.provider,
         api_key: accountForm.api_key,

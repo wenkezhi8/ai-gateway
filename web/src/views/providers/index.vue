@@ -190,10 +190,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { providerApi } from '@/api/provider'
+
+const loading = ref(false)
 
 interface Provider {
   id: number
@@ -397,28 +399,74 @@ const submitForm = async () => {
     const valid = await formRef.value.validate()
     if (valid) {
       if (isEdit.value) {
-        ElMessage.success('服务商更新成功')
+        await providerApi.update(String(providerForm.id), {
+          name: providerForm.name,
+          base_url: providerForm.endpoint,
+          models: providerForm.models
+        })
+        const idx = providers.value.findIndex(p => p.id === providerForm.id)
+        if (idx !== -1) {
+          const existing = providers.value[idx]
+          if (existing) {
+            providers.value[idx] = {
+              id: existing.id,
+              name: providerForm.name,
+              type: existing.type,
+              endpoint: providerForm.endpoint,
+              enabled: existing.enabled,
+              accounts: existing.accounts,
+              latency: existing.latency,
+              models: providerForm.models
+            }
+          }
+        }
+        handleSuccess('服务商更新成功')
       } else {
-        ElMessage.success('服务商添加成功')
+        const res = await providerApi.create({
+          name: providerForm.name,
+          api_key: '',
+          base_url: providerForm.endpoint,
+          models: providerForm.models
+        })
+        const newProvider = (res as any)?.data || res
+        providers.value.push({
+          id: newProvider.id || Date.now(),
+          name: providerForm.name,
+          type: providerForm.type,
+          endpoint: providerForm.endpoint,
+          enabled: true,
+          accounts: 0,
+          latency: '0ms',
+          models: providerForm.models
+        })
+        handleSuccess('服务商添加成功')
       }
       dialogVisible.value = false
     }
   } catch (error) {
-    console.error('表单验证失败:', error)
-    ElMessage.error('表单验证失败，请检查输入')
+    handleApiError(error, '操作失败，请重试')
   }
 }
 
 const handleTest = async (provider: Provider) => {
   provider.testing = true
-  setTimeout(() => {
-    provider.testing = false
-    testResult.success = Math.random() > 0.2
-    testResult.message = testResult.success ? '' : '连接超时，请检查网络配置'
-    testResult.latency = parseInt(provider.latency)
+  try {
+    const res = await providerApi.testConnection(String(provider.id))
+    const data = (res as any)?.data || res
+    testResult.success = data.success !== false
+    testResult.message = data.message || (testResult.success ? '' : '连接失败')
+    testResult.latency = data.response_time_ms || data.latency || 0
     testResult.models = provider.models.length
     testDialogVisible.value = true
-  }, 1500)
+  } catch (error: any) {
+    testResult.success = false
+    testResult.message = error?.response?.data?.error || error?.message || '连接失败，请检查配置'
+    testResult.latency = 0
+    testResult.models = 0
+    testDialogVisible.value = true
+  } finally {
+    provider.testing = false
+  }
 }
 
 const handleCommand = (command: string, provider: Provider) => {
@@ -438,12 +486,19 @@ const handleCommand = (command: string, provider: Provider) => {
   }
 }
 
-const handleDelete = (provider: Provider) => {
-  ElMessageBox.confirm(`确定删除服务商 ${provider.name} 吗？`, '提示', {
-    type: 'warning'
-  }).then(() => {
-    ElMessage.success('删除成功')
-  }).catch(() => {})
+const handleDelete = async (provider: Provider) => {
+  try {
+    await ElMessageBox.confirm(`确定删除服务商 ${provider.name} 吗？`, '提示', {
+      type: 'warning'
+    })
+    await providerApi.delete(String(provider.id))
+    providers.value = providers.value.filter(p => p.id !== provider.id)
+    handleSuccess('删除成功')
+  } catch (error: any) {
+    if (error !== 'cancel') {
+      handleApiError(error, '删除失败，请重试')
+    }
+  }
 }
 
 const handleStatusChange = async (provider: Provider) => {
@@ -455,6 +510,34 @@ const handleStatusChange = async (provider: Provider) => {
     handleApiError(error, '状态更新失败，请重试')
   }
 }
+
+const fetchProviders = async () => {
+  loading.value = true
+  try {
+    const res = await providerApi.getList()
+    const data = (res as any)?.data || res
+    if (Array.isArray(data)) {
+      providers.value = data.map((p: any) => ({
+        id: p.id || p.name,
+        name: p.name,
+        type: p.type || 'custom',
+        endpoint: p.base_url || p.endpoint || '',
+        enabled: p.enabled ?? true,
+        accounts: p.account_count || p.accounts || 0,
+        latency: p.latency || '0ms',
+        models: p.models || []
+      }))
+    }
+  } catch (error) {
+    handleApiError(error, '加载服务商列表失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchProviders()
+})
 </script>
 
 <style scoped lang="scss">

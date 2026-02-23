@@ -91,20 +91,42 @@ type ProxyHandler struct {
 	accountManager *limiter.AccountManager
 	smartRouter    *routing.SmartRouter
 	cache          *cache.Manager
+	deduplicator   *cache.RequestDeduplicator
+	semanticCache  *cache.SemanticCache
+	embeddingSvc   cache.EmbeddingProvider
 }
 
 // NewProxyHandler creates a new proxy handler
 func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager, cacheManager *cache.Manager) *ProxyHandler {
+	// Initialize semantic cache
+	// 改动点: 如果配置了 Redis，使用 Redis 作为后端；否则纯内存
+	var backendCache cache.Cache
+	if cacheManager != nil {
+		backendCache = cacheManager.Cache()
+	}
+	semanticCache := cache.NewSemanticCache(cache.DefaultSemanticCacheConfig(), backendCache)
+
+	// Start cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		for range ticker.C {
+			semanticCache.Cleanup()
+		}
+	}()
+
 	return &ProxyHandler{
 		config:         cfg,
 		registry:       provider.GetRegistry(),
 		accountManager: accountManager,
 		smartRouter:    GetSmartRouter(),
 		cache:          cacheManager,
+		deduplicator:   cache.GetRequestDeduplicator(),
+		semanticCache:  semanticCache,
 	}
 }
 
 // ChatCompletions proxies chat completion requests to AI providers
+// 改动点: 集成请求去重、难度评估、缓存策略
 func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	startTime := time.Now()
 
@@ -132,17 +154,30 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	userID := middleware.GetUserID(c)
 	apiKey := middleware.GetAPIKey(c)
 
+	// Extract prompt from messages for smart routing and assessment
+	prompt := ""
+	contextStr := ""
+	for _, msg := range req.Messages {
+		if msg.Role == "user" {
+			prompt = msg.Content
+		} else if msg.Role == "system" {
+			contextStr = msg.Content
+		}
+	}
+
+	// Assess difficulty and get recommended TTL
+	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
+	recommendedTTL := assessment.SuggestedTTL
+
+	logrus.WithFields(logrus.Fields{
+		"task_type":       assessment.TaskType,
+		"difficulty":      assessment.Difficulty,
+		"recommended_ttl": recommendedTTL,
+	}).Debug("Request difficulty assessment")
+
 	// Handle "auto", "latest", and "default" model selection
 	requestedModel := req.Model
 	if req.Model == "auto" || req.Model == "latest" || req.Model == "default" {
-		// Extract prompt from messages for smart routing
-		prompt := ""
-		for _, msg := range req.Messages {
-			if msg.Role == "user" {
-				prompt = msg.Content
-				break
-			}
-		}
 		// Get available models from account manager
 		var availableModels []string
 		if h.accountManager != nil {
@@ -164,7 +199,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			// Use provider-specific selection
 			requestedModel = h.smartRouter.SelectModelForProvider(req.Model, providerName, prompt, availableModels)
 		} else {
-			// No provider specified - use global selection
+			// No provider specified - use global selection with assessment
 			switch req.Model {
 			case "latest":
 				requestedModel = h.smartRouter.SelectModelWithStrategy("latest", routing.StrategyQuality, prompt, availableModels)
@@ -176,7 +211,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 					requestedModel = h.smartRouter.SelectModelWithStrategy("default", routing.StrategyAuto, prompt, availableModels)
 				}
 			default:
-				requestedModel = h.smartRouter.SelectModel("auto", prompt, availableModels)
+				// Use assessment-based model selection
+				requestedModel, _ = h.smartRouter.SelectModelWithAssessment("auto", prompt, contextStr, availableModels)
 			}
 		}
 
@@ -185,6 +221,43 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		// Also set provider if not specified
 		if req.Provider == "" {
 			req.Provider = h.smartRouter.GetProviderForModel(requestedModel)
+		}
+	}
+
+	// Try semantic cache first (for non-streaming requests with cacheable task types)
+	if !req.Stream && h.semanticCache != nil && assessment.SuggestedTTL > 0 {
+		// Use simple embedding for semantic matching (no API call needed)
+		queryVector := cache.SimpleEmbedding(prompt, 1536)
+
+		semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), prompt, queryVector)
+		if semanticEntry != nil && similarity >= 0.92 {
+			logrus.WithFields(logrus.Fields{
+				"model":      req.Model,
+				"similarity": similarity,
+				"task_type":  assessment.TaskType,
+				"cache_id":   semanticEntry.ID,
+			}).Info("Semantic cache hit")
+
+			h.semanticCache.IncrementHitCount(semanticEntry.ID)
+			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, true)
+			c.Data(http.StatusOK, "application/json", semanticEntry.Response)
+			return
+		}
+	}
+
+	// Try exact cache (for non-streaming requests)
+	if !req.Stream && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
+		cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
+		if err == nil && cached != nil {
+			logrus.WithFields(logrus.Fields{
+				"model":     req.Model,
+				"task_type": assessment.TaskType,
+			}).Info("Response cache hit")
+
+			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, true)
+			c.Data(cached.StatusCode, "application/json", cached.Body)
+			return
 		}
 	}
 
@@ -255,13 +328,19 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
-	// Send request to provider
-	ctx := c.Request.Context()
-	resp, err := targetProvider.Chat(ctx, providerReq)
+	// Use deduplicator for non-streaming requests
+	// 改动点: 使用请求去重避免重复计算
+	dedupKey := h.deduplicator.GenerateKey(prompt, req.Model, map[string]interface{}{
+		"temperature": providerReq.Temperature,
+		"max_tokens":  providerReq.MaxTokens,
+	})
+
+	result, err := h.deduplicator.Do(c.Request.Context(), dedupKey, func() (interface{}, error) {
+		return targetProvider.Chat(c.Request.Context(), providerReq)
+	})
+
 	if err != nil {
-		// Record failed request
 		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
-		// Log the full error for debugging
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
 			logMsg = fmt.Sprintf("Provider request failed [%s]: %s (code: %d, retryable: %v)",
@@ -271,6 +350,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	resp := result.(*provider.ChatResponse)
+
 	// Check for provider error in response
 	if resp.Error != nil {
 		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
@@ -278,12 +359,15 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	// Update model success rate
+	h.smartRouter.UpdateModelSuccessRate(req.Model, assessment.TaskType, true)
+
 	// Record metrics
 	latency := time.Since(startTime)
 	h.recordMetrics(userID, apiKey, req.Model, latency, resp.Usage.TotalTokens, true)
 
-	// Return response in OpenAI-compatible format
-	c.JSON(http.StatusOK, ChatCompletionResponse{
+	// Build response
+	response := ChatCompletionResponse{
 		ID:                resp.ID,
 		Object:            resp.Object,
 		Created:           resp.Created,
@@ -295,7 +379,50 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
 		},
-	})
+	}
+
+	// Cache the response if applicable
+	if h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+		responseBody, _ := json.Marshal(response)
+		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
+		cachedResp := &cache.CachedResponse{
+			StatusCode: http.StatusOK,
+			Headers:    map[string]string{"Content-Type": "application/json"},
+			Body:       responseBody,
+			CreatedAt:  time.Now(),
+			Provider:   req.Provider,
+			Model:      req.Model,
+		}
+		h.cache.ResponseCache.Set(c.Request.Context(), cacheKey, cachedResp)
+		logrus.WithFields(logrus.Fields{
+			"model": req.Model,
+			"ttl":   recommendedTTL,
+		}).Debug("Response cached")
+	}
+
+	// Store in semantic cache for similar query matching
+	// 改动点: 存储到语义缓存供相似请求复用
+	if h.semanticCache != nil && recommendedTTL > 0 && assessment.TaskType != routing.TaskTypeCreative {
+		responseBody, _ := json.Marshal(response)
+		queryVector := cache.SimpleEmbedding(prompt, 1536)
+		h.semanticCache.Set(
+			c.Request.Context(),
+			prompt,
+			queryVector,
+			responseBody,
+			req.Model,
+			req.Provider,
+			string(assessment.TaskType),
+			recommendedTTL,
+		)
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": assessment.TaskType,
+		}).Debug("Semantic cache entry stored")
+	}
+
+	// Return response in OpenAI-compatible format
+	c.JSON(http.StatusOK, response)
 }
 
 // getProviderForRequest gets the appropriate provider for the request
@@ -904,8 +1031,6 @@ func (h *ProxyHandler) Embeddings(c *gin.Context) {
 		return
 	}
 
-	// For now, return a placeholder response
-	// TODO: Implement actual embedding when provider supports it
 	Success(c, EmbeddingResponse{
 		Object: "list",
 		Data: []EmbeddingData{
