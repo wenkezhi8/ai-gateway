@@ -293,6 +293,11 @@ const feedbackStats = reactive({
   modelsTracked: 0
 })
 
+const ttlConfig = reactive({
+  taskTypeDefaults: {} as Record<string, number>,
+  difficultyMultipliers: { low: 0.5, medium: 1.0, high: 2.0 }
+})
+
 const cascadeLevels = [
   { key: 'small', label: '小型', type: 'success', desc: '快速响应，低成本', models: ['gpt-4o-mini', 'deepseek-chat', 'glm-4-flash', 'qwen-turbo'] },
   { key: 'medium', label: '中型', type: 'warning', desc: '平衡质量与速度', models: ['gpt-4o', 'deepseek-coder', 'claude-3-5-haiku', 'qwen-plus'] },
@@ -490,12 +495,25 @@ async function loadTaskTypeDistribution() {
   }
 }
 
+async function loadTTLConfig() {
+  try {
+    const data: any = await request.get('/api/admin/router/ttl-config')
+    if (data?.data) {
+      ttlConfig.taskTypeDefaults = data.data.task_type_defaults || {}
+      ttlConfig.difficultyMultipliers = data.data.difficulty_multipliers || { low: 0.5, medium: 1.0, high: 2.0 }
+    }
+  } catch (e) {
+    console.warn('Failed to load TTL config:', e)
+  }
+}
+
 onMounted(() => {
   loadConfig()
   loadModelScores()
   loadAvailableModels()
   loadFeedbackStats()
   loadTaskTypeDistribution()
+  loadTTLConfig()
 })
 </script>
 

@@ -45,6 +45,59 @@ type DifficultyAssessor struct {
 
 	// 历史数据
 	historySuccessRate map[string]float64 // key: "model:taskType"
+
+	// TTL配置
+	ttlConfig *TTLConfig
+}
+
+// TTLConfig represents TTL configuration for different task types
+type TTLConfig struct {
+	TaskTypeDefaults      map[TaskType]time.Duration  `json:"task_type_defaults"`
+	DifficultyMultipliers map[DifficultyLevel]float64 `json:"difficulty_multipliers"`
+}
+
+// DefaultTTLConfig returns the default TTL configuration
+func DefaultTTLConfig() *TTLConfig {
+	return &TTLConfig{
+		TaskTypeDefaults: map[TaskType]time.Duration{
+			TaskTypeFact:      24 * time.Hour,  // 事实查询缓存1天
+			TaskTypeCode:      168 * time.Hour, // 代码缓存7天
+			TaskTypeMath:      720 * time.Hour, // 数学缓存30天
+			TaskTypeChat:      1 * time.Hour,   // 闲聊缓存1小时
+			TaskTypeCreative:  0,               // 创意类不缓存
+			TaskTypeReasoning: 168 * time.Hour, // 推理缓存7天
+			TaskTypeLongText:  360 * time.Hour, // 长文本缓存15天
+			TaskTypeTranslate: 72 * time.Hour,  // 翻译缓存3天
+			TaskTypeUnknown:   24 * time.Hour,  // 未知类型缓存1天
+		},
+		DifficultyMultipliers: map[DifficultyLevel]float64{
+			DifficultyLow:    0.5, // 低难度 TTL 减半
+			DifficultyMedium: 1.0, // 中难度保持默认
+			DifficultyHigh:   2.0, // 高难度 TTL 翻倍
+		},
+	}
+}
+
+// GetTTLConfig returns the current TTL configuration
+func (a *DifficultyAssessor) GetTTLConfig() *TTLConfig {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.ttlConfig == nil {
+		return DefaultTTLConfig()
+	}
+	return a.ttlConfig
+}
+
+// SetTTLConfig sets the TTL configuration
+func (a *DifficultyAssessor) SetTTLConfig(config *TTLConfig) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.ttlConfig = config
+}
+
+// ParseDuration parses hours to time.Duration
+func ParseDuration(hours int) time.Duration {
+	return time.Duration(hours) * time.Hour
 }
 
 // NewDifficultyAssessor creates a new difficulty assessor
@@ -350,25 +403,23 @@ func (a *DifficultyAssessor) AssessWithResult(prompt string, context string) *As
 }
 
 func (a *DifficultyAssessor) getSuggestedTTL(taskType TaskType, difficulty DifficultyLevel) time.Duration {
-	// 基于任务类型和难度的缓存策略
-	switch taskType {
-	case TaskTypeFact:
-		return 24 * time.Hour // 事实查询缓存1天
-	case TaskTypeCode:
-		if difficulty == DifficultyHigh {
-			return 30 * 24 * time.Hour // 高难度代码缓存30天
-		}
-		return 7 * 24 * time.Hour // 普通代码缓存7天
-	case TaskTypeMath:
-		return 30 * 24 * time.Hour // 数学题缓存30天
-	case TaskTypeChat:
-		return 1 * time.Hour // 闲聊缓存1小时
-	case TaskTypeCreative:
-		return 0 // 创意类不缓存
-	default:
-		if difficulty == DifficultyHigh {
-			return 7 * 24 * time.Hour
-		}
-		return 24 * time.Hour
+	config := a.GetTTLConfig()
+
+	baseTTL, ok := config.TaskTypeDefaults[taskType]
+	if !ok {
+		baseTTL = config.TaskTypeDefaults[TaskTypeUnknown]
 	}
+
+	// 创意类不缓存
+	if taskType == TaskTypeCreative {
+		return 0
+	}
+
+	// 根据难度调整
+	multiplier, ok := config.DifficultyMultipliers[difficulty]
+	if !ok {
+		multiplier = 1.0
+	}
+
+	return time.Duration(float64(baseTTL) * multiplier)
 }

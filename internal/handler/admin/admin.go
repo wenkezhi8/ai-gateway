@@ -116,6 +116,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.POST("/select", handlers.SmartRouter.SelectModel)
 		routerGroup.GET("/provider-defaults", handlers.SmartRouter.GetProviderDefaults)
 		routerGroup.PUT("/provider-defaults", handlers.SmartRouter.UpdateProviderDefaults)
+		routerGroup.GET("/ttl-config", handlers.SmartRouter.GetTTLConfig)
+		routerGroup.PUT("/ttl-config", handlers.SmartRouter.UpdateTTLConfig)
 	}
 
 	// Cache management routes

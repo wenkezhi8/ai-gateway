@@ -285,3 +285,85 @@ func (h *RouterHandler) UpdateProviderDefaults(c *gin.Context) {
 		"message": "Provider defaults updated",
 	})
 }
+
+// TTLConfigResponse represents TTL configuration response
+type TTLConfigResponse struct {
+	TaskTypeDefaults      map[string]int     `json:"task_type_defaults"` // TTL in hours
+	DifficultyMultipliers map[string]float64 `json:"difficulty_multipliers"`
+}
+
+// GetTTLConfig returns TTL configuration
+// GET /api/admin/router/ttl-config
+func (h *RouterHandler) GetTTLConfig(c *gin.Context) {
+	config := h.router.GetDifficultyAssessor().GetTTLConfig()
+
+	// Convert duration to hours for easier consumption
+	taskTypeDefaults := make(map[string]int)
+	for k, v := range config.TaskTypeDefaults {
+		taskTypeDefaults[string(k)] = int(v.Hours())
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": TTLConfigResponse{
+			TaskTypeDefaults: taskTypeDefaults,
+			DifficultyMultipliers: map[string]float64{
+				"low":    config.DifficultyMultipliers[routing.DifficultyLow],
+				"medium": config.DifficultyMultipliers[routing.DifficultyMedium],
+				"high":   config.DifficultyMultipliers[routing.DifficultyHigh],
+			},
+		},
+	})
+}
+
+// UpdateTTLConfigRequest represents TTL config update request
+type UpdateTTLConfigRequest struct {
+	TaskTypeDefaults      map[string]int     `json:"task_type_defaults"` // TTL in hours
+	DifficultyMultipliers map[string]float64 `json:"difficulty_multipliers"`
+}
+
+// UpdateTTLConfig updates TTL configuration
+// PUT /api/admin/router/ttl-config
+func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
+	var req UpdateTTLConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	config := h.router.GetDifficultyAssessor().GetTTLConfig()
+
+	// Update task type defaults
+	if req.TaskTypeDefaults != nil {
+		for k, v := range req.TaskTypeDefaults {
+			config.TaskTypeDefaults[routing.TaskType(k)] = routing.ParseDuration(v)
+		}
+	}
+
+	// Update difficulty multipliers
+	if req.DifficultyMultipliers != nil {
+		for k, v := range req.DifficultyMultipliers {
+			switch k {
+			case "low":
+				config.DifficultyMultipliers[routing.DifficultyLow] = v
+			case "medium":
+				config.DifficultyMultipliers[routing.DifficultyMedium] = v
+			case "high":
+				config.DifficultyMultipliers[routing.DifficultyHigh] = v
+			}
+		}
+	}
+
+	h.router.GetDifficultyAssessor().SetTTLConfig(config)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "TTL configuration updated",
+	})
+}
