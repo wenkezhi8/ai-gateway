@@ -14,6 +14,8 @@ export interface ChatMessage {
   isStreaming?: boolean
   error?: string
   stats?: MessageStats
+  images?: string[]
+  files?: string[]
 }
 
 /** Message statistics */
@@ -42,7 +44,7 @@ export interface ChatCompletionParams {
   model: string
   messages: Array<{
     role: MessageRole
-    content: string
+    content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>
   }>
   provider?: string
   temperature?: number

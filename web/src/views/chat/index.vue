@@ -370,13 +370,24 @@ function handleModelChange(provider: string, model: string): void {
   }
 }
 
-async function handleSend(text: string): Promise<void> {
-  if (!text.trim() || !chatStore.currentConversation) return
+async function handleSend(text: string, files: any[] = []): Promise<void> {
+  if ((!text.trim() && files.length === 0) || !chatStore.currentConversation) return
 
   const conversationId = chatStore.currentConversation.id
 
-  // Add user message
-  const userMessage = createMessage('user', text)
+  // Extract images from files
+  const imageFiles = files.filter(f => f.isImage && f.base64)
+  const imageUrls = imageFiles.map(f => f.base64)
+  const fileNames = files.filter(f => !f.isImage).map(f => f.name)
+
+  // Add user message with images/files info
+  const userMessage = createMessage('user', text || (imageUrls.length > 0 ? '[图片]' : ''))
+  if (imageUrls.length > 0) {
+    userMessage.images = imageUrls
+  }
+  if (fileNames.length > 0) {
+    userMessage.files = fileNames
+  }
   chatStore.addMessage(userMessage)
 
   // Create assistant message placeholder
@@ -393,11 +404,25 @@ async function handleSend(text: string): Promise<void> {
 
   // Prepare messages for API
   const messages = chatStore.currentMessages
-    .filter(m => m.id !== assistantMessage.id && m.content)
-    .map(m => ({
-      role: m.role,
-      content: m.content
-    }))
+    .filter(m => m.id !== assistantMessage.id && (m.content || m.images?.length))
+    .map(m => {
+      if (m.images && m.images.length > 0) {
+        return {
+          role: m.role,
+          content: [
+            { type: 'text', text: m.content || '' },
+            ...m.images.map((url: string) => ({
+              type: 'image_url',
+              image_url: { url }
+            }))
+          ]
+        }
+      }
+      return {
+        role: m.role,
+        content: m.content
+      }
+    })
 
   // Track stats
   const startTime = Date.now()

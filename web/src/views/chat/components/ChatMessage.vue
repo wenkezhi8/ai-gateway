@@ -14,6 +14,25 @@
         <span class="role-name">{{ message.role === 'user' ? 'You' : providerName }}</span>
         <span class="timestamp">{{ formatTime(message.timestamp) }}</span>
       </div>
+      
+      <div class="message-images" v-if="message.images && message.images.length > 0">
+        <div 
+          v-for="(img, index) in message.images" 
+          :key="index" 
+          class="message-image"
+          @click="previewImage(img)"
+        >
+          <img :src="img" alt="uploaded image" />
+        </div>
+      </div>
+      
+      <div class="message-files" v-if="message.files && message.files.length > 0">
+        <div v-for="(file, index) in message.files" :key="index" class="message-file">
+          <el-icon><Document /></el-icon>
+          <span>{{ file }}</span>
+        </div>
+      </div>
+      
       <div class="message-body" :class="{ error: message.error }">
         <template v-if="message.role === 'assistant'">
           <TypewriterText
@@ -64,7 +83,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { User, Monitor, DocumentCopy, WarningFilled } from '@element-plus/icons-vue'
+import { User, Monitor, DocumentCopy, WarningFilled, Document } from '@element-plus/icons-vue'
 import type { ChatMessage } from '@/types/chat'
 import { getProviderConfig } from '@/store/chat'
 import TypewriterText from './TypewriterText.vue'
@@ -111,6 +130,10 @@ async function copyContent(): Promise<void> {
   } catch (e) {
     console.error('Failed to copy:', e)
   }
+}
+
+function previewImage(src: string): void {
+  window.open(src, '_blank')
 }
 </script>
 
@@ -186,6 +209,54 @@ async function copyContent(): Promise<void> {
 .timestamp {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
+}
+
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.message-image {
+  width: 80px;
+  height: 80px;
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s;
+
+  &:hover {
+    transform: scale(1.05);
+  }
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.message-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  margin-bottom: var(--spacing-sm);
+}
+
+.message-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: var(--border-radius-md);
+  font-size: 12px;
+  color: var(--text-secondary);
+
+  .el-icon {
+    font-size: 14px;
+  }
 }
 
 .message-body {
