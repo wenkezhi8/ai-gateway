@@ -349,6 +349,67 @@ git rebase origin/develop
 git push origin feature/your-feature
 ```
 
+### 版本号规范
+
+遵循 [语义化版本](https://semver.org/lang/zh-CN/)：`MAJOR.MINOR.PATCH`
+
+| 版本类型 | 说明 | 示例 |
+|----------|------|------|
+| MAJOR | 不兼容的 API 变更 | 1.0.0 → 2.0.0 |
+| MINOR | 向下兼容的新功能 | 1.1.0 → 1.2.0 |
+| PATCH | 向下兼容的问题修复 | 1.1.0 → 1.1.1 |
+
+**当前版本**: `v1.2.0`
+
+### 强制提交规范
+
+> ⚠️ **重要**：每次开发/修复后必须立即提交，避免代码丢失
+
+```bash
+# 每完成一个功能/修复就提交
+git add -A
+git commit -m "feat(xxx): 功能描述"
+
+# 每天下班前推送到远程（0点自动推送）
+git push origin main
+
+# 开发中的代码也要提交（防止丢失）
+git add -A
+git commit -m "WIP: 功能开发中"
+```
+
+### 自动化脚本
+
+```bash
+# 添加到 crontab，每天 0 点自动推送
+# crontab -e
+# 0 0 * * * cd /path/to/ai-gateway && git push origin main >> /tmp/git-push.log 2>&1
+```
+
+---
+
+## 历史教训
+
+### 2026-02-23 代码丢失事件
+
+**问题描述**：凌晨开发的功能代码丢失，只能重新实现
+
+**原因分析**：
+1. 开发完成后未提交到 git
+2. 执行了 `git checkout` 或 IDE 的 "Discard Changes" 覆盖了工作区
+3. 没有 git stash 备份
+
+**解决方案**：
+1. 每完成一个功能立即 `git commit`
+2. 开发中的代码也要 `git commit -m "WIP"`
+3. 每天 0 点自动推送到远程
+
+**改进措施**：
+- ✅ 每次修复/开发后立即提交到本地仓库
+- ✅ 每天推送到 GitHub 远程仓库
+- ✅ 重要修改前先 `git stash` 或 `git commit`
+- ✅ 禁止执行 `git checkout .` 或 `git restore` 除非确认修改可丢弃
+
 ---
 
 ## 代码审查流程
@@ -738,7 +799,11 @@ export REDIS_DB=0
 
 ## 开发规划
 
-### 当前迭代 (v1.1)
+### 当前版本
+
+**v1.2.0** (2026-02-23)
+
+### 当前迭代 (v1.2)
 
 | 任务 | 状态 | 说明 |
 |------|------|------|
@@ -756,6 +821,9 @@ export REDIS_DB=0
 | 效果评估闭环 | ✅ 完成 | internal/routing/feedback.go - 自动收集反馈，迭代优化路由规则 |
 | 反馈 API | ✅ 完成 | internal/handler/admin/feedback.go - 反馈提交、性能查询、优化触发 |
 | 路由策略 UI | ✅ 完成 | web/src/views/routing/index.vue - 智能路由配置、模型评分、反馈统计 |
+| 缓存管理 UI | ✅ 完成 | web/src/views/cache/index.vue - Redis状态、请求去重、语义缓存配置 |
+| 前后端 API 统一 | ✅ 完成 | 所有页面调用真实 API，移除模拟数据 |
+| 环境变量配置 | ✅ 完成 | API Key 改用环境变量，移除硬编码 |
 
 ### 测试覆盖率
 
@@ -782,6 +850,29 @@ export REDIS_DB=0
 | 前端路由守卫延迟 | 已优化 | index.html 预检查 token |
 | 模型删除后刷新恢复 | 已修复 | loadFromFile 完全替换而非合并 |
 | 密码重启后重置 | 已修复 | 持久化到 data/users.json |
+| 代码丢失风险 | 已解决 | 每次开发立即提交，每天推送远程 |
+
+### 改进建议
+
+1. **代码安全**
+   - 使用 `git stash` 暂存临时修改
+   - 重要修改前创建备份分支：`git branch backup-xxx`
+   - 禁止直接在 main 分支开发，使用 feature 分支
+
+2. **开发流程**
+   - 每完成一个小功能就提交，不要积攒
+   - 提交信息要清晰，方便回溯
+   - 使用 `git add -p` 选择性提交
+
+3. **自动化**
+   - 配置 git hooks，提交前自动检查
+   - 配置定时任务，每天自动推送
+   - 使用 CI/CD 自动部署
+
+4. **文档更新**
+   - 每次修改后更新 AGENTS.md
+   - 记录版本号变更
+   - 记录遇到的问题和解决方案
 
 ---
 
