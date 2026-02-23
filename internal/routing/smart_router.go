@@ -59,10 +59,11 @@ type RouterConfig struct {
 
 // SmartRouter handles intelligent model selection
 type SmartRouter struct {
-	mu       sync.RWMutex
-	config   *RouterConfig
-	assessor *DifficultyAssessor
-	cascade  *CascadeRouter
+	mu               sync.RWMutex
+	config           *RouterConfig
+	assessor         *DifficultyAssessor
+	cascade          *CascadeRouter
+	taskModelMapping map[string]string // task type -> model
 }
 
 // DefaultModelScores returns default scoring for common models
@@ -163,7 +164,8 @@ func NewSmartRouter() *SmartRouter {
 			TaskRules:        DefaultTaskRules(),
 			ProviderDefaults: DefaultProviderDefaults(),
 		},
-		assessor: NewDifficultyAssessor(),
+		assessor:         NewDifficultyAssessor(),
+		taskModelMapping: make(map[string]string),
 	}
 
 	router.cascade = NewCascadeRouter(router, router.assessor)
@@ -807,4 +809,37 @@ func (r *SmartRouter) UpdateModelSuccessRate(model string, taskType TaskType, su
 func (r *SmartRouter) GetRecommendedTTL(prompt string, context string) time.Duration {
 	assessment := r.assessor.AssessWithResult(prompt, context)
 	return assessment.SuggestedTTL
+}
+
+// GetTaskModelMapping returns the task type to model mapping
+func (r *SmartRouter) GetTaskModelMapping() map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[string]string)
+	for k, v := range r.taskModelMapping {
+		result[k] = v
+	}
+	return result
+}
+
+// SetTaskModelMapping sets the task type to model mapping
+func (r *SmartRouter) SetTaskModelMapping(mapping map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.taskModelMapping = make(map[string]string)
+	for k, v := range mapping {
+		r.taskModelMapping[k] = v
+	}
+
+	routerLogger.WithField("mapping", mapping).Info("Task model mapping updated")
+}
+
+// GetModelForTaskType returns the model for a specific task type
+func (r *SmartRouter) GetModelForTaskType(taskType TaskType) string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.taskModelMapping[string(taskType)]
 }

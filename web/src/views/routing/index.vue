@@ -71,6 +71,39 @@
                 </el-form-item>
               </el-col>
             </el-row>
+
+            <!-- 任务类型模型映射 -->
+            <el-divider content-position="left">任务类型模型映射</el-divider>
+            <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+              <template #title>
+                开启后将根据任务类型自动选择对应模型，关闭则使用默认策略
+              </template>
+            </el-alert>
+            <el-row :gutter="16">
+              <el-col :span="12" v-for="task in taskTypes" :key="task.type">
+                <div class="task-model-item">
+                  <div class="task-header">
+                    <el-switch v-model="taskModelMapping[task.type]!.enabled" size="small" />
+                    <span class="task-name">{{ task.name }}</span>
+                  </div>
+                  <el-select 
+                    v-model="taskModelMapping[task.type]!.model" 
+                    :disabled="!taskModelMapping[task.type]?.enabled"
+                    filterable
+                    size="small"
+                    style="width: 100%"
+                    placeholder="选择模型"
+                  >
+                    <el-option
+                      v-for="m in availableModels"
+                      :key="m"
+                      :label="m"
+                      :value="m"
+                    />
+                  </el-select>
+                </div>
+              </el-col>
+            </el-row>
           </el-form>
         </el-card>
 
@@ -278,6 +311,18 @@ const config = reactive({
   useAutoMode: true
 })
 
+// 任务类型模型映射
+const taskModelMapping = reactive<Record<string, { enabled: boolean, model: string }>>({
+  code: { enabled: false, model: 'deepseek-coder' },
+  chat: { enabled: false, model: 'gpt-4o-mini' },
+  reasoning: { enabled: false, model: 'deepseek-reasoner' },
+  math: { enabled: false, model: 'deepseek-reasoner' },
+  fact: { enabled: false, model: 'gpt-4o' },
+  creative: { enabled: false, model: 'claude-3-5-sonnet' },
+  translate: { enabled: false, model: 'gpt-4o' },
+  other: { enabled: false, model: 'gpt-4o-mini' }
+})
+
 const strategies = ref([
   { value: 'auto', label: '智能平衡', description: '综合效果 + 速度 + 成本' },
   { value: 'quality', label: '效果优先', description: '选择效果最好的模型' },
@@ -358,6 +403,21 @@ async function loadConfig() {
         strategies.value = data.data.strategies
       }
     }
+    
+    // 加载任务类型模型映射
+    try {
+      const mappingData: any = await request.get('/api/admin/router/task-model-mapping')
+      if (mappingData?.data) {
+        for (const [taskType, model] of Object.entries(mappingData.data)) {
+          if (taskModelMapping[taskType]) {
+            taskModelMapping[taskType].enabled = true
+            taskModelMapping[taskType].model = model as string
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load task model mapping:', e)
+    }
   } catch (e) {
     console.warn('Failed to load config:', e)
   }
@@ -415,11 +475,22 @@ async function loadFeedbackStats() {
 async function saveConfig() {
   saving.value = true
   try {
+    // 保存基本配置
     await request.put('/api/admin/router/config', {
       default_strategy: config.defaultStrategy,
       default_model: config.defaultModel,
       use_auto_mode: config.useAutoMode
     })
+    
+    // 保存任务类型模型映射
+    const mappingData: Record<string, string> = {}
+    for (const [taskType, mapping] of Object.entries(taskModelMapping)) {
+      if (mapping.enabled && mapping.model) {
+        mappingData[taskType] = mapping.model
+      }
+    }
+    await request.put('/api/admin/router/task-model-mapping', mappingData)
+    
     handleSuccess('配置已保存')
   } catch (e) {
     handleApiError(e, '保存失败')
@@ -675,6 +746,27 @@ onMounted(() => {
         &.positive {
           color: #67c23a;
         }
+      }
+    }
+  }
+
+  .task-model-item {
+    margin-bottom: 12px;
+    padding: 8px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 8px;
+    background: var(--el-fill-color-light);
+
+    .task-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+
+      .task-name {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--el-text-color-primary);
       }
     }
   }

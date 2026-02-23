@@ -514,3 +514,40 @@ func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
 		"message": "Cascade rules reset to defaults",
 	})
 }
+
+// GetTaskModelMapping returns task type to model mapping
+// GET /api/admin/router/task-model-mapping
+func (h *RouterHandler) GetTaskModelMapping(c *gin.Context) {
+	mapping := h.router.GetTaskModelMapping()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    mapping,
+	})
+}
+
+// UpdateTaskModelMappingRequest represents task model mapping update request
+type UpdateTaskModelMappingRequest map[string]string
+
+// UpdateTaskModelMapping updates task type to model mapping
+// PUT /api/admin/router/task-model-mapping
+func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
+	var req UpdateTaskModelMappingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	h.router.SetTaskModelMapping(req)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Task model mapping updated",
+	})
+}

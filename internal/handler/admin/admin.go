@@ -124,6 +124,9 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.PUT("/cascade-rules", handlers.SmartRouter.UpdateCascadeRule)
 		routerGroup.DELETE("/cascade-rules/:taskType/:difficulty", handlers.SmartRouter.DeleteCascadeRule)
 		routerGroup.POST("/cascade-rules/reset", handlers.SmartRouter.ResetCascadeRules)
+		// Task model mapping
+		routerGroup.GET("/task-model-mapping", handlers.SmartRouter.GetTaskModelMapping)
+		routerGroup.PUT("/task-model-mapping", handlers.SmartRouter.UpdateTaskModelMapping)
 	}
 
 	// Cache management routes
