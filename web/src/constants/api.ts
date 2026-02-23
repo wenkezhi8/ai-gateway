@@ -79,5 +79,6 @@ export const API = {
     SUMMARY: '/api/admin/cache/summary',
     QUALITY_CONFIG: '/api/admin/cache/quality-config',
     INVALIDATE_LOW_QUALITY: '/api/admin/cache/invalidate-low-quality',
+    RULES: '/api/admin/cache/rules',
   },
 } as const

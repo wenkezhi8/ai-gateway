@@ -683,16 +683,29 @@ const editRule = (rule: CacheRule) => {
   ruleDialogVisible.value = true
 }
 
-const deleteRule = (rule: CacheRule) => {
-  ElMessageBox.confirm(`确定删除规则 "${rule.pattern}" 吗？`, '警告', { type: 'warning' })
-    .then(() => {
-      ElMessage.success('规则已删除')
-    })
-    .catch(() => {})
+const deleteRule = async (rule: CacheRule) => {
+  try {
+    await ElMessageBox.confirm(`确定删除规则 "${rule.pattern}" 吗？`, '警告', { type: 'warning' })
+    await request.delete(`/api/admin/cache/rules/${rule.id}`)
+    handleSuccess('规则已删除')
+    loadCacheRules()
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      handleApiError(e, '删除失败')
+    }
+  }
 }
 
-const handleRuleChange = (rule: CacheRule) => {
-  ElMessage.success(`规则已${rule.enabled ? '启用' : '禁用'}`)
+const handleRuleChange = async (rule: CacheRule) => {
+  try {
+    await request.put(`/api/admin/cache/rules/${rule.id}`, {
+      enabled: rule.enabled
+    })
+    handleSuccess(`规则已${rule.enabled ? '启用' : '禁用'}`)
+  } catch (e) {
+    rule.enabled = !rule.enabled
+    handleApiError(e, '操作失败')
+  }
 }
 
 const submitRule = async () => {
@@ -700,15 +713,55 @@ const submitRule = async () => {
   try {
     const valid = await ruleFormRef.value.validate()
     if (valid) {
+      let ttl = ruleForm.ttlValue
+      switch (ruleForm.ttlUnit) {
+        case 'days': ttl *= 86400; break
+        case 'hours': ttl *= 3600; break
+        case 'minutes': ttl *= 60; break
+      }
+
       if (isEditRule.value) {
+        await request.put(`/api/admin/cache/rules/${ruleForm.id}`, {
+          pattern: ruleForm.pattern,
+          model_filter: ruleForm.modelFilter,
+          ttl: ttl,
+          priority: ruleForm.priority,
+          enabled: ruleForm.enabled
+        })
         handleSuccess('规则已更新')
       } else {
+        await request.post('/api/admin/cache/rules', {
+          pattern: ruleForm.pattern,
+          model_filter: ruleForm.modelFilter,
+          ttl: ttl,
+          priority: ruleForm.priority,
+          enabled: ruleForm.enabled
+        })
         handleSuccess('规则已添加')
       }
       ruleDialogVisible.value = false
+      loadCacheRules()
     }
   } catch (error) {
     handleApiError(error, '操作失败')
+  }
+}
+
+async function loadCacheRules() {
+  try {
+    const data: any = await request.get('/api/admin/cache/rules')
+    if (data?.data) {
+      cacheRules.value = data.data.map((r: any) => ({
+        id: r.id,
+        pattern: r.pattern,
+        modelFilter: r.model_filter || '',
+        ttl: r.ttl,
+        priority: r.priority,
+        enabled: r.enabled
+      }))
+    }
+  } catch (e) {
+    console.warn('Failed to load cache rules:', e)
   }
 }
 
@@ -826,6 +879,7 @@ onMounted(() => {
   loadCacheStats()
   loadCacheConfig()
   loadCacheHealth()
+  loadCacheRules()
 })
 
 onUnmounted(() => {
