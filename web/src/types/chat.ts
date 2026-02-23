@@ -16,6 +16,8 @@ export interface ChatMessage {
   stats?: MessageStats
   images?: string[]
   files?: string[]
+  reasoningContent?: string // DeepSeek R1 深度思考内容
+  reasoning?: string // 兼容字段
 }
 
 /** Message statistics */

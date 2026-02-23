@@ -22,12 +22,11 @@
             <span>联网搜索</span>
           </button>
         </el-tooltip>
-        <el-tooltip content="深度推理模式，适合复杂问题（开发中）" placement="top">
+        <el-tooltip content="深度推理模式，展示思考过程" placement="top">
           <button 
             class="feature-btn" 
             :class="{ active: deepThinkEnabled }"
             @click="toggleDeepThink"
-            disabled
           >
             <el-icon><Cpu /></el-icon>
             <span>深度思考</span>

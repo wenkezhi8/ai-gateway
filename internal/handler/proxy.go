@@ -822,6 +822,14 @@ func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider,
 					Content:   ch.Delta.Content,
 					ToolCalls: toolCalls,
 				}
+				// 处理深度思考内容 (DeepSeek R1)
+				if ch.Delta.ReasoningContent != "" || ch.Delta.Reasoning != "" {
+					reasoning := ch.Delta.ReasoningContent
+					if reasoning == "" {
+						reasoning = ch.Delta.Reasoning
+					}
+					delta.ReasoningContent = reasoning
+				}
 			}
 			streamResp.Choices[i] = StreamChoice{
 				Index:        ch.Index,

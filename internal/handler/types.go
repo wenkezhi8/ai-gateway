@@ -24,11 +24,12 @@ type ChatCompletionRequest struct {
 
 // ChatMessage represents a single message in the conversation
 type ChatMessage struct {
-	Role       string      `json:"role"`
-	Content    interface{} `json:"content"` // string 或 []ContentPart (多模态)
-	Name       string      `json:"name,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Role             string      `json:"role"`
+	Content          interface{} `json:"content"`                     // string 或 []ContentPart (多模态)
+	ReasoningContent string      `json:"reasoning_content,omitempty"` // DeepSeek R1 深度思考内容
+	Name             string      `json:"name,omitempty"`
+	ToolCalls        []ToolCall  `json:"tool_calls,omitempty"`
+	ToolCallID       string      `json:"tool_call_id,omitempty"`
 }
 
 // Tool represents a tool definition

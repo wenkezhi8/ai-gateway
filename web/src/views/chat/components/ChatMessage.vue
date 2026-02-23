@@ -33,6 +33,20 @@
         </div>
       </div>
       
+      <div class="message-reasoning" v-if="message.reasoningContent || message.reasoning">
+        <div class="reasoning-header" @click="toggleReasoning">
+          <el-icon><Cpu /></el-icon>
+          <span>深度思考过程</span>
+          <el-icon class="toggle-icon" :class="{ expanded: showReasoning }"><ArrowDown /></el-icon>
+        </div>
+        <div class="reasoning-content" v-show="showReasoning">
+          <TypewriterText
+            :content="message.reasoningContent || message.reasoning || ''"
+            :show-cursor="message.isStreaming && !message.content"
+          />
+        </div>
+      </div>
+      
       <div class="message-body" :class="{ error: message.error }">
         <template v-if="message.role === 'assistant'">
           <TypewriterText
@@ -83,7 +97,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { User, Monitor, DocumentCopy, WarningFilled, Document } from '@element-plus/icons-vue'
+import { User, Monitor, DocumentCopy, WarningFilled, Document, Cpu, ArrowDown } from '@element-plus/icons-vue'
 import type { ChatMessage } from '@/types/chat'
 import { getProviderConfig } from '@/store/chat'
 import TypewriterText from './TypewriterText.vue'
@@ -95,6 +109,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const copied = ref(false)
+const showReasoning = ref(true)
 
 const providerName = computed(() => {
   if (props.provider) {
@@ -134,6 +149,10 @@ async function copyContent(): Promise<void> {
 
 function previewImage(src: string): void {
   window.open(src, '_blank')
+}
+
+function toggleReasoning(): void {
+  showReasoning.value = !showReasoning.value
 }
 </script>
 
@@ -257,6 +276,52 @@ function previewImage(src: string): void {
   .el-icon {
     font-size: 14px;
   }
+}
+
+.message-reasoning {
+  margin-bottom: var(--spacing-sm);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, rgba(103, 194, 58, 0.1), rgba(64, 158, 255, 0.1));
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(103, 194, 58, 0.2), rgba(64, 158, 255, 0.2));
+  }
+
+  .el-icon {
+    font-size: 14px;
+  }
+
+  .toggle-icon {
+    margin-left: auto;
+    transition: transform 0.2s;
+
+    &.expanded {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.reasoning-content {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--bg-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-secondary);
 }
 
 .message-body {

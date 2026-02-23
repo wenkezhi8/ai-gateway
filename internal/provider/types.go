@@ -194,9 +194,11 @@ type StreamChoice struct {
 
 // StreamDelta represents the delta content in a streaming response
 type StreamDelta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Content          string     `json:"content,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // DeepSeek R1 深度思考内容
+	Reasoning        string     `json:"reasoning,omitempty"`         // 兼容字段
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 }
 
 // ProviderConfig holds provider configuration
