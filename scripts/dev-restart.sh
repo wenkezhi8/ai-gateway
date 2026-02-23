@@ -15,17 +15,32 @@ cd web
 npm run build
 
 echo ""
-echo "🛑 停止旧服务..."
-lsof -ti:8566 | xargs kill -9 2>/dev/null || true
-sleep 1
+echo "🛑 停止所有旧服务（包括僵尸进程）..."
+# 停止所有 gateway 相关进程
+pkill -9 -f "go run ./cmd/gateway" 2>/dev/null || true
+pkill -9 -f "ai-gateway" 2>/dev/null || true
+pkill -9 -f "openclaw-gateway" 2>/dev/null || true
+pkill -9 -f "/gateway" 2>/dev/null || true
+sleep 2
+
+# 再次确认没有残留
+REMAINING=$(pgrep -f "gateway" 2>/dev/null | wc -l)
+if [ "$REMAINING" -gt 0 ]; then
+    echo "⚠️  发现 $REMAINING 个残留进程，强制清理..."
+    pkill -9 gateway 2>/dev/null || true
+    sleep 1
+fi
+
+echo "✓ 旧服务已停止"
 
 echo ""
 echo "🚀 启动新服务..."
 cd "$PROJECT_DIR"
 nohup go run ./cmd/gateway > /tmp/ai-gateway.log 2>&1 &
+GATEWAY_PID=$!
 
 echo ""
-echo "⏳ 等待服务启动..."
+echo "⏳ 等待服务启动 (PID: $GATEWAY_PID)..."
 sleep 4
 
 echo ""
@@ -33,6 +48,14 @@ echo "🔍 检查服务状态..."
 HEALTH=$(curl -s http://localhost:8566/health)
 if echo "$HEALTH" | grep -q "healthy"; then
     echo "✅ 服务启动成功"
+    
+    # 显示内存使用
+    MEM=$(ps -p $GATEWAY_PID -o rss= 2>/dev/null | awk '{print int($1/1024) "MB"}')
+    echo ""
+    echo "📊 进程信息:"
+    echo "   PID:  $GATEWAY_PID"
+    echo "   内存: $MEM (物理内存)"
+    
     echo ""
     echo "📌 访问地址:"
     echo "   - 首页:     http://localhost:8566/"
