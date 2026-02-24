@@ -194,7 +194,7 @@ func expandEnvVars(s string) string {
 //	PROVIDER_ANTHROPIC_API_KEY=sk-ant-xxx
 func (c *Config) loadProvidersFromEnv() {
 	// Define known providers and their env var prefixes
-	providerPrefixes := []string{"OPENAI", "ANTHROPIC", "AZURE", "VOLCENGINE", "CLAUDE"}
+	providerPrefixes := []string{"OPENAI", "ANTHROPIC", "AZURE", "VOLCENGINE", "CLAUDE", "DEEPSEEK"}
 
 	for _, prefix := range providerPrefixes {
 		apiKeyEnv := "PROVIDER_" + prefix + "_API_KEY"
