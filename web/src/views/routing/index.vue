@@ -25,49 +25,40 @@
           <template #header>
             <div class="card-header">
               <span>智能路由配置</span>
-              <el-button type="primary" size="small" @click="saveConfig" :loading="saving">
+              <!-- FIX: 保存任务映射 -->
+              <el-button type="primary" size="small" @click="saveTaskMapping" :loading="saving">
                 <el-icon><Check /></el-icon>
-                保存配置
+                保存映射
               </el-button>
             </div>
           </template>
 
           <el-form label-width="120px">
+            <!-- FIX: 基础路由配置仅展示，避免与 API 管理页重复 -->
             <el-row :gutter="24">
               <el-col :span="12">
-                <el-form-item label="路由模式">
-                  <el-switch v-model="config.useAutoMode" active-text="自动" inactive-text="手动" />
+                <el-form-item label="当前路由模式">
+                  <el-tag size="small" type="info">{{ modeLabel }}</el-tag>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="默认策略">
-                  <el-select v-model="config.defaultStrategy" style="width: 100%">
-                    <el-option
-                      v-for="s in strategies"
-                      :key="s.value"
-                      :label="s.label"
-                      :value="s.value"
-                    >
-                      <div class="strategy-option">
-                        <span>{{ s.label }}</span>
-                        <span class="strategy-desc">{{ s.description }}</span>
-                      </div>
-                    </el-option>
-                  </el-select>
+                  <el-tag size="small" type="info">{{ strategyLabel }}</el-tag>
                 </el-form-item>
               </el-col>
             </el-row>
             <el-row :gutter="24">
               <el-col :span="12">
                 <el-form-item label="默认模型">
-                  <el-select v-model="config.defaultModel" filterable style="width: 100%">
-                    <el-option
-                      v-for="m in availableModels"
-                      :key="m"
-                      :label="m"
-                      :value="m"
-                    />
-                  </el-select>
+                  <el-tag size="small" type="info">{{ config.defaultModel }}</el-tag>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="基础配置">
+                  <!-- FIX: 跳转到 API 管理页面配置基础路由 -->
+                  <el-button type="primary" link @click="$router.push('/api-management')">
+                    前往 API 管理设置
+                  </el-button>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -306,9 +297,10 @@ const modelScores = ref<ModelScore[]>([])
 const availableModels = ref<string[]>([])
 
 const config = reactive({
+  // FIX: 使用字符串模式用于只读展示
+  mode: 'auto',
   defaultStrategy: 'auto',
-  defaultModel: 'deepseek-chat',
-  useAutoMode: true
+  defaultModel: 'deepseek-chat'
 })
 
 // 任务类型模型映射
@@ -376,6 +368,21 @@ const filteredModels = computed(() => {
   )
 })
 
+// FIX: 展示当前路由模式与策略标签
+const modeLabel = computed(() => {
+  const labels: Record<string, string> = {
+    auto: 'Auto 智能选择',
+    default: 'Default 服务商默认',
+    fixed: '固定模型',
+    latest: 'Latest 最新'
+  }
+  return labels[config.mode] || config.mode
+})
+
+const strategyLabel = computed(() => {
+  return strategies.value.find(s => s.value === config.defaultStrategy)?.label || config.defaultStrategy
+})
+
 function calculateCompositeScore(row: ModelScore): number {
   return Math.round(row.quality_score * 0.4 + row.speed_score * 0.35 + row.cost_score * 0.25)
 }
@@ -400,9 +407,9 @@ async function loadConfig() {
       config.defaultModel = data.data.default_model || 'deepseek-chat'
       const mode = data.data.use_auto_mode
       if (typeof mode === 'string') {
-        config.useAutoMode = mode === 'auto'
+        config.mode = mode
       } else {
-        config.useAutoMode = mode ?? true
+        config.mode = mode ? 'auto' : 'fixed'
       }
       if (data.data.strategies) {
         strategies.value = data.data.strategies
@@ -488,17 +495,10 @@ async function loadFeedbackStats() {
   }
 }
 
-async function saveConfig() {
+async function saveTaskMapping() {
   saving.value = true
   try {
-    // 保存基本配置
-    await request.put('/admin/router/config', {
-      default_strategy: config.defaultStrategy,
-      default_model: config.defaultModel,
-      use_auto_mode: config.useAutoMode ? 'auto' : 'fixed'
-    })
-    
-    // 保存任务类型模型映射
+    // FIX: 仅保存任务映射，基础配置在 API 管理页设置
     const mappingData: Record<string, string> = {}
     for (const [taskType, mapping] of Object.entries(taskModelMapping)) {
       if (mapping.enabled && mapping.model) {
@@ -507,7 +507,7 @@ async function saveConfig() {
     }
     await request.put('/admin/router/task-model-mapping', mappingData)
     
-    handleSuccess('配置已保存')
+    handleSuccess('映射已保存')
   } catch (e) {
     handleApiError(e, '保存失败')
   } finally {
