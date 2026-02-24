@@ -38,6 +38,9 @@
           <el-icon><Cpu /></el-icon>
           <span>深度思考过程</span>
           <span class="reasoning-badge">推理</span>
+          <span v-if="!showReasoning && reasoningSummary" class="reasoning-summary">
+            {{ reasoningSummary }}
+          </span>
           <el-icon class="toggle-icon" :class="{ expanded: showReasoning }"><ArrowDown /></el-icon>
         </div>
         <div class="reasoning-content" v-show="showReasoning">
@@ -129,6 +132,14 @@ const providerLogo = computed(() => {
     return config?.logo || ''
   }
   return ''
+})
+
+const reasoningSummary = computed(() => {
+  const text = props.message.reasoningContent || props.message.reasoning || ''
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  if (trimmed.length <= 20) return trimmed
+  return `${trimmed.slice(0, 20)}...`
 })
 
 function formatTime(timestamp: number): string {
@@ -330,6 +341,19 @@ function toggleReasoning(): void {
   background: rgba(45, 106, 79, 0.12);
 }
 
+.reasoning-summary {
+  margin-left: 4px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.04);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .reasoning-content {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-secondary);
@@ -346,6 +370,8 @@ function toggleReasoning(): void {
   word-wrap: break-word;
   overflow-wrap: break-word;
   background: color-mix(in srgb, var(--bg-tertiary) 92%, var(--color-primary) 8%); /* 改动点: 提升答案区层级对比 */
+  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); /* 改动点: 答案区轻微边框 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); /* 改动点: 答案区轻微阴影 */
 
   &.error {
     border: 1px solid var(--color-danger);

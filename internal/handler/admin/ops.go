@@ -1,11 +1,15 @@
 package admin
 
 import (
+	"bufio"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -491,8 +495,10 @@ func (h *OpsHandler) getResourceMetrics() ResourceMetrics {
 		memoryUsage = float64(m.Alloc) / float64(m.Sys) * 100
 	}
 
+	cpuUsage := getCPUUsage()
+
 	return ResourceMetrics{
-		CPUUsage:       0,
+		CPUUsage:       cpuUsage,
 		CPUWarning:     80,
 		CPUCritical:    95,
 		MemoryUsage:    round1(memoryUsage),
@@ -504,6 +510,79 @@ func (h *OpsHandler) getResourceMetrics() ResourceMetrics {
 		GCCount:        m.NumGC,
 		GCPauseTotalNs: m.PauseTotalNs,
 	}
+}
+
+func getCPUUsage() float64 {
+	switch runtime.GOOS {
+	case "darwin":
+		return getCPUUsageDarwin()
+	case "linux":
+		return getCPUUsageLinux()
+	default:
+		return 0
+	}
+}
+
+func getCPUUsageDarwin() float64 {
+	out, err := exec.Command("top", "-l", "1", "-n", "0").Output()
+	if err != nil {
+		return 0
+	}
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "CPU usage:") {
+			fields := strings.Fields(line)
+			for i, f := range fields {
+				if strings.Contains(f, "user,") && i > 0 {
+					val := strings.TrimSuffix(fields[i-1], "%")
+					if usage, err := strconv.ParseFloat(val, 64); err == nil {
+						return round1(usage)
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func getCPUUsageLinux() float64 {
+	file, err := os.Open("/proc/stat")
+	if err != nil {
+		return 0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() {
+		return 0
+	}
+
+	line := scanner.Text()
+	if !strings.HasPrefix(line, "cpu ") {
+		return 0
+	}
+
+	fields := strings.Fields(line)[1:]
+	if len(fields) < 4 {
+		return 0
+	}
+
+	var total, idle float64
+	for i, f := range fields {
+		val, _ := strconv.ParseFloat(f, 64)
+		total += val
+		if i == 3 {
+			idle = val
+		}
+	}
+
+	if total == 0 {
+		return 0
+	}
+
+	usage := ((total - idle) / total) * 100
+	return round1(usage)
 }
 
 func (h *OpsHandler) getDiagnosis() DiagnosisResult {
