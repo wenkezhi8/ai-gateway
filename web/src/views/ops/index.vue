@@ -1,389 +1,307 @@
 <template>
   <div class="ops-page">
-    <el-row :gutter="20" class="header-row">
-      <el-col :span="18">
-        <h2 class="page-title">运维监控</h2>
-        <p class="page-desc">系统运行状态与性能监控</p>
-      </el-col>
-      <el-col :span="6" class="header-actions">
-        <el-button @click="refreshAll" :loading="loading" type="primary">
+    <div class="ops-header">
+      <div class="header-left">
+        <h2>运维监控</h2>
+        <div class="status-badge" :class="realtime.status">
+          <span class="status-dot"></span>
+          {{ realtime.health_status || '就绪' }}
+        </div>
+        <span class="refresh-time">刷新: {{ realtime.timestamp || '-' }}</span>
+      </div>
+      <div class="header-right">
+        <el-select v-model="timeRange" size="small" @change="refreshAll" style="width: 100px;">
+          <el-option label="近1分钟" value="1min" />
+          <el-option label="近5分钟" value="5min" />
+          <el-option label="近30分钟" value="30min" />
+          <el-option label="近1小时" value="1h" />
+        </el-select>
+        <el-button size="small" @click="refreshAll" :loading="loading">
           <el-icon><Refresh /></el-icon>
-          刷新
         </el-button>
-        <el-button @click="exportMetrics">
+        <el-button size="small" @click="exportData">
           <el-icon><Download /></el-icon>
-          导出
         </el-button>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
-    <el-row :gutter="20" class="status-row">
-      <el-col :span="6">
-        <el-card class="status-card" :class="{ 'status-healthy': systemHealthy }">
-          <div class="status-icon">
-            <el-icon :size="40" color="#34C759"><CircleCheckFilled /></el-icon>
+    <div class="ops-content">
+      <div class="top-row">
+        <div class="diagnosis-card" :class="diagnosis.status">
+          <div class="diagnosis-header">
+            <el-icon :size="20"><Cpu /></el-icon>
+            <span>智能诊断</span>
           </div>
-          <div class="status-info">
-            <div class="status-label">系统状态</div>
-            <div class="status-value">{{ systemHealthy ? '健康' : '异常' }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="status-card">
-          <div class="status-icon">
-            <el-icon :size="40" color="#007AFF"><Monitor /></el-icon>
-          </div>
-          <div class="status-info">
-            <div class="status-label">运行时间</div>
-            <div class="status-value">{{ systemInfo.uptime || '-' }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="status-card">
-          <div class="status-icon">
-            <el-icon :size="40" color="#FF9500"><Cpu /></el-icon>
-          </div>
-          <div class="status-info">
-            <div class="status-label">CPU 核数</div>
-            <div class="status-value">{{ systemInfo.cpu_count || '-' }}</div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="status-card">
-          <div class="status-icon">
-            <el-icon :size="40" color="#AF52DE"><Coin /></el-icon>
-          </div>
-          <div class="status-info">
-            <div class="status-label">内存使用</div>
-            <div class="status-value">{{ systemInfo.memory_used_mb || 0 }} / {{ systemInfo.memory_mb || 0 }} MB</div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="20">
-      <el-col :span="16">
-        <el-card class="section-card">
-          <template #header>
-            <div class="card-header">
-              <span>服务状态</span>
-              <el-tag type="success" size="small">{{ healthyServicesCount }}/{{ services.length }} 正常</el-tag>
+          <div class="diagnosis-title">{{ diagnosis.title }}</div>
+          <div class="diagnosis-message">{{ diagnosis.message }}</div>
+          <div class="diagnosis-suggestions">
+            <div v-for="(s, i) in diagnosis.suggestions" :key="i" class="suggestion-item">
+              <el-icon><InfoFilled /></el-icon>
+              {{ s }}
             </div>
-          </template>
-          <el-table :data="services" stripe>
-            <el-table-column prop="name" label="服务名称" width="150">
-              <template #default="{ row }">
-                <div class="service-name">
-                  <el-icon><Service /></el-icon>
-                  <span>{{ row.name }}</span>
+          </div>
+        </div>
+
+        <div class="realtime-card">
+          <div class="card-header">
+            <span>实时信息</span>
+            <div class="time-tabs">
+              <span v-for="t in timeTabs" :key="t" :class="{ active: timeRange === t }" @click="timeRange = t; refreshAll()">{{ t }}</span>
+            </div>
+          </div>
+          <div class="realtime-grid">
+            <div class="realtime-section">
+              <div class="section-label">当前</div>
+              <div class="section-values">
+                <div class="value-item">
+                  <span class="value">{{ realtime.current_qps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">QPS</span>
                 </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="100">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'healthy' ? 'success' : 'danger'" size="small">
-                  {{ row.status === 'healthy' ? '正常' : '异常' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="latency_ms" label="延迟" width="100">
-              <template #default="{ row }">
-                <span :class="{ 'latency-high': row.latency_ms > 100 }">{{ row.latency_ms || 0 }} ms</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="error_count" label="错误次数" width="100">
-              <template #default="{ row }">
-                <span :class="{ 'error-count': row.error_count > 0 }">{{ row.error_count || 0 }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="description" label="描述" />
-            <el-table-column label="操作" width="80">
-              <template #default="{ row }">
-                <el-button type="primary" link size="small" @click="checkService(row)">检查</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-      <el-col :span="8">
-        <el-card class="section-card">
-          <template #header>
-            <div class="card-header">
-              <span>健康检查</span>
-            </div>
-          </template>
-          <div class="health-checks">
-            <div v-for="check in healthChecks" :key="check.component" class="check-item">
-              <div class="check-status" :class="check.status"></div>
-              <div class="check-info">
-                <div class="check-name">{{ check.component }}</div>
-                <div class="check-message">{{ check.message }}</div>
+                <div class="value-item">
+                  <span class="value">{{ realtime.current_tps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">TPS(千)</span>
+                </div>
               </div>
-              <div class="check-latency">{{ check.latency_ms }} ms</div>
+            </div>
+            <div class="realtime-section">
+              <div class="section-label">峰值</div>
+              <div class="section-values">
+                <div class="value-item">
+                  <span class="value">{{ realtime.peak_qps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">QPS</span>
+                </div>
+                <div class="value-item">
+                  <span class="value">{{ realtime.peak_tps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">TPS(千)</span>
+                </div>
+              </div>
+            </div>
+            <div class="realtime-section">
+              <div class="section-label">平均</div>
+              <div class="section-values">
+                <div class="value-item">
+                  <span class="value">{{ realtime.avg_qps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">QPS</span>
+                </div>
+                <div class="value-item">
+                  <span class="value">{{ realtime.avg_tps?.toFixed(1) || '0.0' }}</span>
+                  <span class="label">TPS(千)</span>
+                </div>
+              </div>
             </div>
           </div>
-        </el-card>
+        </div>
+      </div>
 
-        <el-card class="section-card" style="margin-top: 20px;">
-          <template #header>
-            <div class="card-header">
-              <span>服务商状态</span>
+      <div class="metrics-row">
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>请求</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content">
+            <div class="metric-row"><span>请求数:</span><span>{{ formatNumber(realtime.total_requests) }}</span></div>
+            <div class="metric-row"><span>Token数:</span><span>{{ formatNumber(realtime.total_tokens) }}</span></div>
+            <div class="metric-row"><span>平均 QPS:</span><span>{{ realtime.avg_qps?.toFixed(1) || '0.0' }}</span></div>
+            <div class="metric-row"><span>平均 TPS:</span><span>{{ realtime.avg_tps?.toFixed(1) || '0.0' }}</span></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>SLA（排除业务限制）</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content sla">
+            <div class="sla-value" :class="{ warning: realtime.sla_percent < 99 }">
+              {{ (realtime.sla_percent || 100).toFixed(3) }}%
             </div>
-          </template>
-          <div class="provider-status">
-            <div v-for="provider in providerHealth" :key="provider.name" class="provider-item">
-              <div class="provider-name">{{ provider.name }}</div>
+            <div class="metric-row"><span>异常数:</span><span>{{ realtime.error_count || 0 }}</span></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>请求时长</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content">
+            <div class="latency-main">{{ realtime.latency_p99 || '-' }} ms <span class="p-label">(P99)</span></div>
+            <div class="metric-row"><span>P95:</span><span>{{ realtime.latency_p95 || '-' }} ms</span></div>
+            <div class="metric-row"><span>P90:</span><span>{{ realtime.latency_p90 || '-' }} ms</span></div>
+            <div class="metric-row"><span>P50:</span><span>{{ realtime.latency_p50 || '-' }} ms</span></div>
+            <div class="metric-row"><span>Avg:</span><span>{{ realtime.latency_avg || '-' }} ms</span></div>
+            <div class="metric-row"><span>Max:</span><span>{{ realtime.latency_max || '-' }} ms</span></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>TTFT</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content">
+            <div class="latency-main">{{ realtime.ttft_p99 || '-' }} ms <span class="p-label">(P99)</span></div>
+            <div class="metric-row"><span>P95:</span><span>{{ realtime.ttft_p95 || '-' }} ms</span></div>
+            <div class="metric-row"><span>P90:</span><span>{{ realtime.ttft_p90 || '-' }} ms</span></div>
+            <div class="metric-row"><span>P50:</span><span>{{ realtime.ttft_p50 || '-' }} ms</span></div>
+            <div class="metric-row"><span>Avg:</span><span>{{ realtime.ttft_avg || '-' }} ms</span></div>
+            <div class="metric-row"><span>Max:</span><span>{{ realtime.ttft_max || '-' }} ms</span></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>请求错误</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content">
+            <div class="error-value" :class="{ warning: realtime.request_error_rate > 1 }">
+              {{ (realtime.request_error_rate || 0).toFixed(2) }}%
+            </div>
+            <div class="metric-row"><span>错误数:</span><span>{{ realtime.error_count || 0 }}</span></div>
+            <div class="metric-row"><span>业务限制:</span><span>{{ realtime.business_limit || 0 }}</span></div>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-header">
+            <span>上游错误</span>
+            <el-button type="primary" link size="small">明细</el-button>
+          </div>
+          <div class="metric-content">
+            <div class="error-value" :class="{ warning: realtime.upstream_error_rate > 1 }">
+              {{ (realtime.upstream_error_rate || 0).toFixed(2) }}%
+            </div>
+            <div class="metric-row"><span>错误数(排除429/529):</span><span>{{ realtime.upstream_error_count || 0 }}</span></div>
+            <div class="metric-row"><span>429/529:</span><span>{{ realtime.error_429_count || 0 }}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="resources-row">
+        <div class="resource-card">
+          <div class="resource-header">
+            <el-icon><Cpu /></el-icon>
+            <span>CPU</span>
+          </div>
+          <div class="resource-value">{{ (resources.cpu_usage || 0).toFixed(1) }}%</div>
+          <el-progress :percentage="resources.cpu_usage || 0" :show-text="false" :stroke-width="6" />
+          <div class="resource-thresholds">警告 {{ resources.cpu_warning }}% · 严重 {{ resources.cpu_critical }}%</div>
+        </div>
+
+        <div class="resource-card">
+          <div class="resource-header">
+            <el-icon><Coin /></el-icon>
+            <span>内存</span>
+          </div>
+          <div class="resource-value">{{ (resources.memory_usage || 0).toFixed(1) }}%</div>
+          <div class="resource-detail">{{ resources.memory_used_mb || 0 }} / {{ resources.memory_total_mb || 0 }} MB</div>
+          <el-progress :percentage="resources.memory_usage || 0" :show-text="false" :stroke-width="6" />
+        </div>
+
+        <div class="resource-card">
+          <div class="resource-header">
+            <el-icon><Connection /></el-icon>
+            <span>协程</span>
+          </div>
+          <div class="resource-value" :class="{ warning: resources.goroutines > resources.goroutine_warning }">
+            {{ resources.goroutines || 0 }}
+          </div>
+          <div class="resource-status">正常</div>
+          <div class="resource-thresholds">警告 {{ resources.goroutine_warning }} · 严重 {{ resources.goroutine_critical }}</div>
+        </div>
+
+        <div class="resource-card">
+          <div class="resource-header">
+            <el-icon><Timer /></el-icon>
+            <span>GC</span>
+          </div>
+          <div class="resource-value">{{ resources.gc_count || 0 }}</div>
+          <div class="resource-status">正常</div>
+          <div class="resource-detail">暂停总时长: {{ ((resources.gc_pause_total_ns || 0) / 1e6).toFixed(2) }} ms</div>
+        </div>
+      </div>
+
+      <div class="system-row">
+        <div class="system-card">
+          <div class="card-title">系统信息</div>
+          <div class="system-grid">
+            <div class="system-item"><span class="label">主机名</span><span class="value">{{ system.hostname }}</span></div>
+            <div class="system-item"><span class="label">操作系统</span><span class="value">{{ system.os }} / {{ system.arch }}</span></div>
+            <div class="system-item"><span class="label">Go 版本</span><span class="value">{{ system.go_version }}</span></div>
+            <div class="system-item"><span class="label">CPU 核数</span><span class="value">{{ system.cpu_count }}</span></div>
+            <div class="system-item"><span class="label">运行时间</span><span class="value">{{ system.uptime }}</span></div>
+            <div class="system-item"><span class="label">启动时间</span><span class="value">{{ formatTime(system.start_time) }}</span></div>
+          </div>
+        </div>
+
+        <div class="services-card">
+          <div class="card-title">服务状态</div>
+          <div class="services-list">
+            <div v-for="s in services" :key="s.name" class="service-item">
+              <span class="service-name">{{ s.name }}</span>
+              <el-tag :type="s.status === 'healthy' ? 'success' : 'danger'" size="small">{{ s.status === 'healthy' ? '正常' : '异常' }}</el-tag>
+            </div>
+          </div>
+        </div>
+
+        <div class="providers-card">
+          <div class="card-title">服务商状态</div>
+          <div class="providers-list">
+            <div v-for="p in providers" :key="p.name" class="provider-item">
+              <span class="provider-name">{{ p.name }}</span>
               <div class="provider-info">
-                <el-tag :type="provider.status === 'healthy' ? 'success' : 'danger'" size="small">
-                  {{ provider.status === 'healthy' ? '正常' : '异常' }}
-                </el-tag>
-                <span class="provider-latency">{{ provider.latency_ms }} ms</span>
+                <el-tag :type="p.status === 'healthy' ? 'success' : 'danger'" size="small">{{ p.status === 'healthy' ? '正常' : '异常' }}</el-tag>
+                <span class="latency">{{ p.latency_ms }} ms</span>
               </div>
             </div>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="20" style="margin-top: 20px;">
-      <el-col :span="12">
-        <el-card class="section-card">
-          <template #header>
-            <div class="card-header">
-              <span>性能指标</span>
-              <el-tag size="small">实时</el-tag>
-            </div>
-          </template>
-          <div class="performance-metrics">
-            <div class="metric-item">
-              <div class="metric-label">QPS</div>
-              <div class="metric-value">{{ (performance.qps || 0).toFixed(2) }}</div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">平均延迟</div>
-              <div class="metric-value">{{ performance.avg_latency_ms || 0 }} ms</div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">P99 延迟</div>
-              <div class="metric-value">{{ performance.p99_latency_ms || 0 }} ms</div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">错误率</div>
-              <div class="metric-value" :class="{ 'error-rate': performance.error_rate > 1 }">
-                {{ (performance.error_rate || 0).toFixed(2) }}%
-              </div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">活跃连接</div>
-              <div class="metric-value">{{ performance.active_connections || 0 }}</div>
-            </div>
-            <div class="metric-item">
-              <div class="metric-label">总请求</div>
-              <div class="metric-value">{{ formatNumber(performance.total_requests || 0) }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card class="section-card">
-          <template #header>
-            <div class="card-header">
-              <span>资源使用</span>
-              <el-button type="primary" link size="small" @click="fetchResources">刷新</el-button>
-            </div>
-          </template>
-          <div class="resource-usage" v-if="resources.memory">
-            <div class="resource-item">
-              <div class="resource-header">
-                <span>内存分配</span>
-                <span>{{ resources.memory.alloc_mb }} MB</span>
-              </div>
-              <el-progress :percentage="getMemoryPercent()" :color="getProgressColor(getMemoryPercent())" />
-            </div>
-            <div class="resource-item">
-              <div class="resource-header">
-                <span>堆内存</span>
-                <span>{{ resources.memory.heap_alloc_mb }} / {{ resources.memory.heap_sys_mb }} MB</span>
-              </div>
-              <el-progress :percentage="getHeapPercent()" :color="getProgressColor(getHeapPercent())" />
-            </div>
-            <div class="resource-info">
-              <div class="info-item">
-                <el-icon><Cpu /></el-icon>
-                <span>Goroutines: {{ resources.goroutines || 0 }}</span>
-              </div>
-              <div class="info-item">
-                <el-icon><Timer /></el-icon>
-                <span>GC 次数: {{ resources.gc?.num_gc || 0 }}</span>
-              </div>
-              <div class="info-item">
-                <el-icon><Monitor /></el-icon>
-                <span>CPU: {{ resources.cpu?.count || 0 }} 核</span>
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <el-row :gutter="20" style="margin-top: 20px;">
-      <el-col :span="24">
-        <el-card class="section-card">
-          <template #header>
-            <div class="card-header">
-              <span>事件日志</span>
-              <div class="header-filters">
-                <el-select v-model="eventLevel" size="small" placeholder="级别" clearable @change="fetchEvents" style="width: 100px; margin-right: 10px;">
-                  <el-option label="全部" value="" />
-                  <el-option label="信息" value="info" />
-                  <el-option label="警告" value="warning" />
-                  <el-option label="错误" value="error" />
-                </el-select>
-              </div>
-            </div>
-          </template>
-          <el-table :data="events" stripe max-height="300">
-            <el-table-column prop="timestamp" label="时间" width="180">
-              <template #default="{ row }">
-                {{ formatTime(row.timestamp) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="level" label="级别" width="80">
-              <template #default="{ row }">
-                <el-tag :type="getLevelType(row.level)" size="small">{{ row.level }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="source" label="来源" width="120" />
-            <el-table-column prop="message" label="消息" />
-            <el-table-column prop="details" label="详情" width="200">
-              <template #default="{ row }">
-                <span class="event-details">{{ row.details || '-' }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { request } from '@/api/request'
 
-interface SystemInfo {
-  hostname: string
-  os: string
-  arch: string
-  go_version: string
-  cpu_count: number
-  memory_mb: number
-  memory_used_mb: number
-  uptime: string
-  start_time: string
-}
-
-interface Service {
-  name: string
-  status: string
-  latency_ms: number
-  error_count: number
-  description: string
-}
-
-interface HealthCheck {
-  component: string
-  status: string
-  message: string
-  latency_ms: number
-}
-
-interface Performance {
-  qps: number
-  avg_latency_ms: number
-  p99_latency_ms: number
-  error_rate: number
-  active_connections: number
-  total_requests: number
-}
-
-interface Event {
-  timestamp: string
-  level: string
-  source: string
-  message: string
-  details: string
-}
-
 const loading = ref(false)
-const systemInfo = ref<SystemInfo>({} as SystemInfo)
-const services = ref<Service[]>([])
-const healthChecks = ref<HealthCheck[]>([])
-const performance = ref<Performance>({} as Performance)
-const events = ref<Event[]>([])
-const eventLevel = ref('')
-const providerHealth = ref<any[]>([])
+const timeRange = ref('1h')
+const timeTabs = ['1min', '5min', '30min', '1h']
+
+const system = ref<any>({})
+const realtime = ref<any>({})
 const resources = ref<any>({})
+const diagnosis = ref<any>({ status: 'idle', title: '待机', message: '', suggestions: [] })
+const services = ref<any[]>([])
+const providers = ref<any[]>([])
 
-let refreshTimer: ReturnType<typeof setInterval> | null = null
+let timer: ReturnType<typeof setInterval> | null = null
 
-const systemHealthy = computed(() => {
-  return services.value.every(s => s.status === 'healthy')
-})
-
-const healthyServicesCount = computed(() => {
-  return services.value.filter(s => s.status === 'healthy').length
-})
-
-const formatNumber = (num: number): string => {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
-  return num.toString()
+const formatNumber = (n: number): string => {
+  if (!n) return '0'
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
+  return n.toString()
 }
 
-const formatTime = (timestamp: string): string => {
-  if (!timestamp) return ''
-  const date = new Date(timestamp)
-  return date.toLocaleString('zh-CN')
+const formatTime = (t: string): string => {
+  if (!t) return '-'
+  return new Date(t).toLocaleString('zh-CN')
 }
 
-const getLevelType = (level: string): string => {
-  switch (level) {
-    case 'error': return 'danger'
-    case 'warning': return 'warning'
-    default: return 'info'
-  }
-}
-
-const getMemoryPercent = (): number => {
-  if (!resources.value.memory) return 0
-  const { alloc_mb, sys_mb } = resources.value.memory
-  if (!sys_mb) return 0
-  return Math.min(100, Math.round((alloc_mb / sys_mb) * 100))
-}
-
-const getHeapPercent = (): number => {
-  if (!resources.value.memory) return 0
-  const { heap_alloc_mb, heap_sys_mb } = resources.value.memory
-  if (!heap_sys_mb) return 0
-  return Math.min(100, Math.round((heap_alloc_mb / heap_sys_mb) * 100))
-}
-
-const getProgressColor = (percent: number): string => {
-  if (percent >= 80) return '#FF3B30'
-  if (percent >= 60) return '#FF9500'
-  return '#34C759'
-}
-
-const fetchSystemInfo = async () => {
+const fetchData = async () => {
   try {
-    const res: any = await request.get('/admin/ops/system')
-    systemInfo.value = res?.data || {}
+    const res: any = await request.get(`/admin/ops/dashboard?range=${timeRange.value}`)
+    const data = res?.data || {}
+    system.value = data.system || {}
+    realtime.value = data.realtime || {}
+    resources.value = data.resources || {}
+    diagnosis.value = data.diagnosis || {}
   } catch (e) {
-    console.warn('Failed to fetch system info:', e)
+    console.warn('Failed to fetch dashboard:', e)
   }
 }
 
@@ -396,79 +314,25 @@ const fetchServices = async () => {
   }
 }
 
-const fetchHealthChecks = async () => {
-  try {
-    const res: any = await request.get('/admin/ops/health-checks')
-    healthChecks.value = res?.data || []
-  } catch (e) {
-    console.warn('Failed to fetch health checks:', e)
-  }
-}
-
-const fetchPerformance = async () => {
-  try {
-    const res: any = await request.get('/admin/ops/performance')
-    performance.value = res?.data || {}
-  } catch (e) {
-    console.warn('Failed to fetch performance:', e)
-  }
-}
-
-const fetchEvents = async () => {
-  try {
-    const params = eventLevel.value ? { level: eventLevel.value } : {}
-    const res: any = await request.get('/admin/ops/events', { params })
-    events.value = res?.data || []
-  } catch (e) {
-    console.warn('Failed to fetch events:', e)
-  }
-}
-
-const fetchProviderHealth = async () => {
+const fetchProviders = async () => {
   try {
     const res: any = await request.get('/admin/ops/providers/health')
-    providerHealth.value = res?.data || []
+    providers.value = res?.data || []
   } catch (e) {
-    console.warn('Failed to fetch provider health:', e)
-  }
-}
-
-const fetchResources = async () => {
-  try {
-    const res: any = await request.get('/admin/ops/resources')
-    resources.value = res?.data || {}
-  } catch (e) {
-    console.warn('Failed to fetch resources:', e)
+    console.warn('Failed to fetch providers:', e)
   }
 }
 
 const refreshAll = async () => {
   loading.value = true
   try {
-    await Promise.all([
-      fetchSystemInfo(),
-      fetchServices(),
-      fetchHealthChecks(),
-      fetchPerformance(),
-      fetchEvents(),
-      fetchProviderHealth(),
-      fetchResources()
-    ])
+    await Promise.all([fetchData(), fetchServices(), fetchProviders()])
   } finally {
     loading.value = false
   }
 }
 
-const checkService = async (service: Service) => {
-  try {
-    await request.post(`/admin/ops/services/${service.name}/check`)
-    await fetchServices()
-  } catch (e) {
-    console.warn('Failed to check service:', e)
-  }
-}
-
-const exportMetrics = async () => {
+const exportData = async () => {
   try {
     const res: any = await request.get('/admin/ops/export')
     const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
@@ -479,253 +343,390 @@ const exportMetrics = async () => {
     a.click()
     URL.revokeObjectURL(url)
   } catch (e) {
-    console.warn('Failed to export metrics:', e)
+    console.warn('Export failed:', e)
   }
 }
 
 onMounted(() => {
   refreshAll()
-  refreshTimer = setInterval(() => {
-    fetchPerformance()
-    fetchResources()
-  }, 5000)
+  timer = setInterval(fetchData, 5000)
 })
 
 onUnmounted(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-  }
+  if (timer) clearInterval(timer)
 })
 </script>
 
 <style scoped lang="scss">
 .ops-page {
-  .header-row {
-    margin-bottom: 20px;
-    
-    .page-title {
-      margin: 0;
-      font-size: 24px;
-      font-weight: 600;
-    }
-    
-    .page-desc {
-      margin: 5px 0 0;
-      color: var(--text-secondary);
-      font-size: 14px;
-    }
-    
-    .header-actions {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      gap: 10px;
-    }
-  }
+  padding: 20px;
+  background: var(--bg-primary);
+  min-height: 100vh;
+}
+
+.ops-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
   
-  .status-row {
-    margin-bottom: 20px;
-  }
-  
-  .status-card {
+  .header-left {
     display: flex;
     align-items: center;
-    padding: 16px;
-    border-radius: 12px;
+    gap: 12px;
     
-    &.status-healthy {
-      border-left: 4px solid #34C759;
+    h2 {
+      margin: 0;
+      font-size: 20px;
     }
     
-    .status-icon {
-      margin-right: 16px;
-    }
-    
-    .status-info {
-      .status-label {
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin-bottom: 4px;
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 16px;
+      font-size: 13px;
+      background: rgba(52, 199, 89, 0.1);
+      color: #34C759;
+      
+      &.warning {
+        background: rgba(255, 149, 0, 0.1);
+        color: #FF9500;
       }
       
-      .status-value {
-        font-size: 20px;
-        font-weight: 600;
+      &.critical {
+        background: rgba(255, 59, 48, 0.1);
+        color: #FF3B30;
+      }
+      
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: currentColor;
       }
     }
-  }
-  
-  .section-card {
-    border-radius: 12px;
     
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    .refresh-time {
+      font-size: 12px;
+      color: var(--text-tertiary);
     }
   }
   
-  .service-name {
+  .header-right {
+    display: flex;
+    gap: 8px;
+  }
+}
+
+.ops-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.top-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+}
+
+.diagnosis-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  
+  &.idle {
+    border-left: 4px solid #8E8E93;
+  }
+  
+  &.healthy {
+    border-left: 4px solid #34C759;
+  }
+  
+  &.warning {
+    border-left: 4px solid #FF9500;
+  }
+  
+  .diagnosis-header {
     display: flex;
     align-items: center;
     gap: 8px;
-  }
-  
-  .latency-high {
-    color: #FF9500;
+    font-size: 14px;
     font-weight: 500;
+    margin-bottom: 12px;
   }
   
-  .error-count {
-    color: #FF3B30;
-    font-weight: 500;
+  .diagnosis-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
   }
   
-  .health-checks {
-    .check-item {
+  .diagnosis-message {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+  }
+  
+  .diagnosis-suggestions {
+    .suggestion-item {
       display: flex;
-      align-items: center;
-      padding: 12px 0;
-      border-bottom: 1px solid var(--border-light);
+      align-items: flex-start;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-bottom: 4px;
+    }
+  }
+}
+
+.realtime-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    font-weight: 500;
+    
+    .time-tabs {
+      display: flex;
+      gap: 4px;
       
-      &:last-child {
-        border-bottom: none;
-      }
-      
-      .check-status {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        margin-right: 12px;
+      span {
+        padding: 4px 12px;
+        font-size: 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        color: var(--text-secondary);
         
-        &.healthy {
-          background: #34C759;
-        }
-        
-        &.warning {
-          background: #FF9500;
-        }
-        
-        &.error {
-          background: #FF3B30;
-        }
-      }
-      
-      .check-info {
-        flex: 1;
-        
-        .check-name {
-          font-weight: 500;
-          margin-bottom: 2px;
-        }
-        
-        .check-message {
-          font-size: 12px;
-          color: var(--text-secondary);
+        &.active {
+          background: var(--color-primary);
+          color: #fff;
         }
       }
+    }
+  }
+  
+  .realtime-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    
+    .realtime-section {
+      .section-label {
+        font-size: 12px;
+        color: var(--text-tertiary);
+        margin-bottom: 8px;
+      }
       
-      .check-latency {
-        font-size: 13px;
+      .section-values {
+        display: flex;
+        gap: 24px;
+        
+        .value-item {
+          .value {
+            display: block;
+            font-size: 24px;
+            font-weight: 600;
+          }
+          .label {
+            font-size: 12px;
+            color: var(--text-tertiary);
+          }
+        }
+      }
+    }
+  }
+}
+
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+}
+
+.metric-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 14px;
+  
+  .metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  
+  .metric-content {
+    font-size: 12px;
+    
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      color: var(--text-secondary);
+      
+      span:last-child {
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+    }
+    
+    .sla-value {
+      font-size: 28px;
+      font-weight: 600;
+      color: #34C759;
+      margin-bottom: 8px;
+      
+      &.warning {
+        color: #FF9500;
+      }
+    }
+    
+    .latency-main {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      
+      .p-label {
+        font-size: 12px;
+        font-weight: normal;
         color: var(--text-tertiary);
       }
     }
-  }
-  
-  .provider-status {
-    .provider-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border-light);
-      
-      &:last-child {
-        border-bottom: none;
-      }
-      
-      .provider-name {
-        font-weight: 500;
-        text-transform: capitalize;
-      }
-      
-      .provider-info {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        
-        .provider-latency {
-          font-size: 13px;
-          color: var(--text-tertiary);
-        }
-      }
-    }
-  }
-  
-  .performance-metrics {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
     
-    .metric-item {
-      text-align: center;
-      padding: 16px;
-      background: var(--bg-secondary);
-      border-radius: 8px;
+    .error-value {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
       
-      .metric-label {
-        font-size: 13px;
-        color: var(--text-secondary);
-        margin-bottom: 8px;
-      }
-      
-      .metric-value {
-        font-size: 24px;
-        font-weight: 600;
-        
-        &.error-rate {
-          color: #FF3B30;
-        }
+      &.warning {
+        color: #FF3B30;
       }
     }
   }
+}
+
+.resources-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.resource-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
   
-  .resource-usage {
-    .resource-item {
-      margin-bottom: 16px;
-      
-      .resource-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 8px;
-        font-size: 13px;
-      }
-    }
-    
-    .resource-info {
-      display: flex;
-      gap: 20px;
-      margin-top: 16px;
-      
-      .info-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 13px;
-        color: var(--text-secondary);
-      }
-    }
-  }
-  
-  .header-filters {
+  .resource-header {
     display: flex;
     align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 8px;
   }
   
-  .event-details {
+  .resource-value {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    
+    &.warning {
+      color: #FF9500;
+    }
+  }
+  
+  .resource-detail {
     font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  
+  .resource-status {
+    font-size: 12px;
+    color: #34C759;
+    margin-bottom: 4px;
+  }
+  
+  .resource-thresholds {
+    font-size: 11px;
     color: var(--text-tertiary);
-    word-break: break-all;
+    margin-top: 8px;
+  }
+}
+
+.system-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.system-card, .services-card, .providers-card {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 16px;
+  
+  .card-title {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 12px;
+  }
+}
+
+.system-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  
+  .system-item {
+    .label {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      display: block;
+    }
+    .value {
+      font-size: 13px;
+      font-weight: 500;
+    }
+  }
+}
+
+.services-list, .providers-list {
+  .service-item, .provider-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-light);
+    
+    &:last-child {
+      border-bottom: none;
+    }
+    
+    .service-name, .provider-name {
+      font-size: 13px;
+      text-transform: capitalize;
+    }
+    
+    .provider-info {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      .latency {
+        font-size: 12px;
+        color: var(--text-tertiary);
+      }
+    }
   }
 }
 </style>

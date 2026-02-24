@@ -44,7 +44,12 @@
         :key="model"
         :label="model"
         :value="model"
-      />
+      >
+        <span class="model-option">
+          <span class="model-name">{{ model }}</span>
+          <span v-if="isReasoningModel(model)" class="model-badge">支持推理</span>
+        </span>
+      </el-option>
     </el-select>
   </div>
 </template>
@@ -119,6 +124,10 @@ function emitChange(): void {
   emit('update:provider', selectedProvider.value)
   emit('update:model', selectedModel.value)
   emit('change', selectedProvider.value, selectedModel.value)
+}
+
+function isReasoningModel(model: string): boolean {
+  return model.includes('reasoner') || model.includes('r1')
 }
 
 // Watch for external prop changes
@@ -214,5 +223,25 @@ watch(() => PROVIDERS.value, (newProviders) => {
     border-radius: 3px;
     flex-shrink: 0;
   }
+}
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.model-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgba(29, 78, 216, 0.12);
 }
 </style>

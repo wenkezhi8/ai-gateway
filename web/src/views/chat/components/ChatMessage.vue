@@ -37,6 +37,7 @@
         <div class="reasoning-header" @click="toggleReasoning">
           <el-icon><Cpu /></el-icon>
           <span>深度思考过程</span>
+          <span class="reasoning-badge">推理</span>
           <el-icon class="toggle-icon" :class="{ expanded: showReasoning }"><ArrowDown /></el-icon>
         </div>
         <div class="reasoning-content" v-show="showReasoning">
@@ -49,6 +50,9 @@
       
       <div class="message-body" :class="{ error: message.error }">
         <template v-if="message.role === 'assistant'">
+          <div v-if="message.reasoningContent || message.reasoning" class="answer-label">
+            最终答案
+          </div>
           <TypewriterText
             :content="message.content"
             :show-cursor="message.isStreaming"
@@ -280,7 +284,7 @@ function toggleReasoning(): void {
 
 .message-reasoning {
   margin-bottom: var(--spacing-sm);
-  border: 1px solid var(--border-secondary);
+  border: 1px dashed var(--border-secondary); /* 改动点: 强化推理区与答案区分 */
   border-radius: var(--border-radius-md);
   overflow: hidden;
 }
@@ -315,6 +319,17 @@ function toggleReasoning(): void {
   }
 }
 
+.reasoning-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.12);
+}
+
 .reasoning-content {
   padding: var(--spacing-sm) var(--spacing-md);
   background: var(--bg-secondary);
@@ -330,11 +345,24 @@ function toggleReasoning(): void {
   line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  background: color-mix(in srgb, var(--bg-tertiary) 92%, var(--color-primary) 8%); /* 改动点: 提升答案区层级对比 */
 
   &.error {
     border: 1px solid var(--color-danger);
     background: rgba(var(--color-danger-rgb, 255, 73, 79), 0.1);
   }
+}
+
+.answer-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  margin-bottom: var(--spacing-xs);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
 }
 
 .user-text {

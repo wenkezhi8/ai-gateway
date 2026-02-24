@@ -191,6 +191,9 @@ func TestConvertStreamChunk(t *testing.T) {
 				Delta: &StreamDelta{
 					Role:    "assistant",
 					Content: "Hello",
+					// 改动点: 模拟深度思考内容字段
+					ReasoningContent: "思考过程A",
+					Reasoning:        "思考过程B",
 				},
 				FinishReason: "",
 			},
@@ -202,6 +205,9 @@ func TestConvertStreamChunk(t *testing.T) {
 	assert.Equal(t, "test-id", provChunk.ID)
 	assert.Len(t, provChunk.Choices, 1)
 	assert.Equal(t, "Hello", provChunk.Choices[0].Delta.Content)
+	// 改动点: 断言深度思考内容被透传
+	assert.Equal(t, "思考过程A", provChunk.Choices[0].Delta.ReasoningContent)
+	assert.Equal(t, "思考过程B", provChunk.Choices[0].Delta.Reasoning)
 	assert.False(t, provChunk.Done)
 }
 

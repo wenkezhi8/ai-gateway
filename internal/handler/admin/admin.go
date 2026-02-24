@@ -210,14 +210,15 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	// Ops monitoring routes
 	ops := r.Group("/ops")
 	{
-		ops.GET("/dashboard", handlers.Ops.GetDashboardData)
+		ops.GET("/dashboard", handlers.Ops.GetDashboard)
 		ops.GET("/system", handlers.Ops.GetSystemInfo)
-		ops.GET("/services", handlers.Ops.GetServiceStatus)
-		ops.GET("/performance", handlers.Ops.GetPerformance)
+		ops.GET("/realtime", handlers.Ops.GetRealtime)
+		ops.GET("/resources", handlers.Ops.GetResources)
+		ops.GET("/diagnosis", handlers.Ops.GetDiagnosis)
+		ops.GET("/services", handlers.Ops.GetServices)
 		ops.GET("/health-checks", handlers.Ops.GetHealthChecks)
-		ops.GET("/events", handlers.Ops.GetEventLogs)
+		ops.GET("/events", handlers.Ops.GetEvents)
 		ops.GET("/providers/health", handlers.Ops.GetProviderHealth)
-		ops.GET("/resources", handlers.Ops.GetResourceUsage)
 		ops.GET("/export", handlers.Ops.ExportMetrics)
 	}
 }

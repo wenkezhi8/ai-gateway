@@ -378,8 +378,35 @@ function handleModelChange(provider: string, model: string): void {
   }
 }
 
+function ensureDeepThinkModel(): void {
+  if (!deepThinkEnabled.value || !chatStore.currentConversation) return
+
+  const currentProvider = chatStore.currentConversation.provider
+  const currentModel = chatStore.currentConversation.model
+  const isReasonerModel = currentModel.includes('reasoner') || currentModel.includes('r1')
+
+  if (currentProvider === 'deepseek' && isReasonerModel) return
+
+  const deepseekProvider = PROVIDERS.value.find(
+    p => p.value === 'deepseek' && p.models?.includes('deepseek-reasoner')
+  )
+
+  if (deepseekProvider) {
+    // 改动点: 深度思考开启时自动切换到可输出推理过程的模型
+    chatStore.updateCurrentModel('deepseek', 'deepseek-reasoner')
+    selectedProvider.value = 'deepseek'
+    selectedModel.value = 'deepseek-reasoner'
+    ElMessage.info('已为深度思考切换到 deepseek-reasoner')
+  } else {
+    // 改动点: 没有推理模型时给出明确提示
+    ElMessage.warning('当前模型不支持深度思考，请切换到支持推理的模型')
+  }
+}
+
 async function handleSend(text: string, files: any[] = []): Promise<void> {
   if ((!text.trim() && files.length === 0) || !chatStore.currentConversation) return
+
+  ensureDeepThinkModel()
 
   const conversationId = chatStore.currentConversation.id
 

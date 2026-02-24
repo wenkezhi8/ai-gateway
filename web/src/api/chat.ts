@@ -101,6 +101,7 @@ export function streamCompletion(
 
       const decoder = new TextDecoder()
       let buffer = ''
+      let currentEvent = 'message' // 改动点: 跟踪 SSE event 类型，支持 error 事件
       let lastUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
 
       while (true) {
@@ -119,7 +120,12 @@ export function streamCompletion(
         for (const line of lines) {
           const trimmedLine = line.trim()
 
-          if (!trimmedLine || trimmedLine === '' || trimmedLine.startsWith('event:')) {
+          if (!trimmedLine || trimmedLine === '') {
+            continue
+          }
+
+          if (trimmedLine.startsWith('event:')) {
+            currentEvent = trimmedLine.replace(/^event:\s*/, '') || 'message' // 改动点: 记录当前事件类型
             continue
           }
 
@@ -131,6 +137,17 @@ export function streamCompletion(
           if (trimmedLine.startsWith('data:')) {
             try {
               const jsonStr = trimmedLine.replace(/^data:\s*/, '')
+              if (currentEvent === 'error') { // 改动点: 处理后端 SSE error 事件并反馈到 UI
+                const errPayload = JSON.parse(jsonStr)
+                const errMessage =
+                  (typeof errPayload?.error === 'string' && errPayload.error) ||
+                  errPayload?.error?.message ||
+                  errPayload?.message ||
+                  'Stream error'
+                onError?.(new Error(errMessage))
+                return
+              }
+
               const chunk: StreamChunk = JSON.parse(jsonStr)
 
               if (chunk.error) {
@@ -145,6 +162,7 @@ export function streamCompletion(
             } catch (parseError) {
               console.warn('Failed to parse SSE chunk:', trimmedLine, parseError)
             }
+            currentEvent = 'message' // 改动点: 消费完数据后重置事件类型
           }
         }
       }

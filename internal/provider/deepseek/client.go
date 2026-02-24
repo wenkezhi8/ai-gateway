@@ -383,6 +383,13 @@ func ConvertStreamChunk(resp *StreamResponse, done bool) *provider.StreamChunk {
 				Role:    c.Delta.Role,
 				Content: c.Delta.Content,
 			}
+			// 改动点: 透传深度思考内容，确保前端可展示 reasoning 过程
+			if c.Delta.ReasoningContent != "" {
+				delta.ReasoningContent = c.Delta.ReasoningContent
+			}
+			if c.Delta.Reasoning != "" {
+				delta.Reasoning = c.Delta.Reasoning
+			}
 			if len(c.Delta.ToolCalls) > 0 {
 				delta.ToolCalls = make([]provider.ToolCall, len(c.Delta.ToolCalls))
 				for i, tc := range c.Delta.ToolCalls {
