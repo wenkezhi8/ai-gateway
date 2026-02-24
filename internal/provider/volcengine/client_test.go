@@ -1,6 +1,7 @@
 package volcengine
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -256,4 +257,139 @@ func TestChatRequest_Marshal(t *testing.T) {
 	data, err := json.Marshal(req)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "doubao-pro-4k")
+}
+
+func TestNewAdapter(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		BaseURL: "https://ark.cn-beijing.volces.com/api/v3",
+		Models:  []string{"doubao-pro-32k"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, "volcengine", adapter.Name())
+	assert.True(t, adapter.IsEnabled())
+}
+
+func TestNewAdapter_DefaultBaseURL(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Models:  []string{"doubao-pro-32k"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, defaultBaseURL, adapter.BaseURL())
+}
+
+func TestAdapter_Name(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	adapter := NewAdapter(cfg)
+	assert.Equal(t, "volcengine", adapter.Name())
+}
+
+func TestAdapter_SetClient(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	adapter := NewAdapter(cfg)
+
+	newClient := NewClient("new-key", "https://new.url.com")
+	adapter.SetClient(newClient)
+
+	assert.NotNil(t, adapter.client)
+}
+
+func TestDefaultModels(t *testing.T) {
+	models := DefaultModels()
+
+	assert.NotEmpty(t, models)
+	assert.Contains(t, models, "doubao-pro-32k")
+	assert.Contains(t, models, "doubao-lite-128k")
+	assert.Contains(t, models, "skylark2-pro-4k")
+}
+
+func TestFactory(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	_, ok := prov.(*Adapter)
+	assert.True(t, ok)
+}
+
+func TestFactory_DefaultModels(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Models:  []string{},
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	assert.NotEmpty(t, prov.Models())
+}
+
+func TestAdapter_Chat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "doubao-pro-32k",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	resp, err := adapter.Chat(context.Background(), req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
+}
+
+func TestAdapter_StreamChat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "volcengine",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "doubao-pro-32k",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	ch, err := adapter.StreamChat(context.Background(), req)
+	require.Error(t, err)
+	assert.NotNil(t, ch)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
 }
