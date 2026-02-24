@@ -1,6 +1,7 @@
 package deepseek
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -300,4 +301,125 @@ func TestErrorTypeToStatusCode_ServerError(t *testing.T) {
 	provResp := ConvertResponse(resp)
 	require.NotNil(t, provResp.Error)
 	assert.Equal(t, 500, provResp.Error.Code)
+}
+
+func TestNewAdapter(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		BaseURL: "https://api.deepseek.com",
+		Models:  []string{"deepseek-chat"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, "deepseek", adapter.Name())
+	assert.True(t, adapter.IsEnabled())
+}
+
+func TestNewAdapter_DefaultBaseURL(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Models:  []string{"deepseek-chat"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, defaultBaseURL, adapter.BaseURL())
+}
+
+func TestAdapter_Name(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	adapter := NewAdapter(cfg)
+	assert.Equal(t, "deepseek", adapter.Name())
+}
+
+func TestDefaultModels(t *testing.T) {
+	models := DefaultModels()
+
+	assert.NotEmpty(t, models)
+	assert.Contains(t, models, "deepseek-chat")
+	assert.Contains(t, models, "deepseek-coder")
+	assert.Contains(t, models, "deepseek-reasoner")
+}
+
+func TestFactory(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	_, ok := prov.(*Adapter)
+	assert.True(t, ok)
+}
+
+func TestFactory_DefaultModels(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Models:  []string{},
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	assert.NotEmpty(t, prov.Models())
+}
+
+func TestAdapter_Chat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "deepseek-chat",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	resp, err := adapter.Chat(context.Background(), req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
+}
+
+func TestAdapter_StreamChat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "deepseek",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "deepseek-chat",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	ch, err := adapter.StreamChat(context.Background(), req)
+	require.Error(t, err)
+	assert.NotNil(t, ch)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
 }
