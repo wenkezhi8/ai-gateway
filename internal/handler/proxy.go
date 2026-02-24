@@ -402,11 +402,30 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			Provider:   req.Provider,
 			Model:      req.Model,
 		}
-		h.cache.ResponseCache.Set(c.Request.Context(), cacheKey, cachedResp)
+
+		// Use SetWithTaskType to record task type for filtering
+		if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+			taskTypeStr := string(assessment.TaskType)
+			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr)
+		} else {
+			h.cache.ResponseCache.Set(c.Request.Context(), cacheKey, cachedResp)
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"ttl":       recommendedTTL,
+			"task_type": assessment.TaskType,
+			"cache_key": cacheKey,
+		}).Info("Response cached")
+	} else if recommendedTTL == 0 {
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": assessment.TaskType,
+		}).Debug("Response not cached (TTL=0)")
+	} else {
 		logrus.WithFields(logrus.Fields{
 			"model": req.Model,
-			"ttl":   recommendedTTL,
-		}).Debug("Response cached")
+		}).Warn("Cache not available")
 	}
 
 	// Store in semantic cache for similar query matching
