@@ -63,7 +63,9 @@ export interface CacheStats {
   hits: number
   misses: number
   hit_rate: number
-  size: number
+  size_bytes: number
+  entries: number
+  avg_latency_ms: number
   max_size: number
   evictions: number
 }

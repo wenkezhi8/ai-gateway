@@ -173,6 +173,13 @@ func (c *RequestCache) GetTokenSavings() int64 {
 	return c.stats.Snapshot().TokensSaved
 }
 
+// SetDefaultTTL updates the default TTL for request cache.
+func (c *RequestCache) SetDefaultTTL(ttl time.Duration) {
+	if ttl > 0 {
+		c.config.DefaultTTL = ttl
+	}
+}
+
 // RequestCacheMiddleware provides middleware for caching AI requests
 type RequestCacheMiddleware struct {
 	cache       *RequestCache

@@ -3,17 +3,24 @@ import { request } from './request'
 export interface CacheConfig {
   enabled: boolean
   strategy: 'semantic' | 'exact' | 'prefix'
-  similarityThreshold: number
-  defaultTTL: number
-  maxSize: number
+  similarity_threshold: number
+  default_ttl_seconds: number
+  max_entries: number
+  eviction_policy: string
+  dedup: {
+    enabled: boolean
+    max_pending: number
+    request_timeout_seconds: number
+  }
 }
 
 export interface CacheStatDetail {
   hit_rate: number
   hits: number
   misses: number
-  size: number
+  size_bytes: number
   entries: number
+  avg_latency_ms: number
 }
 
 export interface CacheStatsResponse {
@@ -22,6 +29,7 @@ export interface CacheStatsResponse {
   route_cache: CacheStatDetail
   usage_cache: CacheStatDetail
   response_cache: CacheStatDetail
+  token_savings: number
 }
 
 export interface CacheHealthResponse {

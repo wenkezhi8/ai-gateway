@@ -133,17 +133,30 @@ type CacheStatDetail struct {
 	Hits      int64   `json:"hits"`
 	Misses    int64   `json:"misses"`
 	HitRate   float64 `json:"hit_rate"`
-	Size      int64   `json:"size"`
+	SizeBytes int64   `json:"size_bytes"`
+	Entries   int64   `json:"entries"`
+	AvgLatencyMs int64 `json:"avg_latency_ms"`
 	MaxSize   int64   `json:"max_size"`
 	Evictions int64   `json:"evictions"`
 }
 
 // CacheConfigRequest represents cache configuration update
 type CacheConfigRequest struct {
-	RequestTTL int `json:"request_ttl_seconds"`
-	ContextTTL int `json:"context_ttl_seconds"`
-	RouteTTL   int `json:"route_ttl_seconds"`
-	MaxSize    int `json:"max_size"`
+	Enabled             *bool    `json:"enabled"`
+	Strategy            *string  `json:"strategy"`
+	SimilarityThreshold *float64 `json:"similarity_threshold"`
+	DefaultTTLSeconds   *int     `json:"default_ttl_seconds"`
+	MaxEntries          *int     `json:"max_entries"`
+	EvictionPolicy      *string  `json:"eviction_policy"`
+	Dedup               *struct {
+		Enabled             *bool `json:"enabled"`
+		MaxPending          *int  `json:"max_pending"`
+		RequestTimeoutSeconds *int `json:"request_timeout_seconds"`
+	} `json:"dedup"`
+
+	RequestTTL *int `json:"request_ttl_seconds"`
+	ContextTTL *int `json:"context_ttl_seconds"`
+	RouteTTL   *int `json:"route_ttl_seconds"`
 }
 
 // Dashboard types

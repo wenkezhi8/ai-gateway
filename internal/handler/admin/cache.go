@@ -3,6 +3,7 @@ package admin
 import (
 	"ai-gateway/internal/cache"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,20 +16,15 @@ import (
 // CacheHandler handles cache management requests
 type CacheHandler struct {
 	manager *cache.Manager
-	config  *CacheConfigRequest
+	settings cache.CacheSettings
 	mu      sync.RWMutex
 }
 
 // NewCacheHandler creates a new cache handler
 func NewCacheHandler(manager *cache.Manager) *CacheHandler {
 	return &CacheHandler{
-		manager: manager,
-		config: &CacheConfigRequest{
-			RequestTTL: 3600,
-			ContextTTL: 1800,
-			RouteTTL:   300,
-			MaxSize:    10000,
-		},
+		manager:  manager,
+		settings: manager.GetSettings(),
 	}
 }
 
@@ -43,52 +39,67 @@ func (h *CacheHandler) GetCacheStats(c *gin.Context) {
 
 	// Convert stats for each cache type
 	if stat, ok := allStats["request"]; ok {
+		entries, sizeBytes := h.manager.GetEntriesStats("request")
 		response.RequestCache = CacheStatDetail{
-			Hits:      stat.Hits,
-			Misses:    stat.Misses,
-			HitRate:   stat.HitRate,
-			Size:      stat.TotalOperations,
-			Evictions: stat.Evictions,
+			Hits:         stat.Hits,
+			Misses:       stat.Misses,
+			HitRate:      stat.HitRate,
+			Entries:      int64(entries),
+			SizeBytes:    sizeBytes,
+			AvgLatencyMs: stat.AvgLatencyNs / int64(time.Millisecond),
+			Evictions:    stat.Evictions,
 		}
 	}
 
 	if stat, ok := allStats["context"]; ok {
+		entries, sizeBytes := h.manager.GetEntriesStats("context")
 		response.ContextCache = CacheStatDetail{
-			Hits:      stat.Hits,
-			Misses:    stat.Misses,
-			HitRate:   stat.HitRate,
-			Size:      stat.TotalOperations,
-			Evictions: stat.Evictions,
+			Hits:         stat.Hits,
+			Misses:       stat.Misses,
+			HitRate:      stat.HitRate,
+			Entries:      int64(entries),
+			SizeBytes:    sizeBytes,
+			AvgLatencyMs: stat.AvgLatencyNs / int64(time.Millisecond),
+			Evictions:    stat.Evictions,
 		}
 	}
 
 	if stat, ok := allStats["route"]; ok {
+		entries, sizeBytes := h.manager.GetEntriesStats("route")
 		response.RouteCache = CacheStatDetail{
-			Hits:      stat.Hits,
-			Misses:    stat.Misses,
-			HitRate:   stat.HitRate,
-			Size:      stat.TotalOperations,
-			Evictions: stat.Evictions,
+			Hits:         stat.Hits,
+			Misses:       stat.Misses,
+			HitRate:      stat.HitRate,
+			Entries:      int64(entries),
+			SizeBytes:    sizeBytes,
+			AvgLatencyMs: stat.AvgLatencyNs / int64(time.Millisecond),
+			Evictions:    stat.Evictions,
 		}
 	}
 
 	if stat, ok := allStats["usage"]; ok {
+		entries, sizeBytes := h.manager.GetEntriesStats("usage")
 		response.UsageCache = CacheStatDetail{
-			Hits:      stat.Hits,
-			Misses:    stat.Misses,
-			HitRate:   stat.HitRate,
-			Size:      stat.TotalOperations,
-			Evictions: stat.Evictions,
+			Hits:         stat.Hits,
+			Misses:       stat.Misses,
+			HitRate:      stat.HitRate,
+			Entries:      int64(entries),
+			SizeBytes:    sizeBytes,
+			AvgLatencyMs: stat.AvgLatencyNs / int64(time.Millisecond),
+			Evictions:    stat.Evictions,
 		}
 	}
 
 	if stat, ok := allStats["response"]; ok {
+		entries, sizeBytes := h.manager.GetEntriesStats("response")
 		response.ResponseCache = CacheStatDetail{
-			Hits:      stat.Hits,
-			Misses:    stat.Misses,
-			HitRate:   stat.HitRate,
-			Size:      stat.TotalOperations,
-			Evictions: stat.Evictions,
+			Hits:         stat.Hits,
+			Misses:       stat.Misses,
+			HitRate:      stat.HitRate,
+			Entries:      int64(entries),
+			SizeBytes:    sizeBytes,
+			AvgLatencyMs: stat.AvgLatencyNs / int64(time.Millisecond),
+			Evictions:    stat.Evictions,
 		}
 	}
 
@@ -168,14 +179,82 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// Update config (note: actual cache reconfiguration would require cache package support)
-	h.config = &req
+	settings := h.manager.GetSettings()
+
+	if req.Enabled != nil {
+		settings.Enabled = *req.Enabled
+	}
+	if req.Strategy != nil {
+		switch *req.Strategy {
+		case string(cache.CacheStrategySemantic), string(cache.CacheStrategyExact), string(cache.CacheStrategyPrefix):
+			settings.Strategy = cache.CacheStrategy(*req.Strategy)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_strategy",
+					"message": "Invalid cache strategy",
+				},
+			})
+			return
+		}
+	}
+	if req.SimilarityThreshold != nil {
+		value := *req.SimilarityThreshold
+		// Allow 0-100 input from UI
+		if value > 1 {
+			value = value / 100
+		}
+		if value < 0 {
+			value = 0
+		}
+		if value > 1 {
+			value = 1
+		}
+		settings.SimilarityThreshold = value
+	}
+	if req.DefaultTTLSeconds != nil {
+		settings.DefaultTTLSeconds = *req.DefaultTTLSeconds
+	}
+	if req.MaxEntries != nil {
+		settings.MaxEntries = *req.MaxEntries
+	}
+	if req.EvictionPolicy != nil {
+		settings.EvictionPolicy = *req.EvictionPolicy
+	}
+	if req.Dedup != nil {
+		if req.Dedup.Enabled != nil {
+			settings.Dedup.Enabled = *req.Dedup.Enabled
+		}
+		if req.Dedup.MaxPending != nil {
+			settings.Dedup.MaxPending = *req.Dedup.MaxPending
+		}
+		if req.Dedup.RequestTimeoutSeconds != nil {
+			settings.Dedup.RequestTimeoutSeconds = *req.Dedup.RequestTimeoutSeconds
+		}
+	}
+
+	// Apply base cache settings
+	h.manager.UpdateSettings(settings)
+
+	// Optional per-cache TTL overrides
+	if req.RequestTTL != nil && h.manager.RequestCache != nil {
+		h.manager.RequestCache.SetDefaultTTL(time.Duration(*req.RequestTTL) * time.Second)
+	}
+	if req.ContextTTL != nil && h.manager.ContextCache != nil {
+		h.manager.ContextCache.SetDefaultTTL(time.Duration(*req.ContextTTL) * time.Second)
+	}
+	if req.RouteTTL != nil && h.manager.RouteCache != nil {
+		h.manager.RouteCache.SetDefaultTTL(time.Duration(*req.RouteTTL) * time.Second)
+	}
+
+	h.settings = settings
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
 			"message": "Cache configuration updated",
-			"config":  h.config,
+			"config":  settings,
 		},
 	})
 }
@@ -186,9 +265,15 @@ func (h *CacheHandler) GetCacheConfig(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
+	settings := h.manager.GetSettings()
+	dedupConfig, enabled := cache.GetRequestDeduplicator().GetConfig()
+	settings.Dedup.Enabled = enabled
+	settings.Dedup.MaxPending = dedupConfig.MaxPending
+	settings.Dedup.RequestTimeoutSeconds = int(dedupConfig.RequestTimeout.Seconds())
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    h.config,
+		"data":    settings,
 	})
 }
 
@@ -253,13 +338,21 @@ func (h *CacheHandler) InvalidateModel(c *gin.Context) {
 // GET /api/admin/cache/health
 func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 	ctx := context.Background()
+	start := time.Now()
 	err := h.manager.HealthCheck(ctx)
+	latency := time.Since(start)
 
 	healthy := err == nil
+	backend := "memory"
+	if _, ok := h.manager.Cache().(*cache.RedisCache); ok {
+		backend = "redis"
+	}
 
 	response := gin.H{
-		"healthy":   healthy,
-		"timestamp": time.Now(),
+		"status":     map[bool]string{true: "healthy", false: "unhealthy"}[healthy],
+		"backend":    backend,
+		"latency_ms": latency.Milliseconds(),
+		"timestamp":  time.Now(),
 	}
 
 	if !healthy {
@@ -380,31 +473,10 @@ func (h *CacheHandler) InvalidateLowQualityCache(c *gin.Context) {
 	})
 }
 
-// CacheRule represents a cache rule configuration
-type CacheRule struct {
-	ID          int    `json:"id"`
-	Pattern     string `json:"pattern"`      // 匹配模式 (e.g., "chat:*", "gpt-4:*")
-	ModelFilter string `json:"model_filter"` // 模型过滤
-	TTL         int    `json:"ttl"`          // TTL in seconds
-	Priority    string `json:"priority"`     // high, medium, low
-	Enabled     bool   `json:"enabled"`
-}
-
-// CacheRulesStore stores cache rules in memory
-var cacheRules = make(map[int]*CacheRule)
-var nextRuleID = 1
-var rulesMu sync.RWMutex
-
 // GetCacheRules returns all cache rules
 // GET /api/admin/cache/rules
 func (h *CacheHandler) GetCacheRules(c *gin.Context) {
-	rulesMu.RLock()
-	defer rulesMu.RUnlock()
-
-	rules := make([]*CacheRule, 0, len(cacheRules))
-	for _, rule := range cacheRules {
-		rules = append(rules, rule)
-	}
+	rules := cache.GetRuleStore().List()
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -436,19 +508,15 @@ func (h *CacheHandler) CreateCacheRule(c *gin.Context) {
 		return
 	}
 
-	rulesMu.Lock()
-	defer rulesMu.Unlock()
-
-	rule := &CacheRule{
-		ID:          nextRuleID,
+	rule := &cache.CacheRule{
 		Pattern:     req.Pattern,
 		ModelFilter: req.ModelFilter,
 		TTL:         req.TTL,
 		Priority:    req.Priority,
 		Enabled:     req.Enabled,
 	}
-	nextRuleID++
-	cacheRules[rule.ID] = rule
+
+	rule = cache.GetRuleStore().Create(rule)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -493,10 +561,23 @@ func (h *CacheHandler) UpdateCacheRule(c *gin.Context) {
 		return
 	}
 
-	rulesMu.Lock()
-	defer rulesMu.Unlock()
-
-	rule, ok := cacheRules[ruleID]
+	rule, ok := cache.GetRuleStore().Update(ruleID, func(rule *cache.CacheRule) {
+		if req.Pattern != nil {
+			rule.Pattern = *req.Pattern
+		}
+		if req.ModelFilter != nil {
+			rule.ModelFilter = *req.ModelFilter
+		}
+		if req.TTL != nil {
+			rule.TTL = *req.TTL
+		}
+		if req.Priority != nil {
+			rule.Priority = *req.Priority
+		}
+		if req.Enabled != nil {
+			rule.Enabled = *req.Enabled
+		}
+	})
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
@@ -506,22 +587,6 @@ func (h *CacheHandler) UpdateCacheRule(c *gin.Context) {
 			},
 		})
 		return
-	}
-
-	if req.Pattern != nil {
-		rule.Pattern = *req.Pattern
-	}
-	if req.ModelFilter != nil {
-		rule.ModelFilter = *req.ModelFilter
-	}
-	if req.TTL != nil {
-		rule.TTL = *req.TTL
-	}
-	if req.Priority != nil {
-		rule.Priority = *req.Priority
-	}
-	if req.Enabled != nil {
-		rule.Enabled = *req.Enabled
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -546,10 +611,7 @@ func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
 		return
 	}
 
-	rulesMu.Lock()
-	defer rulesMu.Unlock()
-
-	if _, ok := cacheRules[ruleID]; !ok {
+	if !cache.GetRuleStore().Delete(ruleID) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -559,8 +621,6 @@ func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
 		})
 		return
 	}
-
-	delete(cacheRules, ruleID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -587,6 +647,10 @@ type CacheEntry struct {
 func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	cacheType := c.Query("type")
 	search := c.Query("search")
+	taskType := c.Query("task_type")
+	if taskType == "other" {
+		taskType = "unknown"
+	}
 	page := 1
 	pageSize := 20
 
@@ -598,6 +662,31 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	}
 
 	entries := h.manager.ListEntries(cacheType, search)
+	ctx := context.Background()
+
+	if taskType != "" {
+		filtered := make([]*cache.CacheEntryInfo, 0, len(entries))
+		for _, entry := range entries {
+			detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+			if err != nil {
+				continue
+			}
+			entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+			if entry.TaskType == "" && entryTaskType != "" {
+				entry.TaskType = entryTaskType
+			}
+			if userMsg != "" {
+				entry.UserMessage = userMsg
+			}
+			if aiResp != "" {
+				entry.AIResponse = aiResp
+			}
+			if entry.TaskType == taskType {
+				filtered = append(filtered, entry)
+			}
+		}
+		entries = filtered
+	}
 
 	total := len(entries)
 	start := (page - 1) * pageSize
@@ -609,10 +698,32 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 		end = total
 	}
 
+	pageEntries := entries[start:end]
+	// Enrich page entries with preview data when not already filled
+	for _, entry := range pageEntries {
+		if entry.UserMessage != "" || entry.AIResponse != "" {
+			continue
+		}
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			continue
+		}
+		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		if entry.TaskType == "" && entryTaskType != "" {
+			entry.TaskType = entryTaskType
+		}
+		if userMsg != "" {
+			entry.UserMessage = userMsg
+		}
+		if aiResp != "" {
+			entry.AIResponse = aiResp
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"entries":   entries[start:end],
+			"entries":   pageEntries,
 			"total":     total,
 			"page":      page,
 			"page_size": pageSize,
@@ -768,6 +879,9 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 // GET /api/admin/cache/export
 func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 	taskType := c.Query("task_type")
+	if taskType == "other" {
+		taskType = "unknown"
+	}
 
 	entries := h.manager.ListEntries("", "")
 
@@ -785,10 +899,16 @@ func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 	for _, entry := range filtered {
 		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
 		if err == nil {
+			taskType := entry.TaskType
+			if taskType == "" {
+				if extracted, _, _ := extractCacheSummary(detail.Value); extracted != "" {
+					taskType = extracted
+				}
+			}
 			exportData = append(exportData, map[string]interface{}{
 				"key":        entry.Key,
 				"type":       entry.Type,
-				"task_type":  entry.TaskType,
+				"task_type":  taskType,
 				"model":      entry.Model,
 				"provider":   entry.Provider,
 				"size":       entry.Size,
@@ -841,4 +961,99 @@ func (h *CacheHandler) GetCacheTrend(c *gin.Context) {
 			},
 		},
 	})
+}
+
+func extractCacheSummary(value interface{}) (string, string, string) {
+	// taskType, userMessage, aiResponse
+	var taskType string
+	var userMsg string
+	var aiResp string
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		// task type
+		if tt, ok := v["task_type"]; ok {
+			taskType, _ = tt.(string)
+		}
+		if tt, ok := v["TaskType"]; ok && taskType == "" {
+			taskType, _ = tt.(string)
+		}
+		// prompt / user message
+		if p, ok := v["prompt"]; ok {
+			userMsg, _ = p.(string)
+		}
+		if p, ok := v["Prompt"]; ok && userMsg == "" {
+			userMsg, _ = p.(string)
+		}
+		// messages
+		if userMsg == "" {
+			if msgs, ok := v["messages"].([]interface{}); ok {
+				for _, msg := range msgs {
+					if msgMap, ok := msg.(map[string]interface{}); ok {
+						if role, _ := msgMap["role"].(string); role == "user" {
+							if content, ok := msgMap["content"].(string); ok {
+								userMsg = content
+								break
+							}
+						}
+					}
+				}
+			}
+		}
+		// response body
+		if body, ok := v["body"]; ok {
+			switch b := body.(type) {
+			case []byte:
+				aiResp = extractAIFromBody(b)
+			case string:
+				aiResp = extractAIFromBody([]byte(b))
+			}
+		}
+		// direct choices
+		if aiResp == "" {
+			if choices, ok := v["choices"].([]interface{}); ok && len(choices) > 0 {
+				if choice, ok := choices[0].(map[string]interface{}); ok {
+					if msg, ok := choice["message"].(map[string]interface{}); ok {
+						if content, ok := msg["content"].(string); ok {
+							aiResp = content
+						}
+					}
+				}
+			}
+		}
+	case map[interface{}]interface{}:
+		converted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			if ks, ok := key.(string); ok {
+				converted[ks] = val
+			}
+		}
+		return extractCacheSummary(converted)
+	}
+
+	return taskType, truncatePreview(userMsg), truncatePreview(aiResp)
+}
+
+func extractAIFromBody(body []byte) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	if choices, ok := payload["choices"].([]interface{}); ok && len(choices) > 0 {
+		if choice, ok := choices[0].(map[string]interface{}); ok {
+			if msg, ok := choice["message"].(map[string]interface{}); ok {
+				if content, ok := msg["content"].(string); ok {
+					return content
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func truncatePreview(input string) string {
+	if len(input) > 120 {
+		return input[:120] + "..."
+	}
+	return input
 }

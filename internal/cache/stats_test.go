@@ -314,6 +314,14 @@ func (m *mockCache) Exists(ctx context.Context, key string) (bool, error) {
 	return ok, nil
 }
 
+func (m *mockCache) Keys(pattern string) []string {
+	keys := make([]string, 0, len(m.data))
+	for key := range m.data {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
 func TestNewTrackedCache(t *testing.T) {
 	mock := newMockCache()
 	tc := NewTrackedCache(mock, "test-cache")

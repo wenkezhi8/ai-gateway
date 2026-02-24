@@ -39,6 +39,7 @@ type RequestDeduplicator struct {
 	config   RequestDeduplicatorConfig
 	stats    DedupStats
 	stopChan chan struct{}
+	enabled  bool
 }
 
 type DedupStats struct {
@@ -70,6 +71,7 @@ func NewRequestDeduplicator(config RequestDeduplicatorConfig) *RequestDeduplicat
 		pending:  make(map[string]*PendingRequest),
 		config:   config,
 		stopChan: make(chan struct{}),
+		enabled:  true,
 	}
 
 	go d.cleanupLoop()
@@ -94,6 +96,14 @@ func (d *RequestDeduplicator) GenerateKey(prompt string, model string, params ma
 }
 
 func (d *RequestDeduplicator) Do(ctx context.Context, key string, fn func() (interface{}, error)) (interface{}, error) {
+	d.mu.RLock()
+	enabled := d.enabled
+	d.mu.RUnlock()
+
+	if !enabled {
+		return fn()
+	}
+
 	d.stats.mu.Lock()
 	d.stats.TotalRequests++
 	d.stats.mu.Unlock()
@@ -159,6 +169,23 @@ func (d *RequestDeduplicator) Do(ctx context.Context, key string, fn func() (int
 	delete(d.pending, key)
 
 	return result, err
+}
+
+// UpdateConfig updates dedup configuration at runtime.
+func (d *RequestDeduplicator) UpdateConfig(config RequestDeduplicatorConfig, enabled *bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.config = config
+	if enabled != nil {
+		d.enabled = *enabled
+	}
+}
+
+// GetConfig returns current configuration and enabled flag.
+func (d *RequestDeduplicator) GetConfig() (RequestDeduplicatorConfig, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.config, d.enabled
 }
 
 func (d *RequestDeduplicator) GetStats() map[string]interface{} {

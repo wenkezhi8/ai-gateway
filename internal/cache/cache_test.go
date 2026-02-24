@@ -104,6 +104,28 @@ func TestResponseCache_SetAndGet(t *testing.T) {
 	assert.Equal(t, response.Model, result.Model)
 }
 
+func TestResponseCache_SetWithTTL(t *testing.T) {
+	memCache := NewMemoryCache()
+	rc := NewResponseCache(memCache, time.Hour)
+	ctx := context.Background()
+
+	key := "custom-ttl-key"
+	response := &CachedResponse{
+		StatusCode: 200,
+		Body:       []byte(`{"ok": true}`),
+		CreatedAt:  time.Now(),
+		Provider:   "openai",
+		Model:      "gpt-4",
+	}
+
+	err := rc.SetWithTTL(ctx, key, response, 5*time.Second)
+	require.NoError(t, err)
+
+	meta := memCache.GetMeta(key)
+	require.NotNil(t, meta)
+	assert.Equal(t, 5, meta.TTL)
+}
+
 func TestResponseCache_Get_NotFound(t *testing.T) {
 	memCache := NewMemoryCache()
 	rc := NewResponseCache(memCache, time.Hour)

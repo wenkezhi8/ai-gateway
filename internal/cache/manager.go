@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 )
 
@@ -22,6 +23,9 @@ type Manager struct {
 
 	// Statistics
 	stats *StatsCollector
+
+	settingsMu sync.RWMutex
+	settings   CacheSettings
 }
 
 // ManagerConfig holds configuration for the cache manager
@@ -67,7 +71,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		cache = NewMemoryCache()
 	}
 
-	return &Manager{
+	manager := &Manager{
 		cache:         cache,
 		RequestCache:  NewRequestCache(cache, cfg.RequestConfig),
 		ContextCache:  NewContextCache(cache, cfg.ContextConfig),
@@ -75,7 +79,9 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 		UsageCache:    NewUsageCache(cache, cfg.UsageConfig),
 		ResponseCache: NewResponseCache(cache, cfg.ResponseTTL),
 		stats:         GlobalStatsCollector,
-	}, nil
+		settings:      DefaultCacheSettings(),
+	}
+	return manager, nil
 }
 
 // NewManagerWithCache creates a manager with an existing cache
@@ -88,6 +94,7 @@ func NewManagerWithCache(cache Cache) *Manager {
 		UsageCache:    NewUsageCache(cache, DefaultUsageCacheConfig()),
 		ResponseCache: NewResponseCache(cache, 30*time.Minute),
 		stats:         GlobalStatsCollector,
+		settings:      DefaultCacheSettings(),
 	}
 }
 
@@ -124,6 +131,54 @@ func (m *Manager) Exists(ctx context.Context, key string) (bool, error) {
 // GetAllStats returns statistics for all caches
 func (m *Manager) GetAllStats() map[string]StatsSnapshot {
 	return m.stats.AllStats()
+}
+
+// GetEntriesStats returns entry count and size (best-effort) for a cache type.
+func (m *Manager) GetEntriesStats(cacheType string) (int, int64) {
+	entries := m.ListEntries(cacheType, "")
+	var totalSize int64
+	for _, entry := range entries {
+		totalSize += int64(entry.Size)
+	}
+	return len(entries), totalSize
+}
+
+// GetSettings returns current cache settings.
+func (m *Manager) GetSettings() CacheSettings {
+	m.settingsMu.RLock()
+	defer m.settingsMu.RUnlock()
+	return m.settings
+}
+
+// UpdateSettings updates cache settings and applies to components.
+func (m *Manager) UpdateSettings(settings CacheSettings) {
+	m.settingsMu.Lock()
+	m.settings = settings
+	m.settingsMu.Unlock()
+
+	// Apply response cache default TTL
+	if m.ResponseCache != nil && settings.DefaultTTLSeconds > 0 {
+		m.ResponseCache.SetDefaultTTL(time.Duration(settings.DefaultTTLSeconds) * time.Second)
+	}
+
+	// Apply semantic cache config if available
+	if sc := m.semanticCache; sc != nil {
+		sc.UpdateConfig(SemanticCacheConfig{
+			Enabled:             settings.Enabled && settings.Strategy == CacheStrategySemantic,
+			SimilarityThreshold: settings.SimilarityThreshold,
+			MaxEntries:          settings.MaxEntries,
+			DefaultTTL:          time.Duration(settings.DefaultTTLSeconds) * time.Second,
+			VectorDimension:     sc.config.VectorDimension,
+		})
+	}
+
+	// Apply dedup configuration
+	dedup := GetRequestDeduplicator()
+	dedup.UpdateConfig(RequestDeduplicatorConfig{
+		MaxPending:      settings.Dedup.MaxPending,
+		RequestTimeout:  time.Duration(settings.Dedup.RequestTimeoutSeconds) * time.Second,
+		CleanupInterval: 10 * time.Second,
+	}, &settings.Dedup.Enabled)
 }
 
 // GetRequestCacheStats returns request cache statistics
@@ -276,6 +331,8 @@ type CacheEntryInfo struct {
 	Model     string     `json:"model,omitempty"`
 	Provider  string     `json:"provider,omitempty"`
 	TaskType  string     `json:"task_type,omitempty"`
+	UserMessage string   `json:"user_message,omitempty"`
+	AIResponse  string   `json:"ai_response,omitempty"`
 }
 
 // CacheEntryDetail represents detailed cache entry data
@@ -354,7 +411,50 @@ func (m *Manager) GetEntryDetail(ctx context.Context, key string) (*CacheEntryDe
 		}
 	}
 
+	// Best-effort TTL for Redis cache
+	if rc, ok := m.cache.(*RedisCache); ok {
+		if ttl, err := rc.TTL(ctx, key); err == nil && ttl > 0 {
+			detail.TTL = int(ttl.Seconds())
+			exp := time.Now().Add(ttl)
+			detail.ExpiresAt = &exp
+		}
+	}
+
+	if detail.CreatedAt.IsZero() {
+		if createdAt := extractCreatedAt(value); !createdAt.IsZero() {
+			detail.CreatedAt = createdAt
+		}
+	}
+
 	return detail, nil
+}
+
+func extractCreatedAt(value interface{}) time.Time {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if raw, ok := v["created_at"]; ok {
+			if t, ok := raw.(time.Time); ok {
+				return t
+			}
+			if ts, ok := raw.(string); ok {
+				if t, err := time.Parse(time.RFC3339, ts); err == nil {
+					return t
+				}
+			}
+		}
+	case map[interface{}]interface{}:
+		if raw, ok := v["created_at"]; ok {
+			if t, ok := raw.(time.Time); ok {
+				return t
+			}
+			if ts, ok := raw.(string); ok {
+				if t, err := time.Parse(time.RFC3339, ts); err == nil {
+					return t
+				}
+			}
+		}
+	}
+	return time.Time{}
 }
 
 func getKeyPattern(cacheType string) string {

@@ -81,6 +81,13 @@ func (c *ContextCache) SetSummarizer(summarizer Summarizer) {
 	c.summarizer = summarizer
 }
 
+// SetDefaultTTL updates the default TTL for context cache.
+func (c *ContextCache) SetDefaultTTL(ttl time.Duration) {
+	if ttl > 0 {
+		c.config.DefaultTTL = ttl
+	}
+}
+
 // sessionKey generates the cache key for a session
 func (c *ContextCache) sessionKey(sessionID string) string {
 	return "session:" + sessionID

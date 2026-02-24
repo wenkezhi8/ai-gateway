@@ -211,6 +211,13 @@ func (c *RouteCache) GetStats() StatsSnapshot {
 	return c.stats.Snapshot()
 }
 
+// SetDefaultTTL updates the default TTL for route cache.
+func (c *RouteCache) SetDefaultTTL(ttl time.Duration) {
+	if ttl > 0 {
+		c.config.DefaultTTL = ttl
+	}
+}
+
 // UpdateConfig updates the cache configuration and invalidates if version changed
 func (c *RouteCache) UpdateConfig(config RouteCacheConfig) error {
 	c.mu.Lock()

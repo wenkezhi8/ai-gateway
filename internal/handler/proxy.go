@@ -105,6 +105,9 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		backendCache = cacheManager.Cache()
 	}
 	semanticCache := cache.NewSemanticCache(cache.DefaultSemanticCacheConfig(), backendCache)
+	if cacheManager != nil {
+		cacheManager.SetSemanticCache(semanticCache)
+	}
 
 	// Start cleanup goroutine
 	go func() {
@@ -169,11 +172,22 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
 	recommendedTTL := assessment.SuggestedTTL
 
+	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
+		recommendedTTL = ttl
+	}
+
+	cacheSettings := cache.DefaultCacheSettings()
+	if h.cache != nil {
+		cacheSettings = h.cache.GetSettings()
+	}
+	cacheEnabled := h.cache != nil && cacheSettings.Enabled && recommendedTTL > 0
+	allowSemantic := cacheEnabled && cacheSettings.Strategy == cache.CacheStrategySemantic
+
 	logrus.WithFields(logrus.Fields{
 		"task_type":       assessment.TaskType,
 		"difficulty":      assessment.Difficulty,
 		"recommended_ttl": recommendedTTL,
-	}).Debug("Request difficulty assessment")
+	}).Info("Request difficulty assessment")
 
 	// Handle "auto", "latest", and "default" model selection
 	requestedModel := req.Model
@@ -225,7 +239,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Try semantic cache first (for non-streaming requests with cacheable task types)
-	if !req.Stream && h.semanticCache != nil && assessment.SuggestedTTL > 0 {
+	if !req.Stream && allowSemantic && h.semanticCache != nil {
 		// Use simple embedding for semantic matching (no API call needed)
 		queryVector := cache.SimpleEmbedding(prompt, 1536)
 
@@ -246,7 +260,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Try exact cache (for non-streaming requests)
-	if !req.Stream && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+	if !req.Stream && cacheEnabled && h.cache.ResponseCache != nil {
 		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
 		cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
 		if err == nil && cached != nil {
@@ -391,7 +405,13 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Cache the response if applicable
-	if h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+	logrus.WithFields(logrus.Fields{
+		"cache_enabled":     cacheEnabled,
+		"response_cache_nil": h.cache == nil || h.cache.ResponseCache == nil,
+		"recommended_ttl":   recommendedTTL,
+	}).Info("Cache check")
+	
+	if cacheEnabled && h.cache.ResponseCache != nil {
 		responseBody, _ := json.Marshal(response)
 		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
 		cachedResp := &cache.CachedResponse{
@@ -401,6 +421,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			CreatedAt:  time.Now(),
 			Provider:   req.Provider,
 			Model:      req.Model,
+			Prompt:     prompt,
+			TaskType:   string(assessment.TaskType),
 		}
 
 		// Use SetWithTaskType to record task type for filtering
@@ -408,7 +430,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			taskTypeStr := string(assessment.TaskType)
 			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr)
 		} else {
-			h.cache.ResponseCache.Set(c.Request.Context(), cacheKey, cachedResp)
+			h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -430,7 +452,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Store in semantic cache for similar query matching
 	// 改动点: 存储到语义缓存供相似请求复用
-	if h.semanticCache != nil && recommendedTTL > 0 && assessment.TaskType != routing.TaskTypeCreative {
+	if allowSemantic && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative {
 		responseBody, _ := json.Marshal(response)
 		queryVector := cache.SimpleEmbedding(prompt, 1536)
 		h.semanticCache.Set(

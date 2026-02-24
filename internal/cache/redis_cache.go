@@ -205,3 +205,9 @@ func (c *RedisCache) Keys(pattern string) []string {
 
 	return keys
 }
+
+// TTL returns the remaining TTL for a key.
+func (c *RedisCache) TTL(ctx context.Context, key string) (time.Duration, error) {
+	fullKey := c.prefix + key
+	return c.client.TTL(ctx, fullKey).Result()
+}

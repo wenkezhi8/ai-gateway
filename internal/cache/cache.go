@@ -23,6 +23,7 @@ type ResponseCache struct {
 	cache  Cache
 	ttl    time.Duration
 	prefix string
+	stats  *Stats
 }
 
 // NewResponseCache creates a new response cache
@@ -31,6 +32,7 @@ func NewResponseCache(cache Cache, ttl time.Duration) *ResponseCache {
 		cache:  cache,
 		ttl:    ttl,
 		prefix: "ai-response:",
+		stats:  GlobalStatsCollector.GetStats("response"),
 	}
 }
 
@@ -42,6 +44,8 @@ type CachedResponse struct {
 	CreatedAt  time.Time         `json:"created_at"`
 	Provider   string            `json:"provider"`
 	Model      string            `json:"model"`
+	Prompt     string            `json:"prompt"`     // 便于缓存管理页面展示用户消息
+	TaskType   string            `json:"task_type"`  // 便于按任务类型过滤
 }
 
 // GenerateKey creates a cache key from request parameters
@@ -59,17 +63,41 @@ func (c *ResponseCache) GenerateKey(provider, model string, request interface{})
 
 // Get retrieves a cached response
 func (c *ResponseCache) Get(ctx context.Context, key string) (*CachedResponse, error) {
+	start := time.Now()
 	var cached CachedResponse
 	err := c.cache.Get(ctx, key, &cached)
 	if err != nil {
+		if err == ErrNotFound {
+			c.stats.RecordMiss(time.Since(start))
+		} else {
+			c.stats.RecordError()
+		}
 		return nil, err
 	}
+	c.stats.RecordHit(time.Since(start))
 	return &cached, nil
 }
 
 // Set stores a response in cache
 func (c *ResponseCache) Set(ctx context.Context, key string, response *CachedResponse) error {
 	return c.cache.Set(ctx, key, response, c.ttl)
+}
+
+// SetWithTTL stores a response in cache with a custom TTL
+func (c *ResponseCache) SetWithTTL(ctx context.Context, key string, response *CachedResponse, ttl time.Duration) error {
+	return c.cache.Set(ctx, key, response, ttl)
+}
+
+// SetDefaultTTL updates the default TTL for response cache
+func (c *ResponseCache) SetDefaultTTL(ttl time.Duration) {
+	if ttl > 0 {
+		c.ttl = ttl
+	}
+}
+
+// GetStats returns response cache statistics
+func (c *ResponseCache) GetStats() StatsSnapshot {
+	return c.stats.Snapshot()
 }
 
 // Delete removes a cached response

@@ -101,13 +101,13 @@
                 </el-form-item>
 
                 <el-form-item label="默认TTL">
-                  <el-input-number v-model="cacheConfig.defaultTTL" :min="60" :max="86400" @change="saveConfig" />
+                  <el-input-number v-model="cacheConfig.defaultTTLSeconds" :min="60" :max="86400" @change="saveConfig" />
                   <span class="unit-label">秒</span>
                 </el-form-item>
 
-                <el-form-item label="最大缓存大小">
-                  <el-input-number v-model="cacheConfig.maxSize" :min="100" :max="10000" :step="100" @change="saveConfig" />
-                  <span class="unit-label">MB</span>
+                <el-form-item label="最大条目数">
+                  <el-input-number v-model="cacheConfig.maxEntries" :min="100" :max="100000" :step="500" @change="saveConfig" />
+                  <span class="unit-label">条</span>
                 </el-form-item>
 
                 <el-form-item label="淘汰策略">
@@ -352,7 +352,7 @@
                   <el-option label="逻辑推理" value="reasoning" />
                   <el-option label="翻译" value="translate" />
                   <el-option label="长文本" value="long_text" />
-                  <el-option label="其他" value="other" />
+                  <el-option label="其他" value="unknown" />
                 </el-select>
                 <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="loadCacheEntries">
                   <template #prefix><el-icon><Search /></el-icon></template>
@@ -474,7 +474,7 @@
             <el-option label="逻辑推理" value="reasoning" />
             <el-option label="翻译" value="translate" />
             <el-option label="长文本处理" value="long_text" />
-            <el-option label="其他" value="other" />
+            <el-option label="其他" value="unknown" />
           </el-select>
         </el-form-item>
         <el-form-item label="用户消息" prop="user_message">
@@ -679,15 +679,16 @@ const cacheTypes = ref<CacheType[]>([
   { id: 'request', name: '请求缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
   { id: 'context', name: '上下文缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
   { id: 'route', name: '路由缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
-  { id: 'usage', name: '用量统计缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' }
+  { id: 'usage', name: '用量统计缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
+  { id: 'response', name: '响应缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' }
 ])
 
 const cacheConfig = reactive({
   enabled: true,
   strategy: 'semantic',
-  similarityThreshold: 85,
-  defaultTTL: 3600,
-  maxSize: 1024,
+  similarityThreshold: 92,
+  defaultTTLSeconds: 1800,
+  maxEntries: 10000,
   evictionPolicy: 'lru'
 })
 
@@ -718,9 +719,9 @@ const taskTTLList = ref<TaskTTLItem[]>([
   { key: 'chat', name: '日常对话', description: '个性化对话，上下文相关性强', ttl: 1 },
   { key: 'creative', name: '创意写作', description: '个性化创意内容，默认不缓存', ttl: 0 },
   { key: 'reasoning', name: '逻辑推理', description: '推理结果，稳定性高', ttl: 168 },
-  { key: 'translate', name: '翻译', description: '标准翻译结果，仅术语更新时变化', ttl: 360 },
+  { key: 'translate', name: '翻译', description: '标准翻译结果，仅术语更新时变化', ttl: 72 },
   { key: 'long_text', name: '长文本处理', description: '文档摘要、PDF解析等，同一文本结果固定', ttl: 360 },
-  { key: 'other', name: '其他类型', description: '未分类任务', ttl: 24 }
+  { key: 'unknown', name: '其他类型', description: '未分类任务', ttl: 24 }
 ])
 
 const defaultTaskTTL = {
@@ -730,9 +731,9 @@ const defaultTaskTTL = {
   chat: 1,
   creative: 0,
   reasoning: 168,
-  translate: 360,
+  translate: 72,
   long_text: 360,
-  other: 24
+  unknown: 24
 }
 
 const cacheRules = ref<CacheRule[]>([])
@@ -900,12 +901,32 @@ const initDetailChart = () => {
   })
 }
 
-const refreshAllCache = () => {
-  ElMessage.success('缓存统计已刷新')
+const refreshAllCache = async () => {
+  await Promise.all([
+    loadCacheStats(),
+    loadCacheConfig(),
+    loadCacheHealth(),
+    loadCacheRules(),
+    loadCacheEntries(),
+    loadTaskTTLConfig()
+  ])
+  handleSuccess('缓存数据已刷新')
 }
 
-const saveConfig = () => {
-  ElMessage.success('配置已保存')
+const saveConfig = async () => {
+  try {
+    await request.put('/admin/cache/config', {
+      enabled: cacheConfig.enabled,
+      strategy: cacheConfig.strategy,
+      similarity_threshold: cacheConfig.similarityThreshold / 100,
+      default_ttl_seconds: cacheConfig.defaultTTLSeconds,
+      max_entries: cacheConfig.maxEntries,
+      eviction_policy: cacheConfig.evictionPolicy
+    })
+    handleSuccess('配置已保存')
+  } catch (e) {
+    handleApiError(e, '保存失败')
+  }
 }
 
 const showAddRuleDialog = () => {
@@ -1042,6 +1063,8 @@ async function loadCacheStats() {
       let totalHits = 0
       let totalOps = 0
       let totalEntries = 0
+      let totalSizeBytes = 0
+      let totalLatencyMs = 0
       
       const typeStats: Record<string, any> = {}
       
@@ -1052,13 +1075,16 @@ async function loadCacheStats() {
           typeStats[typeName] = stat
           totalHits += stat.hits || 0
           totalOps += (stat.hits || 0) + (stat.misses || 0)
-          totalEntries += stat.size || stat.entries || 0
+          totalEntries += stat.entries || 0
+          totalSizeBytes += stat.size_bytes || 0
+          totalLatencyMs += (stat.avg_latency_ms || 0) * (stat.hits + stat.misses)
         }
       }
-      
+
       overallStats.hitRate = totalOps > 0 ? Math.round((totalHits / totalOps) * 100) : 0
       overallStats.totalEntries = totalEntries
-      overallStats.totalSize = `${Math.round(totalEntries * 0.001)} MB`
+      overallStats.totalSize = formatSize(totalSizeBytes)
+      overallStats.avgResponse = totalOps > 0 ? `${Math.round(totalLatencyMs / totalOps)}ms` : '0ms'
       
       cacheTypes.value = cacheTypes.value.map(type => {
         const stat = typeStats[type.id]
@@ -1069,8 +1095,8 @@ async function loadCacheStats() {
           return {
             ...type,
             hitRate: ops > 0 ? Math.round((hits / ops) * 100) : 0,
-            entries: stat.size || stat.entries || 0,
-            size: `${Math.round((stat.size || stat.entries || 0) * 0.001)} MB`
+            entries: stat.entries || 0,
+            size: formatSize(stat.size_bytes || 0)
           }
         }
         return type
@@ -1090,10 +1116,17 @@ async function loadCacheConfig() {
       const cfg = data.data || data
       cacheConfig.enabled = cfg.enabled ?? true
       cacheConfig.strategy = cfg.strategy || 'semantic'
-      cacheConfig.similarityThreshold = cfg.similarity_threshold || cfg.similarityThreshold || 85
-      cacheConfig.defaultTTL = cfg.default_ttl || cfg.defaultTTL || 3600
-      cacheConfig.maxSize = cfg.max_size || cfg.maxSize || 1024
+      const similarity = cfg.similarity_threshold ?? cfg.similarityThreshold ?? 0.92
+      cacheConfig.similarityThreshold = Math.round(similarity * 100)
+      cacheConfig.defaultTTLSeconds = cfg.default_ttl_seconds || cfg.defaultTTLSeconds || 1800
+      cacheConfig.maxEntries = cfg.max_entries || cfg.maxEntries || 10000
       cacheConfig.evictionPolicy = cfg.eviction_policy || cfg.evictionPolicy || 'lru'
+
+      if (cfg.dedup) {
+        dedupConfig.enabled = cfg.dedup.enabled ?? dedupConfig.enabled
+        dedupConfig.maxPending = cfg.dedup.max_pending ?? dedupConfig.maxPending
+        dedupConfig.requestTimeout = cfg.dedup.request_timeout_seconds ?? dedupConfig.requestTimeout
+      }
     }
   } catch (e) {
     console.warn('Failed to load cache config:', e)
@@ -1133,7 +1166,7 @@ async function saveDedupConfig() {
       dedup: {
         enabled: dedupConfig.enabled,
         max_pending: dedupConfig.maxPending,
-        request_timeout: dedupConfig.requestTimeout
+        request_timeout_seconds: dedupConfig.requestTimeout
       }
     })
     handleSuccess('请求去重配置已保存')
@@ -1188,7 +1221,7 @@ async function loadCacheEntries() {
   entriesLoading.value = true
   try {
     const params = new URLSearchParams()
-    if (entriesFilter.type) params.append('type', entriesFilter.type)
+    if (entriesFilter.type) params.append('task_type', entriesFilter.type)
     if (entriesFilter.search) params.append('search', entriesFilter.search)
     params.append('page', entriesFilter.page.toString())
     params.append('page_size', entriesFilter.pageSize.toString())
@@ -1280,7 +1313,7 @@ function formatValue(value: any): string {
 // 按任务类型筛选缓存
 function getFilteredEntries(): any[] {
   if (!entriesFilter.type) return cacheEntries.value
-  return cacheEntries.value.filter(e => (e.task_type || 'other') === entriesFilter.type)
+  return cacheEntries.value.filter(e => (e.task_type || 'unknown') === entriesFilter.type)
 }
 
 // 获取任务类型标签颜色
@@ -1294,6 +1327,7 @@ function getTaskTypeTag(taskType: string): string {
     reasoning: 'success',
     translate: 'primary',
     long_text: 'warning',
+    unknown: 'info',
     other: 'info'
   }
   return types[taskType] || 'info'
@@ -1310,6 +1344,7 @@ function getTaskTypeName(taskType: string): string {
     reasoning: '推理',
     translate: '翻译',
     long_text: '长文本',
+    unknown: '其他',
     other: '其他'
   }
   return names[taskType] || taskType || '其他'
@@ -1317,6 +1352,7 @@ function getTaskTypeName(taskType: string): string {
 
 // 从缓存内容中提取用户消息
 function getUserMessage(row: any): string {
+  if (row.user_message) return row.user_message
   if (!row.value) return '-'
   try {
     const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
@@ -1333,6 +1369,7 @@ function getUserMessage(row: any): string {
 
 // 从缓存内容中提取AI回复
 function getAIResponse(row: any): string {
+  if (row.ai_response) return row.ai_response
   if (!row.value) return '-'
   try {
     const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value

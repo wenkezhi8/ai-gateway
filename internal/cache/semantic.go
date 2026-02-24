@@ -208,6 +208,19 @@ func NewSemanticCache(config SemanticCacheConfig, backend Cache) *SemanticCache 
 	return cache
 }
 
+// UpdateConfig updates semantic cache configuration at runtime.
+func (c *SemanticCache) UpdateConfig(config SemanticCacheConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.config = config
+
+	// If max entries reduced, evict until within limit.
+	for c.config.MaxEntries > 0 && len(c.entries) > c.config.MaxEntries {
+		c.evictOldest()
+	}
+}
+
 // Get retrieves a semantically similar cached response
 // 改动点: 使用向量相似度匹配相似请求
 func (c *SemanticCache) Get(ctx context.Context, query string, queryVector []float64) (*SemanticEntry, float64) {

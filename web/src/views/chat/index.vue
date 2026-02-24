@@ -103,6 +103,12 @@
                 <el-switch v-model="answerHighlightEnabled" />
               </div>
             </el-tooltip>
+            <el-tooltip content="关闭后使用非流式响应（便于测试缓存）" placement="top">
+              <div class="setting-item">
+                <span>流式响应</span>
+                <el-switch v-model="streamEnabled" />
+              </div>
+            </el-tooltip>
           </div>
           <ModelSelector
             v-model:provider="selectedProvider"
@@ -206,6 +212,7 @@ const deepThinkEnabled = ref(false)
 const multimodalEnabled = ref(false)
 const defaultExpandReasoning = ref(true)
 const answerHighlightEnabled = ref(true)
+const streamEnabled = ref(true)  // 流式响应开关
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -280,7 +287,7 @@ async function handleBatchSend(): Promise<void> {
             model: conv.model,
             provider: conv.provider,
             messages,
-            stream: true
+            stream: streamEnabled.value
           },
           (chunk) => {
             const content = chunk.choices?.[0]?.delta?.content
@@ -527,7 +534,7 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       model: chatStore.currentConversation.model,
       provider: chatStore.currentConversation.provider,
       messages,
-      stream: true,
+      stream: streamEnabled.value,
       deepThink: deepThinkEnabled.value
     },
     // onChunk
