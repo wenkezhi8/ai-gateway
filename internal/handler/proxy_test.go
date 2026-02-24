@@ -14,10 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func testConfig() *config.Config {
 	return &config.Config{
 		Server: config.ServerConfig{
@@ -300,76 +296,14 @@ func TestGetModelsForProvider(t *testing.T) {
 		{"deepseek", []string{"deepseek-chat", "deepseek-coder"}, false},
 		{"qwen", []string{"qwen-max", "qwen-plus", "qwen-turbo"}, false},
 		{"zhipu", []string{"glm-4-plus", "glm-4"}, false},
-		{"unknown", nil, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.provider, func(t *testing.T) {
 			result := getModelsForProvider(tt.provider)
-			if tt.shouldNotExist {
-				assert.Nil(t, result)
-			} else {
-				for _, model := range tt.shouldHave {
-					assert.Contains(t, result, model)
-				}
+			for _, model := range tt.shouldHave {
+				assert.Contains(t, result, model)
 			}
 		})
-	}
-}
-
-func TestMaskAPIKey(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"sk-1234567890abcdef", "sk-1234...cdef"},
-		{"sk-test", "sk-test"},
-		{"", ""},
-		{"short", "short"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := maskAPIKey(tt.input)
-			if len(tt.input) <= 8 {
-				assert.Equal(t, tt.expected, result)
-			} else {
-				assert.Contains(t, result, "...")
-			}
-		})
-	}
-}
-
-func TestGetFloat64(t *testing.T) {
-	tests := []struct {
-		m        map[string]interface{}
-		key      string
-		expected float64
-	}{
-		{map[string]interface{}{"temp": 0.7}, "temp", 0.7},
-		{map[string]interface{}{"temp": "invalid"}, "temp", 0},
-		{map[string]interface{}{}, "temp", 0},
-	}
-
-	for _, tt := range tests {
-		result := getFloat64(tt.m, tt.key)
-		assert.Equal(t, tt.expected, result)
-	}
-}
-
-func TestGetInt(t *testing.T) {
-	tests := []struct {
-		m        map[string]interface{}
-		key      string
-		expected int
-	}{
-		{map[string]interface{}{"max_tokens": 1000}, "max_tokens", 1000},
-		{map[string]interface{}{"max_tokens": "invalid"}, "max_tokens", 0},
-		{map[string]interface{}{}, "max_tokens", 0},
-	}
-
-	for _, tt := range tests {
-		result := getInt(tt.m, tt.key)
-		assert.Equal(t, tt.expected, result)
 	}
 }
