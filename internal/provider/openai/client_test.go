@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -343,4 +344,154 @@ func TestConvertResponse_WithArrayContent(t *testing.T) {
 	provResp := ConvertResponse(resp)
 
 	assert.Equal(t, "Hello World", provResp.Choices[0].Message.Content)
+}
+
+func TestNewAdapter(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		BaseURL: "https://api.openai.com/v1",
+		Models:  []string{"gpt-4"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, "openai", adapter.Name())
+	assert.True(t, adapter.IsEnabled())
+}
+
+func TestNewAdapter_DefaultBaseURL(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Models:  []string{"gpt-4"},
+		Enabled: true,
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, defaultBaseURL, adapter.BaseURL())
+}
+
+func TestNewAdapter_WithOrgID(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: true,
+		Extra: map[string]interface{}{
+			"organization_id": "org-123",
+		},
+	}
+
+	adapter := NewAdapter(cfg)
+	require.NotNil(t, adapter)
+	assert.Equal(t, "org-123", adapter.orgID)
+}
+
+func TestAdapter_Name(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	adapter := NewAdapter(cfg)
+	assert.Equal(t, "openai", adapter.Name())
+}
+
+func TestAdapter_SetClient(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	adapter := NewAdapter(cfg)
+
+	newClient := NewClient("new-key", "https://new.url.com", "")
+	adapter.SetClient(newClient)
+
+	assert.NotNil(t, adapter.client)
+}
+
+func TestDefaultModels(t *testing.T) {
+	models := DefaultModels()
+
+	assert.NotEmpty(t, models)
+	assert.Contains(t, models, "gpt-4o")
+	assert.Contains(t, models, "gpt-4")
+	assert.Contains(t, models, "gpt-3.5-turbo")
+}
+
+func TestFactory(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	_, ok := prov.(*Adapter)
+	assert.True(t, ok)
+}
+
+func TestFactory_DefaultModels(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Models:  []string{},
+		Enabled: true,
+	}
+
+	prov := Factory(cfg)
+	require.NotNil(t, prov)
+
+	assert.NotEmpty(t, prov.Models())
+}
+
+func TestAdapter_Chat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "gpt-4",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	resp, err := adapter.Chat(context.Background(), req)
+	assert.Nil(t, resp)
+	require.Error(t, err)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
+}
+
+func TestAdapter_StreamChat_Disabled(t *testing.T) {
+	cfg := &provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		Enabled: false,
+	}
+	adapter := NewAdapter(cfg)
+
+	req := &provider.ChatRequest{
+		Model:    "gpt-4",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "Hello"}},
+	}
+
+	ch, err := adapter.StreamChat(context.Background(), req)
+	require.Error(t, err)
+	assert.NotNil(t, ch)
+
+	provErr, ok := err.(*provider.ProviderError)
+	require.True(t, ok)
+	assert.Equal(t, 503, provErr.Code)
+	assert.Contains(t, provErr.Message, "disabled")
 }
