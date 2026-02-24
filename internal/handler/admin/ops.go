@@ -488,28 +488,122 @@ func (h *OpsHandler) getResourceMetrics() ResourceMetrics {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	memoryUsedMB := m.Alloc / 1024 / 1024
-	memoryTotalMB := m.Sys / 1024 / 1024
-	memoryUsage := 0.0
-	if m.Sys > 0 {
-		memoryUsage = float64(m.Alloc) / float64(m.Sys) * 100
-	}
-
 	cpuUsage := getCPUUsage()
+
+	systemMemoryUsedMB, systemMemoryTotalMB := getSystemMemoryUsage()
+	memoryUsage := 0.0
+	if systemMemoryTotalMB > 0 {
+		memoryUsage = float64(systemMemoryUsedMB) / float64(systemMemoryTotalMB) * 100
+	}
 
 	return ResourceMetrics{
 		CPUUsage:       cpuUsage,
 		CPUWarning:     80,
 		CPUCritical:    95,
 		MemoryUsage:    round1(memoryUsage),
-		MemoryUsedMB:   memoryUsedMB,
-		MemoryTotalMB:  memoryTotalMB,
+		MemoryUsedMB:   systemMemoryUsedMB,
+		MemoryTotalMB:  systemMemoryTotalMB,
 		Goroutines:     runtime.NumGoroutine(),
 		GoroutineWarn:  8000,
 		GoroutineCrit:  15000,
 		GCCount:        m.NumGC,
 		GCPauseTotalNs: m.PauseTotalNs,
 	}
+}
+
+func getSystemMemoryUsage() (usedMB, totalMB uint64) {
+	switch runtime.GOOS {
+	case "darwin":
+		return getSystemMemoryDarwin()
+	case "linux":
+		return getSystemMemoryLinux()
+	default:
+		return 0, 0
+	}
+}
+
+func getSystemMemoryDarwin() (usedMB, totalMB uint64) {
+	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	if err != nil {
+		return 0, 0
+	}
+	totalBytes, _ := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	totalMB = totalBytes / 1024 / 1024
+
+	out, err = exec.Command("vm_stat").Output()
+	if err != nil {
+		return totalMB / 2, totalMB
+	}
+
+	pageSize := uint64(4096)
+	freePages := uint64(0)
+	inactivePages := uint64(0)
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "Pages free:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				val := strings.TrimSuffix(fields[2], ".")
+				freePages, _ = strconv.ParseUint(val, 10, 64)
+			}
+		}
+		if strings.HasPrefix(line, "Pages inactive:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				val := strings.TrimSuffix(fields[2], ".")
+				inactivePages, _ = strconv.ParseUint(val, 10, 64)
+			}
+		}
+	}
+
+	freeMB := (freePages + inactivePages) * pageSize / 1024 / 1024
+	usedMB = totalMB - freeMB
+
+	return usedMB, totalMB
+}
+
+func getSystemMemoryLinux() (usedMB, totalMB uint64) {
+	file, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return 0, 0
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var memTotal, memFree, memAvailable, buffers, cached uint64
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+
+		val, _ := strconv.ParseUint(fields[1], 10, 64)
+
+		switch {
+		case strings.HasPrefix(line, "MemTotal:"):
+			memTotal = val
+		case strings.HasPrefix(line, "MemFree:"):
+			memFree = val
+		case strings.HasPrefix(line, "MemAvailable:"):
+			memAvailable = val
+		case strings.HasPrefix(line, "Buffers:"):
+			buffers = val
+		case strings.HasPrefix(line, "Cached:"):
+			cached = val
+		}
+	}
+
+	totalMB = memTotal / 1024
+	if memAvailable > 0 {
+		usedMB = (memTotal - memAvailable) / 1024
+	} else {
+		usedMB = (memTotal - memFree - buffers - cached) / 1024
+	}
+
+	return usedMB, totalMB
 }
 
 func getCPUUsage() float64 {
