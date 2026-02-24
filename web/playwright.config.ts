@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// 改动点: 支持使用已运行的服务，避免测试时重复拉起 webServer
+const useExistingServer = process.env.E2E_USE_EXISTING_SERVER === '1';
+// 改动点: 允许通过环境变量覆盖 baseURL
+const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:8566';
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -12,13 +17,14 @@ export default defineConfig({
     ['list'],
     ['./tests/utils/custom-reporter.ts']
   ],
-  outputDir: 'tests/results',
+  // 改动点: 避免 outputDir 与 HTML 报告目录冲突
+  outputDir: 'tests/results/artifacts',
   timeout: 30000,
   expect: {
     timeout: 5000
   },
   use: {
-    baseURL: 'http://localhost:8566',
+    baseURL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -39,9 +45,10 @@ export default defineConfig({
       use: { ...devices['Desktop Safari'] },
     },
   ],
-  webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:8566',
+  // 改动点: 可选跳过 webServer（使用已启动的服务）
+  webServer: useExistingServer ? undefined : {
+    command: 'npm run dev -- --host 127.0.0.1 --port 8566',
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

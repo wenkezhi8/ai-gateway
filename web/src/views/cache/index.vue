@@ -339,10 +339,108 @@
                 </el-descriptions>
               </div>
             </el-tab-pane>
+
+            <el-tab-pane label="缓存内容" name="entries">
+              <div class="entries-toolbar">
+                <el-select v-model="entriesFilter.type" placeholder="缓存类型" clearable style="width: 150px" @change="loadCacheEntries">
+                  <el-option label="全部" value="" />
+                  <el-option label="请求缓存" value="request" />
+                  <el-option label="上下文缓存" value="context" />
+                  <el-option label="路由缓存" value="route" />
+                  <el-option label="响应缓存" value="response" />
+                </el-select>
+                <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="loadCacheEntries">
+                  <template #prefix><el-icon><Search /></el-icon></template>
+                </el-input>
+                <el-button type="primary" @click="loadCacheEntries">
+                  <el-icon><Refresh /></el-icon> 刷新
+                </el-button>
+              </div>
+
+              <el-table :data="cacheEntries" stripe v-loading="entriesLoading" class="entries-table">
+                <el-table-column prop="key" label="键名" min-width="280">
+                  <template #default="{ row }">
+                    <div class="key-cell">
+                      <el-tag size="small" :type="getEntryTypeTag(row.type)">{{ row.type }}</el-tag>
+                      <code class="key-text">{{ truncateKey(row.key, 40) }}</code>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="size" label="大小" width="100">
+                  <template #default="{ row }">
+                    {{ formatSize(row.size) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="hits" label="命中" width="80">
+                  <template #default="{ row }">
+                    <span class="hits-count">{{ row.hits || 0 }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="ttl" label="TTL" width="100">
+                  <template #default="{ row }">
+                    <el-tag v-if="row.ttl === 0" type="info" size="small">永不过期</el-tag>
+                    <span v-else>{{ formatTTL(row.ttl) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="created_at" label="创建时间" width="160">
+                  <template #default="{ row }">
+                    {{ formatTime(row.created_at) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="140" fixed="right">
+                  <template #default="{ row }">
+                    <el-button type="primary" link size="small" @click="viewEntryDetail(row)">详情</el-button>
+                    <el-button type="danger" link size="small" @click="deleteEntry(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <div class="pagination">
+                <el-pagination
+                  v-model:current-page="entriesFilter.page"
+                  v-model:page-size="entriesFilter.pageSize"
+                  :total="entriesTotal"
+                  :page-sizes="[10, 20, 50, 100]"
+                  layout="total, sizes, prev, pager, next"
+                  @change="loadCacheEntries"
+                />
+              </div>
+            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
     </el-row>
+
+    <!-- 缓存内容详情对话框 -->
+    <el-dialog v-model="entryDetailVisible" title="缓存内容详情" width="700px">
+      <div v-if="entryDetail" class="entry-detail">
+        <el-descriptions :column="2" border>
+          <el-descriptions-item label="键名" :span="2">
+            <code class="detail-key">{{ entryDetail.key }}</code>
+          </el-descriptions-item>
+          <el-descriptions-item label="类型">{{ entryDetail.type }}</el-descriptions-item>
+          <el-descriptions-item label="大小">{{ formatSize(entryDetail.size) }}</el-descriptions-item>
+          <el-descriptions-item label="命中次数">{{ entryDetail.hits || 0 }}</el-descriptions-item>
+          <el-descriptions-item label="TTL">{{ entryDetail.ttl === 0 ? '永不过期' : formatTTL(entryDetail.ttl) }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatTime(entryDetail.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="过期时间">{{ entryDetail.expires_at ? formatTime(entryDetail.expires_at) : '-' }}</el-descriptions-item>
+        </el-descriptions>
+
+        <div class="detail-value">
+          <h4>缓存内容</h4>
+          <el-input
+            type="textarea"
+            :model-value="formatValue(entryDetail.value)"
+            :rows="12"
+            readonly
+          />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="entryDetailVisible = false">关闭</el-button>
+        <el-button type="danger" @click="deleteEntryAndClose">删除此缓存</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 添加/编辑规则对话框 -->
     <el-dialog v-model="ruleDialogVisible" :title="isEditRule ? '编辑缓存规则' : '添加缓存规则'" width="550px">
@@ -584,6 +682,19 @@ const cacheRules = ref<CacheRule[]>([])
 
 const hotCaches = ref<HotCache[]>([])
 
+// 缓存内容管理相关
+const cacheEntries = ref<any[]>([])
+const entriesLoading = ref(false)
+const entriesTotal = ref(0)
+const entryDetailVisible = ref(false)
+const entryDetail = ref<any>(null)
+const entriesFilter = reactive({
+  type: '',
+  search: '',
+  page: 1,
+  pageSize: 20
+})
+
 const ruleForm = reactive({
   id: 0,
   pattern: '',
@@ -603,13 +714,6 @@ const getProgressColor = (percentage: number) => {
   if (percentage >= 60) return '#007AFF'
   if (percentage >= 40) return '#FF9500'
   return '#FF3B30'
-}
-
-const formatTTL = (seconds: number) => {
-  if (seconds >= 86400) return `${seconds / 86400}d`
-  if (seconds >= 3600) return `${seconds / 3600}h`
-  if (seconds >= 60) return `${seconds / 60}m`
-  return `${seconds}s`
 }
 
 const getPriorityType = (priority: string) => {
@@ -1004,12 +1108,118 @@ function resetTaskTTLConfig() {
   handleSuccess('已恢复默认配置')
 }
 
+// 缓存内容管理函数
+async function loadCacheEntries() {
+  entriesLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (entriesFilter.type) params.append('type', entriesFilter.type)
+    if (entriesFilter.search) params.append('search', entriesFilter.search)
+    params.append('page', entriesFilter.page.toString())
+    params.append('page_size', entriesFilter.pageSize.toString())
+    
+    const data: any = await request.get(`/admin/cache/entries?${params.toString()}`)
+    if (data?.data) {
+      cacheEntries.value = data.data.entries || []
+      entriesTotal.value = data.data.total || 0
+    }
+  } catch (e) {
+    console.warn('Failed to load cache entries:', e)
+  } finally {
+    entriesLoading.value = false
+  }
+}
+
+async function viewEntryDetail(row: any) {
+  try {
+    const data: any = await request.get(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+    if (data?.data) {
+      entryDetail.value = data.data
+      entryDetailVisible.value = true
+    }
+  } catch (e) {
+    handleApiError(e, '获取详情失败')
+  }
+}
+
+async function deleteEntry(row: any) {
+  try {
+    await ElMessageBox.confirm(`确定删除缓存 "${truncateKey(row.key, 30)}" 吗？`, '确认删除', { type: 'warning' })
+    await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+    handleSuccess('缓存已删除')
+    loadCacheEntries()
+    loadCacheStats()
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      handleApiError(e, '删除失败')
+    }
+  }
+}
+
+async function deleteEntryAndClose() {
+  if (!entryDetail.value) return
+  try {
+    await request.delete(`/admin/cache/entries/${encodeURIComponent(entryDetail.value.key)}`)
+    handleSuccess('缓存已删除')
+    entryDetailVisible.value = false
+    loadCacheEntries()
+    loadCacheStats()
+  } catch (e) {
+    handleApiError(e, '删除失败')
+  }
+}
+
+function getEntryTypeTag(type: string): string {
+  const types: Record<string, string> = {
+    request: 'primary',
+    context: 'success',
+    route: 'warning',
+    usage: 'info',
+    response: 'danger'
+  }
+  return types[type] || 'info'
+}
+
+function truncateKey(key: string, maxLen: number): string {
+  if (key.length <= maxLen) return key
+  return key.substring(0, maxLen) + '...'
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+function formatTTL(seconds: number): string {
+  if (seconds < 60) return seconds + 's'
+  if (seconds < 3600) return Math.floor(seconds / 60) + 'm'
+  if (seconds < 86400) return Math.floor(seconds / 3600) + 'h'
+  return Math.floor(seconds / 86400) + 'd'
+}
+
+function formatTime(timestamp: string): string {
+  if (!timestamp) return '-'
+  const date = new Date(timestamp)
+  return date.toLocaleString('zh-CN')
+}
+
+function formatValue(value: any): string {
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
 onMounted(() => {
   loadCacheStats()
   loadCacheConfig()
   loadCacheHealth()
   loadCacheRules()
   loadTaskTTLConfig()
+  loadCacheEntries()
 })
 
 onUnmounted(() => {
@@ -1269,6 +1479,62 @@ onUnmounted(() => {
         margin-left: 8px;
         color: var(--el-text-color-secondary);
         font-size: 12px;
+      }
+    }
+  }
+  
+  .entries-toolbar {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  
+  .entries-table {
+    .key-cell {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      
+      .key-text {
+        font-family: var(--font-family-mono, monospace);
+        font-size: 12px;
+        background: var(--bg-secondary, #f5f5f5);
+        padding: 2px 6px;
+        border-radius: 4px;
+        word-break: break-all;
+      }
+    }
+    
+    .hits-count {
+      font-weight: 600;
+      color: var(--color-primary, #409eff);
+    }
+  }
+  
+  .pagination {
+    margin-top: 16px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  
+  .entry-detail {
+    .detail-key {
+      font-family: var(--font-family-mono, monospace);
+      font-size: 12px;
+      background: var(--bg-secondary, #f5f5f5);
+      padding: 4px 8px;
+      border-radius: 4px;
+      word-break: break-all;
+    }
+    
+    .detail-value {
+      margin-top: 16px;
+      
+      h4 {
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 600;
       }
     }
   }

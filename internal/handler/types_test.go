@@ -54,6 +54,19 @@ func TestChatCompletionRequest_Validate(t *testing.T) {
 			expectError: true,
 			errorField:  "messages",
 		},
+		// 改动点: 验证索引格式为 messages[1].role
+		{
+			name: "missing role on second message",
+			request: ChatCompletionRequest{
+				Model: "gpt-4",
+				Messages: []ChatMessage{
+					{Role: "user", Content: "Hello"},
+					{Content: "Missing role"},
+				},
+			},
+			expectError: true,
+			errorField:  "messages[1].role",
+		},
 		{
 			name: "missing content for user",
 			request: ChatCompletionRequest{

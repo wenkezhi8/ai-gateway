@@ -45,6 +45,7 @@
         :label="model"
         :value="model"
       >
+        <!-- 改动点: 标注支持推理的模型 -->
         <span class="model-option">
           <span class="model-name">{{ model }}</span>
           <span v-if="isReasoningModel(model)" class="model-badge">支持推理</span>

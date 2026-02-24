@@ -1,9 +1,13 @@
 package admin
 
 import (
-	"ai-gateway/internal/routing"
-	"net/http"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
+
+	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
 )
@@ -11,18 +15,21 @@ import (
 // RouterHandler handles smart router configuration requests
 type RouterHandler struct {
 	router *routing.SmartRouter
+	mu     sync.RWMutex
 }
 
 // NewRouterHandler creates a new router handler
 func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
-	return &RouterHandler{
+	h := &RouterHandler{
 		router: router,
 	}
+	h.loadConfig()
+	return h
 }
 
 // RouterConfigResponse represents the router configuration response
 type RouterConfigResponse struct {
-	UseAutoMode     bool             `json:"use_auto_mode"`
+	UseAutoMode     string           `json:"use_auto_mode"` // "auto", "default", "fixed", "latest"
 	DefaultStrategy string           `json:"default_strategy"`
 	DefaultModel    string           `json:"default_model"`
 	Strategies      []StrategyOption `json:"strategies"`
@@ -48,9 +55,9 @@ type ModelScoreResponse struct {
 
 // UpdateRouterConfigRequest represents update request
 type UpdateRouterConfigRequest struct {
-	UseAutoMode     *bool   `json:"use_auto_mode,omitempty"`
-	DefaultStrategy *string `json:"default_strategy,omitempty"`
-	DefaultModel    *string `json:"default_model,omitempty"`
+	UseAutoMode     json.RawMessage `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed", "latest" or bool
+	DefaultStrategy *string         `json:"default_strategy,omitempty"`
+	DefaultModel    *string         `json:"default_model,omitempty"`
 }
 
 // UpdateModelScoreRequest represents model score update request
@@ -63,10 +70,138 @@ type UpdateModelScoreRequest struct {
 	Enabled      bool   `json:"enabled"`
 }
 
+// PersistedRouterConfig is the structure stored for UI routing mode selection
+type PersistedRouterConfig struct {
+	UseAutoMode     string `json:"use_auto_mode"`
+	DefaultStrategy string `json:"default_strategy"`
+	DefaultModel    string `json:"default_model"`
+}
+
+const routerUIConfigFile = "data/router_ui_config.json"
+const routerConfigFile = "data/router_config.json"
+
+var persistedConfig *PersistedRouterConfig
+
+func normalizeAutoMode(value string) string {
+	switch value {
+	case "auto", "default", "fixed", "latest":
+		return value
+	default:
+		return "auto"
+	}
+}
+
+func parseAutoModeJSON(raw json.RawMessage, fallback string) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return normalizeAutoMode(fallback)
+	}
+	if raw[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			return normalizeAutoMode(s)
+		}
+		return normalizeAutoMode(fallback)
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		if b {
+			return "auto"
+		}
+		return "fixed"
+	}
+	return normalizeAutoMode(fallback)
+}
+
+func (h *RouterHandler) migrateLegacyRouterConfig() {
+	data, err := os.ReadFile(routerConfigFile)
+	if err != nil {
+		return
+	}
+	var raw struct {
+		UseAutoMode     json.RawMessage `json:"use_auto_mode"`
+		DefaultStrategy string          `json:"default_strategy"`
+		DefaultModel    string          `json:"default_model"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return
+	}
+	if len(raw.UseAutoMode) == 0 || raw.UseAutoMode[0] != '"' {
+		return
+	}
+	mode := parseAutoModeJSON(raw.UseAutoMode, "auto")
+	if raw.DefaultStrategy != "" {
+		h.router.SetStrategy(routing.StrategyType(raw.DefaultStrategy))
+	}
+	if raw.DefaultModel != "" {
+		h.router.SetDefaultModel(raw.DefaultModel)
+	}
+	h.router.SetUseAutoMode(mode == "auto")
+}
+
+// loadConfig loads persisted config from file
+func (h *RouterHandler) loadConfig() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if persistedConfig != nil {
+		return
+	}
+
+	h.migrateLegacyRouterConfig()
+
+	config := h.router.GetConfig()
+	mode := "fixed"
+	if config.UseAutoMode {
+		mode = "auto"
+	}
+	cfg := PersistedRouterConfig{
+		UseAutoMode:     normalizeAutoMode(mode),
+		DefaultStrategy: string(config.DefaultStrategy),
+		DefaultModel:    config.DefaultModel,
+	}
+
+	if data, err := os.ReadFile(routerUIConfigFile); err == nil {
+		var uiCfg PersistedRouterConfig
+		if json.Unmarshal(data, &uiCfg) == nil {
+			if uiCfg.UseAutoMode != "" {
+				cfg.UseAutoMode = normalizeAutoMode(uiCfg.UseAutoMode)
+			}
+			if uiCfg.DefaultStrategy != "" {
+				cfg.DefaultStrategy = uiCfg.DefaultStrategy
+			}
+			if uiCfg.DefaultModel != "" {
+				cfg.DefaultModel = uiCfg.DefaultModel
+			}
+		}
+	}
+
+	if cfg.DefaultStrategy == "" {
+		cfg.DefaultStrategy = "auto"
+	}
+	if cfg.DefaultModel == "" {
+		cfg.DefaultModel = "deepseek-chat"
+	}
+
+	persistedConfig = &cfg
+}
+
+// saveConfig saves config to file
+func (h *RouterHandler) saveConfig() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	data, err := json.MarshalIndent(persistedConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	os.MkdirAll(filepath.Dir(routerUIConfigFile), 0755)
+	return os.WriteFile(routerUIConfigFile, data, 0644)
+}
+
 // GetRouterConfig returns current router configuration
 // GET /api/admin/router/config
 func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
-	config := h.router.GetConfig()
+	h.loadConfig()
 
 	strategies := []StrategyOption{
 		{Value: "auto", Label: "智能平衡", Description: "综合效果 + 速度 + 成本，自动选择最优模型"},
@@ -76,12 +211,24 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 		{Value: "custom", Label: "自定义规则", Description: "根据任务类型自动选择模型"},
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	h.mu.RLock()
+	cfg := *persistedConfig
+	h.mu.RUnlock()
+
+	config := h.router.GetConfig()
+	if cfg.DefaultStrategy == "" {
+		cfg.DefaultStrategy = string(config.DefaultStrategy)
+	}
+	if cfg.DefaultModel == "" {
+		cfg.DefaultModel = config.DefaultModel
+	}
+
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": RouterConfigResponse{
-			UseAutoMode:     config.UseAutoMode,
-			DefaultStrategy: string(config.DefaultStrategy),
-			DefaultModel:    config.DefaultModel,
+			UseAutoMode:     normalizeAutoMode(cfg.UseAutoMode),
+			DefaultStrategy: cfg.DefaultStrategy,
+			DefaultModel:    cfg.DefaultModel,
 			Strategies:      strategies,
 		},
 	})
@@ -90,9 +237,11 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 // UpdateRouterConfig updates router configuration
 // PUT /api/admin/router/config
 func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
+	h.loadConfig()
+
 	var req UpdateRouterConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -102,17 +251,26 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 		return
 	}
 
-	if req.UseAutoMode != nil {
-		h.router.SetUseAutoMode(*req.UseAutoMode)
+	h.mu.Lock()
+	if len(req.UseAutoMode) != 0 {
+		mode := parseAutoModeJSON(req.UseAutoMode, persistedConfig.UseAutoMode)
+		persistedConfig.UseAutoMode = mode
+		// 同时更新SmartRouter的UseAutoMode布尔值用于向后兼容
+		h.router.SetUseAutoMode(mode == "auto")
 	}
 	if req.DefaultStrategy != nil {
+		persistedConfig.DefaultStrategy = *req.DefaultStrategy
 		h.router.SetStrategy(routing.StrategyType(*req.DefaultStrategy))
 	}
 	if req.DefaultModel != nil {
+		persistedConfig.DefaultModel = *req.DefaultModel
 		h.router.SetDefaultModel(*req.DefaultModel)
 	}
+	h.mu.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{
+	h.saveConfig()
+
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Router configuration updated",
 	})
@@ -146,7 +304,7 @@ func (h *RouterHandler) GetModelScores(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    response,
 	})
@@ -159,7 +317,7 @@ func (h *RouterHandler) UpdateModelScore(c *gin.Context) {
 
 	var req UpdateModelScoreRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -180,7 +338,7 @@ func (h *RouterHandler) UpdateModelScore(c *gin.Context) {
 
 	h.router.UpdateModelScore(model, score)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Model score updated",
 	})
@@ -193,7 +351,7 @@ func (h *RouterHandler) DeleteModelScore(c *gin.Context) {
 
 	h.router.DeleteModelScore(model)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Model score deleted",
 	})
@@ -204,7 +362,7 @@ func (h *RouterHandler) DeleteModelScore(c *gin.Context) {
 func (h *RouterHandler) GetAvailableModels(c *gin.Context) {
 	models := h.router.GetAvailableModels()
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    models,
 	})
@@ -213,10 +371,15 @@ func (h *RouterHandler) GetAvailableModels(c *gin.Context) {
 // GetTopModels returns top N models for current strategy
 // GET /api/admin/router/top-models
 func (h *RouterHandler) GetTopModels(c *gin.Context) {
-	config := h.router.GetConfig()
-	topModels := h.router.GetTopModels(config.DefaultStrategy, 5)
+	h.loadConfig()
 
-	c.JSON(http.StatusOK, gin.H{
+	h.mu.RLock()
+	strategy := routing.StrategyType(persistedConfig.DefaultStrategy)
+	h.mu.RUnlock()
+
+	topModels := h.router.GetTopModels(strategy, 5)
+
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    topModels,
 	})
@@ -233,7 +396,7 @@ type SelectModelRequest struct {
 func (h *RouterHandler) SelectModel(c *gin.Context) {
 	var req SelectModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -245,7 +408,7 @@ func (h *RouterHandler) SelectModel(c *gin.Context) {
 
 	selectedModel := h.router.SelectModel(req.RequestedModel, req.Prompt, nil)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": gin.H{
 			"selected_model": selectedModel,
@@ -258,7 +421,7 @@ func (h *RouterHandler) SelectModel(c *gin.Context) {
 func (h *RouterHandler) GetProviderDefaults(c *gin.Context) {
 	defaults := h.router.GetProviderDefaults()
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    defaults,
 	})
@@ -269,7 +432,7 @@ func (h *RouterHandler) GetProviderDefaults(c *gin.Context) {
 func (h *RouterHandler) UpdateProviderDefaults(c *gin.Context) {
 	var req map[string]string
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -281,7 +444,7 @@ func (h *RouterHandler) UpdateProviderDefaults(c *gin.Context) {
 
 	h.router.SetProviderDefaults(req)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Provider defaults updated",
 	})
@@ -304,7 +467,7 @@ func (h *RouterHandler) GetTTLConfig(c *gin.Context) {
 		taskTypeDefaults[string(k)] = int(v.Hours())
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": TTLConfigResponse{
 			TaskTypeDefaults: taskTypeDefaults,
@@ -328,7 +491,7 @@ type UpdateTTLConfigRequest struct {
 func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 	var req UpdateTTLConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -343,7 +506,7 @@ func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 	// Update task type defaults
 	if req.TaskTypeDefaults != nil {
 		for k, v := range req.TaskTypeDefaults {
-			config.TaskTypeDefaults[routing.TaskType(k)] = routing.ParseDuration(v)
+			config.TaskTypeDefaults[routing.TaskType(k)] = time.Duration(v) * time.Hour
 		}
 	}
 
@@ -363,7 +526,7 @@ func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 
 	h.router.GetDifficultyAssessor().SetTTLConfig(config)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "TTL configuration updated",
 	})
@@ -398,7 +561,7 @@ func (h *RouterHandler) GetCascadeRules(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    response,
 	})
@@ -412,7 +575,7 @@ func (h *RouterHandler) GetCascadeRule(c *gin.Context) {
 
 	rule := h.router.GetCascadeRule(routing.TaskType(taskType), routing.DifficultyLevel(difficulty))
 	if rule == nil {
-		c.JSON(http.StatusNotFound, gin.H{
+		c.JSON(404, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "not_found",
@@ -422,7 +585,7 @@ func (h *RouterHandler) GetCascadeRule(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data": CascadeRuleResponse{
 			TaskType:        string(rule.TaskType),
@@ -452,7 +615,7 @@ type UpdateCascadeRuleRequest struct {
 func (h *RouterHandler) UpdateCascadeRule(c *gin.Context) {
 	var req UpdateCascadeRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -474,7 +637,7 @@ func (h *RouterHandler) UpdateCascadeRule(c *gin.Context) {
 
 	h.router.SetCascadeRule(rule)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Cascade rule updated",
 	})
@@ -488,7 +651,7 @@ func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
 
 	deleted := h.router.DeleteCascadeRule(routing.TaskType(taskType), routing.DifficultyLevel(difficulty))
 	if !deleted {
-		c.JSON(http.StatusNotFound, gin.H{
+		c.JSON(404, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "not_found",
@@ -498,7 +661,7 @@ func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Cascade rule deleted",
 	})
@@ -509,7 +672,7 @@ func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
 func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
 	h.router.ResetCascadeRules()
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Cascade rules reset to defaults",
 	})
@@ -520,7 +683,7 @@ func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
 func (h *RouterHandler) GetTaskModelMapping(c *gin.Context) {
 	mapping := h.router.GetTaskModelMapping()
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"data":    mapping,
 	})
@@ -534,7 +697,7 @@ type UpdateTaskModelMappingRequest map[string]string
 func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
 	var req UpdateTaskModelMappingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(400, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
@@ -546,7 +709,7 @@ func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
 
 	h.router.SetTaskModelMapping(req)
 
-	c.JSON(http.StatusOK, gin.H{
+	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Task model mapping updated",
 	})

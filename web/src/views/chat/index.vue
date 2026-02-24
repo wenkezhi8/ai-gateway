@@ -80,6 +80,8 @@
             :key="message.id"
             :message="message"
             :provider="currentConversation?.provider"
+            :default-expand-reasoning="defaultExpandReasoning"
+            :answer-highlight="answerHighlightEnabled"
           />
           <div v-if="isLoading && !isStreaming" class="loading-indicator">
             <el-icon class="is-loading"><Loading /></el-icon>
@@ -88,6 +90,20 @@
 
         <!-- Model Selector & Input -->
         <div class="input-area">
+          <div class="chat-settings">
+            <el-tooltip content="默认展开/收起深度思考过程" placement="top">
+              <div class="setting-item">
+                <span>推理默认展开</span>
+                <el-switch v-model="defaultExpandReasoning" />
+              </div>
+            </el-tooltip>
+            <el-tooltip content="答案区域淡色背景" placement="top">
+              <div class="setting-item">
+                <span>答案背景</span>
+                <el-switch v-model="answerHighlightEnabled" />
+              </div>
+            </el-tooltip>
+          </div>
           <ModelSelector
             v-model:provider="selectedProvider"
             v-model:model="selectedModel"
@@ -188,6 +204,8 @@ const batchSending = ref(false)
 const webSearchEnabled = ref(false)
 const deepThinkEnabled = ref(false)
 const multimodalEnabled = ref(false)
+const defaultExpandReasoning = ref(true)
+const answerHighlightEnabled = ref(true)
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -378,7 +396,7 @@ function handleModelChange(provider: string, model: string): void {
   }
 }
 
-function ensureDeepThinkModel(): void {
+function notifyDeepThinkUnsupported(): void {
   if (!deepThinkEnabled.value || !chatStore.currentConversation) return
 
   const currentProvider = chatStore.currentConversation.provider
@@ -387,26 +405,14 @@ function ensureDeepThinkModel(): void {
 
   if (currentProvider === 'deepseek' && isReasonerModel) return
 
-  const deepseekProvider = PROVIDERS.value.find(
-    p => p.value === 'deepseek' && p.models?.includes('deepseek-reasoner')
-  )
-
-  if (deepseekProvider) {
-    // 改动点: 深度思考开启时自动切换到可输出推理过程的模型
-    chatStore.updateCurrentModel('deepseek', 'deepseek-reasoner')
-    selectedProvider.value = 'deepseek'
-    selectedModel.value = 'deepseek-reasoner'
-    ElMessage.info('已为深度思考切换到 deepseek-reasoner')
-  } else {
-    // 改动点: 没有推理模型时给出明确提示
-    ElMessage.warning('当前模型不支持深度思考，请切换到支持推理的模型')
-  }
+  // 改动点: 不自动切换模型，仅提示当前模型可能不输出推理内容
+  ElMessage.warning('当前模型可能不输出深度思考过程，请手动切换到支持推理的模型')
 }
 
 async function handleSend(text: string, files: any[] = []): Promise<void> {
   if ((!text.trim() && files.length === 0) || !chatStore.currentConversation) return
 
-  ensureDeepThinkModel()
+  notifyDeepThinkUnsupported()
 
   const conversationId = chatStore.currentConversation.id
 
@@ -638,6 +644,16 @@ onMounted(async () => {
   if (savedPrimaryColor) {
     applyPrimaryColor(savedPrimaryColor)
   }
+
+  const savedExpand = localStorage.getItem('chat_reasoning_default_expand')
+  if (savedExpand !== null) {
+    defaultExpandReasoning.value = savedExpand === 'true'
+  }
+
+  const savedAnswerHighlight = localStorage.getItem('chat_answer_highlight')
+  if (savedAnswerHighlight !== null) {
+    answerHighlightEnabled.value = savedAnswerHighlight === 'true'
+  }
   
   await initializeProviders()
   selectFirstAvailableProvider()
@@ -647,6 +663,14 @@ onMounted(async () => {
       sidebarCollapsed.value = true
     }
   })
+})
+
+watch(defaultExpandReasoning, (val) => {
+  localStorage.setItem('chat_reasoning_default_expand', String(val))
+})
+
+watch(answerHighlightEnabled, (val) => {
+  localStorage.setItem('chat_answer_highlight', String(val))
 })
 </script>
 
@@ -912,6 +936,27 @@ onMounted(async () => {
 .input-area {
   flex-shrink: 0;
   padding-bottom: 80px;
+}
+
+.chat-settings {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-lg) 0 var(--spacing-lg);
+  max-width: 900px;
+  margin: 0 auto;
+
+  .setting-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    padding: 6px 10px;
+  }
 }
 
 .batch-dialog-content {

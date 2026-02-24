@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -159,22 +160,48 @@ func (c *RedisCache) GetOrSet(ctx context.Context, key string, dest interface{},
 		return err
 	}
 
-	// Compute new value
 	value, err := compute()
 	if err != nil {
 		return err
 	}
 
-	// Cache the computed value
 	if err := c.Set(ctx, key, value, ttl); err != nil {
 		return err
 	}
 
-	// Copy value to dest by marshaling and unmarshaling
 	data, err := msgpack.Marshal(value)
 	if err != nil {
 		return err
 	}
 
 	return msgpack.Unmarshal(data, dest)
+}
+
+// Keys returns all keys matching a pattern
+func (c *RedisCache) Keys(pattern string) []string {
+	ctx := context.Background()
+	fullPattern := c.prefix + pattern
+
+	var keys []string
+	var cursor uint64
+
+	for {
+		var scanKeys []string
+		var err error
+
+		scanKeys, cursor, err = c.client.Scan(ctx, cursor, fullPattern, 100).Result()
+		if err != nil {
+			break
+		}
+
+		for _, key := range scanKeys {
+			keys = append(keys, strings.TrimPrefix(key, c.prefix))
+		}
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return keys
 }

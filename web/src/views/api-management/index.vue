@@ -11,13 +11,47 @@
           </template>
 
           <div class="api-section">
-            <div class="section-title">API 地址</div>
+            <div class="section-title">统一 API 入口</div>
             <div class="url-box">
-              <code class="api-url">{{ apiBaseUrl }}/api/v1/chat/completions</code>
-              <el-button type="primary" size="small" @click="copyUrl">
+              <code class="api-url">{{ apiBaseUrl }}/api/v1</code>
+              <el-button type="primary" size="small" @click="copyUrl('openai')">
                 <el-icon><CopyDocument /></el-icon>
                 复制
               </el-button>
+            </div>
+          </div>
+
+          <div class="api-section">
+            <div class="section-header">
+              <div class="section-title">兼容协议端点</div>
+            </div>
+            <div class="endpoints-list">
+              <div class="endpoint-item">
+                <div class="endpoint-header">
+                  <el-tag type="success">OpenAI</el-tag>
+                  <span class="endpoint-desc">兼容 OpenAI 接口协议</span>
+                </div>
+                <div class="url-box">
+                  <code class="api-url">{{ apiBaseUrl }}/api/v1</code>
+                  <el-button type="primary" size="small" @click="copyUrl('openai')">
+                    <el-icon><CopyDocument /></el-icon>
+                    复制
+                  </el-button>
+                </div>
+              </div>
+              <div class="endpoint-item">
+                <div class="endpoint-header">
+                  <el-tag type="warning">Anthropic</el-tag>
+                  <span class="endpoint-desc">兼容 Anthropic 接口协议</span>
+                </div>
+                <div class="url-box">
+                  <code class="api-url">{{ apiBaseUrl }}/api/anthropic</code>
+                  <el-button type="primary" size="small" @click="copyUrl('anthropic')">
+                    <el-icon><CopyDocument /></el-icon>
+                    复制
+                  </el-button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -173,11 +207,17 @@
           <template #header>
             <div class="card-header">
               <span>调用示例</span>
-              <el-radio-group v-model="selectedLang" size="small">
-                <el-radio-button value="curl">cURL</el-radio-button>
-                <el-radio-button value="python">Python</el-radio-button>
-                <el-radio-group value="javascript">JavaScript</el-radio-group>
-              </el-radio-group>
+              <div class="header-controls">
+                <el-radio-group v-model="selectedProtocol" size="small">
+                  <el-radio-button value="openai">OpenAI</el-radio-button>
+                  <el-radio-button value="anthropic">Anthropic</el-radio-button>
+                </el-radio-group>
+                <el-radio-group v-model="selectedLang" size="small">
+                  <el-radio-button value="curl">cURL</el-radio-button>
+                  <el-radio-button value="python">Python</el-radio-button>
+                  <el-radio-button value="javascript">JavaScript</el-radio-button>
+                </el-radio-group>
+              </div>
             </div>
           </template>
 
@@ -392,6 +432,7 @@ const topModels = ref<string[]>([])
 const providerDefaults = ref<{ id: string; label: string; defaultModel: string }[]>([])
 
 const selectedLang = ref('curl')
+const selectedProtocol = ref('openai')
 const testForm = ref({
   apiKey: '',
   model: 'auto',
@@ -432,9 +473,8 @@ function copyKey(key: string) {
 }
 
 const codeExample = computed(() => {
-  const url = `${apiBaseUrl.value}/api/v1/chat/completions`
   const apiKey = testForm.value.apiKey || '<your-api-key>'
-  
+
   let model = 'auto'
   if (routerConfig.value.use_auto_mode === 'default') {
     model = 'default'
@@ -443,9 +483,11 @@ const codeExample = computed(() => {
   } else if (routerConfig.value.use_auto_mode === 'latest') {
     model = 'latest'
   }
-  
-  if (selectedLang.value === 'curl') {
-    return `curl -X POST "${url}" \\
+
+  if (selectedProtocol.value === 'openai') {
+    const url = `${apiBaseUrl.value}/api/v1/chat/completions`
+    if (selectedLang.value === 'curl') {
+      return `curl -X POST "${url}" \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${apiKey}" \\
   -d '{
@@ -460,8 +502,8 @@ const codeExample = computed(() => {
 # - auto: 智能选择 (效果+速度+成本综合最优)
 # - default: 服务商默认模型 (根据服务商配置自动选择)
 # - latest: 最新模型 (效果评分最高)`
-  } else if (selectedLang.value === 'python') {
-    return `from openai import OpenAI
+    } else if (selectedLang.value === 'python') {
+      return `from openai import OpenAI
 
 client = OpenAI(
     api_key="${apiKey}",
@@ -478,8 +520,8 @@ response = client.chat.completions.create(
 
 for chunk in response:
     print(chunk.choices[0].delta.content, end="")`
-  } else {
-    return `import OpenAI from 'openai';
+    } else {
+      return `import OpenAI from 'openai';
 
 const client = new OpenAI({
   apiKey: '${apiKey}',
@@ -495,6 +537,55 @@ const stream = await client.chat.completions.create({
 for await (const chunk of stream) {
   process.stdout.write(chunk.choices[0]?.delta?.content || '');
 }`
+    }
+  } else {
+    const url = `${apiBaseUrl.value}/api/anthropic/v1/messages`
+    const anthropicModel = model === 'auto' ? 'claude-3-5-sonnet-20241022' : model
+    if (selectedLang.value === 'curl') {
+      return `curl -X POST "${url}" \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: ${apiKey}" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{
+    "model": "${anthropicModel}",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "你好"}
+    ]
+  }'`
+    } else if (selectedLang.value === 'python') {
+      return `from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="${apiKey}",
+    base_url="${apiBaseUrl.value}/api/anthropic"
+)
+
+message = client.messages.create(
+    model="${anthropicModel}",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "你好"}
+    ]
+)
+
+print(message.content[0].text)`
+    } else {
+      return `import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic({
+  apiKey: '${apiKey}',
+  baseURL: '${apiBaseUrl.value}/api/anthropic'
+});
+
+const message = await client.messages.create({
+  model: '${anthropicModel}',
+  maxTokens: 1024,
+  messages: [{ role: 'user', content: '你好' }]
+});
+
+console.log(message.content[0].text);`
+    }
   }
 })
 
@@ -632,7 +723,7 @@ async function updateRouterConfig() {
         Authorization: `Bearer ${token}`
       },
       body: JSON.stringify({
-        use_auto_mode: routerConfig.value.use_auto_mode === 'auto',
+        use_auto_mode: routerConfig.value.use_auto_mode,
         default_strategy: routerConfig.value.default_strategy,
         default_model: routerConfig.value.default_model
       })
@@ -760,8 +851,14 @@ async function runTest() {
   }
 }
 
-function copyUrl() {
-  navigator.clipboard.writeText(`${apiBaseUrl.value}/api/v1/chat/completions`)
+function copyUrl(type: string) {
+  let url = ''
+  if (type === 'anthropic') {
+    url = `${apiBaseUrl.value}/api/anthropic`
+  } else {
+    url = `${apiBaseUrl.value}/api/v1`
+  }
+  navigator.clipboard.writeText(url)
   ElMessage.success('已复制')
 }
 
@@ -841,6 +938,34 @@ onMounted(() => {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+  }
+
+  .endpoints-list {
+    .endpoint-item {
+      margin-bottom: 16px;
+      padding: 16px;
+      background: var(--el-bg-color-page);
+      border-radius: var(--el-border-radius-base);
+      border: 1px solid var(--el-border-color-lighter);
+
+      .endpoint-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+
+        .endpoint-desc {
+          font-size: 13px;
+          color: var(--el-text-color-secondary);
+        }
+      }
+    }
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .key-cell {

@@ -566,3 +566,110 @@ func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
 		"message": "Cache rule deleted",
 	})
 }
+
+// CacheEntry represents a cache entry for display
+type CacheEntry struct {
+	Key       string     `json:"key"`
+	Type      string     `json:"type"`
+	Size      int        `json:"size"`
+	Hits      int        `json:"hits"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	TTL       int        `json:"ttl"`
+	Preview   string     `json:"preview"`
+	Model     string     `json:"model,omitempty"`
+	Provider  string     `json:"provider,omitempty"`
+}
+
+// GetCacheEntries returns paginated cache entries
+// GET /api/admin/cache/entries
+func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
+	cacheType := c.Query("type")
+	search := c.Query("search")
+	page := 1
+	pageSize := 20
+
+	if p := c.Query("page"); p != "" {
+		fmt.Sscanf(p, "%d", &page)
+	}
+	if ps := c.Query("page_size"); ps != "" {
+		fmt.Sscanf(ps, "%d", &pageSize)
+	}
+
+	entries := h.manager.ListEntries(cacheType, search)
+
+	total := len(entries)
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > total {
+		start = total
+	}
+	if end > total {
+		end = total
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"entries":   entries[start:end],
+			"total":     total,
+			"page":      page,
+			"page_size": pageSize,
+		},
+	})
+}
+
+// GetCacheEntryDetail returns detail of a cache entry
+// GET /api/admin/cache/entries/*
+func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
+	key := c.Param("key")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "invalid_key", "message": "Key is required"},
+		})
+		return
+	}
+
+	ctx := context.Background()
+	entry, err := h.manager.GetEntryDetail(ctx, key)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "not_found", "message": "Cache entry not found"},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    entry,
+	})
+}
+
+// DeleteCacheEntry deletes a cache entry
+// DELETE /api/admin/cache/entries/*
+func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
+	key := c.Param("key")
+	if key == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "invalid_key", "message": "Key is required"},
+		})
+		return
+	}
+
+	ctx := context.Background()
+	if err := h.manager.Cache().Delete(ctx, key); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "delete_failed", "message": err.Error()},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Cache entry deleted",
+	})
+}

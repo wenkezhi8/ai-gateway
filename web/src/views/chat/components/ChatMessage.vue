@@ -38,9 +38,12 @@
           <el-icon><Cpu /></el-icon>
           <span>深度思考过程</span>
           <span class="reasoning-badge">推理</span>
-          <span v-if="!showReasoning && reasoningSummary" class="reasoning-summary">
-            {{ reasoningSummary }}
-          </span>
+          <!-- 改动点: 收起时显示摘要，悬浮展示完整推理 -->
+          <el-tooltip v-if="!showReasoning && reasoningSummary" :content="reasoningFull" placement="top">
+            <span class="reasoning-summary">
+              {{ reasoningSummary }}
+            </span>
+          </el-tooltip>
           <el-icon class="toggle-icon" :class="{ expanded: showReasoning }"><ArrowDown /></el-icon>
         </div>
         <div class="reasoning-content" v-show="showReasoning">
@@ -51,7 +54,11 @@
         </div>
       </div>
       
-      <div class="message-body" :class="{ error: message.error }">
+      <div class="message-body" :class="{
+        error: message.error,
+        // 改动点: 受控的答案区层级样式开关
+        'answer-highlight': message.role === 'assistant' && answerHighlight
+      }">
         <template v-if="message.role === 'assistant'">
           <div v-if="message.reasoningContent || message.reasoning" class="answer-label">
             最终答案
@@ -102,7 +109,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { User, Monitor, DocumentCopy, WarningFilled, Document, Cpu, ArrowDown } from '@element-plus/icons-vue'
 import type { ChatMessage } from '@/types/chat'
@@ -112,11 +119,13 @@ import TypewriterText from './TypewriterText.vue'
 const props = defineProps<{
   message: ChatMessage
   provider?: string
+  defaultExpandReasoning?: boolean // 改动点: 推理默认展开
+  answerHighlight?: boolean // 改动点: 答案区背景开关
 }>()
 
 const { t } = useI18n()
 const copied = ref(false)
-const showReasoning = ref(true)
+const showReasoning = ref(props.defaultExpandReasoning ?? true)
 
 const providerName = computed(() => {
   if (props.provider) {
@@ -134,9 +143,12 @@ const providerLogo = computed(() => {
   return ''
 })
 
+const answerHighlight = computed(() => props.answerHighlight ?? true) // 改动点: 默认启用答案层级样式
+
+const reasoningFull = computed(() => (props.message.reasoningContent || props.message.reasoning || '').trim())
+
 const reasoningSummary = computed(() => {
-  const text = props.message.reasoningContent || props.message.reasoning || ''
-  const trimmed = text.trim()
+  const trimmed = reasoningFull.value
   if (!trimmed) return ''
   if (trimmed.length <= 20) return trimmed
   return `${trimmed.slice(0, 20)}...`
@@ -169,6 +181,12 @@ function previewImage(src: string): void {
 function toggleReasoning(): void {
   showReasoning.value = !showReasoning.value
 }
+
+watch(() => props.defaultExpandReasoning, (val) => {
+  if (typeof val === 'boolean') {
+    showReasoning.value = val
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -369,14 +387,18 @@ function toggleReasoning(): void {
   line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  background: color-mix(in srgb, var(--bg-tertiary) 92%, var(--color-primary) 8%); /* 改动点: 提升答案区层级对比 */
-  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent); /* 改动点: 答案区轻微边框 */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04); /* 改动点: 答案区轻微阴影 */
 
   &.error {
     border: 1px solid var(--color-danger);
     background: rgba(var(--color-danger-rgb, 255, 73, 79), 0.1);
   }
+}
+
+.message-body.answer-highlight {
+  /* 改动点: 答案区淡色背景/边框/阴影 */
+  background: color-mix(in srgb, var(--bg-tertiary) 92%, var(--color-primary) 8%);
+  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .answer-label {

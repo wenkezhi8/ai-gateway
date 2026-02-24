@@ -281,6 +281,15 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		Extra:       req.Extra,
 	}
 
+	// 改动点: 透传深度思考开关到 provider 层（用于支持推理输出的模型）
+	if req.DeepThink {
+		if providerReq.Extra == nil {
+			providerReq.Extra = map[string]interface{}{}
+		}
+		providerReq.Extra["deep_think"] = true
+		providerReq.Extra["reasoning"] = true
+	}
+
 	// Convert messages
 	for _, msg := range req.Messages {
 		pm := provider.ChatMessage{

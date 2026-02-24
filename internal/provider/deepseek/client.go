@@ -100,6 +100,7 @@ type ChatRequest struct {
 	User             string                 `json:"user,omitempty"`
 	Tools            []Tool                 `json:"tools,omitempty"`
 	ToolChoice       interface{}            `json:"tool_choice,omitempty"`
+	Reasoning        bool                   `json:"reasoning,omitempty"` // 改动点: 深度思考/推理输出
 	ResponseFormat   interface{}            `json:"response_format,omitempty"`
 	Extra            map[string]interface{} `json:"-"`
 }
@@ -290,6 +291,13 @@ func ConvertRequest(req *provider.ChatRequest) *ChatRequest {
 		}
 		if responseFormat, ok := req.Extra["response_format"].(interface{}); ok {
 			dsReq.ResponseFormat = responseFormat
+		}
+		// 改动点: 深度思考/推理开关透传
+		if deepThink, ok := req.Extra["deep_think"].(bool); ok {
+			dsReq.Reasoning = deepThink
+		}
+		if reasoning, ok := req.Extra["reasoning"].(bool); ok {
+			dsReq.Reasoning = reasoning
 		}
 	}
 

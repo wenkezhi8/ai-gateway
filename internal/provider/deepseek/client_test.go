@@ -96,6 +96,23 @@ func TestConvertRequest_WithExtra(t *testing.T) {
 	assert.Equal(t, "test-user", dsReq.User)
 }
 
+// 改动点: 验证深度思考开关可触发 reasoning 输出
+func TestConvertRequest_WithDeepThink(t *testing.T) {
+	req := &provider.ChatRequest{
+		Model: "deepseek-reasoner",
+		Messages: []provider.ChatMessage{
+			{Role: "user", Content: "Hello"},
+		},
+		Extra: map[string]interface{}{
+			"deep_think": true,
+		},
+	}
+
+	dsReq := ConvertRequest(req)
+
+	assert.True(t, dsReq.Reasoning)
+}
+
 func TestConvertResponse(t *testing.T) {
 	resp := &ChatResponse{
 		ID:      "test-id",

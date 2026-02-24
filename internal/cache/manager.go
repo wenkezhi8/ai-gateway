@@ -262,3 +262,164 @@ func (m *Manager) Close() error {
 	}
 	return nil
 }
+
+// CacheEntryInfo represents info about a cache entry
+type CacheEntryInfo struct {
+	Key       string     `json:"key"`
+	Type      string     `json:"type"`
+	Size      int        `json:"size"`
+	Hits      int        `json:"hits"`
+	CreatedAt time.Time  `json:"created_at"`
+	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	TTL       int        `json:"ttl"`
+	Preview   string     `json:"preview"`
+	Model     string     `json:"model,omitempty"`
+	Provider  string     `json:"provider,omitempty"`
+}
+
+// CacheEntryDetail represents detailed cache entry data
+type CacheEntryDetail struct {
+	Key       string      `json:"key"`
+	Type      string      `json:"type"`
+	Value     interface{} `json:"value"`
+	Size      int         `json:"size"`
+	Hits      int         `json:"hits"`
+	CreatedAt time.Time   `json:"created_at"`
+	ExpiresAt *time.Time  `json:"expires_at,omitempty"`
+	TTL       int         `json:"ttl"`
+}
+
+// ListEntries returns a list of cache entries
+func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo {
+	entries := make([]*CacheEntryInfo, 0)
+
+	keys := m.cache.Keys(getKeyPattern(cacheType))
+	for _, key := range keys {
+		if search != "" && !containsIgnoreCase(key, search) {
+			continue
+		}
+
+		entry := &CacheEntryInfo{
+			Key:  key,
+			Type: getCacheTypeFromKey(key),
+		}
+
+		if mc, ok := m.cache.(*MemoryCache); ok {
+			if meta := mc.GetMeta(key); meta != nil {
+				entry.Size = meta.Size
+				entry.Hits = meta.Hits
+				entry.CreatedAt = meta.CreatedAt
+				entry.TTL = meta.TTL
+				if meta.TTL > 0 {
+					exp := meta.CreatedAt.Add(time.Duration(meta.TTL) * time.Second)
+					entry.ExpiresAt = &exp
+				}
+				entry.Preview = meta.Preview
+				entry.Model = meta.Model
+				entry.Provider = meta.Provider
+			}
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return entries
+}
+
+// GetEntryDetail returns detailed information about a cache entry
+func (m *Manager) GetEntryDetail(ctx context.Context, key string) (*CacheEntryDetail, error) {
+	var value interface{}
+	if err := m.cache.Get(ctx, key, &value); err != nil {
+		return nil, err
+	}
+
+	detail := &CacheEntryDetail{
+		Key:   key,
+		Type:  getCacheTypeFromKey(key),
+		Value: value,
+	}
+
+	if mc, ok := m.cache.(*MemoryCache); ok {
+		if meta := mc.GetMeta(key); meta != nil {
+			detail.Size = meta.Size
+			detail.Hits = meta.Hits
+			detail.CreatedAt = meta.CreatedAt
+			detail.TTL = meta.TTL
+			if meta.TTL > 0 {
+				exp := meta.CreatedAt.Add(time.Duration(meta.TTL) * time.Second)
+				detail.ExpiresAt = &exp
+			}
+		}
+	}
+
+	return detail, nil
+}
+
+func getKeyPattern(cacheType string) string {
+	switch cacheType {
+	case "request":
+		return "req:*"
+	case "context":
+		return "ctx:*"
+	case "route":
+		return "route:*"
+	case "usage":
+		return "usage:*"
+	case "response":
+		return "ai-response:*"
+	default:
+		return "*"
+	}
+}
+
+func getCacheTypeFromKey(key string) string {
+	if len(key) >= 4 {
+		prefix := key[:4]
+		switch {
+		case prefix == "req:":
+			return "request"
+		case prefix == "ctx:":
+			return "context"
+		case len(key) >= 6 && key[:6] == "route:":
+			return "route"
+		case len(key) >= 6 && key[:6] == "usage:":
+			return "usage"
+		case len(key) >= 12 && key[:12] == "ai-response:":
+			return "response"
+		}
+	}
+	return "other"
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	sLower := make([]byte, len(s))
+	substrLower := make([]byte, len(substr))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		sLower[i] = c
+	}
+	for i := 0; i < len(substr); i++ {
+		c := substr[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 32
+		}
+		substrLower[i] = c
+	}
+
+	for i := 0; i <= len(sLower)-len(substrLower); i++ {
+		match := true
+		for j := 0; j < len(substrLower); j++ {
+			if sLower[i+j] != substrLower[j] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}

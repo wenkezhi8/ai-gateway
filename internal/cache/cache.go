@@ -15,6 +15,7 @@ type Cache interface {
 	Delete(ctx context.Context, key string) error
 	DeleteByPattern(ctx context.Context, pattern string) error
 	Exists(ctx context.Context, key string) (bool, error)
+	Keys(pattern string) []string
 }
 
 // ResponseCache provides caching for AI responses

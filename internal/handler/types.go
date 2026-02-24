@@ -1,6 +1,9 @@
 package handler
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // ChatCompletionRequest represents an OpenAI-compatible chat completion request
 type ChatCompletionRequest struct {
@@ -17,6 +20,7 @@ type ChatCompletionRequest struct {
 	FrequencyPenalty *float64               `json:"frequency_penalty,omitempty"`
 	LogitBias        map[string]float64     `json:"logit_bias,omitempty"`
 	User             string                 `json:"user,omitempty"`
+	DeepThink        bool                   `json:"deepThink,omitempty"` // 改动点: 前端深度思考开关
 	Tools            []Tool                 `json:"tools,omitempty"`
 	ToolChoice       interface{}            `json:"tool_choice,omitempty"`
 	Extra            map[string]interface{} `json:"-"`
@@ -181,11 +185,11 @@ func (r *ChatCompletionRequest) Validate() error {
 	}
 	for i, msg := range r.Messages {
 		if msg.Role == "" {
-			return &ValidationError{Field: "messages[" + string(rune(i)) + "].role", Message: "role is required"}
+			return &ValidationError{Field: "messages[" + strconv.Itoa(i) + "].role", Message: "role is required"} // 改动点: 修复索引格式
 		}
 		if msg.Role != "system" {
 			if !hasContent(msg.Content) {
-				return &ValidationError{Field: "messages[" + string(rune(i)) + "].content", Message: "content is required"}
+				return &ValidationError{Field: "messages[" + strconv.Itoa(i) + "].content", Message: "content is required"} // 改动点: 修复索引格式
 			}
 		}
 	}

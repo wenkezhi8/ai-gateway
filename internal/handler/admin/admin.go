@@ -150,6 +150,10 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.POST("/rules", handlers.Cache.CreateCacheRule)
 		cacheGroup.PUT("/rules/:id", handlers.Cache.UpdateCacheRule)
 		cacheGroup.DELETE("/rules/:id", handlers.Cache.DeleteCacheRule)
+		// Cache entries management
+		cacheGroup.GET("/entries", handlers.Cache.GetCacheEntries)
+		cacheGroup.GET("/entries/*key", handlers.Cache.GetCacheEntryDetail)
+		cacheGroup.DELETE("/entries/*key", handlers.Cache.DeleteCacheEntry)
 	}
 
 	// Dashboard routes

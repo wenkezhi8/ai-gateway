@@ -398,7 +398,12 @@ async function loadConfig() {
     if (data?.data) {
       config.defaultStrategy = data.data.default_strategy || 'auto'
       config.defaultModel = data.data.default_model || 'deepseek-chat'
-      config.useAutoMode = data.data.use_auto_mode ?? true
+      const mode = data.data.use_auto_mode
+      if (typeof mode === 'string') {
+        config.useAutoMode = mode === 'auto'
+      } else {
+        config.useAutoMode = mode ?? true
+      }
       if (data.data.strategies) {
         strategies.value = data.data.strategies
       }
@@ -490,7 +495,7 @@ async function saveConfig() {
     await request.put('/admin/router/config', {
       default_strategy: config.defaultStrategy,
       default_model: config.defaultModel,
-      use_auto_mode: config.useAutoMode
+      use_auto_mode: config.useAutoMode ? 'auto' : 'fixed'
     })
     
     // 保存任务类型模型映射
