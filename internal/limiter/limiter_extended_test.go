@@ -12,9 +12,9 @@ import (
 
 // mockRedisStore implements RedisStore interface for testing
 type mockRedisStore struct {
-	data      map[string]int64
+	data       map[string]int64
 	sortedSets map[string]map[string]float64
-	err       error
+	err        error
 }
 
 func newMockRedisStore() *mockRedisStore {
@@ -417,8 +417,8 @@ func TestAccountManager_GetSwitchHistory(t *testing.T) {
 // TestUsage tests the Usage struct
 func TestUsage_WarningLevel(t *testing.T) {
 	tests := []struct {
-		percentUsed   float64
-		warningLevel  string
+		percentUsed  float64
+		warningLevel string
 	}{
 		{50, ""},
 		{89, ""},
@@ -463,4 +463,166 @@ func TestPeriod_String(t *testing.T) {
 	assert.Equal(t, Period("hour"), PeriodHour)
 	assert.Equal(t, Period("day"), PeriodDay)
 	assert.Equal(t, Period("month"), PeriodMonth)
+}
+
+func TestAccountManager_GetAccount(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	result, err := manager.GetAccount("acc1")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "acc1", result.ID)
+
+	result, err = manager.GetAccount("nonexistent")
+	assert.Error(t, err)
+	assert.Nil(t, result)
+}
+
+func TestAccountManager_GetAccountByProviderAndBaseURL(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		BaseURL:  "https://api.openai.com",
+		Enabled:  true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	result := manager.GetAccountByProviderAndBaseURL("openai", "https://api.openai.com")
+	require.NotNil(t, result)
+	assert.Equal(t, "acc1", result.ID)
+
+	result = manager.GetAccountByProviderAndBaseURL("openai", "https://other.com")
+	assert.Nil(t, result)
+}
+
+func TestAccountManager_GetAccountByProvider(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	result := manager.GetAccountByProvider("openai")
+	require.NotNil(t, result)
+	assert.Equal(t, "acc1", result.ID)
+
+	result = manager.GetAccountByProvider("anthropic")
+	assert.Nil(t, result)
+}
+
+func TestAccountManager_GetAccountStatus(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	status, err := manager.GetAccountStatus("acc1")
+	require.NoError(t, err)
+	require.NotNil(t, status)
+	assert.Equal(t, "acc1", status.Account.ID)
+
+	status, err = manager.GetAccountStatus("nonexistent")
+	assert.Error(t, err)
+	assert.Nil(t, status)
+}
+
+func TestAccountManager_UpdateAccount(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  true,
+		Priority: 1,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	updated := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  false,
+		Priority: 2,
+	}
+	err := manager.UpdateAccount(updated)
+	require.NoError(t, err)
+
+	result, err := manager.GetAccount("acc1")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Enabled)
+	assert.Equal(t, 2, result.Priority)
+
+	err = manager.UpdateAccount(&AccountConfig{ID: "nonexistent"})
+	assert.Error(t, err)
+}
+
+func TestAccountManager_Alerts(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	alerts := manager.Alerts()
+	require.NotNil(t, alerts)
+}
+
+func TestAccountManager_GetAccountByBaseURLAndType(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:           "acc1",
+		Provider:     "openai",
+		ProviderType: "chat",
+		BaseURL:      "https://api.openai.com",
+		Enabled:      true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	result := manager.GetAccountByBaseURLAndType("https://api.openai.com", "chat")
+	require.NotNil(t, result)
+	assert.Equal(t, "acc1", result.ID)
+
+	result = manager.GetAccountByBaseURLAndType("https://other.com", "chat")
+	assert.Nil(t, result)
+}
+
+func TestAccountManager_GetActiveAccount(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Provider: "openai",
+		Enabled:  true,
+	}
+	require.NoError(t, manager.AddAccount(config))
+
+	result, err := manager.GetActiveAccount("openai")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, "acc1", result.ID)
+
+	result, err = manager.GetActiveAccount("anthropic")
+	assert.Error(t, err)
+	assert.Nil(t, result)
 }
