@@ -60,21 +60,67 @@
         <el-card shadow="never" class="accounts-card">
           <template #header>
             <div class="card-header">
-              <span>账号限额状态</span>
+              <!-- CHANGED: Header with result meta and refresh controls. -->
+              <div class="card-title">
+                <span>账号限额状态</span>
+                <el-tag size="small" effect="plain">
+                  {{ totalFiltered }}/{{ accounts.length }}
+                </el-tag>
+              </div>
               <div class="header-actions">
-                <el-select v-model="providerFilter" placeholder="服务商筛选" clearable size="small" style="width: 150px">
-                  <el-option label="全部服务商" value="" />
-                  <el-option v-for="p in providers" :key="p" :label="getProviderLabel(p)" :value="p" />
-                </el-select>
-                <el-button type="primary" size="small" @click="refreshAccounts" :loading="loading">
+                <!-- CHANGED: Auto refresh toggle. -->
+                <el-tooltip content="自动刷新（30秒）" placement="top">
+                  <el-switch
+                    v-model="autoRefresh"
+                    active-text="自动刷新"
+                    inactive-text="手动"
+                    size="small"
+                  />
+                </el-tooltip>
+                <el-button type="primary" size="small" @click="refreshAll" :loading="loading">
                   <el-icon><Refresh /></el-icon>
                   刷新
                 </el-button>
               </div>
             </div>
+            <!-- CHANGED: Filter bar with search, provider/status filters, and meta. -->
+            <div class="filter-row">
+              <el-input
+                v-model="keyword"
+                class="search-input"
+                size="small"
+                clearable
+                placeholder="搜索账号名称/ID/备注"
+                :prefix-icon="Search"
+              />
+              <el-select v-model="providerFilter" placeholder="服务商筛选" clearable size="small" class="filter-select">
+                <el-option label="全部服务商" value="" />
+                <el-option v-for="p in providers" :key="p" :label="getProviderLabel(p)" :value="p" />
+              </el-select>
+              <el-select v-model="statusFilter" placeholder="状态筛选" size="small" class="filter-select">
+                <el-option label="全部状态" value="all" />
+                <el-option label="正常" value="normal" />
+                <el-option label="预警中" value="warning" />
+                <el-option label="已超限" value="exceeded" />
+                <el-option label="已禁用" value="disabled" />
+              </el-select>
+              <el-button size="small" @click="resetFilters">重置</el-button>
+              <div class="filter-meta">
+                <span>结果: {{ totalFiltered }}</span>
+                <span v-if="lastRefreshedAt">更新: {{ formatTime(lastRefreshedAt) }}</span>
+              </div>
+            </div>
           </template>
 
-          <el-table :data="filteredAccounts" stripe v-loading="loading" class="accounts-table">
+          <!-- CHANGED: Client-side pagination + empty state. -->
+          <el-table
+            :data="pagedAccounts"
+            stripe
+            v-loading="loading"
+            class="accounts-table"
+            :empty-text="emptyText"
+            :row-class-name="getRowClass"
+          >
             <el-table-column prop="name" label="账号名称" min-width="160">
               <template #default="{ row }">
                 <div class="account-name-cell">
@@ -105,46 +151,58 @@
                 <div class="multi-limit-cell">
                   <div v-if="row.usage?.hour5 || row.limits?.hour5" class="limit-item">
                     <span class="limit-label">5小时</span>
-                    <el-progress
-                      :percentage="row.usage?.hour5?.percent_used || 0"
-                      :status="getProgressStatus(row.usage?.hour5?.warning_level)"
-                      :stroke-width="8"
-                      :show-text="false"
-                      style="width: 60px"
-                    />
+                    <!-- CHANGED: Tooltip with usage details. -->
+                    <el-tooltip :content="getUsageTooltip(row.usage?.hour5, row.limits?.hour5)" placement="top">
+                      <el-progress
+                        :percentage="row.usage?.hour5?.percent_used || 0"
+                        :status="getProgressStatus(row.usage?.hour5?.warning_level)"
+                        :stroke-width="8"
+                        :show-text="false"
+                        style="width: 60px"
+                      />
+                    </el-tooltip>
                     <span class="limit-value">{{ formatUsage({ used: row.usage?.hour5?.used || 0, limit: row.usage?.hour5?.limit || row.limits?.hour5?.limit || 0 }) }}</span>
                   </div>
                   <div v-if="row.usage?.week || row.limits?.week" class="limit-item">
                     <span class="limit-label">周</span>
-                    <el-progress
-                      :percentage="row.usage?.week?.percent_used || 0"
-                      :status="getProgressStatus(row.usage?.week?.warning_level)"
-                      :stroke-width="8"
-                      :show-text="false"
-                      style="width: 60px"
-                    />
+                    <!-- CHANGED: Tooltip with usage details. -->
+                    <el-tooltip :content="getUsageTooltip(row.usage?.week, row.limits?.week)" placement="top">
+                      <el-progress
+                        :percentage="row.usage?.week?.percent_used || 0"
+                        :status="getProgressStatus(row.usage?.week?.warning_level)"
+                        :stroke-width="8"
+                        :show-text="false"
+                        style="width: 60px"
+                      />
+                    </el-tooltip>
                     <span class="limit-value">{{ formatUsage({ used: row.usage?.week?.used || 0, limit: row.usage?.week?.limit || row.limits?.week?.limit || 0 }) }}</span>
                   </div>
                   <div v-if="row.usage?.month || row.limits?.month" class="limit-item">
                     <span class="limit-label">月</span>
-                    <el-progress
-                      :percentage="row.usage?.month?.percent_used || 0"
-                      :status="getProgressStatus(row.usage?.month?.warning_level)"
-                      :stroke-width="8"
-                      :show-text="false"
-                      style="width: 60px"
-                    />
+                    <!-- CHANGED: Tooltip with usage details. -->
+                    <el-tooltip :content="getUsageTooltip(row.usage?.month, row.limits?.month)" placement="top">
+                      <el-progress
+                        :percentage="row.usage?.month?.percent_used || 0"
+                        :status="getProgressStatus(row.usage?.month?.warning_level)"
+                        :stroke-width="8"
+                        :show-text="false"
+                        style="width: 60px"
+                      />
+                    </el-tooltip>
                     <span class="limit-value">{{ formatUsage({ used: row.usage?.month?.used || 0, limit: row.usage?.month?.limit || row.limits?.month?.limit || 0 }) }}</span>
                   </div>
                   <div v-if="(row.usage?.token || row.limits?.token) && !row.usage?.hour5 && !row.limits?.hour5 && !row.usage?.week && !row.limits?.week" class="limit-item">
                     <span class="limit-label">Token</span>
-                    <el-progress
-                      :percentage="row.usage?.token?.percent_used || 0"
-                      :status="getProgressStatus(row.usage?.token?.warning_level)"
-                      :stroke-width="8"
-                      :show-text="false"
-                      style="width: 60px"
-                    />
+                    <!-- CHANGED: Tooltip with usage details. -->
+                    <el-tooltip :content="getUsageTooltip(row.usage?.token, row.limits?.token)" placement="top">
+                      <el-progress
+                        :percentage="row.usage?.token?.percent_used || 0"
+                        :status="getProgressStatus(row.usage?.token?.warning_level)"
+                        :stroke-width="8"
+                        :show-text="false"
+                        style="width: 60px"
+                      />
+                    </el-tooltip>
                     <span class="limit-value">{{ formatUsage({ used: row.usage?.token?.used || 0, limit: row.usage?.token?.limit || row.limits?.token?.limit || 0 }) }}</span>
                   </div>
                   <div v-if="!hasAnyUsage(row)" class="no-limit">未配置限额</div>
@@ -154,9 +212,12 @@
             <el-table-column label="RPM" width="120">
               <template #default="{ row }">
                 <div v-if="row.usage?.rpm || row.limits?.rpm" class="rpm-cell">
-                  <span :class="{ 'rpm-warning': (row.usage?.rpm?.percent_used || 0) >= 90 }">
-                    {{ row.usage?.rpm?.used || 0 }}/{{ row.usage?.rpm?.limit || row.limits?.rpm?.limit || 0 }}
-                  </span>
+                  <!-- CHANGED: Tooltip with RPM detail. -->
+                  <el-tooltip :content="getUsageTooltip(row.usage?.rpm, row.limits?.rpm)" placement="top">
+                    <span :class="{ 'rpm-warning': (row.usage?.rpm?.percent_used || 0) >= 90 }">
+                      {{ row.usage?.rpm?.used || 0 }}/{{ row.usage?.rpm?.limit || row.limits?.rpm?.limit || 0 }}
+                    </span>
+                  </el-tooltip>
                 </div>
                 <span v-else class="no-limit">-</span>
               </template>
@@ -185,6 +246,17 @@
               </template>
             </el-table-column>
           </el-table>
+          <!-- CHANGED: Pagination for long lists. -->
+          <div class="table-pagination" v-if="totalFiltered > pageSize">
+            <el-pagination
+              v-model:current-page="page"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next"
+              :total="totalFiltered"
+              small
+            />
+          </div>
         </el-card>
       </el-col>
 
@@ -370,12 +442,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+// CHANGED: Added watch for filter and auto-refresh handling.
+import { ref, computed, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+// CHANGED: Added Search icon for the filter input.
 import { 
-  Key, CircleCheck, Warning, CircleClose, Refresh, Right, Timer, Coin, Odometer
+  Key, CircleCheck, Warning, CircleClose, Refresh, Right, Timer, Coin, Odometer, Search
 } from '@element-plus/icons-vue'
-import { accountApi, type Account, type SwitchEvent, type LimitAlert, type LimitConfig } from '@/api/account'
+// CHANGED: UsageInfo used to render rich tooltip content.
+import { accountApi, type Account, type SwitchEvent, type LimitAlert, type LimitConfig, type UsageInfo } from '@/api/account'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -383,6 +458,13 @@ const accounts = ref<Account[]>([])
 const switchHistory = ref<SwitchEvent[]>([])
 const activeAlerts = ref<LimitAlert[]>([])
 const providerFilter = ref('')
+// CHANGED: Local filters, pagination, and refresh state for better usability.
+const keyword = ref('')
+const statusFilter = ref<'all' | 'normal' | 'warning' | 'exceeded' | 'disabled'>('all')
+const page = ref(1)
+const pageSize = ref(10)
+const autoRefresh = ref(true)
+const lastRefreshedAt = ref<string | null>(null)
 const limitDialogVisible = ref(false)
 const selectedAccount = ref<Account | null>(null)
 const selectedPlanTemplate = ref('')
@@ -419,9 +501,50 @@ const providers = computed(() => {
   return Array.from(set)
 })
 
+// CHANGED: Unified status key to drive filtering and labels.
+const getAccountStatusKey = (account: Account) => {
+  if (!account.enabled) return 'disabled'
+  const usages = [account.usage?.hour5, account.usage?.week, account.usage?.month, account.usage?.token, account.usage?.rpm]
+  if (usages.some(u => (u?.percent_used ?? 0) >= 100 || u?.warning_level === 'critical')) return 'exceeded'
+  if (usages.some(u => u?.warning_level === 'warning')) return 'warning'
+  return 'normal'
+}
+
+// CHANGED: Keyword/provider/status filtering helpers.
+const normalize = (value?: string) => (value || '').toLowerCase()
+
 const filteredAccounts = computed(() => {
-  if (!providerFilter.value) return accounts.value
-  return accounts.value.filter(a => a.provider === providerFilter.value)
+  const keywordValue = keyword.value.trim().toLowerCase()
+  return accounts.value.filter(a => {
+    const matchesProvider = !providerFilter.value || a.provider === providerFilter.value
+    const matchesStatus = statusFilter.value === 'all' || getAccountStatusKey(a) === statusFilter.value
+    const matchesKeyword = !keywordValue || [
+      a.name,
+      a.id,
+      a.provider,
+      a.plan_type,
+      a.remark
+    ].some(val => normalize(val).includes(keywordValue))
+    return matchesProvider && matchesStatus && matchesKeyword
+  })
+})
+
+// CHANGED: Client-side pagination.
+const totalFiltered = computed(() => filteredAccounts.value.length)
+const pagedAccounts = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredAccounts.value.slice(start, start + pageSize.value)
+})
+
+const emptyText = computed(() => {
+  if (accounts.value.length === 0) return '暂无账号'
+  if (totalFiltered.value === 0) return '无匹配结果'
+  return '暂无数据'
+})
+
+watch([providerFilter, statusFilter, keyword, pageSize], () => {
+  // CHANGED: Reset to first page when filters change.
+  page.value = 1
 })
 
 interface LimitFormItem {
@@ -530,6 +653,18 @@ const formatUsage = (usage: { used: number; limit: number }) => {
   return `${formatNumber(usage.used)}/${formatNumber(usage.limit)}`
 }
 
+// CHANGED: Rich tooltip content for usage bars.
+const getUsageTooltip = (usage?: UsageInfo, limit?: LimitConfig) => {
+  const limitValue = usage?.limit ?? limit?.limit ?? 0
+  const usedValue = usage?.used ?? 0
+  const remaining = usage?.remaining ?? Math.max(limitValue - usedValue, 0)
+  const percent = usage?.percent_used ?? (limitValue > 0 ? Math.round((usedValue / limitValue) * 100) : 0)
+  const resetAt = usage?.reset_at ? new Date(usage.reset_at).toLocaleString('zh-CN') : '未知'
+  if (!usage && !limit) return '未配置限额'
+  if (!usage) return `限额: ${limitValue}，未开始统计`
+  return `已用: ${usedValue}/${limitValue} (${percent}%)，剩余: ${remaining}，重置: ${resetAt}`
+}
+
 const hasAnyUsage = (account: Account) => {
   if (account.usage?.hour5 || account.usage?.week || account.usage?.month || account.usage?.token || account.usage?.rpm) {
     return true
@@ -554,18 +689,20 @@ const getProgressStatus = (level?: string) => {
 }
 
 const getAccountStatusType = (account: Account) => {
-  if (!account.enabled) return 'info'
-  const usages = [account.usage?.hour5, account.usage?.week, account.usage?.month, account.usage?.token, account.usage?.rpm]
-  if (usages.some(u => (u?.percent_used ?? 0) >= 100 || u?.warning_level === 'critical')) return 'danger'
-  if (usages.some(u => u?.warning_level === 'warning')) return 'warning'
+  // CHANGED: Align status tag with unified status key.
+  const status = getAccountStatusKey(account)
+  if (status === 'disabled') return 'info'
+  if (status === 'exceeded') return 'danger'
+  if (status === 'warning') return 'warning'
   return 'success'
 }
 
 const getAccountStatusText = (account: Account) => {
-  if (!account.enabled) return '已禁用'
-  const usages = [account.usage?.hour5, account.usage?.week, account.usage?.month, account.usage?.token, account.usage?.rpm]
-  if (usages.some(u => (u?.percent_used ?? 0) >= 100 || u?.warning_level === 'critical')) return '已超限'
-  if (usages.some(u => u?.warning_level === 'warning')) return '预警中'
+  // CHANGED: Align status text with unified status key.
+  const status = getAccountStatusKey(account)
+  if (status === 'disabled') return '已禁用'
+  if (status === 'exceeded') return '已超限'
+  if (status === 'warning') return '预警中'
   return '正常'
 }
 
@@ -577,12 +714,30 @@ const getSwitchType = (reason: string) => {
 
 const getAccountName = (id: string) => accountNameMap.value[id] || id
 
+// CHANGED: Table row highlighting for status.
+const getRowClass = ({ row }: { row: Account }) => {
+  const status = getAccountStatusKey(row)
+  if (status === 'exceeded') return 'row-exceeded'
+  if (status === 'warning') return 'row-warning'
+  if (status === 'disabled') return 'row-disabled'
+  return ''
+}
+
+// CHANGED: Reset filters to defaults.
+const resetFilters = () => {
+  keyword.value = ''
+  providerFilter.value = ''
+  statusFilter.value = 'all'
+}
+
 const refreshAccounts = async () => {
   loading.value = true
   try {
     const res = await accountApi.getList()
     if (res.success && Array.isArray(res.data)) {
       accounts.value = res.data
+      // CHANGED: Track latest refresh time for UX visibility.
+      lastRefreshedAt.value = new Date().toISOString()
     }
   } catch (e) {
     console.error('Failed to load accounts:', e)
@@ -688,20 +843,36 @@ const handleForceSwitch = async (account: Account) => {
   }
 }
 
-const refreshAll = () => {
-  refreshAccounts()
-  refreshHistory()
-  refreshAlerts()
+// CHANGED: Unified refresh + timestamp.
+const refreshAll = async () => {
+  await refreshAccounts()
+  await refreshHistory()
+  await refreshAlerts()
+  lastRefreshedAt.value = new Date().toISOString()
 }
 
 onMounted(() => {
   refreshAll()
-  refreshTimer = window.setInterval(refreshAll, 30000)
+  if (autoRefresh.value) {
+    refreshTimer = window.setInterval(refreshAll, 30000)
+  }
 })
 
 onUnmounted(() => {
   if (refreshTimer) {
     clearInterval(refreshTimer)
+  }
+})
+
+// CHANGED: Toggle auto refresh without leaving stale timers.
+watch(autoRefresh, value => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (value) {
+    refreshAll()
+    refreshTimer = window.setInterval(refreshAll, 30000)
   }
 })
 </script>
@@ -763,9 +934,41 @@ onUnmounted(() => {
   align-items: center;
 }
 
+/* CHANGED: Header title + filter bar layout. */
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .header-actions {
   display: flex;
   gap: 10px;
+}
+
+/* CHANGED: Filter row styles. */
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.search-input {
+  width: 220px;
+}
+
+.filter-select {
+  width: 150px;
+}
+
+.filter-meta {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .accounts-card {
@@ -844,6 +1047,25 @@ onUnmounted(() => {
 .rpm-warning {
   color: var(--el-color-danger);
   font-weight: 500;
+}
+
+/* CHANGED: Pagination + status row highlights. */
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 4px;
+}
+
+.accounts-table :deep(.row-warning) td {
+  background: var(--el-color-warning-light-9);
+}
+
+.accounts-table :deep(.row-exceeded) td {
+  background: var(--el-color-danger-light-9);
+}
+
+.accounts-table :deep(.row-disabled) td {
+  color: var(--el-text-color-placeholder);
 }
 
 .no-limit {
@@ -995,6 +1217,18 @@ onUnmounted(() => {
   
   .account-info-header {
     flex-wrap: wrap;
+  }
+
+  /* CHANGED: Mobile-friendly filters/meta. */
+  .search-input,
+  .filter-select {
+    width: 100%;
+  }
+
+  .filter-meta {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
   }
 }
 </style>

@@ -22,6 +22,7 @@ type cacheItem struct {
 	preview   string
 	model     string
 	provider  string
+	taskType  string
 }
 
 type CacheMeta struct {
@@ -32,6 +33,7 @@ type CacheMeta struct {
 	Preview   string
 	Model     string
 	Provider  string
+	TaskType  string
 }
 
 // MemoryCache is an in-memory cache implementation
@@ -135,6 +137,43 @@ func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interfa
 		preview:   preview,
 		model:     model,
 		provider:  provider,
+		taskType:  "",
+	}
+
+	return nil
+}
+
+// SetWithTaskType stores a value with task type metadata
+func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value interface{}, ttl time.Duration, model, provider, taskType string) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	expiresAt := time.Time{}
+	if ttl > 0 {
+		expiresAt = time.Now().Add(ttl)
+	}
+
+	preview := ""
+	if len(data) > 200 {
+		preview = string(data[:200]) + "..."
+	} else {
+		preview = string(data)
+	}
+
+	c.items[key] = &cacheItem{
+		value:     data,
+		expiresAt: expiresAt,
+		createdAt: time.Now(),
+		ttl:       int(ttl.Seconds()),
+		preview:   preview,
+		model:     model,
+		provider:  provider,
+		taskType:  taskType,
 	}
 
 	return nil
@@ -225,6 +264,7 @@ func (c *MemoryCache) GetMeta(key string) *CacheMeta {
 		Preview:   item.preview,
 		Model:     item.model,
 		Provider:  item.provider,
+		TaskType:  item.taskType,
 	}
 }
 

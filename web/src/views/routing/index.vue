@@ -62,6 +62,18 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="自动保存">
+                  <el-switch v-model="autoSaveEnabled" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="最近保存">
+                  <span class="last-saved">{{ lastSavedLabel }}</span>
+                </el-form-item>
+              </el-col>
+            </el-row>
 
             <!-- 任务类型模型映射 -->
             <el-divider content-position="left">任务类型模型映射</el-divider>
@@ -277,7 +289,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
@@ -295,6 +307,9 @@ const saving = ref(false)
 const modelSearch = ref('')
 const modelScores = ref<ModelScore[]>([])
 const availableModels = ref<string[]>([])
+const autoSaveEnabled = ref(false) // FIX: 自动保存开关
+const lastSavedAt = ref<string | null>(null) // FIX: 最近保存时间
+const isMappingReady = ref(false) // FIX: 防止初始化阶段触发自动保存
 
 const config = reactive({
   // FIX: 使用字符串模式用于只读展示
@@ -383,6 +398,13 @@ const strategyLabel = computed(() => {
   return strategies.value.find(s => s.value === config.defaultStrategy)?.label || config.defaultStrategy
 })
 
+const lastSavedLabel = computed(() => {
+  if (!lastSavedAt.value) return '未保存'
+  const date = new Date(lastSavedAt.value)
+  if (Number.isNaN(date.getTime())) return '未保存'
+  return date.toLocaleString()
+})
+
 function calculateCompositeScore(row: ModelScore): number {
   return Math.round(row.quality_score * 0.4 + row.speed_score * 0.35 + row.cost_score * 0.25)
 }
@@ -432,6 +454,8 @@ async function loadConfig() {
     }
   } catch (e) {
     console.warn('Failed to load config:', e)
+  } finally {
+    isMappingReady.value = true
   }
 }
 
@@ -495,7 +519,7 @@ async function loadFeedbackStats() {
   }
 }
 
-async function saveTaskMapping() {
+async function saveTaskMapping(isAuto = false) {
   saving.value = true
   try {
     // FIX: 仅保存任务映射，基础配置在 API 管理页设置
@@ -506,8 +530,12 @@ async function saveTaskMapping() {
       }
     }
     await request.put('/admin/router/task-model-mapping', mappingData)
-    
-    handleSuccess('映射已保存')
+    const savedAt = new Date().toISOString()
+    lastSavedAt.value = savedAt
+    localStorage.setItem('routing_task_mapping_last_saved', savedAt)
+    if (!isAuto) {
+      handleSuccess('映射已保存')
+    }
   } catch (e) {
     handleApiError(e, '保存失败')
   } finally {
@@ -579,12 +607,43 @@ async function loadTTLConfig() {
 }
 
 onMounted(() => {
+  const storedAutoSave = localStorage.getItem('routing_task_mapping_auto_save')
+  autoSaveEnabled.value = storedAutoSave === '1'
+  lastSavedAt.value = localStorage.getItem('routing_task_mapping_last_saved')
   loadConfig()
   loadModelScores()
   loadAvailableModels()
   loadFeedbackStats()
   loadTaskTypeDistribution()
   loadTTLConfig()
+})
+
+let autoSaveTimer: number | null = null
+const autoSaveDelayMs = 800
+
+function scheduleAutoSave() {
+  if (!autoSaveEnabled.value || !isMappingReady.value) return
+  if (autoSaveTimer) {
+    window.clearTimeout(autoSaveTimer)
+  }
+  autoSaveTimer = window.setTimeout(() => {
+    saveTaskMapping(true)
+  }, autoSaveDelayMs)
+}
+
+watch(
+  () => taskModelMapping,
+  () => {
+    scheduleAutoSave()
+  },
+  { deep: true }
+)
+
+watch(autoSaveEnabled, (value) => {
+  localStorage.setItem('routing_task_mapping_auto_save', value ? '1' : '0')
+  if (value) {
+    scheduleAutoSave()
+  }
 })
 </script>
 
@@ -769,6 +828,11 @@ onMounted(() => {
         color: var(--el-text-color-primary);
       }
     }
+  }
+
+  .last-saved {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
   }
 }
 </style>
