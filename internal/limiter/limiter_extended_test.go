@@ -623,6 +623,34 @@ func TestAccountManager_GetActiveAccount(t *testing.T) {
 	assert.Equal(t, "acc1", result.ID)
 
 	result, err = manager.GetActiveAccount("anthropic")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, result)
+}
+
+func TestAccountManager_ConsumeUsage(t *testing.T) {
+	logger := logrus.New()
+	manager := NewAccountManager(nil, logger)
+
+	config := &AccountConfig{
+		ID:       "acc1",
+		Name:     "Test Account",
+		Provider: "openai",
+		APIKey:   "test-key",
+		Enabled:  true,
+		Priority: 1,
+		Limits:   nil, // No limits for this test
+	}
+
+	require.NoError(t, manager.AddAccount(config))
+
+	ctx := context.Background()
+
+	// Consume for non-existent account
+	err := manager.ConsumeUsage(ctx, "nonexistent", 100)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "account not found")
+
+	// Consume for account with no limits - should succeed
+	err = manager.ConsumeUsage(ctx, "acc1", 100)
+	assert.NoError(t, err)
 }
