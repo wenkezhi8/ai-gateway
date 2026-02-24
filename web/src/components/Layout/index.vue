@@ -157,6 +157,7 @@ const notificationCount = ref(3)
 
 const menuItems = [
   { path: '/dashboard', title: '监控仪表盘', icon: 'Monitor' },
+  { path: '/ops', title: '运维监控', icon: 'Operation' },
   { path: '/chat', title: 'AI 对话', icon: 'ChatDotRound' },
   { path: '/api-management', title: 'API 管理', icon: 'Connection' },
   { path: '/model-management', title: '模型管理', icon: 'Collection' },

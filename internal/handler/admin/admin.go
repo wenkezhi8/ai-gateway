@@ -23,6 +23,7 @@ type Handlers struct {
 	Upload      *UploadHandler
 	Alert       *AlertHandler
 	Feedback    *FeedbackHandler
+	Ops         *OpsHandler
 }
 
 // NewHandlers creates all admin handlers
@@ -49,6 +50,7 @@ func NewHandlers(
 		Upload:      NewUploadHandler(),
 		Alert:       NewAlertHandler(),
 		Feedback:    GetFeedbackHandler(),
+		Ops:         NewOpsHandler(),
 	}
 	globalDashboardHandler = handlers.Dashboard
 	return handlers
@@ -203,5 +205,19 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		feedback.GET("/recent", handlers.Feedback.GetRecentFeedback)
 		feedback.GET("/task-type-distribution", handlers.Feedback.GetTaskTypeDistribution)
 		feedback.POST("/optimize", handlers.Feedback.TriggerOptimization)
+	}
+
+	// Ops monitoring routes
+	ops := r.Group("/ops")
+	{
+		ops.GET("/dashboard", handlers.Ops.GetDashboardData)
+		ops.GET("/system", handlers.Ops.GetSystemInfo)
+		ops.GET("/services", handlers.Ops.GetServiceStatus)
+		ops.GET("/performance", handlers.Ops.GetPerformance)
+		ops.GET("/health-checks", handlers.Ops.GetHealthChecks)
+		ops.GET("/events", handlers.Ops.GetEventLogs)
+		ops.GET("/providers/health", handlers.Ops.GetProviderHealth)
+		ops.GET("/resources", handlers.Ops.GetResourceUsage)
+		ops.GET("/export", handlers.Ops.ExportMetrics)
 	}
 }

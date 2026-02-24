@@ -21,6 +21,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '监控仪表盘', icon: 'Monitor' }
       },
       {
+        path: 'ops',
+        name: 'Ops',
+        component: () => import('@/views/ops/index.vue'),
+        meta: { title: '运维监控', icon: 'Operation' }
+      },
+      {
         path: 'routing',
         name: 'Routing',
         component: () => import('@/views/routing/index.vue'),

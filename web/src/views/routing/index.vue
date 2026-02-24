@@ -428,14 +428,25 @@ async function loadModelScores() {
     const data: any = await request.get('/admin/router/models')
     if (data) {
       const scores = data.data || data
-      modelScores.value = Object.entries(scores).map(([model, score]) => ({
-        model,
-        provider: (score as any).provider || 'unknown',
-        quality_score: (score as any).quality_score || 80,
-        speed_score: (score as any).speed_score || 80,
-        cost_score: (score as any).cost_score || 80,
-        enabled: (score as any).enabled ?? true
-      }))
+      if (Array.isArray(scores)) {
+        modelScores.value = scores.map((item: any) => ({
+          model: item.model,
+          provider: item.provider || 'unknown',
+          quality_score: item.quality_score || 80,
+          speed_score: item.speed_score || 80,
+          cost_score: item.cost_score || 80,
+          enabled: item.enabled ?? true
+        }))
+      } else {
+        modelScores.value = Object.entries(scores).map(([model, score]) => ({
+          model,
+          provider: (score as any).provider || 'unknown',
+          quality_score: (score as any).quality_score || 80,
+          speed_score: (score as any).speed_score || 80,
+          cost_score: (score as any).cost_score || 80,
+          enabled: (score as any).enabled ?? true
+        }))
+      }
       availableModels.value = modelScores.value.map(m => m.model)
     }
   } catch (e) {
