@@ -154,14 +154,24 @@ func NewFullWithConfig(
 	}
 
 	// Serve frontend static files
+	// Check for static dir in multiple locations
 	staticDirs := []string{
 		"./web/dist",
 		"./dist",
+		"../web/dist",
+		"web/dist",
 	}
+
+	// Also check environment variable
+	if envDir := os.Getenv("STATIC_DIR"); envDir != "" {
+		staticDirs = append([]string{envDir}, staticDirs...)
+	}
+
 	var staticDir string
 	for _, dir := range staticDirs {
-		if _, err := os.Stat(dir); err == nil {
-			staticDir = dir
+		absDir, _ := filepath.Abs(dir)
+		if _, err := os.Stat(absDir); err == nil {
+			staticDir = absDir
 			break
 		}
 	}
