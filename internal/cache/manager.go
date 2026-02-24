@@ -275,6 +275,7 @@ type CacheEntryInfo struct {
 	Preview   string     `json:"preview"`
 	Model     string     `json:"model,omitempty"`
 	Provider  string     `json:"provider,omitempty"`
+	TaskType  string     `json:"task_type,omitempty"`
 }
 
 // CacheEntryDetail represents detailed cache entry data
@@ -317,6 +318,7 @@ func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo
 				entry.Preview = meta.Preview
 				entry.Model = meta.Model
 				entry.Provider = meta.Provider
+				entry.TaskType = meta.TaskType
 			}
 		}
 

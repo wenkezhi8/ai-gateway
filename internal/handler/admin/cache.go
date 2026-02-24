@@ -678,3 +678,167 @@ func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
 		"message": "Cache entry deleted",
 	})
 }
+
+// AddTestCacheEntryRequest represents request for adding test cache
+type AddTestCacheEntryRequest struct {
+	TaskType    string `json:"task_type" binding:"required"`
+	UserMessage string `json:"user_message" binding:"required"`
+	AIResponse  string `json:"ai_response" binding:"required"`
+	Model       string `json:"model"`
+	Provider    string `json:"provider"`
+	TTL         int    `json:"ttl"` // hours
+}
+
+// AddTestCacheEntry adds a test cache entry for warmup
+// POST /api/admin/cache/test-entry
+func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
+	var req AddTestCacheEntryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "invalid_request", "message": err.Error()},
+		})
+		return
+	}
+
+	// Generate a unique key
+	key := fmt.Sprintf("test:%s:%d", req.TaskType, time.Now().UnixNano())
+
+	// Build request data
+	requestData := map[string]interface{}{
+		"messages": []map[string]string{
+			{"role": "user", "content": req.UserMessage},
+		},
+		"model": req.Model,
+	}
+
+	// Build response data
+	responseData := map[string]interface{}{
+		"choices": []map[string]interface{}{
+			{
+				"message": map[string]string{
+					"role":    "assistant",
+					"content": req.AIResponse,
+				},
+				"finish_reason": "stop",
+			},
+		},
+		"usage": map[string]int{
+			"prompt_tokens":     len(req.UserMessage) / 4,
+			"completion_tokens": len(req.AIResponse) / 4,
+			"total_tokens":      (len(req.UserMessage) + len(req.AIResponse)) / 4,
+		},
+	}
+
+	ctx := context.Background()
+	ttl := time.Duration(req.TTL) * time.Hour
+	if ttl == 0 {
+		ttl = 24 * time.Hour
+	}
+
+	// Store request cache
+	reqKey := "req:test:" + key
+	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
+		mc.SetWithTaskType(ctx, reqKey, requestData, ttl, req.Model, req.Provider, req.TaskType)
+	} else {
+		h.manager.Cache().Set(ctx, reqKey, requestData, ttl)
+	}
+
+	// Store response cache
+	respKey := "ai-response:test:" + key
+	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
+		mc.SetWithTaskType(ctx, respKey, responseData, ttl, req.Model, req.Provider, req.TaskType)
+	} else {
+		h.manager.Cache().Set(ctx, respKey, responseData, ttl)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"request_key":  reqKey,
+			"response_key": respKey,
+			"task_type":    req.TaskType,
+			"ttl_hours":    req.TTL,
+			"message":      "Test cache entry added successfully",
+		},
+	})
+}
+
+// ExportCacheEntries exports all cache entries
+// GET /api/admin/cache/export
+func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
+	taskType := c.Query("task_type")
+
+	entries := h.manager.ListEntries("", "")
+
+	// Filter by task type if specified
+	filtered := make([]*cache.CacheEntryInfo, 0)
+	for _, entry := range entries {
+		if taskType == "" || entry.TaskType == taskType {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	// Get details for each entry
+	exportData := make([]map[string]interface{}, 0)
+	ctx := context.Background()
+	for _, entry := range filtered {
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err == nil {
+			exportData = append(exportData, map[string]interface{}{
+				"key":        entry.Key,
+				"type":       entry.Type,
+				"task_type":  entry.TaskType,
+				"model":      entry.Model,
+				"provider":   entry.Provider,
+				"size":       entry.Size,
+				"hits":       entry.Hits,
+				"created_at": entry.CreatedAt,
+				"ttl":        entry.TTL,
+				"value":      detail.Value,
+			})
+		}
+	}
+
+	c.Header("Content-Disposition", "attachment; filename=cache-export-"+time.Now().Format("20060102-150405")+".json")
+	c.JSON(http.StatusOK, gin.H{
+		"export_time": time.Now().Format(time.RFC3339),
+		"task_type":   taskType,
+		"total":       len(exportData),
+		"entries":     exportData,
+	})
+}
+
+// GetCacheTrend returns cache usage trend data
+// GET /api/admin/cache/trend
+func (h *CacheHandler) GetCacheTrend(c *gin.Context) {
+	// Generate mock trend data for demonstration
+	// In production, this would query actual historical data
+	now := time.Now()
+	hours := make([]string, 0)
+	hitsData := make([]int, 0)
+	missesData := make([]int, 0)
+
+	for i := 23; i >= 0; i-- {
+		t := now.Add(-time.Duration(i) * time.Hour)
+		hours = append(hours, t.Format("15:00"))
+		// Mock data - in production this would be real data
+		hitsData = append(hitsData, 50+i*2+int(20*float64(i%3)))
+		missesData = append(missesData, 10+i+int(5*float64(i%2)))
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"hours":  hours,
+			"hits":   hitsData,
+			"misses": missesData,
+			"summary": gin.H{
+				"total_hits":   1500,
+				"total_misses": 300,
+				"hit_rate":     83.3,
+				"avg_latency":  45,
+			},
+		},
+	})
+}

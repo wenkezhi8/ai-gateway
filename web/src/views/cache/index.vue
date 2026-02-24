@@ -355,6 +355,12 @@
                 <el-button type="primary" @click="loadCacheEntries">
                   <el-icon><Refresh /></el-icon> 刷新
                 </el-button>
+                <el-button type="success" @click="showWarmupDialog">
+                  <el-icon><Plus /></el-icon> 预热缓存
+                </el-button>
+                <el-button @click="exportCacheData">
+                  <el-icon><Download /></el-icon> 导出
+                </el-button>
               </div>
 
               <el-empty v-if="cacheEntries.length === 0 && !entriesLoading" description="暂无缓存数据，发送 AI 请求后将自动生成缓存" />
@@ -441,6 +447,44 @@
       <template #footer>
         <el-button @click="entryDetailVisible = false">关闭</el-button>
         <el-button type="danger" @click="deleteEntryAndClose">删除此缓存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 缓存预热对话框 -->
+    <el-dialog v-model="warmupDialogVisible" title="缓存预热 - 添加测试缓存" width="600px">
+      <el-form :model="warmupForm" :rules="warmupRules" ref="warmupFormRef" label-width="100px">
+        <el-form-item label="任务类型" prop="task_type">
+          <el-select v-model="warmupForm.task_type" placeholder="选择任务类型" style="width: 100%">
+            <el-option label="事实查询" value="fact" />
+            <el-option label="代码生成" value="code" />
+            <el-option label="数学计算" value="math" />
+            <el-option label="日常对话" value="chat" />
+            <el-option label="创意写作" value="creative" />
+            <el-option label="逻辑推理" value="reasoning" />
+            <el-option label="翻译" value="translate" />
+            <el-option label="长文本处理" value="long_text" />
+            <el-option label="其他" value="other" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="用户消息" prop="user_message">
+          <el-input v-model="warmupForm.user_message" type="textarea" :rows="3" placeholder="输入测试用户消息..." />
+        </el-form-item>
+        <el-form-item label="AI 回复" prop="ai_response">
+          <el-input v-model="warmupForm.ai_response" type="textarea" :rows="4" placeholder="输入测试 AI 回复..." />
+        </el-form-item>
+        <el-form-item label="模型">
+          <el-input v-model="warmupForm.model" placeholder="例如：gpt-4o" />
+        </el-form-item>
+        <el-form-item label="服务商">
+          <el-input v-model="warmupForm.provider" placeholder="例如：openai" />
+        </el-form-item>
+        <el-form-item label="TTL (小时)">
+          <el-input-number v-model="warmupForm.ttl" :min="0" :max="720" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="warmupDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitWarmup" :loading="warmupLoading">添加缓存</el-button>
       </template>
     </el-dialog>
 
@@ -696,6 +740,24 @@ const entriesFilter = reactive({
   page: 1,
   pageSize: 20
 })
+
+// 缓存预热相关
+const warmupDialogVisible = ref(false)
+const warmupLoading = ref(false)
+const warmupFormRef = ref()
+const warmupForm = reactive({
+  task_type: 'fact',
+  user_message: '',
+  ai_response: '',
+  model: 'gpt-4o',
+  provider: 'openai',
+  ttl: 24
+})
+const warmupRules = {
+  task_type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
+  user_message: [{ required: true, message: '请输入用户消息', trigger: 'blur' }],
+  ai_response: [{ required: true, message: '请输入AI回复', trigger: 'blur' }]
+}
 
 const ruleForm = reactive({
   id: 0,
@@ -1212,6 +1274,65 @@ function formatValue(value: any): string {
     return JSON.stringify(value, null, 2)
   } catch {
     return String(value)
+  }
+}
+
+// 缓存预热相关函数
+function showWarmupDialog() {
+  warmupDialogVisible.value = true
+}
+
+async function submitWarmup() {
+  if (!warmupFormRef.value) return
+  
+  try {
+    await warmupFormRef.value.validate()
+  } catch {
+    return
+  }
+  
+  warmupLoading.value = true
+  try {
+    await request.post('/admin/cache/test-entry', warmupForm)
+    handleSuccess('测试缓存添加成功')
+    warmupDialogVisible.value = false
+    warmupForm.user_message = ''
+    warmupForm.ai_response = ''
+    loadCacheEntries()
+    loadCacheStats()
+  } catch (e) {
+    handleApiError(e, '添加失败')
+  } finally {
+    warmupLoading.value = false
+  }
+}
+
+// 导出缓存数据
+async function exportCacheData() {
+  try {
+    const params = new URLSearchParams()
+    if (entriesFilter.type) params.append('task_type', entriesFilter.type)
+    
+    const response = await fetch(`/api/admin/cache/export?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`
+      }
+    })
+    
+    if (!response.ok) throw new Error('Export failed')
+    
+    const data = await response.json()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cache-export-${new Date().toISOString().slice(0, 10)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    
+    handleSuccess('缓存数据已导出')
+  } catch (e) {
+    handleApiError(e, '导出失败')
   }
 }
 

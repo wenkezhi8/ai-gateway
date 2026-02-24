@@ -154,6 +154,10 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.GET("/entries", handlers.Cache.GetCacheEntries)
 		cacheGroup.GET("/entries/*key", handlers.Cache.GetCacheEntryDetail)
 		cacheGroup.DELETE("/entries/*key", handlers.Cache.DeleteCacheEntry)
+		// Cache warmup and export
+		cacheGroup.POST("/test-entry", handlers.Cache.AddTestCacheEntry)
+		cacheGroup.GET("/export", handlers.Cache.ExportCacheEntries)
+		cacheGroup.GET("/trend", handlers.Cache.GetCacheTrend)
 	}
 
 	// Dashboard routes
