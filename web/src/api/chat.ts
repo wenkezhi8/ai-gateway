@@ -22,8 +22,21 @@ export async function completion(params: ChatCompletionParams): Promise<StreamCh
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    const errorMsg = errorData?.error?.message || errorData?.message || `HTTP error ${response.status}`
+    let errorMsg = `HTTP ${response.status}`
+    try {
+      const errorData = await response.json()
+      if (typeof errorData?.error === 'string') {
+        errorMsg = errorData.error
+      } else if (errorData?.error?.message) {
+        errorMsg = errorData.error.message
+      } else if (errorData?.message) {
+        errorMsg = errorData.message
+      } else if (errorData?.error?.code) {
+        errorMsg = `${errorData.error.code}: ${errorData.error.message || 'Unknown error'}`
+      }
+    } catch {
+      errorMsg = `HTTP ${response.status}: ${response.statusText}`
+    }
     throw new Error(errorMsg)
   }
 
@@ -63,8 +76,21 @@ export function streamCompletion(
       })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        const errorMsg = errorData?.error?.message || errorData?.message || `HTTP error ${response.status}`
+        let errorMsg = `HTTP ${response.status}`
+        try {
+          const errorData = await response.json()
+          if (typeof errorData?.error === 'string') {
+            errorMsg = errorData.error
+          } else if (errorData?.error?.message) {
+            errorMsg = errorData.error.message
+          } else if (errorData?.message) {
+            errorMsg = errorData.message
+          } else if (errorData?.error?.code) {
+            errorMsg = `${errorData.error.code}: ${errorData.error.message || 'Unknown error'}`
+          }
+        } catch {
+          errorMsg = `HTTP ${response.status}: ${response.statusText}`
+        }
         throw new Error(errorMsg)
       }
 
@@ -129,7 +155,15 @@ export function streamCompletion(
         console.log('Stream request aborted')
         return
       }
-      onError?.(error instanceof Error ? error : new Error(String(error)))
+      let errorMessage = 'Unknown error'
+      if (error instanceof Error) {
+        errorMessage = error.message
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String((error as any).message)
+      }
+      onError?.(new Error(errorMessage))
     }
   })()
 
@@ -168,8 +202,19 @@ export async function search(query: string, limit: number = 5): Promise<SearchRe
   })
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    const errorMsg = errorData?.error || `HTTP error ${response.status}`
+    let errorMsg = `HTTP ${response.status}`
+    try {
+      const errorData = await response.json()
+      if (typeof errorData?.error === 'string') {
+        errorMsg = errorData.error
+      } else if (errorData?.error?.message) {
+        errorMsg = errorData.error.message
+      } else if (errorData?.message) {
+        errorMsg = errorData.message
+      }
+    } catch {
+      errorMsg = `HTTP ${response.status}: ${response.statusText}`
+    }
     return { success: false, error: errorMsg }
   }
 

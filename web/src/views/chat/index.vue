@@ -431,7 +431,6 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
   }
 
   // Build messages with search context if available
-  let finalText = text
   if (searchContext) {
     const lastUserMsg = chatStore.currentMessages
       .filter(m => m.role === 'user')
@@ -452,10 +451,10 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
     .map(m => {
       const content = m.content || ''
       const hasSearch = content.includes('[联网搜索已启用]')
-      const finalContent = (hasSearch && searchContext) 
+      const finalContent = (hasSearch && searchContext)
         ? content.replace(' [联网搜索已启用]', '') + searchContext
         : content
-      
+
       if (m.images && m.images.length > 0) {
         return {
           role: m.role,
@@ -473,25 +472,6 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
         content: finalContent
       }
     })
-  
-  // Add current message
-  if (imageUrls.length > 0) {
-    messages.push({
-      role: 'user',
-      content: [
-        { type: 'text', text: finalText },
-        ...imageUrls.map(url => ({
-          type: 'image_url',
-          image_url: { url }
-        }))
-      ]
-    })
-  } else {
-    messages.push({
-      role: 'user',
-      content: finalText
-    })
-  }
 
   // Track stats
   const startTime = Date.now()
