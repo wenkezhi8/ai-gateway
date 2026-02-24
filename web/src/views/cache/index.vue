@@ -357,7 +357,9 @@
                 </el-button>
               </div>
 
-              <el-table :data="cacheEntries" stripe v-loading="entriesLoading" class="entries-table">
+              <el-empty v-if="cacheEntries.length === 0 && !entriesLoading" description="暂无缓存数据，发送 AI 请求后将自动生成缓存" />
+
+              <el-table v-else :data="cacheEntries" stripe v-loading="entriesLoading" class="entries-table">
                 <el-table-column prop="key" label="键名" min-width="280">
                   <template #default="{ row }">
                     <div class="key-cell">

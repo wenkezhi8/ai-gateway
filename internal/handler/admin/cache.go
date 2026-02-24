@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -623,6 +624,8 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 // GET /api/admin/cache/entries/*
 func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 	key := c.Param("key")
+	// Gin 的 *key 通配符会包含前导斜杠，需要去掉
+	key = strings.TrimPrefix(key, "/")
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -651,6 +654,8 @@ func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 // DELETE /api/admin/cache/entries/*
 func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
 	key := c.Param("key")
+	// Gin 的 *key 通配符会包含前导斜杠，需要去掉
+	key = strings.TrimPrefix(key, "/")
 	if key == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,

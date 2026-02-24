@@ -101,6 +101,140 @@
           </div>
 
           <div class="api-section">
+            <div class="section-header">
+              <div class="section-title">一键配置</div>
+            </div>
+
+            <el-tabs v-model="selectedConfigTool" type="card">
+              <el-tab-pane label="OpenAI SDK" name="openai">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>配置 OpenAI 官方 SDK 使用此网关</span>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">一键配置脚本（推荐）</span>
+                      <el-button type="primary" size="small" @click="copyConfigScript('openai')">
+                        <el-icon><CopyDocument /></el-icon>
+                        复制命令
+                      </el-button>
+                    </div>
+                    <div class="code-block">
+                      <pre><code>{{ configScriptOpenAI }}</code></pre>
+                    </div>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">配置文件</span>
+                    </div>
+                    <div class="config-files">
+                      <div class="config-file">
+                        <div class="file-title">环境变量</div>
+                        <div class="code-block small">
+                          <pre><code>OPENAI_API_KEY={{ selectedConfigKey || '&lt;your-api-key&gt;' }}
+OPENAI_BASE_URL={{ apiBaseUrl }}/api/v1</code></pre>
+                        </div>
+                        <el-button type="primary" link size="small" @click="copyConfig('openai-env')">复制</el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="Anthropic SDK" name="anthropic">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>配置 Anthropic 官方 SDK 使用此网关</span>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">一键配置脚本（推荐）</span>
+                      <el-button type="primary" size="small" @click="copyConfigScript('anthropic')">
+                        <el-icon><CopyDocument /></el-icon>
+                        复制命令
+                      </el-button>
+                    </div>
+                    <div class="code-block">
+                      <pre><code>{{ configScriptAnthropic }}</code></pre>
+                    </div>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">配置文件</span>
+                    </div>
+                    <div class="config-files">
+                      <div class="config-file">
+                        <div class="file-title">环境变量</div>
+                        <div class="code-block small">
+                          <pre><code>ANTHROPIC_API_KEY={{ selectedConfigKey || '&lt;your-api-key&gt;' }}
+ANTHROPIC_BASE_URL={{ apiBaseUrl }}/api/anthropic</code></pre>
+                        </div>
+                        <el-button type="primary" link size="small" @click="copyConfig('anthropic-env')">复制</el-button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="其他工具" name="other">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>配置其他 AI 工具使用此网关</span>
+                  </div>
+
+                  <div class="tools-grid">
+                    <div class="tool-item">
+                      <div class="tool-name">ChatGPT Next Web</div>
+                      <div class="tool-desc">开源 AI 聊天界面</div>
+                      <div class="tool-config">
+                        <div class="config-row">
+                          <span class="config-label">接口地址</span>
+                          <code>{{ apiBaseUrl }}/api/v1</code>
+                          <el-button type="primary" link size="small" @click="copyText(`${apiBaseUrl}/api/v1`)">复制</el-button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tool-item">
+                      <div class="tool-name">LangChain</div>
+                      <div class="tool-desc">AI 应用开发框架</div>
+                      <div class="tool-config">
+                        <div class="config-row">
+                          <span class="config-label">base_url</span>
+                          <code>{{ apiBaseUrl }}/api/v1</code>
+                          <el-button type="primary" link size="small" @click="copyText(`${apiBaseUrl}/api/v1`)">复制</el-button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="tool-item">
+                      <div class="tool-name">LlamaIndex</div>
+                      <div class="tool-desc">数据框架</div>
+                      <div class="tool-config">
+                        <div class="config-row">
+                          <span class="config-label">base_url</span>
+                          <code>{{ apiBaseUrl }}/api/v1</code>
+                          <el-button type="primary" link size="small" @click="copyText(`${apiBaseUrl}/api/v1`)">复制</el-button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+            </el-tabs>
+
+            <div class="config-hint">
+              <el-tag type="info" size="small">提示</el-tag>
+              <span>选择上方 API Key 后，配置会自动填入对应的 Key</span>
+            </div>
+          </div>
+
+          <div class="api-section">
             <div class="section-inline">
               <div class="section-title">默认模型设置</div>
               <el-form :model="routerConfig" label-width="80px" class="config-form-inline">
@@ -434,6 +568,64 @@ const apiStats = ref({
   todayRequests: 0,
   successRate: 100,
   avgLatency: 0
+})
+
+const selectedConfigTool = ref('openai')
+
+const selectedConfigKey = computed(() => {
+  if (testForm.value.apiKey) return testForm.value.apiKey
+  const enabledKey = apiKeys.value.find(k => k.enabled)
+  return enabledKey?.key || ''
+})
+
+const configScriptOpenAI = computed(() => {
+  const apiKey = selectedConfigKey.value || '<your-api-key>'
+  return `bash << 'SETUP_SCRIPT'
+# 创建配置目录
+mkdir -p ~/.config/openai
+
+# 备份现有配置
+[ -f ~/.config/openai/config.json ] && cp ~/.config/openai/config.json ~/.config/openai/config.json.bak
+
+# 创建新配置
+cat > ~/.config/openai/config.json << 'OPENAI_CONFIG'
+{
+  "api_key": "${apiKey}",
+  "base_url": "${apiBaseUrl.value}/api/v1"
+}
+OPENAI_CONFIG
+
+# 设置环境变量（可选）
+echo "export OPENAI_API_KEY=\"${apiKey}\"" >> ~/.bashrc
+echo "export OPENAI_BASE_URL=\"${apiBaseUrl.value}/api/v1\"" >> ~/.bashrc
+
+echo "✅ Done!"
+SETUP_SCRIPT`
+})
+
+const configScriptAnthropic = computed(() => {
+  const apiKey = selectedConfigKey.value || '<your-api-key>'
+  return `bash << 'SETUP_SCRIPT'
+# 创建配置目录
+mkdir -p ~/.config/anthropic
+
+# 备份现有配置
+[ -f ~/.config/anthropic/config.json ] && cp ~/.config/anthropic/config.json ~/.config/anthropic/config.json.bak
+
+# 创建新配置
+cat > ~/.config/anthropic/config.json << 'ANTHROPIC_CONFIG'
+{
+  "api_key": "${apiKey}",
+  "base_url": "${apiBaseUrl.value}/api/anthropic"
+}
+ANTHROPIC_CONFIG
+
+# 设置环境变量（可选）
+echo "export ANTHROPIC_API_KEY=\"${apiKey}\"" >> ~/.bashrc
+echo "export ANTHROPIC_BASE_URL=\"${apiBaseUrl.value}/api/anthropic\"" >> ~/.bashrc
+
+echo "✅ Done!"
+SETUP_SCRIPT`
 })
 
 function maskKey(key: string): string {
@@ -856,6 +1048,38 @@ function copyCode() {
   ElMessage.success('已复制')
 }
 
+function copyConfigScript(type: string) {
+  let script = ''
+  if (type === 'openai') {
+    script = configScriptOpenAI.value
+  } else if (type === 'anthropic') {
+    script = configScriptAnthropic.value
+  }
+  navigator.clipboard.writeText(script)
+  ElMessage.success('已复制配置脚本')
+}
+
+function copyConfig(type: string) {
+  let content = ''
+  const apiKey = selectedConfigKey.value || '<your-api-key>'
+
+  if (type === 'openai-env') {
+    content = `OPENAI_API_KEY=${apiKey}
+OPENAI_BASE_URL=${apiBaseUrl.value}/api/v1`
+  } else if (type === 'anthropic-env') {
+    content = `ANTHROPIC_API_KEY=${apiKey}
+ANTHROPIC_BASE_URL=${apiBaseUrl.value}/api/anthropic`
+  }
+
+  navigator.clipboard.writeText(content)
+  ElMessage.success('已复制配置')
+}
+
+function copyText(text: string) {
+  navigator.clipboard.writeText(text)
+  ElMessage.success('已复制')
+}
+
 onMounted(() => {
   loadApiKeys()
   loadRouterConfig()
@@ -1144,6 +1368,135 @@ onMounted(() => {
         }
       }
     }
+  }
+
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .config-section {
+    .config-desc {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--el-text-color-secondary);
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+
+    .config-block {
+      margin-bottom: 20px;
+
+      .block-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+
+        .block-title {
+          font-weight: 600;
+          color: var(--el-text-color-primary);
+          font-size: 14px;
+        }
+      }
+
+      .code-block {
+        &.small {
+          pre {
+            font-size: 12px;
+          }
+        }
+      }
+
+      .config-files {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+
+        .config-file {
+          background: var(--el-bg-color-page);
+          border: 1px solid var(--el-border-color-lighter);
+          border-radius: var(--el-border-radius-base);
+          padding: 12px;
+
+          .file-title {
+            font-weight: 600;
+            color: var(--el-text-color-primary);
+            font-size: 13px;
+            margin-bottom: 12px;
+          }
+
+          .code-block {
+            margin-bottom: 12px;
+          }
+        }
+      }
+    }
+  }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+
+    .tool-item {
+      background: var(--el-bg-color-page);
+      border: 1px solid var(--el-border-color-lighter);
+      border-radius: var(--el-border-radius-base);
+      padding: 16px;
+
+      .tool-name {
+        font-weight: 600;
+        color: var(--el-text-color-primary);
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+
+      .tool-desc {
+        color: var(--el-text-color-secondary);
+        font-size: 12px;
+        margin-bottom: 12px;
+      }
+
+      .tool-config {
+        .config-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+
+          .config-label {
+            color: var(--el-text-color-secondary);
+            font-size: 13px;
+            min-width: 60px;
+          }
+
+          code {
+            flex: 1;
+            padding: 8px 12px;
+            background: var(--el-fill-color-light);
+            border-radius: var(--el-border-radius-base);
+            font-family: monospace;
+            font-size: 12px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            min-width: 0;
+          }
+        }
+      }
+    }
+  }
+
+  .config-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
   }
 }
 </style>
