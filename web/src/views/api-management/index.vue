@@ -11,17 +11,6 @@
           </template>
 
           <div class="api-section">
-            <div class="section-title">统一 API 入口</div>
-            <div class="url-box">
-              <code class="api-url">{{ apiBaseUrl }}/api/v1</code>
-              <el-button type="primary" size="small" @click="copyUrl('openai')">
-                <el-icon><CopyDocument /></el-icon>
-                复制
-              </el-button>
-            </div>
-          </div>
-
-          <div class="api-section">
             <div class="section-header">
               <div class="section-title">兼容协议端点</div>
             </div>
