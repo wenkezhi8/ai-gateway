@@ -100,6 +100,7 @@
             @stop="handleStop"
             @update:web-search-enabled="webSearchEnabled = $event"
             @update:deep-think-enabled="deepThinkEnabled = $event"
+            @update:multimodal-enabled="multimodalEnabled = $event"
           />
         </div>
       </template>
@@ -145,7 +146,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Plus, ChatDotRound, Delete, Operation, Loading } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
-import { useChatStore, initializeProviders } from '@/store/chat'
+import { useChatStore, initializeProviders, PROVIDERS } from '@/store/chat'
 import { streamCompletion, search } from '@/api/chat'
 import { createMessage, type ChatMessage as ChatMessageType } from '@/types/chat'
 import ChatMessage from './components/ChatMessage.vue'
@@ -162,8 +163,8 @@ const isPublicPage = computed(() => route.meta.public === true)
 const messagesContainer = ref<HTMLElement>()
 const chatInputRef = ref()
 const sidebarCollapsed = ref(window.innerWidth < 768)
-const selectedProvider = ref('openai')
-const selectedModel = ref('gpt-4o')
+const selectedProvider = ref('')
+const selectedModel = ref('')
 
 // Store state
 const conversations = computed(() => chatStore.conversations)
@@ -186,6 +187,7 @@ const batchSending = ref(false)
 // Feature toggles state
 const webSearchEnabled = ref(false)
 const deepThinkEnabled = ref(false)
+const multimodalEnabled = ref(false)
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -512,11 +514,23 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       model: chatStore.currentConversation.model,
       provider: chatStore.currentConversation.provider,
       messages,
-      stream: true
+      stream: true,
+      deepThink: deepThinkEnabled.value
     },
     // onChunk
     (chunk) => {
-      const content = chunk.choices?.[0]?.delta?.content
+      const delta = chunk.choices?.[0]?.delta
+      const content = delta?.content
+      const reasoning = delta?.reasoning || delta?.reasoning_content
+
+      if (reasoning) {
+        if (!firstTokenTime) {
+          firstTokenTime = Date.now()
+        }
+        chatStore.appendMessageReasoning(assistantMessage.id, reasoning)
+        scrollToBottom()
+      }
+
       if (content) {
         if (!firstTokenTime) {
           firstTokenTime = Date.now()
@@ -600,6 +614,18 @@ function applyPrimaryColor(color: string) {
   document.documentElement.style.setProperty('--color-primary-light', lightColor)
 }
 
+function selectFirstAvailableProvider(): void {
+  if (PROVIDERS.value.length > 0 && !selectedProvider.value) {
+    const firstProvider = PROVIDERS.value[0]
+    if (firstProvider) {
+      selectedProvider.value = firstProvider.value
+      if (firstProvider.models && firstProvider.models.length > 0) {
+        selectedModel.value = firstProvider.models[0] ?? ''
+      }
+    }
+  }
+}
+
 onMounted(async () => {
   const savedPrimaryColor = localStorage.getItem('ai-gateway-primary-color')
   if (savedPrimaryColor) {
@@ -607,6 +633,7 @@ onMounted(async () => {
   }
   
   await initializeProviders()
+  selectFirstAvailableProvider()
   
   window.addEventListener('resize', () => {
     if (window.innerWidth < 768) {

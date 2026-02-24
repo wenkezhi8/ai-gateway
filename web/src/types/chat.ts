@@ -55,6 +55,7 @@ export interface ChatCompletionParams {
   frequency_penalty?: number
   presence_penalty?: number
   stream?: boolean
+  deepThink?: boolean
 }
 
 /** SSE stream chunk data */
@@ -68,6 +69,8 @@ export interface StreamChunk {
     delta: {
       role?: string
       content?: string
+      reasoning?: string
+      reasoning_content?: string
     }
     finish_reason?: string | null
   }>

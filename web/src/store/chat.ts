@@ -59,17 +59,53 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
 /** Dynamic providers (reactive) */
 export const PROVIDERS = ref<ProviderConfig[]>([...DEFAULT_PROVIDERS])
 
-/** Load providers from backend API */
-export async function loadProvidersFromAPI(): Promise<void> {
+/** Load providers from public API (works without authentication) */
+export async function loadProvidersFromPublicAPI(): Promise<boolean> {
   try {
-    // Load provider configs, models, and accounts in parallel
+    const response = await fetch('/api/v1/config/providers')
+    if (!response.ok) {
+      return false
+    }
+    const data = await response.json()
+    
+    if (!data.success || !data.data?.providers) {
+      return false
+    }
+    
+    const providers: ProviderConfig[] = []
+    for (const p of data.data.providers as Array<{name: string; enabled: boolean; models: string[]}>) {
+      if (p.enabled && p.models && p.models.length > 0) {
+        const defaultConfig = DEFAULT_PROVIDERS.find(dp => dp.value === p.name)
+        providers.push({
+          label: defaultConfig?.label || p.name,
+          value: p.name,
+          color: defaultConfig?.color || '#909399',
+          logo: defaultConfig?.logo || `/logos/${p.name}.svg`,
+          models: sortModelsNewestFirst(p.models)
+        })
+      }
+    }
+    
+    if (providers.length > 0) {
+      PROVIDERS.value = providers
+      return true
+    }
+    return false
+  } catch (e) {
+    console.error('Failed to load providers from public API:', e)
+    return false
+  }
+}
+
+/** Load providers from backend API (requires authentication) */
+export async function loadProvidersFromAdminAPI(): Promise<boolean> {
+  try {
     const [configsRes, modelsRes, accountsRes] = await Promise.all([
-      request.get<{ success: boolean; data: Array<{ value: string; label: string; color: string; base_url: string; is_openai_compatible: boolean }> }>('/admin/providers/configs'),
-      request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models'),
-      request.get<{ success: boolean; data: Array<{ id: string; provider: string; enabled: boolean }> }>('/admin/accounts')
+      request.get<{ success: boolean; data: Array<{ value: string; label: string; color: string; base_url: string; is_openai_compatible: boolean }> }>('/admin/providers/configs', { silent: true } as any),
+      request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any),
+      request.get<{ success: boolean; data: Array<{ id: string; provider: string; enabled: boolean }> }>('/admin/accounts', { silent: true } as any)
     ])
     
-    // Get enabled providers from accounts
     const enabledProviders = new Set<string>()
     if ((accountsRes as any).success && (accountsRes as any).data) {
       for (const acc of (accountsRes as any).data) {
@@ -79,7 +115,6 @@ export async function loadProvidersFromAPI(): Promise<void> {
       }
     }
     
-    // Build provider configs map
     const providerConfigs: Map<string, { label: string; color: string }> = new Map()
     if ((configsRes as any).success && (configsRes as any).data) {
       for (const p of (configsRes as any).data) {
@@ -87,11 +122,9 @@ export async function loadProvidersFromAPI(): Promise<void> {
       }
     }
     
-    // Group models by provider (only for enabled providers)
     const modelsByProvider: Record<string, string[]> = {}
     if ((modelsRes as any).success && (modelsRes as any).data) {
       for (const m of (modelsRes as any).data) {
-        // Only include models from enabled providers
         if (m.enabled && m.model && enabledProviders.has(m.provider)) {
           if (!modelsByProvider[m.provider]) {
             modelsByProvider[m.provider] = []
@@ -104,11 +137,8 @@ export async function loadProvidersFromAPI(): Promise<void> {
       }
     }
     
-    // Build final providers list (only enabled ones)
     const providers: ProviderConfig[] = []
-    const seenProviders = new Set<string>()
     
-    // Add providers from models (only enabled providers)
     for (const [providerId, models] of Object.entries(modelsByProvider)) {
       const config = providerConfigs.get(providerId)
       const defaultConfig = DEFAULT_PROVIDERS.find(p => p.value === providerId)
@@ -119,23 +149,37 @@ export async function loadProvidersFromAPI(): Promise<void> {
         logo: defaultConfig?.logo || `/logos/${providerId}.svg`,
         models: sortModelsNewestFirst(models)
       })
-      seenProviders.add(providerId)
     }
     
-    // If no providers found, use defaults (but still filter by enabled)
     if (providers.length === 0) {
       PROVIDERS.value = DEFAULT_PROVIDERS.filter(p => enabledProviders.has(p.value))
     } else {
       PROVIDERS.value = providers
     }
     
-    // If still no providers, show all (fallback)
     if (PROVIDERS.value.length === 0) {
       PROVIDERS.value = [...DEFAULT_PROVIDERS]
     }
+    return true
   } catch (e) {
-    console.error('Failed to load providers from API:', e)
-    // Keep default providers on error
+    console.error('Failed to load providers from admin API:', e)
+    return false
+  }
+}
+
+/** Load providers from backend API */
+export async function loadProvidersFromAPI(): Promise<void> {
+  const token = localStorage.getItem('token')
+  
+  if (token) {
+    const success = await loadProvidersFromAdminAPI()
+    if (success) return
+  }
+  
+  const success = await loadProvidersFromPublicAPI()
+  if (!success) {
+    console.warn('Using default providers as fallback')
+    PROVIDERS.value = [...DEFAULT_PROVIDERS]
   }
 }
 
@@ -264,13 +308,29 @@ export const useChatStore = defineStore('chat', () => {
 
   /** Append content to a message (for streaming) */
   function appendMessageContent(messageId: string, content: string, conversationId?: string): void {
-    const conv = conversationId 
+    const conv = conversationId
       ? conversations.value.find(c => c.id === conversationId)
       : currentConversation.value
     if (conv) {
       const message = conv.messages.find(m => m.id === messageId)
       if (message) {
         message.content += content
+        conv.updatedAt = Date.now()
+        saveConversations()
+      }
+    }
+  }
+
+  /** Append reasoning content to a message (for deep thinking) */
+  function appendMessageReasoning(messageId: string, reasoning: string, conversationId?: string): void {
+    const conv = conversationId
+      ? conversations.value.find(c => c.id === conversationId)
+      : currentConversation.value
+    if (conv) {
+      const message = conv.messages.find(m => m.id === messageId)
+      if (message) {
+        message.reasoningContent = (message.reasoningContent || '') + reasoning
+        message.reasoning = message.reasoningContent
         conv.updatedAt = Date.now()
         saveConversations()
       }
@@ -380,6 +440,7 @@ export const useChatStore = defineStore('chat', () => {
     updateMessage,
     setMessageStreaming,
     appendMessageContent,
+    appendMessageReasoning,
     setLoading,
     setAbortController,
     abortRequest,

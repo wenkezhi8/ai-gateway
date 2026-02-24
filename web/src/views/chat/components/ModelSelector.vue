@@ -68,13 +68,27 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const providers = PROVIDERS
 
-const selectedProvider = ref(props.provider || 'openai')
-const selectedModel = ref(props.model || 'gpt-4o')
+const selectedProvider = ref(props.provider || '')
+const selectedModel = ref(props.model || '')
 
 const availableModels = computed(() => {
   const found = PROVIDERS.value.find(p => p.value === selectedProvider.value)
   return found?.models || []
 })
+
+function selectFirstAvailable(): void {
+  if (!selectedProvider.value && PROVIDERS.value.length > 0) {
+    const firstProvider = PROVIDERS.value[0]
+    if (firstProvider) {
+      selectedProvider.value = firstProvider.value
+      if (firstProvider.models && firstProvider.models.length > 0) {
+        selectedModel.value = firstProvider.models[0] ?? ''
+      }
+    }
+  }
+}
+
+selectFirstAvailable()
 
 const currentProviderColor = computed(() => {
   const config = PROVIDERS.value.find(p => p.value === selectedProvider.value)
@@ -119,6 +133,12 @@ watch(() => props.model, (val) => {
     selectedModel.value = val
   }
 })
+
+watch(() => PROVIDERS.value, (newProviders) => {
+  if (newProviders && newProviders.length > 0 && !selectedProvider.value) {
+    selectFirstAvailable()
+  }
+}, { immediate: true })
 </script>
 
 <style lang="scss" scoped>

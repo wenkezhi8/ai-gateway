@@ -1,48 +1,9 @@
 <template>
   <div class="chat-input">
-    <div class="feature-bar">
-      <div class="feature-toggles">
-        <el-tooltip content="上传图片或文件，支持PDF/Word/Excel/PPT/图片" placement="top">
-          <button 
-            class="feature-btn" 
-            :class="{ active: multimodalEnabled }"
-            @click="toggleMultimodal"
-          >
-            <el-icon><Picture /></el-icon>
-            <span>多模态</span>
-          </button>
-        </el-tooltip>
-        <el-tooltip content="实时搜索互联网信息" placement="top">
-          <button 
-            class="feature-btn" 
-            :class="{ active: webSearchEnabled }"
-            @click="toggleWebSearch"
-          >
-            <el-icon><Search /></el-icon>
-            <span>联网搜索</span>
-          </button>
-        </el-tooltip>
-        <el-tooltip content="深度推理模式，展示思考过程" placement="top">
-          <button 
-            class="feature-btn" 
-            :class="{ active: deepThinkEnabled }"
-            @click="toggleDeepThink"
-          >
-            <el-icon><Cpu /></el-icon>
-            <span>深度思考</span>
-          </button>
-        </el-tooltip>
-      </div>
-      <div class="model-hint" v-if="uploadedFiles.length > 0">
-        <el-icon><InfoFilled /></el-icon>
-        <span>文件较多时建议使用 GLM-4-Flash 降低费用</span>
-      </div>
-    </div>
-
     <div class="uploaded-files" v-if="uploadedFiles.length > 0">
-      <div 
-        v-for="(file, index) in uploadedFiles" 
-        :key="index" 
+      <div
+        v-for="(file, index) in uploadedFiles"
+        :key="index"
         class="file-item"
         :class="{ 'is-image': file.isImage }"
       >
@@ -62,74 +23,99 @@
       </div>
     </div>
 
-    <div class="input-wrapper">
-      <div class="input-actions-left">
-        <el-tooltip content="上传文件 (支持PDF/Word/Excel/PPT/图片)" placement="top">
-          <button 
-            class="upload-btn" 
-            @click="triggerUpload"
-            :disabled="disabled || isLoading || uploadedFiles.length >= 10"
-          >
-            <el-icon><Upload /></el-icon>
-          </button>
-        </el-tooltip>
-        <input 
-          ref="fileInputRef" 
-          type="file" 
-          multiple 
-          accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp"
-          style="display: none"
-          @change="handleFileSelect"
+    <div
+      class="input-box"
+      :class="{ 'drag-over': isDragOver }"
+      @drop.prevent="handleDrop"
+      @dragover.prevent="isDragOver = true"
+      @dragleave.prevent="isDragOver = false"
+    >
+      <div class="input-inner">
+        <el-input
+          ref="inputRef"
+          v-model="inputText"
+          type="textarea"
+          :rows="1"
+          :autosize="{ minRows: 1, maxRows: 6 }"
+          :placeholder="placeholder || (uploadedFiles.length > 0 ? '描述文件内容或提出问题...' : '向AI提问...')"
+          :disabled="disabled"
+          resize="none"
+          @keydown="handleKeydown"
+          class="main-input"
         />
-      </div>
-      
-      <el-input
-        ref="inputRef"
-        v-model="inputText"
-        type="textarea"
-        :rows="1"
-        :autosize="{ minRows: 1, maxRows: 6 }"
-        :placeholder="placeholder || (uploadedFiles.length > 0 ? '描述文件内容或提出问题...' : t('chat.placeholder'))"
-        :disabled="disabled"
-        resize="none"
-        @keydown="handleKeydown"
-        class="main-input"
-      />
-      
-      <div class="input-actions-right">
-        <span class="hint">{{ t('chat.sendHint') }}</span>
-        <el-button
-          v-if="!isLoading"
-          type="primary"
-          :disabled="(!inputText.trim() && uploadedFiles.length === 0) || disabled"
-          @click="handleSend"
-        >
-          <el-icon><Promotion /></el-icon>
-          {{ t('chat.send') }}
-        </el-button>
-        <el-button
-          v-else
-          type="danger"
-          @click="handleStop"
-        >
-          <el-icon><VideoPause /></el-icon>
-          {{ t('chat.stop') }}
-        </el-button>
-      </div>
-    </div>
 
-    <div class="upload-hint">
-      <span>支持 PDF、Word、Excel、PPT、Text、图片，最多 10 个文件，单个文件最大 50MB，图片最大 5MB</span>
+        <div class="input-bottom-bar">
+          <div class="feature-buttons">
+            <el-tooltip content="上传文件" placement="top">
+              <button
+                class="feature-btn"
+                @click="triggerUpload"
+                :disabled="disabled || isLoading || uploadedFiles.length >= 10"
+              >
+                <el-icon><Upload /></el-icon>
+              </button>
+            </el-tooltip>
+            <el-tooltip content="联网搜索" placement="top">
+              <button
+                class="feature-btn"
+                :class="{ active: webSearchEnabled }"
+                @click="toggleWebSearch"
+              >
+                <el-icon><Search /></el-icon>
+              </button>
+            </el-tooltip>
+            <el-tooltip content="深度思考" placement="top">
+              <button
+                class="feature-btn"
+                :class="{ active: deepThinkEnabled }"
+                @click="toggleDeepThink"
+              >
+                <el-icon><Cpu /></el-icon>
+              </button>
+            </el-tooltip>
+          </div>
+
+          <div class="send-area">
+            <el-button
+              v-if="!isLoading"
+              type="primary"
+              :disabled="(!inputText.trim() && uploadedFiles.length === 0) || disabled"
+              @click="handleSend"
+              circle
+              size="large"
+            >
+              <el-icon><Promotion /></el-icon>
+            </el-button>
+            <el-button
+              v-else
+              type="danger"
+              @click="handleStop"
+              circle
+              size="large"
+            >
+              <el-icon><VideoPause /></el-icon>
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.png,.jpg,.jpeg,.gif,.webp"
+        style="display: none"
+        @change="handleFileSelect"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
-import { useI18n } from 'vue-i18n'
-import { 
-  Promotion, VideoPause, Picture, Search, Cpu, 
-  Upload, Document, Close, InfoFilled 
+import {
+  Promotion, VideoPause, Search, Cpu,
+  Upload, Document, Close
 } from '@element-plus/icons-vue'
 
 export interface UploadedFile {
@@ -156,25 +142,19 @@ const emit = defineEmits<{
   'update:deepThinkEnabled': [value: boolean]
 }>()
 
-const { t } = useI18n()
 const inputText = ref('')
 const inputRef = ref()
 const fileInputRef = ref()
+const isDragOver = ref(false)
 
 const multimodalEnabled = ref(false)
 const webSearchEnabled = ref(false)
 const deepThinkEnabled = ref(false)
-
 const uploadedFiles = ref<UploadedFile[]>([])
 
 const MAX_FILES = 10
 const MAX_FILE_SIZE = 50 * 1024 * 1024
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024
-
-function toggleMultimodal() {
-  multimodalEnabled.value = !multimodalEnabled.value
-  emit('update:multimodalEnabled', multimodalEnabled.value)
-}
 
 function toggleWebSearch() {
   webSearchEnabled.value = !webSearchEnabled.value
@@ -190,15 +170,11 @@ function triggerUpload() {
   fileInputRef.value?.click()
 }
 
-async function handleFileSelect(event: Event) {
-  const target = event.target as HTMLInputElement
-  const files = target.files
-  if (!files) return
-
+async function processFiles(files: FileList | File[]) {
   const remainingSlots = MAX_FILES - uploadedFiles.value.length
-  const filesToProcess = Array.from(files).slice(0, remainingSlots)
+  const filesArray = Array.from(files).slice(0, remainingSlots)
 
-  for (const file of filesToProcess) {
+  for (const file of filesArray) {
     const isImage = file.type.startsWith('image/')
     const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_FILE_SIZE
 
@@ -231,8 +207,23 @@ async function handleFileSelect(event: Event) {
     multimodalEnabled.value = true
     emit('update:multimodalEnabled', true)
   }
+}
 
+async function handleFileSelect(event: Event) {
+  const target = event.target as HTMLInputElement
+  const files = target.files
+  if (!files) return
+
+  await processFiles(files)
   target.value = ''
+}
+
+async function handleDrop(event: DragEvent) {
+  isDragOver.value = false
+  const files = event.dataTransfer?.files
+  if (!files || files.length === 0) return
+
+  await processFiles(files)
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -253,7 +244,7 @@ function removeFile(index: number) {
     URL.revokeObjectURL(file.preview)
   }
   uploadedFiles.value.splice(index, 1)
-  
+
   if (uploadedFiles.value.length === 0) {
     multimodalEnabled.value = false
     emit('update:multimodalEnabled', false)
@@ -276,19 +267,19 @@ function handleKeydown(event: KeyboardEvent): void {
 function handleSend(): void {
   const text = inputText.value.trim()
   const hasFiles = uploadedFiles.value.length > 0
-  
+
   if ((text || hasFiles) && !props.disabled && !props.isLoading) {
     const files = [...uploadedFiles.value]
     emit('send', text, files)
     inputText.value = ''
-    
+
     files.forEach(file => {
       if (file.preview) {
         URL.revokeObjectURL(file.preview)
       }
     })
     uploadedFiles.value = []
-    
+
     nextTick(() => {
       if (inputRef.value?.textarea) {
         inputRef.value.textarea.style.height = 'auto'
@@ -314,70 +305,8 @@ import { ElMessage } from 'element-plus'
 
 <style lang="scss" scoped>
 .chat-input {
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
-  border-top: 1px solid var(--border-color);
-}
-
-.feature-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--spacing-sm);
-  padding-bottom: var(--spacing-sm);
-  border-bottom: 1px solid var(--border-secondary);
-}
-
-.feature-toggles {
-  display: flex;
-  gap: var(--spacing-xs);
-}
-
-.feature-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--border-radius-md);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover:not(:disabled) {
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  &.active {
-    background: rgba(0, 122, 255, 0.1);
-    border-color: var(--color-primary);
-    color: var(--color-primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .el-icon {
-    font-size: 14px;
-  }
-}
-
-.model-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-
-  .el-icon {
-    font-size: 12px;
-  }
+  padding: var(--spacing-md);
+  background: transparent;
 }
 
 .uploaded-files {
@@ -387,6 +316,9 @@ import { ElMessage } from 'element-plus'
   margin-bottom: var(--spacing-sm);
   max-height: 120px;
   overflow-y: auto;
+  max-width: 900px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .file-item {
@@ -470,34 +402,102 @@ import { ElMessage } from 'element-plus'
   }
 }
 
-.input-wrapper {
+.input-box {
   max-width: 900px;
   margin: 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--spacing-sm);
+  position: relative;
+
+  &.drag-over {
+    .input-inner {
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
+    &::before {
+      content: '松开上传文件';
+      position: absolute;
+      top: -40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--color-primary);
+      color: white;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      z-index: 10;
+    }
+  }
 }
 
-.input-actions-left {
-  display: flex;
-  flex-shrink: 0;
+.input-inner {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 24px;
+  padding: 8px 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+
+  &:focus-within {
+    border-color: var(--color-primary);
+    box-shadow: 0 4px 24px rgba(0, 122, 255, 0.15);
+  }
 }
 
-.upload-btn {
+.main-input {
+  :deep(.el-textarea__inner) {
+    padding: 8px 0;
+    font-size: var(--font-size-base);
+    line-height: 1.6;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    resize: none;
+    overflow: hidden;
+
+    &::placeholder {
+      color: var(--text-tertiary);
+    }
+
+    &:focus {
+      box-shadow: none;
+    }
+  }
+}
+
+.input-bottom-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-secondary);
+  margin-top: 4px;
+}
+
+.feature-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.feature-btn {
   width: 36px;
   height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--border-radius-md);
-  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 10px;
+  background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 
   &:hover:not(:disabled) {
-    border-color: var(--color-primary);
+    background: var(--bg-tertiary);
+    color: var(--color-primary);
+  }
+
+  &.active {
+    background: rgba(0, 122, 255, 0.1);
     color: var(--color-primary);
   }
 
@@ -505,77 +505,14 @@ import { ElMessage } from 'element-plus'
     opacity: 0.5;
     cursor: not-allowed;
   }
-}
 
-.main-input {
-  flex: 1;
-
-  :deep(.el-textarea__inner) {
-    padding: var(--spacing-sm) var(--spacing-md);
-    padding-bottom: 36px;
-    font-size: var(--font-size-base);
-    line-height: 1.6;
-    border-radius: var(--border-radius-md);
-    border: 1px solid var(--border-color);
-    background: var(--bg-primary);
-    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-    resize: none;
-    overflow: hidden;
-
-    &:focus {
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-    }
-
-    &:disabled {
-      background: var(--bg-tertiary);
-      cursor: not-allowed;
-    }
-
-    &::placeholder {
-      color: var(--text-tertiary);
-    }
+  .el-icon {
+    font-size: 18px;
   }
 }
 
-.input-actions-right {
+.send-area {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
-  flex-shrink: 0;
-}
-
-.hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  white-space: nowrap;
-}
-
-.upload-hint {
-  text-align: center;
-  margin-top: var(--spacing-xs);
-  
-  span {
-    font-size: 11px;
-    color: var(--text-tertiary);
-  }
-}
-
-@media (max-width: 768px) {
-  .feature-btn span {
-    display: none;
-  }
-  
-  .hint {
-    display: none;
-  }
-  
-  .model-hint {
-    display: none;
-  }
-  
-  .upload-hint {
-    display: none;
-  }
 }
 </style>
