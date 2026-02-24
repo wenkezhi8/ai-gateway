@@ -2,12 +2,15 @@ package audit
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -266,4 +269,170 @@ func TestGenerateID(t *testing.T) {
 func TestRandomString(t *testing.T) {
 	s := randomString(16)
 	assert.Len(t, s, 16)
+}
+
+func TestNewAuditMiddleware(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	require.NotNil(t, am)
+	assert.NotNil(t, am.logger)
+	assert.NotNil(t, am.skipPaths)
+	assert.Contains(t, am.sensitiveFields, "password")
+}
+
+func TestAuditMiddleware_DetectAction(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	tests := []struct {
+		method   string
+		path     string
+		expected ActionType
+	}{
+		{"POST", "/api/auth/login", ActionLogin},
+		{"POST", "/api/auth/logout", ActionLogout},
+		{"POST", "/api/admin/accounts/1/switch", ActionForceSwitch},
+		{"POST", "/api/admin/providers/1/test", ActionTestConnect},
+		{"DELETE", "/api/admin/cache", ActionCacheClear},
+		{"GET", "/api/admin/config", ActionConfig},
+		{"PUT", "/api/admin/config", ActionConfig},
+		{"POST", "/api/admin/accounts", ActionCreate},
+		{"PUT", "/api/admin/accounts/1", ActionUpdate},
+		{"PATCH", "/api/admin/accounts/1", ActionUpdate},
+		{"DELETE", "/api/admin/accounts/1", ActionDelete},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+"_"+tt.path, func(t *testing.T) {
+			result := am.detectAction(&gin.Context{
+				Request: &http.Request{
+					Method: tt.method,
+					URL:    &url.URL{Path: tt.path},
+				},
+			})
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAuditMiddleware_DetectResource(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	tests := []struct {
+		path     string
+		expected ResourceType
+	}{
+		{"/api/admin/accounts", ResourceAccount},
+		{"/api/admin/accounts/1", ResourceAccount},
+		{"/api/admin/providers", ResourceProvider},
+		{"/api/admin/routing", ResourceRouting},
+		{"/api/admin/cache", ResourceCache},
+		{"/api/admin/config", ResourceConfig},
+		{"/api/auth/login", ResourceAuth},
+		{"/api/unknown", ResourceSystem},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			result := am.detectResource(&gin.Context{
+				Request: &http.Request{
+					URL: &url.URL{Path: tt.path},
+				},
+			})
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAuditMiddleware_ShouldAudit(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	tests := []struct {
+		method   string
+		path     string
+		expected bool
+	}{
+		{"GET", "/api/admin/accounts", true},
+		{"POST", "/api/admin/providers", true},
+		{"POST", "/api/auth/login", true},
+		{"POST", "/api/unknown", true},
+		{"GET", "/api/unknown", false},
+		{"DELETE", "/api/unknown", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+"_"+tt.path, func(t *testing.T) {
+			result := am.shouldAudit(&gin.Context{
+				Request: &http.Request{
+					Method: tt.method,
+					URL:    &url.URL{Path: tt.path},
+				},
+			})
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAuditMiddleware_SanitizeData(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	data := map[string]interface{}{
+		"username": "testuser",
+		"password": "secret123",
+		"api_key":  "sk-xxx",
+		"email":    "test@example.com",
+	}
+
+	result := am.sanitizeData(data)
+
+	assert.Equal(t, "testuser", result["username"])
+	assert.Equal(t, "***", result["password"])
+	assert.Equal(t, "***", result["api_key"])
+	assert.Equal(t, "test@example.com", result["email"])
+}
+
+func TestAuditMiddleware_IsSensitive(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	assert.True(t, am.isSensitive("password"))
+	assert.True(t, am.isSensitive("user_password"))
+	assert.True(t, am.isSensitive("api_key"))
+	assert.True(t, am.isSensitive("secret_token"))
+	assert.False(t, am.isSensitive("username"))
+	assert.False(t, am.isSensitive("email"))
+}
+
+func TestAuditMiddleware_BuildDetail(t *testing.T) {
+	logger := newTestLogger()
+	am := NewAuditMiddleware(logger)
+
+	req := &http.Request{
+		Method: "POST",
+		URL:    &url.URL{Path: "/api/test"},
+	}
+	c := &gin.Context{Request: req}
+
+	result := am.buildDetail(c, 100*time.Millisecond)
+
+	assert.Contains(t, result, "POST")
+	assert.Contains(t, result, "/api/test")
+	assert.Contains(t, result, "ms")
+}
+
+func TestContains(t *testing.T) {
+	assert.True(t, contains("hello world", "hello"))
+	assert.True(t, contains("hello world", "world"))
+	assert.True(t, contains("hello world", "o w"))
+	assert.False(t, contains("hello", "world"))
+	assert.False(t, contains("hi", "hello"))
+}
+
+func TestContainsMiddle(t *testing.T) {
+	assert.True(t, containsMiddle("hello world", "lo wo"))
+	assert.False(t, containsMiddle("hello", "world"))
 }
