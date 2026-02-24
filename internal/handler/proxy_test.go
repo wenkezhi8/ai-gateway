@@ -307,3 +307,18 @@ func TestGetModelsForProvider(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyHandler_ListConfiguredProviders_Empty(t *testing.T) {
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{},
+	}
+	h := NewProxyHandler(cfg, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+
+	h.ListConfiguredProviders(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "providers")
+}
