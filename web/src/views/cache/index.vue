@@ -18,12 +18,12 @@
     </el-row>
 
     <el-row :gutter="24" class="content-row">
-      <!-- 缓存类型 -->
+      <!-- 任务类型 -->
       <el-col :span="8">
         <el-card shadow="never" class="page-card types-card">
           <template #header>
             <div class="card-header">
-              <span>缓存类型</span>
+              <span>任务类型</span>
               <el-button type="primary" size="small" @click="refreshAllCache">
                 <el-icon><Refresh /></el-icon>
                 刷新
@@ -342,12 +342,17 @@
 
             <el-tab-pane label="缓存内容" name="entries">
               <div class="entries-toolbar">
-                <el-select v-model="entriesFilter.type" placeholder="缓存类型" clearable style="width: 150px" @change="loadCacheEntries">
+                <el-select v-model="entriesFilter.type" placeholder="任务类型" clearable style="width: 150px" @change="loadCacheEntries">
                   <el-option label="全部" value="" />
-                  <el-option label="请求缓存" value="request" />
-                  <el-option label="上下文缓存" value="context" />
-                  <el-option label="路由缓存" value="route" />
-                  <el-option label="响应缓存" value="response" />
+                  <el-option label="事实查询" value="fact" />
+                  <el-option label="代码生成" value="code" />
+                  <el-option label="数学计算" value="math" />
+                  <el-option label="日常对话" value="chat" />
+                  <el-option label="创意写作" value="creative" />
+                  <el-option label="逻辑推理" value="reasoning" />
+                  <el-option label="翻译" value="translate" />
+                  <el-option label="长文本" value="long_text" />
+                  <el-option label="其他" value="other" />
                 </el-select>
                 <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="loadCacheEntries">
                   <template #prefix><el-icon><Search /></el-icon></template>
@@ -365,18 +370,25 @@
 
               <el-empty v-if="cacheEntries.length === 0 && !entriesLoading" description="暂无缓存数据，发送 AI 请求后将自动生成缓存" />
               
-              <el-table v-else :data="cacheEntries" stripe v-loading="entriesLoading" class="entries-table">
-                <el-table-column prop="key" label="键名" min-width="280">
+              <el-table v-else :data="getFilteredEntries()" stripe v-loading="entriesLoading" class="entries-table">
+                <el-table-column label="任务类型" width="100">
                   <template #default="{ row }">
-                    <div class="key-cell">
-                      <el-tag size="small" :type="getEntryTypeTag(row.type)">{{ row.type }}</el-tag>
-                      <code class="key-text">{{ truncateKey(row.key, 40) }}</code>
-                    </div>
+                    <el-tag size="small" :type="getTaskTypeTag(row.task_type)">{{ getTaskTypeName(row.task_type) }}</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="size" label="大小" width="100">
+                <el-table-column label="用户消息" min-width="200">
                   <template #default="{ row }">
-                    {{ formatSize(row.size) }}
+                    <div class="message-preview">{{ getUserMessage(row) }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="AI 回复" min-width="200">
+                  <template #default="{ row }">
+                    <div class="message-preview">{{ getAIResponse(row) }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="模型" width="120">
+                  <template #default="{ row }">
+                    <el-tag size="small">{{ row.model || '-' }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column prop="hits" label="命中" width="80">
@@ -384,10 +396,9 @@
                     <span class="hits-count">{{ row.hits || 0 }}</span>
                   </template>
                 </el-table-column>
-                <el-table-column prop="ttl" label="TTL" width="100">
+                <el-table-column label="TTL" width="80">
                   <template #default="{ row }">
-                    <el-tag v-if="row.ttl === 0" type="info" size="small">永不过期</el-tag>
-                    <span v-else>{{ formatTTL(row.ttl) }}</span>
+                    <span>{{ formatTTL(row.ttl) }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column prop="created_at" label="创建时间" width="160">
@@ -1233,17 +1244,6 @@ async function deleteEntryAndClose() {
   }
 }
 
-function getEntryTypeTag(type: string): string {
-  const types: Record<string, string> = {
-    request: 'primary',
-    context: 'success',
-    route: 'warning',
-    usage: 'info',
-    response: 'danger'
-  }
-  return types[type] || 'info'
-}
-
 function truncateKey(key: string, maxLen: number): string {
   if (key.length <= maxLen) return key
   return key.substring(0, maxLen) + '...'
@@ -1275,6 +1275,75 @@ function formatValue(value: any): string {
   } catch {
     return String(value)
   }
+}
+
+// 按任务类型筛选缓存
+function getFilteredEntries(): any[] {
+  if (!entriesFilter.type) return cacheEntries.value
+  return cacheEntries.value.filter(e => (e.task_type || 'other') === entriesFilter.type)
+}
+
+// 获取任务类型标签颜色
+function getTaskTypeTag(taskType: string): string {
+  const types: Record<string, string> = {
+    fact: 'primary',
+    code: 'success',
+    math: 'warning',
+    chat: 'info',
+    creative: 'danger',
+    reasoning: 'success',
+    translate: 'primary',
+    long_text: 'warning',
+    other: 'info'
+  }
+  return types[taskType] || 'info'
+}
+
+// 获取任务类型名称
+function getTaskTypeName(taskType: string): string {
+  const names: Record<string, string> = {
+    fact: '事实',
+    code: '代码',
+    math: '数学',
+    chat: '对话',
+    creative: '创意',
+    reasoning: '推理',
+    translate: '翻译',
+    long_text: '长文本',
+    other: '其他'
+  }
+  return names[taskType] || taskType || '其他'
+}
+
+// 从缓存内容中提取用户消息
+function getUserMessage(row: any): string {
+  if (!row.value) return '-'
+  try {
+    const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+    if (value.messages && Array.isArray(value.messages)) {
+      const userMsg = value.messages.find((m: any) => m.role === 'user')
+      if (userMsg?.content) {
+        const content = typeof userMsg.content === 'string' ? userMsg.content : JSON.stringify(userMsg.content)
+        return content.length > 100 ? content.slice(0, 100) + '...' : content
+      }
+    }
+  } catch {}
+  return '-'
+}
+
+// 从缓存内容中提取AI回复
+function getAIResponse(row: any): string {
+  if (!row.value) return '-'
+  try {
+    const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
+    if (value.choices && Array.isArray(value.choices) && value.choices[0]) {
+      const content = value.choices[0].message?.content
+      if (content) {
+        return content.length > 100 ? content.slice(0, 100) + '...' : content
+      }
+    }
+  } catch {}
+  return '-'
 }
 
 // 缓存预热相关函数
@@ -1662,4 +1731,17 @@ onUnmounted(() => {
     }
   }
 }
+
+.message-preview {
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+  line-height: 1.4;
+}
+
 </style>

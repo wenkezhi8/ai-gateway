@@ -42,9 +42,10 @@
           <el-button
             type="primary"
             size="large"
-            class="login-btn"
+            class="login-btn login-button"
             :loading="loading"
             @click="handleLogin"
+            native-type="submit"
           >
             登录
           </el-button>

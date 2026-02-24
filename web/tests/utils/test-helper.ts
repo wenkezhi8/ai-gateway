@@ -180,12 +180,55 @@ export class TestHelper {
     await this.measurePerformance('Login', async () => {
       await this.page.goto('/login');
       await this.page.waitForSelector('input[type="text"], input[name="username"], [placeholder*="用户名"], [placeholder*="用户"], [placeholder*="账号"]');
-      
+
       await this.page.fill('input[type="text"], input[name="username"], [placeholder*="用户名"], [placeholder*="用户"], [placeholder*="账号"]', username);
       await this.page.fill('input[type="password"], input[name="password"], [placeholder*="密码"]', password);
-      
-      await this.page.click('button[type="submit"], .login-button, [role="button"]:has-text("登录"), [role="button"]:has-text("Login")');
-      await this.page.waitForURL('**/dashboard');
+
+      // Try multiple strategies to find and click the login button
+      const loginButtonSelectors = [
+        'button:has-text("登录")',
+        'button:has-text("Login")',
+        '.login-button',
+        '.login-btn',
+        'button[type="submit"]',
+        '.el-button--primary'
+      ];
+
+      let clicked = false;
+      for (const selector of loginButtonSelectors) {
+        try {
+          const locator = this.page.locator(selector).first();
+          if (await locator.isVisible({ timeout: 1000 })) {
+            await locator.click();
+            clicked = true;
+            break;
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      if (!clicked) {
+        // Fallback: try to find any button and click it
+        const allButtons = this.page.locator('button');
+        const count = await allButtons.count();
+        for (let i = 0; i < count; i++) {
+          const btn = allButtons.nth(i);
+          const text = await btn.textContent();
+          if (text?.includes('登录') || text?.includes('Login')) {
+            await btn.click();
+            clicked = true;
+            break;
+          }
+        }
+      }
+
+      if (!clicked) {
+        // Last resort: press Enter
+        await this.page.keyboard.press('Enter');
+      }
+
+      await this.page.waitForURL('**/dashboard', { timeout: 15000 });
     });
   }
 }
