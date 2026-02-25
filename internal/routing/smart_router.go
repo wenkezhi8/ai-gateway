@@ -66,6 +66,15 @@ type SmartRouter struct {
 	taskModelMapping map[string]string // task type -> model
 }
 
+func normalizeTaskMappingKey(taskType string) string {
+	switch taskType {
+	case "other":
+		return string(TaskTypeUnknown)
+	default:
+		return taskType
+	}
+}
+
 // DefaultModelScores returns default scoring for common models
 func DefaultModelScores() map[string]*ModelScore {
 	return map[string]*ModelScore{
@@ -768,11 +777,46 @@ func (r *SmartRouter) ResetCascadeRules() {
 func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt string, context string, availableModels []string) (string, *AssessmentResult) {
 	assessment := r.assessor.AssessWithResult(prompt, context)
 
+	// 改动点: 任务类型映射优先于难度策略，确保 /routing 页面映射配置生效
+	if requestedModel == "auto" || requestedModel == "" {
+		if mappedModel := r.selectMappedModelForTask(assessment.TaskType, availableModels); mappedModel != "" {
+			return mappedModel, assessment
+		}
+	}
+
 	difficultyStrategy := r.getStrategyForDifficulty(assessment.Difficulty)
 
 	selectedModel := r.SelectModelWithStrategy(requestedModel, difficultyStrategy, prompt, availableModels)
 
 	return selectedModel, assessment
+}
+
+func (r *SmartRouter) selectMappedModelForTask(taskType TaskType, availableModels []string) string {
+	mappedModel := r.GetModelForTaskType(taskType)
+	if mappedModel == "" {
+		return ""
+	}
+
+	availableSet := make(map[string]struct{}, len(availableModels))
+	for _, m := range availableModels {
+		availableSet[m] = struct{}{}
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	score, ok := r.config.ModelScores[mappedModel]
+	if !ok || !score.Enabled {
+		return ""
+	}
+
+	if len(availableSet) > 0 {
+		if _, ok := availableSet[mappedModel]; !ok {
+			return ""
+		}
+	}
+
+	return mappedModel
 }
 
 // SelectModelCascade selects model using cascade routing
@@ -830,7 +874,8 @@ func (r *SmartRouter) SetTaskModelMapping(mapping map[string]string) {
 
 	r.taskModelMapping = make(map[string]string)
 	for k, v := range mapping {
-		r.taskModelMapping[k] = v
+		normalizedKey := normalizeTaskMappingKey(k)
+		r.taskModelMapping[normalizedKey] = v
 	}
 
 	routerLogger.WithField("mapping", mapping).Info("Task model mapping updated")
@@ -841,5 +886,14 @@ func (r *SmartRouter) GetModelForTaskType(taskType TaskType) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	return r.taskModelMapping[string(taskType)]
+	if model := r.taskModelMapping[string(taskType)]; model != "" {
+		return model
+	}
+
+	if taskType == TaskTypeUnknown {
+		// Backward compatibility: old frontend may persist key "other".
+		return r.taskModelMapping["other"]
+	}
+
+	return ""
 }

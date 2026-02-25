@@ -194,6 +194,57 @@ func TestSmartRouter_SelectModelWithAssessment(t *testing.T) {
 	}
 }
 
+func TestSmartRouter_SelectModelWithAssessment_TaskMappingPreferred(t *testing.T) {
+	router := NewSmartRouter()
+	router.SetTaskModelMapping(map[string]string{
+		"code": "deepseek-coder",
+	})
+
+	model, assessment := router.SelectModelWithAssessment(
+		"auto",
+		"请写一个 Go 快速排序函数",
+		"",
+		[]string{"deepseek-coder", "gpt-4o"},
+	)
+
+	if assessment.TaskType != TaskTypeCode {
+		t.Errorf("expected task type code, got %s", assessment.TaskType)
+	}
+	if model != "deepseek-coder" {
+		t.Errorf("expected mapped model deepseek-coder, got %s", model)
+	}
+}
+
+func TestSmartRouter_SelectModelWithAssessment_TaskMappingFallbackWhenUnavailable(t *testing.T) {
+	router := NewSmartRouter()
+	router.SetTaskModelMapping(map[string]string{
+		"code": "deepseek-coder",
+	})
+
+	model, _ := router.SelectModelWithAssessment(
+		"auto",
+		"请写一个 Go 快速排序函数",
+		"",
+		[]string{"gpt-4o"},
+	)
+
+	if model == "deepseek-coder" {
+		t.Errorf("expected fallback model when mapped model unavailable, got %s", model)
+	}
+}
+
+func TestSmartRouter_SetTaskModelMapping_OtherAlias(t *testing.T) {
+	router := NewSmartRouter()
+	router.SetTaskModelMapping(map[string]string{
+		"other": "gpt-4o-mini",
+	})
+
+	model := router.GetModelForTaskType(TaskTypeUnknown)
+	if model != "gpt-4o-mini" {
+		t.Errorf("expected alias model gpt-4o-mini, got %s", model)
+	}
+}
+
 func TestSmartRouter_GetRecommendedTTL(t *testing.T) {
 	router := NewSmartRouter()
 
