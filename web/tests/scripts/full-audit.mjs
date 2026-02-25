@@ -105,30 +105,25 @@ async function addThenDeleteCacheWarmup(page) {
     }
     result.steps.push('api_add_ok')
 
-    const delRes = await page.evaluate(async ({ marker, token }) => {
-      const resp = await fetch('/api/admin/cache/entries/delete-group', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          task_type: 'math',
-          user_message: marker,
-          ai_response: `reply-${marker}`,
-          model: '',
-          provider: 'audit-provider'
+    const responseKey = addRes?.data?.data?.response_key
+    const requestKey = addRes?.data?.data?.request_key
+    const delRes = await page.evaluate(async ({ responseKey, requestKey, token }) => {
+      const deleteOne = async (key) => {
+        if (!key) return { ok: false, status: 0 }
+        const resp = await fetch(`/api/admin/cache/entries/${encodeURIComponent(key)}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` }
         })
-      })
-      const data = await resp.json().catch(() => ({}))
-      return { ok: resp.ok, status: resp.status, data }
-    }, { marker, token })
-    if (!delRes.ok) {
-      throw new Error(`delete test entry failed: ${delRes.status}`)
-    }
-    const deleted = Number(delRes?.data?.data?.deleted || 0)
-    result.ok = deleted > 0
-    result.steps.push(`api_delete_${deleted}`)
+        return { ok: resp.ok, status: resp.status }
+      }
+      const a = await deleteOne(responseKey)
+      const b = await deleteOne(requestKey)
+      return { response: a, request: b }
+    }, { responseKey, requestKey, token })
+
+    result.ok = !!(delRes?.response?.ok && delRes?.request?.ok)
+    result.steps.push(`api_delete_resp_${delRes?.response?.status || 0}`)
+    result.steps.push(`api_delete_req_${delRes?.request?.status || 0}`)
     return result
   } catch (e) {
     result.ok = false
