@@ -63,12 +63,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '账号与限额', icon: 'Key' }
       },
       {
-        path: 'limit-management',
-        name: 'LimitManagement',
-        component: () => import('@/views/limit-management/index.vue'),
-        meta: { title: '使用记录', icon: 'DataAnalysis' }
-      },
-      {
         path: 'usage',
         name: 'Usage',
         component: () => import('@/views/usage/index.vue'),

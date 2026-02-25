@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+var mathExpressionPattern = regexp.MustCompile(`(?i)(\d+\s*[+\-*/x×÷＋－＊／]\s*\d+|\d+\s*\^\s*\d+|\d+\s*=\s*\d+|\b(sqrt|sin|cos|tan|log|ln)\s*\()`)
+
 // DifficultyLevel represents the difficulty level of a task
 type DifficultyLevel string
 
@@ -159,8 +161,8 @@ func (a *DifficultyAssessor) initTaskKeywords() {
 			"what is", "how many", "when", "where", "who", "fact",
 		},
 		TaskTypeMath: {
-			"计算", "数学", "加", "减", "乘", "除", "方程", "公式",
-			"calculate", "math", "equation", "formula", "+", "-", "*", "/",
+			"计算", "数学", "加", "减", "乘", "除", "方程", "公式", "求解", "运算", "等于",
+			"calculate", "math", "equation", "formula", "solve", "arithmetic",
 		},
 		TaskTypeTranslate: {
 			"翻译", "译", "translate", "translation",
@@ -291,6 +293,10 @@ func (a *DifficultyAssessor) assessByHistory(prompt string) float64 {
 func (a *DifficultyAssessor) DetectTaskType(prompt string) TaskType {
 	promptLower := strings.ToLower(prompt)
 
+	if looksLikeMathExpression(prompt) {
+		return TaskTypeMath
+	}
+
 	// 按优先级检测
 	priorityOrder := []TaskType{
 		TaskTypeCode,
@@ -317,6 +323,15 @@ func (a *DifficultyAssessor) DetectTaskType(prompt string) TaskType {
 	}
 
 	return TaskTypeUnknown
+}
+
+func looksLikeMathExpression(prompt string) bool {
+	trimmed := strings.TrimSpace(prompt)
+	if trimmed == "" {
+		return false
+	}
+
+	return mathExpressionPattern.MatchString(trimmed)
 }
 
 // UpdateSuccessRate updates the historical success rate for a model and task type

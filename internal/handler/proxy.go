@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,8 @@ var defaultProviderModels = map[string][]string{
 	"openai": {
 		"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-turbo-preview",
 		"gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
-		"o1", "o1-mini", "o1-preview",
+		"o1", "o1-mini", "o1-preview", "o3-mini",
+		"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2 codex",
 	},
 	"anthropic": {
 		"claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620",
@@ -182,6 +184,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	cacheEnabled := h.cache != nil && cacheSettings.Enabled && recommendedTTL > 0
 	allowSemantic := cacheEnabled && cacheSettings.Strategy == cache.CacheStrategySemantic
+	cacheKeyPayload := buildResponseCacheKeyPayload(&req, assessment.TaskType, prompt)
+	cacheModelDimension := responseCacheModelDimension(assessment.TaskType, req.Model)
 
 	logrus.WithFields(logrus.Fields{
 		"task_type":       assessment.TaskType,
@@ -253,25 +257,45 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			}).Info("Semantic cache hit")
 
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
-			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, true)
+			tokens := extractTotalTokensFromBody(semanticEntry.Response)
+			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), tokens, true)
+			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+			c.Header("X-Local-Cache-Hit", "1")
 			c.Data(http.StatusOK, "application/json", semanticEntry.Response)
 			return
 		}
 	}
 
-	// Try exact cache (for non-streaming requests)
-	if !req.Stream && cacheEnabled && h.cache.ResponseCache != nil {
-		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
+	// Try exact cache
+	if cacheEnabled && h.cache.ResponseCache != nil {
+		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
 		cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
 		if err == nil && cached != nil {
-			logrus.WithFields(logrus.Fields{
-				"model":     req.Model,
-				"task_type": assessment.TaskType,
-			}).Info("Response cache hit")
+			if !hasMeaningfulCachedResponse(cached.Body) {
+				logrus.WithFields(logrus.Fields{
+					"model":     req.Model,
+					"task_type": assessment.TaskType,
+					"cache_key": cacheKey,
+				}).Warn("Skip invalid cached response without meaningful content")
+				_ = h.cache.Cache().Delete(c.Request.Context(), cacheKey)
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"model":     req.Model,
+					"task_type": assessment.TaskType,
+				}).Info("Response cache hit")
 
-			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, true)
-			c.Data(cached.StatusCode, "application/json", cached.Body)
-			return
+				tokens := extractTotalTokensFromBody(cached.Body)
+				h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), tokens, true)
+				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
+				c.Header("X-Local-Cache-Hit", "1")
+				if req.Stream {
+					h.writeCachedResponseAsStream(c, req.Model, cached.Body)
+				} else {
+					c.Data(cached.StatusCode, "application/json", cached.Body)
+				}
+				return
+			}
 		}
 	}
 
@@ -279,6 +303,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	targetProvider, err := h.getProviderForRequest(requestedModel, req.Provider)
 	if err != nil {
 		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, err.Error())
 		return
 	}
@@ -347,7 +372,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq)
+		h.handleStreamResponse(c, targetProvider, providerReq, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload)
 		return
 	}
 
@@ -363,7 +388,41 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	})
 
 	if err != nil {
+		if isModelNotFoundError(err) {
+			originalModel := providerReq.Model
+			aliasModel := normalizeModelAlias(originalModel)
+
+			if aliasModel != "" && aliasModel != originalModel {
+				providerReq.Model = aliasModel
+				retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
+				if retryErr == nil {
+					result = retryResp
+					err = nil
+					req.Model = aliasModel
+				} else {
+					err = retryErr
+				}
+			}
+
+			if err != nil {
+				if fallbackModel := h.selectFallbackModel(originalModel, req.Provider); fallbackModel != "" && fallbackModel != providerReq.Model {
+					providerReq.Model = fallbackModel
+					retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
+					if retryErr == nil {
+						result = retryResp
+						err = nil
+						req.Model = fallbackModel
+					} else {
+						err = retryErr
+					}
+				}
+			}
+		}
+	}
+
+	if err != nil {
 		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
 			logMsg = fmt.Sprintf("Provider request failed [%s]: %s (code: %d, retryable: %v)",
@@ -378,6 +437,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Check for provider error in response
 	if resp.Error != nil {
 		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
 	}
@@ -388,6 +448,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Record metrics
 	latency := time.Since(startTime)
 	h.recordMetrics(userID, apiKey, req.Model, latency, resp.Usage.TotalTokens, true)
+	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
 	// Build response
 	response := ChatCompletionResponse{
@@ -406,19 +467,21 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Cache the response if applicable
 	logrus.WithFields(logrus.Fields{
-		"cache_enabled":     cacheEnabled,
+		"cache_enabled":      cacheEnabled,
 		"response_cache_nil": h.cache == nil || h.cache.ResponseCache == nil,
-		"recommended_ttl":   recommendedTTL,
+		"recommended_ttl":    recommendedTTL,
 	}).Info("Cache check")
-	
-	if cacheEnabled && h.cache.ResponseCache != nil {
+
+	if cacheEnabled && h.cache.ResponseCache != nil && hasMeaningfulAssistantResponse(&response) {
 		responseBody, _ := json.Marshal(response)
-		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, req.Model, req)
+		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
 		cachedResp := &cache.CachedResponse{
 			StatusCode: http.StatusOK,
 			Headers:    map[string]string{"Content-Type": "application/json"},
 			Body:       responseBody,
 			CreatedAt:  time.Now(),
+			HitCount:   0,
+			HitModels:  map[string]int64{req.Model: 1},
 			Provider:   req.Provider,
 			Model:      req.Model,
 			Prompt:     prompt,
@@ -431,6 +494,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr)
 		} else {
 			h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
+		}
+
+		if shouldUsePromptOnlyCache(assessment.TaskType) {
+			h.pruneDuplicateResponseEntries(c.Request.Context(), req.Provider, req.Model, string(assessment.TaskType), prompt, cacheKey)
 		}
 
 		logrus.WithFields(logrus.Fields{
@@ -452,7 +519,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Store in semantic cache for similar query matching
 	// 改动点: 存储到语义缓存供相似请求复用
-	if allowSemantic && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative {
+	if allowSemantic && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
 		responseBody, _ := json.Marshal(response)
 		queryVector := cache.SimpleEmbedding(prompt, 1536)
 		h.semanticCache.Set(
@@ -472,6 +539,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Return response in OpenAI-compatible format
+	c.Header("X-Local-Cache-Hit", "0")
 	c.JSON(http.StatusOK, response)
 }
 
@@ -479,6 +547,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 // First tries to use account manager to get active account credentials
 // Falls back to registry providers if no account manager or no active account
 func (h *ProxyHandler) getProviderForRequest(model string, providerName string) (provider.Provider, error) {
+	providerName = normalizeProviderName(providerName)
+	if providerName == "" {
+		providerName = inferProviderFromModel(model)
+	}
+
 	// Try route cache first
 	if h.cache != nil && h.cache.RouteCache != nil && providerName != "" {
 		cacheKey := model + ":" + providerName
@@ -600,6 +673,23 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 		}
 	}
 
+	// Fallback for OpenAI-family models: use any enabled OpenAI-compatible account
+	// (covers custom provider IDs that proxy OpenAI protocol)
+	if h.accountManager != nil && inferProviderFromModel(model) == "openai" {
+		if account := h.findAnyOpenAICompatibleAccount(); account != nil {
+			provConfig := &provider.ProviderConfig{
+				Name:    "openai",
+				APIKey:  account.APIKey,
+				BaseURL: account.BaseURL,
+				Models:  getModelsForProvider("openai"),
+				Enabled: true,
+			}
+			if p, err := h.registry.CreateProvider(provConfig); err == nil {
+				return p, nil
+			}
+		}
+	}
+
 	// Fallback to registry lookup by model (only when no dynamic accounts configured)
 	targetProvider, ok := h.registry.GetByModel(model)
 	if !ok {
@@ -642,6 +732,8 @@ func getBaseURLForProvider(providerName string) string {
 // mapProviderName maps frontend provider names to backend provider types
 // Returns "openai" for OpenAI-compatible APIs, otherwise returns the original name
 func mapProviderName(frontendProvider string) string {
+	frontendProvider = normalizeProviderName(frontendProvider)
+
 	// Providers that use OpenAI-compatible API
 	openaiCompatible := map[string]bool{
 		"openai":       true,
@@ -670,6 +762,7 @@ func getModelsForProvider(providerName string) []string {
 		"openai": {
 			"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
 			"o1", "o1-preview", "o1-mini", "o3-mini",
+			"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2 codex",
 		},
 		"anthropic": {
 			"claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
@@ -721,6 +814,206 @@ func getModelsForProvider(providerName string) []string {
 	return []string{}
 }
 
+func normalizeProviderName(providerName string) string {
+	provider := strings.ToLower(strings.TrimSpace(providerName))
+	switch provider {
+	case "", "auto":
+		return ""
+	case "claude":
+		return "anthropic"
+	case "kimi":
+		return "moonshot"
+	default:
+		return provider
+	}
+}
+
+func inferProviderFromModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	m = strings.ReplaceAll(m, "_", "-")
+	switch {
+	case strings.HasPrefix(m, "gpt-"), strings.HasPrefix(m, "o1"), strings.HasPrefix(m, "o3"), strings.HasPrefix(m, "o4"), strings.Contains(m, "codex"):
+		return "openai"
+	case strings.HasPrefix(m, "claude"):
+		return "anthropic"
+	case strings.HasPrefix(m, "deepseek"):
+		return "deepseek"
+	case strings.HasPrefix(m, "qwen"):
+		return "qwen"
+	case strings.HasPrefix(m, "glm"), strings.HasPrefix(m, "zhipu"):
+		return "zhipu"
+	case strings.HasPrefix(m, "moonshot"), strings.HasPrefix(m, "kimi"):
+		return "moonshot"
+	case strings.HasPrefix(m, "abab"):
+		return "minimax"
+	case strings.HasPrefix(m, "baichuan"):
+		return "baichuan"
+	case strings.HasPrefix(m, "doubao"):
+		return "volcengine"
+	case strings.HasPrefix(m, "gemini"):
+		return "google"
+	default:
+		return ""
+	}
+}
+
+func normalizeModelAlias(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return model
+	}
+
+	m = strings.ReplaceAll(m, "_", "-")
+	m = strings.Join(strings.Fields(m), "-")
+
+	switch m {
+	case "gpt-5-2-codex", "gpt-5.2-codex", "gpt-5.2-codex-preview", "gpt-5.2-codex-beta", "gpt-5.2-codex-experimental":
+		return "gpt-5.2-codex"
+	case "gpt-5-3-codex", "gpt-5.3-codex":
+		return "gpt-5.3-codex"
+	default:
+		return m
+	}
+}
+
+func (h *ProxyHandler) findAnyOpenAICompatibleAccount() *limiter.AccountConfig {
+	if h.accountManager == nil {
+		return nil
+	}
+
+	for _, acc := range h.accountManager.GetAllAccounts() {
+		if acc == nil || !acc.Enabled {
+			continue
+		}
+
+		providerType := strings.ToLower(strings.TrimSpace(acc.ProviderType))
+		providerName := normalizeProviderName(acc.Provider)
+		baseURL := strings.ToLower(strings.TrimSpace(acc.BaseURL))
+
+		if providerType == "openai" {
+			return acc
+		}
+
+		switch providerName {
+		case "openai", "deepseek", "moonshot", "qwen", "zhipu", "baichuan", "minimax", "volcengine", "yi", "azure-openai", "mistral":
+			return acc
+		}
+
+		if (strings.Contains(baseURL, "openai") || strings.Contains(baseURL, "/v1") || strings.Contains(baseURL, "compatible")) && !strings.Contains(baseURL, "anthropic") && !strings.Contains(baseURL, "googleapis") {
+			return acc
+		}
+	}
+
+	return nil
+}
+
+func isModelNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	keywords := []string{
+		"model not found",
+		"invalid model",
+		"does not exist",
+		"unknown model",
+		"模型不存在",
+		"模型代码",
+	}
+	for _, kw := range keywords {
+		if strings.Contains(msg, strings.ToLower(kw)) {
+			return true
+		}
+	}
+
+	if pErr, ok := err.(*provider.ProviderError); ok {
+		if pErr.Code == http.StatusBadRequest {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (h *ProxyHandler) selectFallbackModel(currentModel, providerName string) string {
+	if h.smartRouter == nil {
+		return ""
+	}
+
+	currentNormalized := normalizeModelAlias(currentModel)
+
+	providerName = normalizeProviderName(providerName)
+	if providerName == "" {
+		providerName = inferProviderFromModel(currentModel)
+	}
+
+	if providerName != "" {
+		if def := strings.TrimSpace(h.smartRouter.GetProviderDefault(providerName)); def != "" {
+			defNorm := normalizeModelAlias(def)
+			if defNorm != "" && defNorm != currentNormalized {
+				return defNorm
+			}
+		}
+	}
+
+	scores := h.smartRouter.GetAllModelScores()
+	if len(scores) == 0 {
+		return ""
+	}
+
+	isCodexRequest := strings.Contains(strings.ToLower(currentModel), "codex")
+	candidateSet := make(map[string]struct{})
+	candidates := make([]string, 0)
+	for model, score := range scores {
+		if score == nil || !score.Enabled {
+			continue
+		}
+		if providerName != "" && normalizeProviderName(score.Provider) != providerName {
+			continue
+		}
+		if isCodexRequest && !strings.Contains(strings.ToLower(model), "codex") {
+			continue
+		}
+		normalized := normalizeModelAlias(model)
+		if normalized == "" || normalized == currentNormalized {
+			continue
+		}
+		if _, exists := candidateSet[normalized]; exists {
+			continue
+		}
+		candidateSet[normalized] = struct{}{}
+		candidates = append(candidates, normalized)
+	}
+
+	if len(candidates) == 0 && isCodexRequest {
+		for model, score := range scores {
+			if score == nil || !score.Enabled {
+				continue
+			}
+			if providerName != "" && normalizeProviderName(score.Provider) != providerName {
+				continue
+			}
+			normalized := normalizeModelAlias(model)
+			if normalized == "" || normalized == currentNormalized {
+				continue
+			}
+			if _, exists := candidateSet[normalized]; exists {
+				continue
+			}
+			candidateSet[normalized] = struct{}{}
+			candidates = append(candidates, normalized)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	sort.Strings(candidates)
+	return candidates[0]
+}
+
 // convertChoices converts provider choices to handler choices
 func convertChoices(choices []provider.Choice) []Choice {
 	result := make([]Choice, len(choices))
@@ -755,7 +1048,19 @@ func convertChoices(choices []provider.Choice) []Choice {
 }
 
 // handleStreamResponse handles streaming chat completion
-func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider, req *provider.ChatRequest) {
+func (h *ProxyHandler) handleStreamResponse(
+	c *gin.Context,
+	p provider.Provider,
+	req *provider.ChatRequest,
+	prompt string,
+	cacheEnabled bool,
+	recommendedTTL time.Duration,
+	taskType string,
+	difficulty routing.DifficultyLevel,
+	providerName string,
+	cacheModelDimension string,
+	cacheKeyPayload interface{},
+) {
 	startTime := time.Now()
 
 	// Set SSE headers
@@ -763,6 +1068,7 @@ func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider,
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("Transfer-Encoding", "chunked")
+	c.Header("X-Local-Cache-Hit", "0")
 
 	ctx := c.Request.Context()
 
@@ -770,16 +1076,25 @@ func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider,
 	stream, err := p.StreamChat(ctx, req)
 	if err != nil {
 		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
 	}
 
 	var totalTokens int
+	var fullContent strings.Builder
+	receivedChunks := 0
 
 	// Stream chunks to client
 	for chunk := range stream {
+		receivedChunks++
 		if chunk.Usage != nil {
 			totalTokens = chunk.Usage.TotalTokens
+		}
+		for _, ch := range chunk.Choices {
+			if ch.Delta != nil && ch.Delta.Content != "" {
+				fullContent.WriteString(ch.Delta.Content)
+			}
 		}
 		if chunk.Done {
 			// Send the final chunk with usage (if present) before [DONE]
@@ -826,6 +1141,59 @@ func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider,
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			h.recordMetrics("", "", req.Model, latency, totalTokens, true)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
+
+			// Record stream response into cache for observability/management page
+			// Skip caching when provider returned no text content to avoid empty-cache pollution.
+			if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
+				responsePayload := map[string]interface{}{
+					"id":      chunk.ID,
+					"object":  "chat.completion",
+					"created": chunk.Created,
+					"model":   req.Model,
+					"choices": []map[string]interface{}{
+						{
+							"index": 0,
+							"message": map[string]interface{}{
+								"role":    "assistant",
+								"content": fullContent.String(),
+							},
+							"finish_reason": "stop",
+						},
+					},
+					"usage": map[string]int{
+						"prompt_tokens":     0,
+						"completion_tokens": totalTokens,
+						"total_tokens":      totalTokens,
+					},
+				}
+
+				if body, err := json.Marshal(responsePayload); err == nil {
+					cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
+					if keyErr == nil {
+						cachedResp := &cache.CachedResponse{
+							StatusCode: http.StatusOK,
+							Headers:    map[string]string{"Content-Type": "application/json"},
+							Body:       body,
+							CreatedAt:  time.Now(),
+							HitCount:   0,
+							HitModels:  map[string]int64{req.Model: 1},
+							Provider:   providerName,
+							Model:      req.Model,
+							Prompt:     prompt,
+							TaskType:   taskType,
+						}
+						if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+							mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType)
+						} else {
+							h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
+						}
+						if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
+							h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
+						}
+					}
+				}
+			}
 			break
 		}
 		streamResp := StreamingResponse{
@@ -890,6 +1258,159 @@ func (h *ProxyHandler) handleStreamResponse(c *gin.Context, p provider.Provider,
 
 		c.SSEvent("message", streamResp)
 		c.Writer.Flush()
+	}
+
+	if receivedChunks == 0 {
+		// Some providers may return an empty stream even though non-stream works.
+		// Fallback to a non-stream request and convert it to SSE payload.
+		nonStreamReq := *req
+		nonStreamReq.Stream = false
+
+		resp, err := p.Chat(ctx, &nonStreamReq)
+		if err != nil && isModelNotFoundError(err) {
+			originalModel := nonStreamReq.Model
+			aliasModel := normalizeModelAlias(originalModel)
+			if aliasModel != "" && aliasModel != originalModel {
+				nonStreamReq.Model = aliasModel
+				resp, err = p.Chat(ctx, &nonStreamReq)
+			}
+			if err != nil {
+				if fallbackModel := h.selectFallbackModel(originalModel, providerName); fallbackModel != "" && fallbackModel != nonStreamReq.Model {
+					nonStreamReq.Model = fallbackModel
+					resp, err = p.Chat(ctx, &nonStreamReq)
+				}
+			}
+		}
+		if err != nil {
+			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			c.SSEvent("error", gin.H{"error": "Provider returned empty stream and fallback failed: " + err.Error()})
+			c.Writer.Flush()
+			return
+		}
+
+		if resp == nil || len(resp.Choices) == 0 {
+			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
+			c.Writer.Flush()
+			return
+		}
+
+		content := getTextContent(resp.Choices[0].Message.Content)
+		if strings.TrimSpace(content) == "" {
+			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
+			c.Writer.Flush()
+			return
+		}
+
+		created := resp.Created
+		if created == 0 {
+			created = time.Now().Unix()
+		}
+
+		model := resp.Model
+		if model == "" {
+			model = req.Model
+		}
+
+		id := resp.ID
+		if id == "" {
+			id = fmt.Sprintf("chatcmpl-fallback-%d", time.Now().UnixNano())
+		}
+
+		chunk := StreamingResponse{
+			ID:      id,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []StreamChoice{{
+				Index: 0,
+				Delta: &ChatMessage{Role: "assistant", Content: content},
+			}},
+		}
+		c.SSEvent("message", chunk)
+		c.Writer.Flush()
+
+		finishReason := "stop"
+		finalChunk := StreamingResponse{
+			ID:      id,
+			Object:  "chat.completion.chunk",
+			Created: created,
+			Model:   model,
+			Choices: []StreamChoice{{
+				Index:        0,
+				Delta:        &ChatMessage{},
+				FinishReason: &finishReason,
+			}},
+			Usage: &Usage{
+				PromptTokens:     resp.Usage.PromptTokens,
+				CompletionTokens: resp.Usage.CompletionTokens,
+				TotalTokens:      resp.Usage.TotalTokens,
+			},
+		}
+		c.SSEvent("message", finalChunk)
+		c.Writer.Flush()
+
+		c.SSEvent("message", "[DONE]")
+		c.Writer.Flush()
+
+		// Persist fallback response to response cache to avoid repeated upstream empty-stream misses.
+		if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+			responsePayload := map[string]interface{}{
+				"id":      id,
+				"object":  "chat.completion",
+				"created": created,
+				"model":   model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": content,
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]int{
+					"prompt_tokens":     resp.Usage.PromptTokens,
+					"completion_tokens": resp.Usage.CompletionTokens,
+					"total_tokens":      resp.Usage.TotalTokens,
+				},
+			}
+
+			if body, marshalErr := json.Marshal(responsePayload); marshalErr == nil {
+				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
+				if keyErr == nil {
+					cachedResp := &cache.CachedResponse{
+						StatusCode: http.StatusOK,
+						Headers:    map[string]string{"Content-Type": "application/json"},
+						Body:       body,
+						CreatedAt:  time.Now(),
+						HitCount:   0,
+						HitModels:  map[string]int64{model: 1},
+						Provider:   providerName,
+						Model:      model,
+						Prompt:     prompt,
+						TaskType:   taskType,
+					}
+					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+						mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType)
+					} else {
+						h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
+					}
+					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
+						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, model, taskType, prompt, cacheKey)
+					}
+				}
+			}
+		}
+
+		latency := time.Since(startTime)
+		h.recordMetrics("", "", req.Model, latency, resp.Usage.TotalTokens, true)
+		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 	}
 }
 
@@ -1262,6 +1783,237 @@ func getInt(v *int, def int) int {
 		return def
 	}
 	return *v
+}
+
+func buildResponseCacheKeyPayload(req *ChatCompletionRequest, taskType routing.TaskType, prompt string) interface{} {
+	if shouldUsePromptOnlyCache(taskType) {
+		return map[string]interface{}{
+			"provider":    req.Provider,
+			"task_type":   string(taskType),
+			"prompt":      strings.TrimSpace(prompt),
+			"temperature": getFloat64(req.Temperature, getDefaultTemperature(req.Model)),
+			"max_tokens":  getInt(req.MaxTokens, 0),
+			"deep_think":  req.DeepThink,
+		}
+	}
+	return req
+}
+
+func shouldUsePromptOnlyCache(taskType routing.TaskType) bool {
+	switch taskType {
+	case routing.TaskTypeMath, routing.TaskTypeFact, routing.TaskTypeTranslate:
+		return true
+	default:
+		return false
+	}
+}
+
+func responseCacheModelDimension(taskType routing.TaskType, model string) string {
+	if shouldUsePromptOnlyCache(taskType) {
+		return "provider-scope"
+	}
+	return model
+}
+
+func extractTotalTokensFromBody(body []byte) int {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return 0
+	}
+	usage, ok := payload["usage"].(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	total, ok := usage["total_tokens"]
+	if !ok {
+		return 0
+	}
+	switch v := total.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	default:
+		return 0
+	}
+}
+
+func hasMeaningfulAssistantResponse(resp *ChatCompletionResponse) bool {
+	if resp == nil || len(resp.Choices) == 0 {
+		return false
+	}
+	msg := resp.Choices[0].Message
+	if msg == nil {
+		return false
+	}
+	if strings.TrimSpace(getTextContent(msg.Content)) != "" {
+		return true
+	}
+	return len(msg.ToolCalls) > 0
+}
+
+func hasMeaningfulCachedResponse(body []byte) bool {
+	var cachedResp ChatCompletionResponse
+	if err := json.Unmarshal(body, &cachedResp); err != nil {
+		return true
+	}
+	return hasMeaningfulAssistantResponse(&cachedResp)
+}
+
+func (h *ProxyHandler) writeCachedResponseAsStream(c *gin.Context, model string, body []byte) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("Transfer-Encoding", "chunked")
+
+	var cachedResp ChatCompletionResponse
+	if err := json.Unmarshal(body, &cachedResp); err != nil {
+		c.Data(http.StatusOK, "application/json", body)
+		return
+	}
+
+	content := ""
+	if len(cachedResp.Choices) > 0 && cachedResp.Choices[0].Message != nil {
+		content = getTextContent(cachedResp.Choices[0].Message.Content)
+	}
+
+	created := cachedResp.Created
+	if created == 0 {
+		created = time.Now().Unix()
+	}
+	streamModel := cachedResp.Model
+	if streamModel == "" {
+		streamModel = model
+	}
+
+	id := cachedResp.ID
+	if id == "" {
+		id = fmt.Sprintf("chatcmpl-cache-%d", time.Now().UnixNano())
+	}
+
+	chunk := StreamingResponse{
+		ID:      id,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   streamModel,
+		Choices: []StreamChoice{
+			{
+				Index: 0,
+				Delta: &ChatMessage{Role: "assistant", Content: content},
+			},
+		},
+	}
+	c.SSEvent("message", chunk)
+	c.Writer.Flush()
+
+	finishReason := "stop"
+	finalChunk := StreamingResponse{
+		ID:      id,
+		Object:  "chat.completion.chunk",
+		Created: created,
+		Model:   streamModel,
+		Choices: []StreamChoice{
+			{
+				Index:        0,
+				Delta:        &ChatMessage{},
+				FinishReason: &finishReason,
+			},
+		},
+		Usage: &Usage{
+			PromptTokens:     cachedResp.Usage.PromptTokens,
+			CompletionTokens: cachedResp.Usage.CompletionTokens,
+			TotalTokens:      cachedResp.Usage.TotalTokens,
+		},
+	}
+	c.SSEvent("message", finalChunk)
+	c.Writer.Flush()
+
+	c.SSEvent("message", "[DONE]")
+	c.Writer.Flush()
+}
+
+func (h *ProxyHandler) pruneDuplicateResponseEntries(ctx context.Context, providerName, model, taskType, prompt, keepKey string) {
+	if h.cache == nil {
+		return
+	}
+	entries := h.cache.ListEntries("response", "")
+	if len(entries) == 0 {
+		return
+	}
+
+	normalizedPrompt := strings.TrimSpace(prompt)
+	normalizedTaskType := strings.ToLower(strings.TrimSpace(taskType))
+	providerScope := shouldUsePromptOnlyCache(routing.TaskType(taskType))
+
+	for _, entry := range entries {
+		if entry == nil || entry.Key == keepKey {
+			continue
+		}
+		if providerName != "" && entry.Provider != "" && entry.Provider != providerName {
+			continue
+		}
+		if !providerScope && model != "" && entry.Model != "" && entry.Model != model {
+			continue
+		}
+
+		detail, err := h.cache.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			continue
+		}
+		cachedPrompt, cachedTaskType := extractPromptAndTaskTypeFromCacheValue(detail.Value)
+		if strings.TrimSpace(cachedPrompt) != normalizedPrompt {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(cachedTaskType)) != normalizedTaskType {
+			continue
+		}
+
+		_ = h.cache.Cache().Delete(ctx, entry.Key)
+	}
+}
+
+func extractPromptAndTaskTypeFromCacheValue(value interface{}) (string, string) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		prompt, _ := v["prompt"].(string)
+		taskType, _ := v["task_type"].(string)
+		if taskType == "" {
+			taskType, _ = v["TaskType"].(string)
+		}
+		return prompt, taskType
+	case map[interface{}]interface{}:
+		converted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			if ks, ok := key.(string); ok {
+				converted[ks] = val
+			}
+		}
+		return extractPromptAndTaskTypeFromCacheValue(converted)
+	default:
+		return "", ""
+	}
+}
+
+func (h *ProxyHandler) persistResponseCacheHit(ctx context.Context, cacheKey string, cached *cache.CachedResponse, requestedModel string) {
+	if h.cache == nil || h.cache.ResponseCache == nil || cached == nil {
+		return
+	}
+
+	cached.HitCount++
+	if requestedModel != "" {
+		if cached.HitModels == nil {
+			cached.HitModels = map[string]int64{}
+		}
+		cached.HitModels[requestedModel]++
+	}
+
+	if rc, ok := h.cache.Cache().(*cache.RedisCache); ok {
+		ttl, err := rc.TTL(ctx, cacheKey)
+		if err != nil || ttl <= 0 {
+			return
+		}
+		_ = h.cache.ResponseCache.SetWithTTL(ctx, cacheKey, cached, ttl)
+	}
 }
 
 // Helper to check context cancellation

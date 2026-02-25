@@ -42,10 +42,12 @@ type CachedResponse struct {
 	Headers    map[string]string `json:"headers"`
 	Body       json.RawMessage   `json:"body"`
 	CreatedAt  time.Time         `json:"created_at"`
+	HitCount   int64             `json:"hit_count"`
+	HitModels  map[string]int64  `json:"hit_models,omitempty"`
 	Provider   string            `json:"provider"`
 	Model      string            `json:"model"`
-	Prompt     string            `json:"prompt"`     // 便于缓存管理页面展示用户消息
-	TaskType   string            `json:"task_type"`  // 便于按任务类型过滤
+	Prompt     string            `json:"prompt"`    // 便于缓存管理页面展示用户消息
+	TaskType   string            `json:"task_type"` // 便于按任务类型过滤
 }
 
 // GenerateKey creates a cache key from request parameters

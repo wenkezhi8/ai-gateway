@@ -73,6 +73,14 @@ type FeedbackCollector struct {
 	persistFile string
 }
 
+// OptimizationResult describes one optimization run outcome
+type OptimizationResult struct {
+	ModelsScanned      int `json:"models_scanned"`
+	ModelsEligible     int `json:"models_eligible"`
+	ModelsUpdated      int `json:"models_updated"`
+	MinSamplesPerModel int `json:"min_samples_per_model"`
+}
+
 var feedbackLogger = logrus.WithField("component", "feedback_collector")
 
 // NewFeedbackCollector creates a new feedback collector
@@ -271,20 +279,24 @@ func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
 	counts := make(map[string]int64)
 	var total int64
 
-	for _, f := range fc.feedback {
-		taskType := string(f.TaskType)
-		if taskType == "" {
-			taskType = "other"
-		}
-		counts[taskType]++
-		total++
-	}
-
-	// Also aggregate from performance data
+	// Prefer aggregated performance stats to avoid double-counting.
+	// Feedback entries and performance are updated together by RecordFeedback.
 	for _, perf := range fc.performance {
 		for taskType, stat := range perf.TaskTypeStats {
 			counts[taskType] += stat.TotalRequests
 			total += stat.TotalRequests
+		}
+	}
+
+	// Fallback for legacy data: if no performance stats, derive from feedback only.
+	if total == 0 {
+		for _, f := range fc.feedback {
+			taskType := string(f.TaskType)
+			if taskType == "" {
+				taskType = "other"
+			}
+			counts[taskType]++
+			total++
 		}
 	}
 
@@ -349,51 +361,67 @@ func (fc *FeedbackCollector) calculatePerformanceScore(perf *ModelPerformance, t
 // OptimizeScores optimizes model scores based on feedback
 // 改动点: 基于反馈自动优化模型评分
 func (fc *FeedbackCollector) OptimizeScores() {
+	fc.OptimizeScoresWithResult()
+}
+
+// OptimizeScoresWithResult optimizes scores and returns detailed summary
+func (fc *FeedbackCollector) OptimizeScoresWithResult() OptimizationResult {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
 
 	scores := fc.smartRouter.GetAllModelScores()
 	updated := 0
+	eligible := 0
+	minSamples := 10
+	result := OptimizationResult{
+		ModelsScanned:      len(fc.performance),
+		MinSamplesPerModel: minSamples,
+	}
 
 	for model, perf := range fc.performance {
-		if perf.TotalRequests < 10 {
+		if perf.TotalRequests < int64(minSamples) {
 			continue // Not enough data
 		}
+		eligible++
 
 		score, ok := scores[model]
 		if !ok {
 			continue
 		}
 
-		// Adjust quality score based on success rate and feedback
+		// Compute deterministic target scores.
+		// This keeps optimization idempotent: repeated runs do not drift scores.
 		successRate := float64(perf.SuccessCount) / float64(perf.TotalRequests)
-		qualityAdjust := int((successRate - 0.8) * 20) // -4 to +4 adjustment
-
-		// Adjust speed score based on latency
-		latencyScore := 100 - int(perf.AvgLatencyMs/100)
-		if latencyScore < 0 {
-			latencyScore = 0
+		ratingRatio := perf.AvgRating / 5.0
+		if ratingRatio < 0 {
+			ratingRatio = 0
 		}
-		speedAdjust := (latencyScore - score.SpeedScore) / 10
-
-		// Apply adjustments
-		newQuality := score.QualityScore + qualityAdjust
-		if newQuality > 100 {
-			newQuality = 100
-		}
-		if newQuality < 0 {
-			newQuality = 0
+		if ratingRatio > 1 {
+			ratingRatio = 1
 		}
 
-		newSpeed := score.SpeedScore + speedAdjust
-		if newSpeed > 100 {
-			newSpeed = 100
+		targetQuality := int(successRate*70 + ratingRatio*30)
+		if targetQuality > 100 {
+			targetQuality = 100
 		}
-		if newSpeed < 0 {
-			newSpeed = 0
+		if targetQuality < 0 {
+			targetQuality = 0
 		}
+
+		targetSpeed := 100 - int(perf.AvgLatencyMs/100)
+		if targetSpeed < 0 {
+			targetSpeed = 0
+		}
+		if targetSpeed > 100 {
+			targetSpeed = 100
+		}
+
+		newQuality := targetQuality
+		newSpeed := targetSpeed
 
 		if newQuality != score.QualityScore || newSpeed != score.SpeedScore {
+			oldQuality := score.QualityScore
+			oldSpeed := score.SpeedScore
 			score.QualityScore = newQuality
 			score.SpeedScore = newSpeed
 			fc.smartRouter.UpdateModelScore(model, score)
@@ -401,10 +429,13 @@ func (fc *FeedbackCollector) OptimizeScores() {
 
 			feedbackLogger.WithFields(logrus.Fields{
 				"model":          model,
-				"quality_adjust": qualityAdjust,
-				"speed_adjust":   speedAdjust,
+				"old_quality":    oldQuality,
+				"old_speed":      oldSpeed,
 				"new_quality":    newQuality,
 				"new_speed":      newSpeed,
+				"success_rate":   successRate,
+				"avg_rating":     perf.AvgRating,
+				"avg_latency_ms": perf.AvgLatencyMs,
 			}).Info("Optimized model score based on feedback")
 		}
 	}
@@ -413,6 +444,10 @@ func (fc *FeedbackCollector) OptimizeScores() {
 		fc.smartRouter.SaveToFile()
 		feedbackLogger.WithField("models_updated", updated).Info("Feedback-based optimization completed")
 	}
+
+	result.ModelsEligible = eligible
+	result.ModelsUpdated = updated
+	return result
 }
 
 // periodicOptimize runs periodic optimization

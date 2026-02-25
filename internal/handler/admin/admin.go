@@ -152,6 +152,9 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.DELETE("/rules/:id", handlers.Cache.DeleteCacheRule)
 		// Cache entries management
 		cacheGroup.GET("/entries", handlers.Cache.GetCacheEntries)
+		cacheGroup.POST("/entries/cleanup-invalid", handlers.Cache.CleanupInvalidEntries)
+		cacheGroup.POST("/entries/cleanup-empty", handlers.Cache.CleanupEmptyResponseEntries)
+		cacheGroup.POST("/entries/delete-group", handlers.Cache.DeleteCacheEntryGroup)
 		cacheGroup.GET("/entries/*key", handlers.Cache.GetCacheEntryDetail)
 		cacheGroup.DELETE("/entries/*key", handlers.Cache.DeleteCacheEntry)
 		// Cache warmup and export

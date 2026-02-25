@@ -103,6 +103,10 @@
           <span class="stat-label">共调用</span>
           <span class="stat-value">{{ message.stats.totalTokens }} tokens</span>
         </span>
+        <span class="stat-item">
+          <span class="stat-label">本地缓存</span>
+          <span class="stat-value" :class="cacheHitClass">{{ cacheHitText }}</span>
+        </span>
       </div>
     </div>
   </div>
@@ -144,6 +148,18 @@ const providerLogo = computed(() => {
 })
 
 const answerHighlight = computed(() => props.answerHighlight ?? true) // 改动点: 默认启用答案层级样式
+
+const cacheHitText = computed(() => {
+  const cacheHit = props.message.stats?.cacheHit
+  if (cacheHit === true) return '命中'
+  return '未命中'
+})
+
+const cacheHitClass = computed(() => {
+  const cacheHit = props.message.stats?.cacheHit
+  if (cacheHit === true) return 'cache-hit'
+  return 'cache-miss'
+})
 
 const reasoningFull = computed(() => (props.message.reasoningContent || props.message.reasoning || '').trim())
 
@@ -459,6 +475,15 @@ watch(() => props.defaultExpandReasoning, (val) => {
   .stat-value {
     color: var(--text-secondary);
     font-weight: 500;
+
+    &.cache-hit {
+      color: var(--color-success);
+    }
+
+    &.cache-miss {
+      color: var(--color-warning);
+    }
+
   }
 }
 </style>

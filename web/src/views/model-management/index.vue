@@ -214,7 +214,7 @@
         <el-form-item label="颜色">
           <el-color-picker v-model="providerForm.color" :disabled="submitting" />
         </el-form-item>
-        <el-form-item label="默认模型">
+        <el-form-item label="默认模型" prop="defaultModel">
           <el-input 
             v-model="providerForm.defaultModel" 
             placeholder="如: my-model-v1"
@@ -388,7 +388,8 @@ const providerRules: FormRules = {
     { required: true, message: '请输入服务商ID', trigger: 'blur' },
     { pattern: /^[a-z0-9-]+$/, message: '只能包含小写字母、数字和横线', trigger: 'blur' }
   ],
-  label: [{ required: true, message: '请输入服务商名称', trigger: 'blur' }]
+  label: [{ required: true, message: '请输入服务商名称', trigger: 'blur' }],
+  defaultModel: [{ required: true, message: '请输入默认模型', trigger: 'blur' }]
 }
 
 const modelRules: FormRules = {
@@ -601,8 +602,20 @@ async function handleAddProvider() {
       models: providerForm.defaultModel ? [providerForm.defaultModel] : [],
       custom: true
     }
+
+    // Sync provider default model to backend model scores (single source of truth)
+    await request.put(`/admin/router/models/${encodeURIComponent(providerForm.defaultModel)}`, {
+      model: providerForm.defaultModel,
+      provider: providerForm.id,
+      quality_score: 80,
+      speed_score: 80,
+      cost_score: 80,
+      enabled: true
+    })
+
     providerSettings.value.push(newProvider)
     saveToLocalStorage()
+    await saveAllSettings(false)
     providerDialogVisible.value = false
     ElMessage.success('服务商已添加')
     eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
@@ -672,11 +685,26 @@ async function handleDeleteProvider(row: ProviderSetting) {
 
   submitting.value = true
   try {
+    // 先删除该服务商下的模型评分（后端单一事实源）
+    if (row.models.length > 0) {
+      const deleteResults = await Promise.allSettled(
+        row.models.map(model => request.delete(`/admin/router/models/${encodeURIComponent(model)}`))
+      )
+      const failedDeletes = deleteResults.filter(r => r.status === 'rejected').length
+      if (failedDeletes > 0) {
+        throw new Error(`删除模型失败（${failedDeletes}/${row.models.length}）`)
+      }
+    }
+
     const index = providerSettings.value.findIndex(p => p.id === row.id)
     if (index > -1) {
       providerSettings.value.splice(index, 1)
+
+      // 同步默认模型映射，确保 provider_defaults 也移除该服务商
+      await saveAllSettings(false)
       saveToLocalStorage()
-      ElMessage.success('已删除')
+
+      ElMessage.success('服务商已删除并同步')
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
     }
   } catch (e: any) {

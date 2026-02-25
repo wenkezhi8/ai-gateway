@@ -248,6 +248,14 @@
                 </span>
               </el-option>
             </el-option-group>
+            <el-option-group v-if="customProviders.length > 0" label="自定义服务商">
+              <el-option v-for="p in customProviders" :key="p.value" :label="p.label" :value="p.value">
+                <span class="provider-option">
+                  <span class="dot" :style="{ background: providerColors[p.value] || '#6B7280' }"></span>
+                  {{ p.label }}
+                </span>
+              </el-option>
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="API Key" prop="api_key">
@@ -290,6 +298,8 @@ import {
   Key, CircleCheck, CircleClose, Grid, User, Link 
 } from '@element-plus/icons-vue'
 import { accountApi } from '@/api/account'
+import { request } from '@/api/request'
+import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 
 interface Account {
   id: string
@@ -309,7 +319,7 @@ const selectedProviderFilter = ref('')
 const accountsLoading = ref(false)
 const accountSubmitting = ref(false)
 
-const providerTypes = [
+const baseProviderTypes = [
   { label: 'OpenAI', value: 'openai' },
   { label: 'Anthropic Claude', value: 'anthropic' },
   { label: 'Azure OpenAI', value: 'azure-openai' },
@@ -331,9 +341,16 @@ const providerTypes = [
   { label: 'AingDesk', value: 'aingdesk' }
 ]
 
-const internationalProviders = providerTypes.filter(p => ['openai', 'anthropic', 'azure-openai', 'google'].includes(p.value))
-const chineseProviders = providerTypes.filter(p => ['deepseek', 'qwen', 'zhipu', 'moonshot', 'minimax', 'baichuan', 'volcengine', 'ernie', 'hunyuan', 'spark'].includes(p.value))
-const localProviders = providerTypes.filter(p => ['llamacpp', 'vllm', 'ollama', 'lmstudio', 'aingdesk'].includes(p.value))
+const providerTypes = ref([...baseProviderTypes])
+
+const internationalProviderSet = new Set(['openai', 'anthropic', 'azure-openai', 'google'])
+const chineseProviderSet = new Set(['deepseek', 'qwen', 'zhipu', 'moonshot', 'minimax', 'baichuan', 'volcengine', 'ernie', 'hunyuan', 'spark'])
+const localProviderSet = new Set(['llamacpp', 'vllm', 'ollama', 'lmstudio', 'aingdesk'])
+
+const internationalProviders = computed(() => providerTypes.value.filter(p => internationalProviderSet.has(p.value)))
+const chineseProviders = computed(() => providerTypes.value.filter(p => chineseProviderSet.has(p.value)))
+const localProviders = computed(() => providerTypes.value.filter(p => localProviderSet.has(p.value)))
+const customProviders = computed(() => providerTypes.value.filter(p => !internationalProviderSet.has(p.value) && !chineseProviderSet.has(p.value) && !localProviderSet.has(p.value)))
 
 const defaultEndpoints: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
@@ -484,7 +501,7 @@ const getProviderColor = (row: { provider: string; base_url: string }) => {
 
 const getProviderLabel = (row: { provider: string; base_url: string }) => {
   const actualProvider = detectProvider(row)
-  return providerTypes.find(p => p.value === actualProvider)?.label || actualProvider
+  return providerTypes.value.find(p => p.value === actualProvider)?.label || actualProvider
 }
 
 const getDefaultEndpoint = (provider: string) => defaultEndpoints[provider] || ''
@@ -519,6 +536,53 @@ const loadAccounts = async () => {
   } finally {
     accountsLoading.value = false
   }
+}
+
+const loadProviderOptions = async () => {
+  const providerMap = new Map<string, { label: string; value: string }>()
+  for (const p of baseProviderTypes) {
+    providerMap.set(p.value, p)
+  }
+
+  try {
+    const modelsRes: any = await accountApi.getList({ page: 1, pageSize: 200 })
+    const accountList = (modelsRes as any)?.data || []
+    for (const account of accountList) {
+      const provider = String(account?.provider || '').trim().toLowerCase()
+      if (!provider) continue
+      if (!providerMap.has(provider)) {
+        providerMap.set(provider, { value: provider, label: provider })
+      }
+    }
+  } catch {
+    // ignore and continue with other sources
+  }
+
+  try {
+    const routerModelsRes: any = await request.get('/admin/router/models', { silent: true } as any)
+    const raw = routerModelsRes?.data || routerModelsRes || []
+    if (Array.isArray(raw)) {
+      for (const row of raw) {
+        const provider = String(row?.provider || '').trim().toLowerCase()
+        if (!provider) continue
+        if (!providerMap.has(provider)) {
+          providerMap.set(provider, { value: provider, label: provider })
+        }
+      }
+    } else if (raw && typeof raw === 'object') {
+      for (const provider of Object.keys(raw)) {
+        const id = String(provider || '').trim().toLowerCase()
+        if (!id) continue
+        if (!providerMap.has(id)) {
+          providerMap.set(id, { value: id, label: id })
+        }
+      }
+    }
+  } catch {
+    // ignore if router models unavailable
+  }
+
+  providerTypes.value = Array.from(providerMap.values())
 }
 
 const handleProviderChange = (provider: string) => {
@@ -618,26 +682,13 @@ const handleDeleteAccount = async (row: Account) => {
 const handleFetchModels = async (row: Account) => {
   row.fetchingModels = true
   try {
-    const sync = await ElMessageBox.confirm(
-      '是否将模型同步到模型管理？',
-      '获取模型',
-      {
-        confirmButtonText: '同步到模型管理',
-        cancelButtonText: '仅获取',
-        distinguishCancelAndClose: true,
-        type: 'info'
-      }
-    ).then(() => true).catch((action) => action === 'cancel' ? false : null)
-    
-    if (sync === null) return
-    
-    const res = await accountApi.fetchModels(row.id, sync)
+    // 默认同步到模型管理，避免“获取了但未保存”的误解
+    const res = await accountApi.fetchModels(row.id, true)
     if (res.data?.models) {
       const models = res.data.models
-      const msg = sync 
-        ? `获取到 ${models.length} 个模型并已同步`
-        : `获取到 ${models.length} 个模型`
-      ElMessage.success(msg)
+      const syncedCount = (res as any).data?.synced_count ?? models.length
+      ElMessage.success(`获取到 ${models.length} 个模型，已同步 ${syncedCount} 个`) 
+      eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
     } else {
       ElMessage.warning('未获取到模型列表')
     }
@@ -649,6 +700,7 @@ const handleFetchModels = async (row: Account) => {
 }
 
 onMounted(() => {
+  loadProviderOptions()
   loadAccounts()
 })
 </script>

@@ -16,6 +16,7 @@ type AccountManager struct {
 	statuses       map[string]*AccountStatus
 	activeAccounts map[string]string // provider -> active account ID
 	switchHistory  []SwitchEvent
+	switchSaver    func([]SwitchEvent)
 	limits         map[string]map[LimitType]AccountLimiter // accountID -> limitType -> limiter
 	mu             sync.RWMutex
 	store          *RedisStore
@@ -345,12 +346,7 @@ func (m *AccountManager) switchToNextAccount(providerType, reason string) {
 		Timestamp:   time.Now(),
 		Duration:    switchDuration,
 	}
-	m.switchHistory = append(m.switchHistory, switchEvent)
-
-	// Keep only last 100 switch events
-	if len(m.switchHistory) > 100 {
-		m.switchHistory = m.switchHistory[len(m.switchHistory)-100:]
-	}
+	m.appendSwitchEventLocked(switchEvent)
 
 	m.logger.WithFields(logrus.Fields{
 		"from_account": oldAccountID,
@@ -548,7 +544,7 @@ func (m *AccountManager) ForceSwitch(providerType, accountID string) error {
 			Reason:      "forced switch",
 			Timestamp:   time.Now(),
 		}
-		m.switchHistory = append(m.switchHistory, switchEvent)
+		m.appendSwitchEventLocked(switchEvent)
 	}
 
 	m.logger.WithFields(logrus.Fields{
@@ -558,4 +554,35 @@ func (m *AccountManager) ForceSwitch(providerType, accountID string) error {
 	}).Info("Forced account switch")
 
 	return nil
+}
+
+func (m *AccountManager) appendSwitchEventLocked(event SwitchEvent) {
+	m.switchHistory = append(m.switchHistory, event)
+	if len(m.switchHistory) > 100 {
+		m.switchHistory = m.switchHistory[len(m.switchHistory)-100:]
+	}
+
+	if m.switchSaver != nil {
+		snapshot := make([]SwitchEvent, len(m.switchHistory))
+		copy(snapshot, m.switchHistory)
+		go m.switchSaver(snapshot)
+	}
+}
+
+func (m *AccountManager) SetSwitchHistory(history []SwitchEvent) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if len(history) > 100 {
+		history = history[len(history)-100:]
+	}
+
+	m.switchHistory = make([]SwitchEvent, len(history))
+	copy(m.switchHistory, history)
+}
+
+func (m *AccountManager) SetSwitchHistorySaver(saver func([]SwitchEvent)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.switchSaver = saver
 }

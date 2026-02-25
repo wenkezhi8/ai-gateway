@@ -2,16 +2,21 @@ package admin
 
 import (
 	"ai-gateway/internal/cache"
+	"ai-gateway/internal/routing"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
+
+var cacheTaskTypeAssessor = routing.NewDifficultyAssessor()
 
 // CacheHandler handles cache management requests
 type CacheHandler struct {
@@ -20,12 +25,42 @@ type CacheHandler struct {
 	mu       sync.RWMutex
 }
 
+const emptyResponseCleanupInterval = 15 * time.Minute
+
 // NewCacheHandler creates a new cache handler
 func NewCacheHandler(manager *cache.Manager) *CacheHandler {
-	return &CacheHandler{
+	h := &CacheHandler{
 		manager:  manager,
 		settings: manager.GetSettings(),
 	}
+	h.startEmptyResponseCleaner()
+	return h
+}
+
+func (h *CacheHandler) startEmptyResponseCleaner() {
+	go func() {
+		// Startup cleanup once, then periodic cleanup.
+		ctx := context.Background()
+		deleted, failed := h.cleanupEmptyResponseEntries(ctx)
+		if deleted > 0 || failed > 0 {
+			logrus.WithFields(logrus.Fields{
+				"deleted": deleted,
+				"failed":  failed,
+			}).Info("Startup cleanup for empty response cache entries completed")
+		}
+
+		ticker := time.NewTicker(emptyResponseCleanupInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			deleted, failed := h.cleanupEmptyResponseEntries(ctx)
+			if deleted > 0 || failed > 0 {
+				logrus.WithFields(logrus.Fields{
+					"deleted": deleted,
+					"failed":  failed,
+				}).Info("Periodic cleanup for empty response cache entries completed")
+			}
+		}
+	}()
 }
 
 // GetCacheStats returns cache statistics
@@ -655,10 +690,9 @@ type CacheEntry struct {
 func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	cacheType := c.Query("type")
 	search := c.Query("search")
-	taskType := c.Query("task_type")
-	if taskType == "other" {
-		taskType = "unknown"
-	}
+	taskType := normalizeTaskType(c.Query("task_type"))
+	aggregate := c.Query("aggregate") == "1" || strings.EqualFold(c.Query("aggregate"), "true")
+	readableOnly := c.DefaultQuery("readable_only", "1") == "1" || strings.EqualFold(c.Query("readable_only"), "true")
 	page := 1
 	pageSize := 20
 
@@ -671,30 +705,43 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 
 	entries := h.manager.ListEntries(cacheType, search)
 	ctx := context.Background()
+	for _, entry := range entries {
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			continue
+		}
+		enrichEntryFromDetail(entry, detail)
+		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		if userMsg != "" {
+			entry.UserMessage = userMsg
+		}
+		if aiResp != "" {
+			entry.AIResponse = aiResp
+		}
+	}
 
 	if taskType != "" {
 		filtered := make([]*cache.CacheEntryInfo, 0, len(entries))
 		for _, entry := range entries {
-			detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
-			if err != nil {
-				continue
-			}
-			entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
-			if entry.TaskType == "" && entryTaskType != "" {
-				entry.TaskType = entryTaskType
-			}
-			if userMsg != "" {
-				entry.UserMessage = userMsg
-			}
-			if aiResp != "" {
-				entry.AIResponse = aiResp
-			}
 			if entry.TaskType == taskType {
 				filtered = append(filtered, entry)
 			}
 		}
 		entries = filtered
 	}
+
+	if readableOnly {
+		entries = filterReadableEntries(entries)
+	}
+
+	if aggregate {
+		entries = aggregateCacheEntries(entries)
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].CreatedAt.After(entries[j].CreatedAt)
+	})
 
 	total := len(entries)
 	start := (page - 1) * pageSize
@@ -707,34 +754,16 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	}
 
 	pageEntries := entries[start:end]
-	// Enrich page entries with preview data when not already filled
-	for _, entry := range pageEntries {
-		if entry.UserMessage != "" || entry.AIResponse != "" {
-			continue
-		}
-		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
-		if err != nil {
-			continue
-		}
-		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
-		if entry.TaskType == "" && entryTaskType != "" {
-			entry.TaskType = entryTaskType
-		}
-		if userMsg != "" {
-			entry.UserMessage = userMsg
-		}
-		if aiResp != "" {
-			entry.AIResponse = aiResp
-		}
-	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"entries":   pageEntries,
-			"total":     total,
-			"page":      page,
-			"page_size": pageSize,
+			"entries":       pageEntries,
+			"total":         total,
+			"page":          page,
+			"page_size":     pageSize,
+			"aggregate":     aggregate,
+			"readable_only": readableOnly,
 		},
 	})
 }
@@ -796,6 +825,167 @@ func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
 		"success": true,
 		"message": "Cache entry deleted",
 	})
+}
+
+// DeleteCacheEntryGroup deletes all cache entries in the same aggregated group.
+// POST /api/admin/cache/entries/delete-group
+func (h *CacheHandler) DeleteCacheEntryGroup(c *gin.Context) {
+	type reqBody struct {
+		TaskType    string `json:"task_type"`
+		UserMessage string `json:"user_message"`
+		AIResponse  string `json:"ai_response"`
+		Model       string `json:"model"`
+		Provider    string `json:"provider"`
+	}
+
+	var req reqBody
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "invalid_request", "message": err.Error()},
+		})
+		return
+	}
+
+	normalizedTask := normalizeTaskType(req.TaskType)
+	normalizedUser := strings.TrimSpace(req.UserMessage)
+	normalizedAI := strings.TrimSpace(req.AIResponse)
+	normalizedModel := strings.TrimSpace(req.Model)
+	normalizedProvider := strings.TrimSpace(req.Provider)
+
+	ctx := context.Background()
+	entries := h.manager.ListEntries("response", "")
+	deleted := 0
+
+	for _, entry := range entries {
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			continue
+		}
+		enrichEntryFromDetail(entry, detail)
+		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		if userMsg != "" {
+			entry.UserMessage = userMsg
+		}
+		if aiResp != "" {
+			entry.AIResponse = aiResp
+		}
+
+		if normalizeTaskType(entry.TaskType) != normalizedTask {
+			continue
+		}
+		if strings.TrimSpace(entry.UserMessage) != normalizedUser {
+			continue
+		}
+		if strings.TrimSpace(entry.AIResponse) != normalizedAI {
+			continue
+		}
+		if normalizedModel != "" && strings.TrimSpace(entry.Model) != normalizedModel {
+			continue
+		}
+		if normalizedProvider != "" && strings.TrimSpace(entry.Provider) != normalizedProvider {
+			continue
+		}
+
+		if err := h.manager.Cache().Delete(ctx, entry.Key); err == nil {
+			deleted++
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"deleted": deleted,
+		},
+	})
+}
+
+// CleanupInvalidEntries removes unreadable legacy cache entries.
+// POST /api/admin/cache/entries/cleanup-invalid
+func (h *CacheHandler) CleanupInvalidEntries(c *gin.Context) {
+	ctx := context.Background()
+	entries := h.manager.ListEntries("", "")
+
+	deleted := 0
+	failed := 0
+	for _, entry := range entries {
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			failed++
+			continue
+		}
+		enrichEntryFromDetail(entry, detail)
+		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		if userMsg != "" {
+			entry.UserMessage = userMsg
+		}
+		if aiResp != "" {
+			entry.AIResponse = aiResp
+		}
+
+		if !isInvalidEntry(entry) {
+			continue
+		}
+
+		if err := h.manager.Cache().Delete(ctx, entry.Key); err != nil {
+			failed++
+			continue
+		}
+		deleted++
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"deleted": deleted,
+			"failed":  failed,
+		},
+	})
+}
+
+// CleanupEmptyResponseEntries removes response cache entries whose assistant content is empty.
+// POST /api/admin/cache/entries/cleanup-empty
+func (h *CacheHandler) CleanupEmptyResponseEntries(c *gin.Context) {
+	ctx := context.Background()
+	deleted, failed := h.cleanupEmptyResponseEntries(ctx)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"deleted": deleted,
+			"failed":  failed,
+		},
+	})
+}
+
+func (h *CacheHandler) cleanupEmptyResponseEntries(ctx context.Context) (deleted int, failed int) {
+	entries := h.manager.ListEntries("response", "")
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+
+		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
+		if err != nil {
+			failed++
+			continue
+		}
+
+		_, _, aiResp := extractCacheSummary(detail.Value)
+		if strings.TrimSpace(aiResp) != "" {
+			continue
+		}
+
+		if err := h.manager.Cache().Delete(ctx, entry.Key); err != nil {
+			failed++
+			continue
+		}
+		deleted++
+	}
+
+	return deleted, failed
 }
 
 // AddTestCacheEntryRequest represents request for adding test cache
@@ -886,10 +1076,7 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 // ExportCacheEntries exports all cache entries
 // GET /api/admin/cache/export
 func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
-	taskType := c.Query("task_type")
-	if taskType == "other" {
-		taskType = "unknown"
-	}
+	taskType := normalizeTaskType(c.Query("task_type"))
 
 	entries := h.manager.ListEntries("", "")
 
@@ -993,6 +1180,12 @@ func extractCacheSummary(value interface{}) (string, string, string) {
 		if p, ok := v["Prompt"]; ok && userMsg == "" {
 			userMsg, _ = p.(string)
 		}
+		if p, ok := v["user_message"]; ok && userMsg == "" {
+			userMsg, _ = p.(string)
+		}
+		if p, ok := v["userMessage"]; ok && userMsg == "" {
+			userMsg, _ = p.(string)
+		}
 		// messages
 		if userMsg == "" {
 			if msgs, ok := v["messages"].([]interface{}); ok {
@@ -1010,12 +1203,16 @@ func extractCacheSummary(value interface{}) (string, string, string) {
 		}
 		// response body
 		if body, ok := v["body"]; ok {
-			switch b := body.(type) {
-			case []byte:
-				aiResp = extractAIFromBody(b)
-			case string:
-				aiResp = extractAIFromBody([]byte(b))
-			}
+			aiResp = extractAIFromAny(body)
+		}
+		if body, ok := v["Body"]; ok && aiResp == "" {
+			aiResp = extractAIFromAny(body)
+		}
+		if resp, ok := v["response"]; ok && aiResp == "" {
+			aiResp = extractAIFromAny(resp)
+		}
+		if resp, ok := v["Response"]; ok && aiResp == "" {
+			aiResp = extractAIFromAny(resp)
 		}
 		// direct choices
 		if aiResp == "" {
@@ -1042,6 +1239,45 @@ func extractCacheSummary(value interface{}) (string, string, string) {
 	return taskType, truncatePreview(userMsg), truncatePreview(aiResp)
 }
 
+func resolveTaskType(metaTaskType, payloadTaskType, userMsg string) string {
+	normalizedMeta := normalizeTaskType(metaTaskType)
+	normalizedPayload := normalizeTaskType(payloadTaskType)
+
+	if normalizedMeta != "" && normalizedMeta != "unknown" {
+		return normalizedMeta
+	}
+	if normalizedPayload != "" && normalizedPayload != "unknown" {
+		return normalizedPayload
+	}
+
+	if strings.TrimSpace(userMsg) != "" {
+		inferred := normalizeTaskType(string(cacheTaskTypeAssessor.DetectTaskType(userMsg)))
+		if inferred != "" && inferred != "unknown" {
+			return inferred
+		}
+	}
+
+	if normalizedMeta == "unknown" || normalizedPayload == "unknown" {
+		return "unknown"
+	}
+
+	return "unknown"
+}
+
+func normalizeTaskType(taskType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(taskType))
+	switch normalized {
+	case "":
+		return ""
+	case "other":
+		return "unknown"
+	case "long_context":
+		return "long_text"
+	default:
+		return normalized
+	}
+}
+
 func extractAIFromBody(body []byte) string {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -1059,9 +1295,340 @@ func extractAIFromBody(body []byte) string {
 	return ""
 }
 
+func extractAIFromAny(value interface{}) string {
+	switch v := value.(type) {
+	case nil:
+		return ""
+	case []byte:
+		return extractAIFromBody(v)
+	case string:
+		return extractAIFromBody([]byte(v))
+	case map[string]interface{}, map[interface{}]interface{}, []interface{}:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return extractAIFromBody(data)
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		return extractAIFromBody(data)
+	}
+}
+
 func truncatePreview(input string) string {
 	if len(input) > 120 {
 		return input[:120] + "..."
 	}
 	return input
+}
+
+func enrichEntryFromDetail(entry *cache.CacheEntryInfo, detail *cache.CacheEntryDetail) {
+	if entry == nil || detail == nil {
+		return
+	}
+
+	if entry.Hits == 0 && detail.Hits > 0 {
+		entry.Hits = detail.Hits
+	}
+	if entry.TTL == 0 && detail.TTL > 0 {
+		entry.TTL = detail.TTL
+	}
+	if entry.ExpiresAt == nil && detail.ExpiresAt != nil {
+		entry.ExpiresAt = detail.ExpiresAt
+	}
+
+	if entry.CreatedAt.IsZero() {
+		if !detail.CreatedAt.IsZero() {
+			entry.CreatedAt = detail.CreatedAt
+		} else if detail.ExpiresAt != nil && detail.TTL > 0 {
+			entry.CreatedAt = detail.ExpiresAt.Add(-time.Duration(detail.TTL) * time.Second)
+		}
+	}
+
+	model, provider := extractModelProvider(detail.Value)
+	if entry.Model == "" && model != "" {
+		entry.Model = model
+	}
+	if entry.Provider == "" && provider != "" {
+		entry.Provider = provider
+	}
+
+	if modelStats, ok := extractHitModels(detail.Value); ok {
+		entry.ModelStats = modelStats
+		entry.Model = selectPrimaryModel(modelStats)
+	}
+
+	if hits, ok := extractHitCountFromValue(detail.Value); ok {
+		entry.Hits = hits
+		entry.HitRecorded = true
+	}
+}
+
+func extractHitModels(value interface{}) (map[string]int, bool) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		raw, ok := v["hit_models"]
+		if !ok {
+			raw, ok = v["HitModels"]
+		}
+		if !ok {
+			return nil, false
+		}
+		return parseHitModels(raw)
+	case map[interface{}]interface{}:
+		converted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			if ks, ok := key.(string); ok {
+				converted[ks] = val
+			}
+		}
+		return extractHitModels(converted)
+	default:
+		return nil, false
+	}
+}
+
+func parseHitModels(value interface{}) (map[string]int, bool) {
+	result := map[string]int{}
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for k, raw := range v {
+			if n, ok := numberToInt(raw); ok {
+				result[k] = n
+			}
+		}
+	case map[interface{}]interface{}:
+		for key, raw := range v {
+			ks, ok := key.(string)
+			if !ok {
+				continue
+			}
+			if n, ok := numberToInt(raw); ok {
+				result[ks] = n
+			}
+		}
+	default:
+		return nil, false
+	}
+	if len(result) == 0 {
+		return nil, false
+	}
+	return result, true
+}
+
+func extractModelProvider(value interface{}) (string, string) {
+	model := ""
+	provider := ""
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if m, ok := v["model"].(string); ok {
+			model = m
+		}
+		if m, ok := v["Model"].(string); ok && model == "" {
+			model = m
+		}
+		if p, ok := v["provider"].(string); ok {
+			provider = p
+		}
+		if p, ok := v["Provider"].(string); ok && provider == "" {
+			provider = p
+		}
+
+		if model == "" {
+			if body, ok := v["body"]; ok {
+				switch b := body.(type) {
+				case []byte:
+					model = extractModelFromBody(b)
+				case string:
+					model = extractModelFromBody([]byte(b))
+				}
+			}
+		}
+	case map[interface{}]interface{}:
+		converted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			if ks, ok := key.(string); ok {
+				converted[ks] = val
+			}
+		}
+		return extractModelProvider(converted)
+	}
+
+	return model, provider
+}
+
+func extractModelFromBody(body []byte) string {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	if model, ok := payload["model"].(string); ok {
+		return model
+	}
+	return ""
+}
+
+func extractHitCountFromValue(value interface{}) (int, bool) {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		if raw, ok := v["hit_count"]; ok {
+			if n, ok := numberToInt(raw); ok {
+				return n, true
+			}
+		}
+		if raw, ok := v["HitCount"]; ok {
+			if n, ok := numberToInt(raw); ok {
+				return n, true
+			}
+		}
+		return 0, false
+	case map[interface{}]interface{}:
+		converted := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			if ks, ok := key.(string); ok {
+				converted[ks] = val
+			}
+		}
+		return extractHitCountFromValue(converted)
+	default:
+		return 0, false
+	}
+}
+
+func numberToInt(v interface{}) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	default:
+		return 0, false
+	}
+}
+
+func filterReadableEntries(entries []*cache.CacheEntryInfo) []*cache.CacheEntryInfo {
+	filtered := make([]*cache.CacheEntryInfo, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		if isInvalidEntry(entry) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func isInvalidEntry(entry *cache.CacheEntryInfo) bool {
+	if entry == nil {
+		return true
+	}
+
+	userMsg := strings.TrimSpace(entry.UserMessage)
+	aiResp := strings.TrimSpace(entry.AIResponse)
+	model := strings.TrimSpace(entry.Model)
+	typeName := normalizeTaskType(entry.TaskType)
+
+	if entry.CreatedAt.IsZero() && entry.TTL <= 0 {
+		return true
+	}
+	if typeName == "unknown" && userMsg == "" && aiResp == "" {
+		return true
+	}
+	if strings.Contains(model, ":") && userMsg == "" && aiResp == "" {
+		return true
+	}
+
+	return false
+}
+
+func aggregateCacheEntries(entries []*cache.CacheEntryInfo) []*cache.CacheEntryInfo {
+	grouped := make(map[string]*cache.CacheEntryInfo)
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+
+		sig := strings.Join([]string{
+			normalizeTaskType(entry.TaskType),
+			strings.TrimSpace(entry.UserMessage),
+			strings.TrimSpace(entry.AIResponse),
+			strings.TrimSpace(entry.Provider),
+		}, "|")
+
+		if existing, ok := grouped[sig]; ok {
+			existing.GroupCount++
+			existing.Hits += entry.Hits
+			existing.HitRecorded = existing.HitRecorded || entry.HitRecorded
+			existing.ModelStats = mergeModelStats(existing.ModelStats, entry.ModelStats, entry.Model)
+			if entry.CreatedAt.After(existing.CreatedAt) {
+				existing.CreatedAt = entry.CreatedAt
+				existing.TTL = entry.TTL
+				existing.ExpiresAt = entry.ExpiresAt
+			}
+			existing.Model = selectPrimaryModel(existing.ModelStats)
+			continue
+		}
+
+		copied := *entry
+		copied.GroupCount = 1
+		copied.ModelStats = mergeModelStats(nil, entry.ModelStats, entry.Model)
+		copied.Model = selectPrimaryModel(copied.ModelStats)
+		grouped[sig] = &copied
+	}
+
+	result := make([]*cache.CacheEntryInfo, 0, len(grouped))
+	for _, entry := range grouped {
+		result = append(result, entry)
+	}
+
+	return result
+}
+
+func mergeModelStats(base map[string]int, incoming map[string]int, fallbackModel string) map[string]int {
+	if base == nil {
+		base = map[string]int{}
+	}
+	for model, count := range incoming {
+		if model == "" || count <= 0 {
+			continue
+		}
+		base[model] += count
+	}
+	if len(incoming) == 0 {
+		m := strings.TrimSpace(fallbackModel)
+		if m != "" && m != "-" {
+			base[m]++
+		}
+	}
+	return base
+}
+
+func selectPrimaryModel(stats map[string]int) string {
+	if len(stats) == 0 {
+		return "-"
+	}
+	bestModel := ""
+	bestCount := -1
+	for model, count := range stats {
+		if count > bestCount {
+			bestModel = model
+			bestCount = count
+		}
+	}
+	if len(stats) > 1 {
+		return fmt.Sprintf("%s 等%d个", bestModel, len(stats))
+	}
+	return bestModel
+}
+
+func selectPrimaryModelInt64(stats map[string]int) string {
+	return selectPrimaryModel(stats)
 }

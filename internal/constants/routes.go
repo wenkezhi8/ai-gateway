@@ -6,6 +6,12 @@ const (
 	// API v1 前缀
 	ApiV1Prefix = "/api/v1"
 
+	// Anthropic API 前缀
+	ApiAnthropicBasePrefix = "/api/anthropic"
+
+	// Anthropic API v1 前缀
+	ApiAnthropicPrefix = "/api/anthropic/v1"
+
 	// Chat Completions
 	ChatCompletions = ApiV1Prefix + "/chat/completions"
 

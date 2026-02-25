@@ -96,6 +96,9 @@ func NewFullWithConfig(
 	})
 
 	// API v1 routes (统一入口)
+	r.GET(constants.ApiV1Prefix, proxyHandler.APIv1Root)
+	r.POST(constants.ApiV1Prefix, proxyHandler.ChatCompletions)
+	r.GET(constants.ChatCompletions, proxyHandler.APIv1ChatCompletionsInfo)
 	apiV1 := r.Group(constants.ApiV1Prefix)
 	{
 		apiV1.POST("/chat/completions", proxyHandler.ChatCompletions)
@@ -105,6 +108,15 @@ func NewFullWithConfig(
 		apiV1.GET("/models", proxyHandler.ListModels)
 		apiV1.GET("/config/providers", proxyHandler.ListConfiguredProviders)
 		apiV1.POST("/search", searchHandler.Search)
+	}
+
+	// Anthropic-compatible routes
+	r.GET(constants.ApiAnthropicBasePrefix, proxyHandler.AnthropicRoot)
+	r.POST(constants.ApiAnthropicBasePrefix, proxyHandler.AnthropicMessages)
+	r.GET(constants.ApiAnthropicPrefix+"/messages", proxyHandler.AnthropicMessagesInfo)
+	anthropicV1 := r.Group(constants.ApiAnthropicPrefix)
+	{
+		anthropicV1.POST("/messages", proxyHandler.AnthropicMessages)
 	}
 
 	if routerCfg.JWTConfig.Secret != "" {

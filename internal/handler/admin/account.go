@@ -19,6 +19,7 @@ import (
 )
 
 const accountsFile = "data/accounts.json"
+const switchHistoryFile = "data/switch_history.json"
 
 var (
 	accountsMu     sync.Mutex
@@ -150,6 +151,47 @@ func LoadPersistedAccounts() ([]*limiter.AccountConfig, error) {
 	}
 
 	return accounts, nil
+}
+
+func SaveSwitchHistoryToFile(history []limiter.SwitchEvent) error {
+	accountsMu.Lock()
+	defer accountsMu.Unlock()
+
+	dir := filepath.Dir(switchHistoryFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+
+	if history == nil {
+		history = []limiter.SwitchEvent{}
+	}
+
+	data, err := json.MarshalIndent(history, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(switchHistoryFile, data, 0644)
+}
+
+func LoadPersistedSwitchHistory() ([]limiter.SwitchEvent, error) {
+	accountsMu.Lock()
+	defer accountsMu.Unlock()
+
+	data, err := os.ReadFile(switchHistoryFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var history []limiter.SwitchEvent
+	if err := json.Unmarshal(data, &history); err != nil {
+		return nil, err
+	}
+
+	return history, nil
 }
 
 // ListAccounts returns all accounts

@@ -556,9 +556,11 @@ async function toggleModelEnabled(model: ModelScore) {
 
 async function triggerOptimization() {
   try {
-    await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分。', '确认', { type: 'info' })
-    await request.post('/admin/feedback/optimize')
-    handleSuccess('优化已完成')
+    await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分（每个模型至少需要 10 条样本）。', '确认', { type: 'info' })
+    const resp: any = await request.post('/admin/feedback/optimize')
+    const result = resp?.data || {}
+    const msg = resp?.message || '优化已完成'
+    handleSuccess(`${msg}（扫描:${result.models_scanned || 0}，可优化:${result.models_eligible || 0}，已更新:${result.models_updated || 0}）`)
     loadModelScores()
     loadFeedbackStats()
   } catch (e) {

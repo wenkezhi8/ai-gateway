@@ -320,19 +320,22 @@ func (m *Manager) Close() error {
 
 // CacheEntryInfo represents info about a cache entry
 type CacheEntryInfo struct {
-	Key       string     `json:"key"`
-	Type      string     `json:"type"`
-	Size      int        `json:"size"`
-	Hits      int        `json:"hits"`
-	CreatedAt time.Time  `json:"created_at"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	TTL       int        `json:"ttl"`
-	Preview   string     `json:"preview"`
-	Model     string     `json:"model,omitempty"`
-	Provider  string     `json:"provider,omitempty"`
-	TaskType  string     `json:"task_type,omitempty"`
-	UserMessage string   `json:"user_message,omitempty"`
-	AIResponse  string   `json:"ai_response,omitempty"`
+	Key         string         `json:"key"`
+	Type        string         `json:"type"`
+	Size        int            `json:"size"`
+	Hits        int            `json:"hits"`
+	HitRecorded bool           `json:"hit_recorded"`
+	GroupCount  int            `json:"group_count,omitempty"`
+	ModelStats  map[string]int `json:"model_stats,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	ExpiresAt   *time.Time     `json:"expires_at,omitempty"`
+	TTL         int            `json:"ttl"`
+	Preview     string         `json:"preview"`
+	Model       string         `json:"model,omitempty"`
+	Provider    string         `json:"provider,omitempty"`
+	TaskType    string         `json:"task_type,omitempty"`
+	UserMessage string         `json:"user_message,omitempty"`
+	AIResponse  string         `json:"ai_response,omitempty"`
 }
 
 // CacheEntryDetail represents detailed cache entry data
@@ -366,6 +369,7 @@ func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo
 			if meta := mc.GetMeta(key); meta != nil {
 				entry.Size = meta.Size
 				entry.Hits = meta.Hits
+				entry.HitRecorded = true
 				entry.CreatedAt = meta.CreatedAt
 				entry.TTL = meta.TTL
 				if meta.TTL > 0 {

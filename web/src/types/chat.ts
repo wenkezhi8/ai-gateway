@@ -28,6 +28,7 @@ export interface MessageStats {
   totalTokens?: number
   promptTokens?: number
   completionTokens?: number
+  cacheHit?: boolean
 }
 
 /** Conversation session */

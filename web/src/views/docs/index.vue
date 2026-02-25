@@ -131,16 +131,48 @@ npm run build
       <el-tab-pane label="API 参考" name="api">
         <div class="doc-section">
           <h2 id="api-overview">API 概述</h2>
-          <p>AI Gateway 提供兼容 OpenAI 的 API 接口，所有接口前缀为 <code>/api/v1</code>。</p>
+          <p>AI Gateway 当前提供两套兼容协议：OpenAI 兼容协议与 Anthropic 兼容协议。</p>
+
+          <h3>协议入口</h3>
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>协议</th>
+                <th>Base URL</th>
+                <th>核心接口</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>OpenAI 兼容</td>
+                <td><code>/api/v1</code></td>
+                <td><code>POST /chat/completions</code></td>
+              </tr>
+              <tr>
+                <td>Anthropic 兼容</td>
+                <td><code>/api/anthropic</code></td>
+                <td><code>POST /v1/messages</code></td>
+              </tr>
+            </tbody>
+          </table>
 
           <h3>认证方式</h3>
-          <p>在请求头中添加 Bearer Token：</p>
+          <p>根据协议使用不同请求头：</p>
+          <ul>
+            <li>OpenAI 兼容：<code>Authorization: Bearer YOUR_API_KEY</code></li>
+            <li>Anthropic 兼容：<code>x-api-key: YOUR_API_KEY</code>（建议同时带 <code>anthropic-version</code>）</li>
+          </ul>
           <div class="code-block">
             <div class="code-header">
               <span>http</span>
               <button @click="copyCode('auth')"><el-icon><CopyDocument /></el-icon> 复制</button>
             </div>
-            <pre><code id="code-auth">Authorization: Bearer YOUR_API_KEY</code></pre>
+            <pre><code id="code-auth"># OpenAI 兼容
+Authorization: Bearer YOUR_API_KEY
+
+# Anthropic 兼容
+x-api-key: YOUR_API_KEY
+anthropic-version: 2023-06-01</code></pre>
           </div>
 
           <h2 id="chat-completions">聊天补全</h2>
@@ -266,6 +298,101 @@ npm run build
   }'</code></pre>
           </div>
 
+          <h2 id="anthropic-messages">Anthropic Messages</h2>
+          <div class="api-card">
+            <div class="api-method post">POST</div>
+            <div class="api-path">/api/anthropic/v1/messages</div>
+          </div>
+          <p>Anthropic 协议兼容入口，支持文本、多模态输入与流式返回。</p>
+
+          <h4>请求参数</h4>
+          <table class="api-table">
+            <thead>
+              <tr>
+                <th>参数</th>
+                <th>类型</th>
+                <th>必填</th>
+                <th>说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>model</code></td>
+                <td>string</td>
+                <td>是</td>
+                <td>模型名，如 <code>claude-3-5-sonnet-20241022</code>、<code>auto</code></td>
+              </tr>
+              <tr>
+                <td><code>messages</code></td>
+                <td>array</td>
+                <td>是</td>
+                <td>消息数组，支持字符串或 content blocks</td>
+              </tr>
+              <tr>
+                <td><code>max_tokens</code></td>
+                <td>integer</td>
+                <td>否</td>
+                <td>最大输出 token 数</td>
+              </tr>
+              <tr>
+                <td><code>stream</code></td>
+                <td>boolean</td>
+                <td>否</td>
+                <td>是否启用 SSE 流式输出</td>
+              </tr>
+              <tr>
+                <td><code>tools</code></td>
+                <td>array</td>
+                <td>否</td>
+                <td>工具定义，支持 tool_use/tool_result</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>请求示例</h4>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('anthropic-curl')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-anthropic-curl">curl -X POST http://localhost:8566/api/anthropic/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: YOUR_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "你好，请介绍一下你自己。"}
+    ]
+  }'</code></pre>
+          </div>
+
+          <h4>响应示例</h4>
+          <div class="code-block">
+            <div class="code-header">
+              <span>json</span>
+              <button @click="copyCode('anthropic-response')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-anthropic-response">{
+  "id": "msg_01Example",
+  "type": "message",
+  "role": "assistant",
+  "content": [
+    {
+      "type": "text",
+      "text": "你好！我是 AI Gateway 后端模型。"
+    }
+  ],
+  "model": "claude-3-5-sonnet-20241022",
+  "stop_reason": "end_turn",
+  "usage": {
+    "input_tokens": 18,
+    "output_tokens": 24
+  }
+}</code></pre>
+          </div>
+
           <h2 id="embeddings">向量嵌入</h2>
           <div class="api-card">
             <div class="api-method post">POST</div>
@@ -322,7 +449,7 @@ npm run build
       <el-tab-pane label="SDK 示例" name="sdk">
         <div class="doc-section">
           <h2>Python SDK</h2>
-          <p>使用 OpenAI Python SDK 连接 AI Gateway：</p>
+          <p>OpenAI 协议可使用 OpenAI SDK，Anthropic 协议可使用 Anthropic SDK。</p>
           
           <h3>安装依赖</h3>
           <div class="code-block">
@@ -401,6 +528,28 @@ async def main():
 asyncio.run(main())</code></pre>
           </div>
 
+          <h3>Anthropic SDK（Python）</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>python</span>
+              <button @click="copyCode('python-anthropic')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-python-anthropic">from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="YOUR_API_KEY",
+    base_url="http://localhost:8566/api/anthropic"
+)
+
+message = client.messages.create(
+    model="claude-3-5-sonnet-20241022",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "你好"}]
+)
+
+print(message.content[0].text)</code></pre>
+          </div>
+
           <h2>Node.js SDK</h2>
           
           <h3>安装依赖</h3>
@@ -452,6 +601,28 @@ main();</code></pre>
 for await (const chunk of stream) {
   process.stdout.write(chunk.choices[0]?.delta?.content || '');
 }</code></pre>
+          </div>
+
+          <h3>Anthropic SDK（Node.js）</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>javascript</span>
+              <button @click="copyCode('js-anthropic')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-js-anthropic">import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic({
+  apiKey: 'YOUR_API_KEY',
+  baseURL: 'http://localhost:8566/api/anthropic'
+});
+
+const message = await client.messages.create({
+  model: 'claude-3-5-sonnet-20241022',
+  max_tokens: 1024,
+  messages: [{ role: 'user', content: '你好' }]
+});
+
+console.log(message.content[0].text);</code></pre>
           </div>
 
           <h2>Go SDK</h2>

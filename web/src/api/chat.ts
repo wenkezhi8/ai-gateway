@@ -55,7 +55,7 @@ export function streamCompletion(
   params: ChatCompletionParams,
   onChunk: (chunk: StreamChunk) => void,
   onError?: (error: Error) => void,
-  onComplete?: (totalTokens?: number, promptTokens?: number, completionTokens?: number) => void
+  onComplete?: (totalTokens?: number, promptTokens?: number, completionTokens?: number, cacheHit?: boolean) => void
 ): AbortController {
   const controller = new AbortController()
   const token = localStorage.getItem('token')
@@ -94,6 +94,9 @@ export function streamCompletion(
         throw new Error(errorMsg)
       }
 
+      const cacheHitHeader = response.headers.get('x-local-cache-hit')
+      const cacheHit = cacheHitHeader === null ? undefined : cacheHitHeader === '1'
+
       const reader = response.body?.getReader()
       if (!reader) {
         throw new Error('Response body is not readable')
@@ -130,7 +133,7 @@ export function streamCompletion(
           }
 
           if (trimmedLine === 'data: [DONE]' || trimmedLine === 'data:[DONE]') {
-            onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens)
+            onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens, cacheHit)
             return
           }
 
@@ -167,7 +170,7 @@ export function streamCompletion(
         }
       }
 
-      onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens)
+      onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens, cacheHit)
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('Stream request aborted')

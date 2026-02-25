@@ -70,6 +70,16 @@ func TestDifficultyAssessor_DetectTaskType(t *testing.T) {
 			expected: TaskTypeMath,
 		},
 		{
+			name:     "math expression simple",
+			prompt:   "1+1",
+			expected: TaskTypeMath,
+		},
+		{
+			name:     "math expression fullwidth operator",
+			prompt:   "12＋30",
+			expected: TaskTypeMath,
+		},
+		{
 			name:     "translate task",
 			prompt:   "请翻译这段文字",
 			expected: TaskTypeTranslate,

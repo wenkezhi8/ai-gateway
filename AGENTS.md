@@ -399,7 +399,7 @@ git status
 | MINOR | 向下兼容的新功能 | 1.1.0 → 1.2.0 |
 | PATCH | 向下兼容的问题修复 | 1.1.0 → 1.1.1 |
 
-**当前版本**: `v1.4.3`
+**当前版本**: `v1.4.4`
 
 ### 强制提交规范
 
@@ -712,6 +712,7 @@ describe('UserProfile', () => {
 | 功能 | 路径 |
 |------|------|
 | 聊天补全 | `POST /api/v1/chat/completions` |
+| Anthropic Messages 兼容 | `POST /api/anthropic/v1/messages` |
 | 文本补全 | `POST /api/v1/completions` |
 | 向量嵌入 | `POST /api/v1/embeddings` |
 | 服务商列表 | `GET /api/v1/providers` |
@@ -913,7 +914,7 @@ export REDIS_DB=0
 
 ### 当前版本
 
-**v1.4.3** (2026-02-25)
+**v1.4.4** (2026-02-26)
 
 ### 当前迭代 (v1.4)
 
@@ -926,6 +927,7 @@ export REDIS_DB=0
 | 导出缓存数据 | ✅ 完成 | 导出缓存数据为 JSON |
 | 缓存趋势图 | ✅ 完成 | 缓存命中/未命中趋势图表 |
 | 缓存内容按任务类型分类 | ✅ 完成 | 按事实/代码/数学/对话/创意/推理/翻译/长文本分类显示 |
+| Anthropic 兼容入口落地 | ✅ 完成 | 新增 `POST /api/anthropic/v1/messages`，支持非流式/流式、多模态、tool_use/tool_result 转换 |
 
 ### 上一迭代 (v1.3)
 
@@ -990,6 +992,7 @@ export REDIS_DB=0
 | 模型删除后刷新恢复 | 已修复 | loadFromFile 完全替换而非合并 |
 | 密码重启后重置 | 已修复 | 持久化到 data/users.json |
 | 代码丢失风险 | 已解决 | 每次开发立即提交，每天推送远程 |
+| Anthropic 页面有示例但路由 404 | 已修复 | 后端新增 `/api/anthropic/v1/messages` 并返回 Anthropic 协议格式 |
 
 ### 改进建议
 

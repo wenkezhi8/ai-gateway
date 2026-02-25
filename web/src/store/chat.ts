@@ -6,6 +6,7 @@ import { ref, computed } from 'vue'
 import type { ChatMessage, Conversation, ProviderConfig } from '@/types/chat'
 import { createConversation } from '@/types/chat'
 import { request } from '@/api/request'
+import { API } from '@/constants/api'
 
 /** Extract date from model name for sorting (newest first) */
 function extractModelDate(modelName: string): number {
@@ -62,7 +63,7 @@ export const PROVIDERS = ref<ProviderConfig[]>([...DEFAULT_PROVIDERS])
 /** Load providers from public API (works without authentication) */
 export async function loadProvidersFromPublicAPI(): Promise<boolean> {
   try {
-    const response = await fetch('/api/v1/config/providers')
+    const response = await fetch(API.V1.CONFIG_PROVIDERS)
     if (!response.ok) {
       return false
     }

@@ -114,7 +114,7 @@
         <div class="panel-header">
           <div>
             <div class="panel-title">缓存策略面板</div>
-            <div class="panel-subtitle">策略配置、规则管理与内容追踪</div>
+            <div class="panel-subtitle">缓存内容优先，集中管理策略与规则</div>
           </div>
         </div>
 
@@ -127,6 +127,143 @@
         </div>
 
         <el-tabs v-model="activeTab" class="cache-tabs">
+            <el-tab-pane label="缓存内容" name="entries">
+              <div class="entries-toolbar">
+                <div class="entries-toolbar-left">
+                  <!-- FIX: 筛选条件变更时重置分页，避免空页 -->
+                  <el-select v-model="entriesFilter.type" placeholder="任务类型" clearable style="width: 150px" @change="handleEntriesTypeChange">
+                    <el-option label="全部" value="" />
+                    <el-option label="事实查询" value="fact" />
+                    <el-option label="代码生成" value="code" />
+                    <el-option label="数学计算" value="math" />
+                    <el-option label="日常对话" value="chat" />
+                    <el-option label="创意写作" value="creative" />
+                    <el-option label="逻辑推理" value="reasoning" />
+                    <el-option label="翻译" value="translate" />
+                    <el-option label="长文本" value="long_text" />
+                    <el-option label="其他" value="unknown" />
+                  </el-select>
+                  <!-- FIX: 搜索条件变更时重置分页，避免空页 -->
+                  <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="handleEntriesSearchInput">
+                    <template #prefix><el-icon><Search /></el-icon></template>
+                  </el-input>
+                  <el-switch
+                    v-model="entriesFilter.aggregate"
+                    inline-prompt
+                    active-text="聚合"
+                    inactive-text="明细"
+                    @change="handleEntriesModeChange"
+                  />
+                  <el-switch
+                    v-model="entriesFilter.readableOnly"
+                    inline-prompt
+                    active-text="可读"
+                    inactive-text="全部"
+                    @change="handleEntriesModeChange"
+                  />
+                </div>
+                <div class="entries-toolbar-right">
+                  <el-button type="warning" plain @click="cleanupInvalidEntries">清理异常条目</el-button>
+                  <el-button
+                    type="danger"
+                    plain
+                    :disabled="selectedEntryKeys.length === 0"
+                    @click="batchDeleteEntries"
+                  >
+                    批量删除（{{ selectedEntryKeys.length }}）
+                  </el-button>
+                </div>
+              </div>
+
+              <div v-if="entriesLoading" class="entries-skeleton">
+                <el-skeleton v-for="row in 5" :key="row" animated>
+                  <template #template>
+                    <div class="skeleton-row">
+                      <el-skeleton-item variant="text" style="width: 10%" />
+                      <el-skeleton-item variant="text" style="width: 26%" />
+                      <el-skeleton-item variant="text" style="width: 26%" />
+                      <el-skeleton-item variant="text" style="width: 12%" />
+                      <el-skeleton-item variant="text" style="width: 8%" />
+                      <el-skeleton-item variant="text" style="width: 8%" />
+                    </div>
+                  </template>
+                </el-skeleton>
+              </div>
+
+              <el-empty v-else-if="cacheEntries.length === 0" description="暂无缓存数据，发送 AI 请求后将自动生成缓存">
+                <el-button type="primary" size="small" @click="showWarmupDialog">
+                  <el-icon><Plus /></el-icon>
+                  去预热缓存
+                </el-button>
+              </el-empty>
+
+              <el-table v-else :data="cacheEntries" stripe class="entries-table" row-key="key" @selection-change="handleEntrySelectionChange">
+                <el-table-column type="selection" width="46" />
+                <el-table-column label="任务类型" width="100">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="getTaskTypeTag(row.task_type)">{{ getTaskTypeName(row.task_type) }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="ID" width="120" show-overflow-tooltip>
+                  <template #default="{ row }">
+                    <code class="cache-id" :title="row.key">{{ getCacheId(row.key) }}</code>
+                  </template>
+                </el-table-column>
+                <el-table-column label="用户消息" min-width="200">
+                  <template #default="{ row }">
+                    <div class="message-preview">{{ getUserMessage(row) }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="AI 回复" min-width="200">
+                  <template #default="{ row }">
+                    <div class="message-preview">{{ getAIResponse(row) }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="模型" width="120">
+                  <template #default="{ row }">
+                    <el-tag size="small">{{ row.model || '-' }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="hits" label="命中记录" width="90">
+                  <template #default="{ row }">
+                    <span class="hits-count">{{ row.hit_recorded ? (row.hits || 0) : '-' }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="条目数" width="88">
+                  <template #default="{ row }">
+                    <span>{{ row.group_count || 1 }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="TTL" width="80">
+                  <template #default="{ row }">
+                    <span>{{ formatTTL(row.ttl) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="created_at" label="创建时间" width="160">
+                  <template #default="{ row }">
+                    {{ formatTime(row.created_at) }}
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" width="140" fixed="right">
+                  <template #default="{ row }">
+                    <el-button type="primary" link size="small" @click="viewEntryDetail(row)">详情</el-button>
+                    <el-button type="danger" link size="small" @click="deleteEntry(row)">删除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+
+              <div class="pagination">
+                <el-pagination
+                  v-model:current-page="entriesFilter.page"
+                  v-model:page-size="entriesFilter.pageSize"
+                  :total="entriesTotal"
+                  :page-sizes="[10, 20, 50, 100]"
+                  layout="total, sizes, prev, pager, next"
+                  @change="loadCacheEntries"
+                />
+              </div>
+            </el-tab-pane>
+
             <el-tab-pane label="策略配置" name="general">
               <el-form :model="cacheConfig" label-width="140px" class="config-form">
                 <el-form-item label="启用缓存">
@@ -379,104 +516,6 @@
               </div>
             </el-tab-pane>
 
-            <el-tab-pane label="缓存内容" name="entries">
-              <div class="entries-toolbar">
-                <!-- FIX: 筛选条件变更时重置分页，避免空页 -->
-                <el-select v-model="entriesFilter.type" placeholder="任务类型" clearable style="width: 150px" @change="handleEntriesTypeChange">
-                  <el-option label="全部" value="" />
-                  <el-option label="事实查询" value="fact" />
-                  <el-option label="代码生成" value="code" />
-                  <el-option label="数学计算" value="math" />
-                  <el-option label="日常对话" value="chat" />
-                  <el-option label="创意写作" value="creative" />
-                  <el-option label="逻辑推理" value="reasoning" />
-                  <el-option label="翻译" value="translate" />
-                  <el-option label="长文本" value="long_text" />
-                  <el-option label="其他" value="unknown" />
-                </el-select>
-                <!-- FIX: 搜索条件变更时重置分页，避免空页 -->
-                <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="handleEntriesSearchInput">
-                  <template #prefix><el-icon><Search /></el-icon></template>
-                </el-input>
-              </div>
-
-              <div v-if="entriesLoading" class="entries-skeleton">
-                <el-skeleton v-for="row in 5" :key="row" animated>
-                  <template #template>
-                    <div class="skeleton-row">
-                      <el-skeleton-item variant="text" style="width: 10%" />
-                      <el-skeleton-item variant="text" style="width: 26%" />
-                      <el-skeleton-item variant="text" style="width: 26%" />
-                      <el-skeleton-item variant="text" style="width: 12%" />
-                      <el-skeleton-item variant="text" style="width: 8%" />
-                      <el-skeleton-item variant="text" style="width: 8%" />
-                    </div>
-                  </template>
-                </el-skeleton>
-              </div>
-
-              <el-empty v-else-if="cacheEntries.length === 0" description="暂无缓存数据，发送 AI 请求后将自动生成缓存">
-                <el-button type="primary" size="small" @click="showWarmupDialog">
-                  <el-icon><Plus /></el-icon>
-                  去预热缓存
-                </el-button>
-              </el-empty>
-
-              <el-table v-else :data="cacheEntries" stripe class="entries-table">
-                <el-table-column label="任务类型" width="100">
-                  <template #default="{ row }">
-                    <el-tag size="small" :type="getTaskTypeTag(row.task_type)">{{ getTaskTypeName(row.task_type) }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="用户消息" min-width="200">
-                  <template #default="{ row }">
-                    <div class="message-preview">{{ getUserMessage(row) }}</div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="AI 回复" min-width="200">
-                  <template #default="{ row }">
-                    <div class="message-preview">{{ getAIResponse(row) }}</div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="模型" width="120">
-                  <template #default="{ row }">
-                    <el-tag size="small">{{ row.model || '-' }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="hits" label="命中" width="80">
-                  <template #default="{ row }">
-                    <span class="hits-count">{{ row.hits || 0 }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="TTL" width="80">
-                  <template #default="{ row }">
-                    <span>{{ formatTTL(row.ttl) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="created_at" label="创建时间" width="160">
-                  <template #default="{ row }">
-                    {{ formatTime(row.created_at) }}
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="140" fixed="right">
-                  <template #default="{ row }">
-                    <el-button type="primary" link size="small" @click="viewEntryDetail(row)">详情</el-button>
-                    <el-button type="danger" link size="small" @click="deleteEntry(row)">删除</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-
-              <div class="pagination">
-                <el-pagination
-                  v-model:current-page="entriesFilter.page"
-                  v-model:page-size="entriesFilter.pageSize"
-                  :total="entriesTotal"
-                  :page-sizes="[10, 20, 50, 100]"
-                  layout="total, sizes, prev, pager, next"
-                  @change="loadCacheEntries"
-                />
-              </div>
-            </el-tab-pane>
           </el-tabs>
           <!-- FIX: 修复多余闭合标签，恢复布局结构 -->
         </div>
@@ -498,13 +537,21 @@
         </el-descriptions>
 
         <div class="detail-value">
-          <h4>缓存内容</h4>
+          <h4>AI 回复</h4>
           <el-input
             type="textarea"
-            :model-value="formatValue(entryDetail.value)"
+            :model-value="getAIResponseFull(entryDetail)"
             :rows="12"
             readonly
           />
+        </div>
+
+        <div v-if="entryDetail.model_stats && Object.keys(entryDetail.model_stats).length > 0" class="detail-value">
+          <h4>实际命中模型</h4>
+          <el-table :data="toModelStatsRows(entryDetail.model_stats)" size="small" border>
+            <el-table-column prop="model" label="模型" min-width="220" />
+            <el-table-column prop="count" label="条目数" width="100" align="right" />
+          </el-table>
         </div>
       </div>
       <template #footer>
@@ -665,6 +712,7 @@ import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
+import { API } from '@/constants/api'
 import * as echarts from 'echarts'
 
 interface CacheType {
@@ -707,7 +755,7 @@ interface TaskTTLItem {
 }
 
 const loading = ref(false)
-const activeTab = ref('general')
+const activeTab = ref('entries')
 const ttlSaving = ref(false)
 const ruleDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
@@ -856,6 +904,7 @@ const hotCaches = ref<HotCache[]>([])
 
 // 缓存内容管理相关
 const cacheEntries = ref<any[]>([])
+const selectedEntryKeys = ref<string[]>([])
 const entriesLoading = ref(false)
 const entriesTotal = ref(0)
 const entryDetailVisible = ref(false)
@@ -864,7 +913,9 @@ const entriesFilter = reactive({
   type: '',
   search: '',
   page: 1,
-  pageSize: 20
+  pageSize: 20,
+  aggregate: true,
+  readableOnly: true
 })
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -1392,6 +1443,11 @@ function handleEntriesTypeChange() {
   loadCacheEntries()
 }
 
+function handleEntriesModeChange() {
+  entriesFilter.page = 1
+  loadCacheEntries()
+}
+
 // FIX: 搜索输入增加 300ms 防抖，避免高频请求
 function handleEntriesSearchInput() {
   entriesFilter.page = 1
@@ -1401,13 +1457,20 @@ function handleEntriesSearchInput() {
   }, 300)
 }
 
+function handleEntrySelectionChange(rows: any[]) {
+  selectedEntryKeys.value = (rows || []).map(row => row.key).filter(Boolean)
+}
+
 async function loadCacheEntries() {
   entriesLoading.value = true
   try {
     const params = new URLSearchParams()
+    params.append('type', 'response')
     // PERF: 维持服务端分页/筛选，避免在前端对大数据量二次遍历
     if (entriesFilter.type) params.append('task_type', entriesFilter.type)
     if (entriesFilter.search) params.append('search', entriesFilter.search)
+    params.append('aggregate', entriesFilter.aggregate ? '1' : '0')
+    params.append('readable_only', entriesFilter.readableOnly ? '1' : '0')
     params.append('page', entriesFilter.page.toString())
     params.append('page_size', entriesFilter.pageSize.toString())
     
@@ -1415,6 +1478,7 @@ async function loadCacheEntries() {
     if (data?.data) {
       cacheEntries.value = data.data.entries || []
       entriesTotal.value = data.data.total || 0
+      selectedEntryKeys.value = []
     }
   } catch (e) {
     console.warn('Failed to load cache entries:', e)
@@ -1423,11 +1487,78 @@ async function loadCacheEntries() {
   }
 }
 
+async function cleanupInvalidEntries() {
+  try {
+    await ElMessageBox.confirm('将清理无任务类型、无消息、无回复、无创建时间的异常缓存条目，是否继续？', '清理异常条目', { type: 'warning' })
+    const data: any = await request.post('/admin/cache/entries/cleanup-invalid')
+    const deleted = data?.data?.deleted || 0
+    const failed = data?.data?.failed || 0
+    if (failed > 0) {
+      ElMessage.warning(`已清理 ${deleted} 条，${failed} 条清理失败`)
+    } else {
+      handleSuccess(`已清理 ${deleted} 条异常缓存`)
+    }
+    await Promise.all([loadCacheEntries(), loadCacheStats()])
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      handleApiError(e, '清理失败')
+    }
+  }
+}
+
+async function batchDeleteEntries() {
+  if (selectedEntryKeys.value.length === 0) return
+
+  try {
+    await ElMessageBox.confirm(`确定批量删除已选中的 ${selectedEntryKeys.value.length} 条缓存吗？`, '确认删除', { type: 'warning' })
+
+    const keys = [...selectedEntryKeys.value]
+    const selectedRows = cacheEntries.value.filter(row => keys.includes(row.key))
+    let successCount = 0
+    for (const row of selectedRows) {
+      try {
+        if (entriesFilter.aggregate && (row.group_count || 1) > 1) {
+          const data: any = await request.post('/admin/cache/entries/delete-group', {
+            task_type: row.task_type || '',
+            user_message: row.user_message || '',
+            ai_response: row.ai_response || '',
+            model: '',
+            provider: row.provider || ''
+          })
+          successCount += Math.max(1, data?.data?.deleted || 0)
+        } else {
+          await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+          successCount++
+        }
+      } catch {
+        // continue deleting other keys
+      }
+    }
+
+    if (successCount > 0) {
+      handleSuccess(`已删除 ${successCount} 条缓存`)
+    }
+    if (successCount < selectedRows.length) {
+      ElMessage.warning(`有 ${selectedRows.length - successCount} 条删除失败，请重试`)
+    }
+
+    selectedEntryKeys.value = []
+    await Promise.all([loadCacheEntries(), loadCacheStats()])
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      handleApiError(e, '批量删除失败')
+    }
+  }
+}
+
 async function viewEntryDetail(row: any) {
   try {
     const data: any = await request.get(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
     if (data?.data) {
-      entryDetail.value = data.data
+      entryDetail.value = {
+        ...data.data,
+        model_stats: row.model_stats || data.data.model_stats
+      }
       entryDetailVisible.value = true
     }
   } catch (e) {
@@ -1438,7 +1569,17 @@ async function viewEntryDetail(row: any) {
 async function deleteEntry(row: any) {
   try {
     await ElMessageBox.confirm(`确定删除缓存 "${truncateKey(row.key, 30)}" 吗？`, '确认删除', { type: 'warning' })
-    await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+    if (entriesFilter.aggregate && (row.group_count || 1) > 1) {
+      await request.post('/admin/cache/entries/delete-group', {
+        task_type: row.task_type || '',
+        user_message: row.user_message || '',
+        ai_response: row.ai_response || '',
+        model: '',
+        provider: row.provider || ''
+      })
+    } else {
+      await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+    }
     handleSuccess('缓存已删除')
     loadCacheEntries()
     loadCacheStats()
@@ -1452,7 +1593,17 @@ async function deleteEntry(row: any) {
 async function deleteEntryAndClose() {
   if (!entryDetail.value) return
   try {
-    await request.delete(`/admin/cache/entries/${encodeURIComponent(entryDetail.value.key)}`)
+    if (entriesFilter.aggregate && (entryDetail.value.group_count || 1) > 1) {
+      await request.post('/admin/cache/entries/delete-group', {
+        task_type: entryDetail.value.task_type || '',
+        user_message: entryDetail.value.user_message || '',
+        ai_response: entryDetail.value.ai_response || '',
+        model: '',
+        provider: entryDetail.value.provider || ''
+      })
+    } else {
+      await request.delete(`/admin/cache/entries/${encodeURIComponent(entryDetail.value.key)}`)
+    }
     handleSuccess('缓存已删除')
     entryDetailVisible.value = false
     loadCacheEntries()
@@ -1460,6 +1611,12 @@ async function deleteEntryAndClose() {
   } catch (e) {
     handleApiError(e, '删除失败')
   }
+}
+
+function toModelStatsRows(modelStats: Record<string, number>): Array<{ model: string; count: number }> {
+  return Object.entries(modelStats || {})
+    .map(([model, count]) => ({ model, count }))
+    .sort((a, b) => b.count - a.count)
 }
 
 function truncateKey(key: string, maxLen: number): string {
@@ -1493,6 +1650,81 @@ function formatValue(value: any): string {
   } catch {
     return String(value)
   }
+}
+
+function getCacheId(key: string): string {
+  if (!key) return '-'
+  const parts = key.split(':')
+  const tail = parts[parts.length - 1] || key
+  if (tail.length <= 12) return tail
+  return tail.slice(0, 12)
+}
+
+function getAIResponseFull(row: any): string {
+  const value = row?.value
+  if (!value) return '-'
+
+  const extractFromPayload = (payload: any): string => {
+    if (!payload || typeof payload !== 'object') return ''
+    if (Array.isArray(payload.choices) && payload.choices[0]) {
+      const content = payload.choices[0]?.message?.content
+      if (typeof content === 'string' && content.trim()) return content
+    }
+    return ''
+  }
+
+  const tryParseJsonString = (raw: string): any => {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  const decodeBase64ToJson = (raw: string): any => {
+    try {
+      const binary = atob(raw)
+      const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0))
+      const text = new TextDecoder().decode(bytes)
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  }
+
+  if (typeof value === 'object') {
+    const direct = extractFromPayload(value)
+    if (direct) return direct
+
+    const body = (value as any).body ?? (value as any).Body
+    if (body) {
+      let payload = typeof body === 'string' ? tryParseJsonString(body) : body
+      if (!payload && typeof body === 'string') {
+        payload = decodeBase64ToJson(body)
+      }
+      const fromBody = extractFromPayload(payload)
+      if (fromBody) return fromBody
+    }
+
+    const response = (value as any).response ?? (value as any).Response
+    if (response) {
+      let payload = typeof response === 'string' ? tryParseJsonString(response) : response
+      if (!payload && typeof response === 'string') {
+        payload = decodeBase64ToJson(response)
+      }
+      const fromResponse = extractFromPayload(payload)
+      if (fromResponse) return fromResponse
+    }
+  }
+
+  if (typeof value === 'string') {
+    const parsed = tryParseJsonString(value)
+    const fromParsed = extractFromPayload(parsed)
+    if (fromParsed) return fromParsed
+    return value
+  }
+
+  return formatValue(value)
 }
 
 // 获取任务类型标签颜色
@@ -1604,7 +1836,7 @@ async function exportCacheData() {
     const params = new URLSearchParams()
     if (entriesFilter.type) params.append('task_type', entriesFilter.type)
     
-    const response = await fetch(`/api/admin/cache/export?${params.toString()}`, {
+    const response = await fetch(`${API.CACHE.EXPORT}?${params.toString()}`, {
       headers: {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
@@ -2069,10 +2301,24 @@ onUnmounted(() => {
 
 .entries-toolbar {
   display: flex;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.entries-toolbar-left {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.entries-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .entries-table {
@@ -2223,6 +2469,11 @@ onUnmounted(() => {
   font-size: 13px;
   color: var(--el-text-color-regular);
   line-height: 1.4;
+}
+
+.cache-id {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 @media (max-width: 1200px) {

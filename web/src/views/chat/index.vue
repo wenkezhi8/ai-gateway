@@ -571,10 +571,23 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       ElMessage.error(error.message)
     },
     // onComplete
-    (totalTokens?: number, promptTokens?: number, completionTokens?: number) => {
+    (totalTokens?: number, promptTokens?: number, completionTokens?: number, cacheHit?: boolean) => {
       const endTime = Date.now()
       const totalTimeMs = endTime - startTime
       const firstTokenMs = firstTokenTime ? firstTokenTime - startTime : undefined
+
+      const latestMessage = chatStore.currentConversation?.messages.find(m => m.id === assistantMessage.id)
+      const hasOutput = !!latestMessage?.content || !!latestMessage?.reasoningContent
+      if (!hasOutput) {
+        chatStore.updateMessage(assistantMessage.id, {
+          isStreaming: false,
+          error: '模型未返回内容，请检查模型名称或服务商账号配置'
+        })
+        chatStore.setLoading(false)
+        chatStore.setAbortController(conversationId, null)
+        ElMessage.error('模型未返回内容，请检查模型名称或服务商账号配置')
+        return
+      }
       
       const completionTimeSec = firstTokenTime ? (endTime - firstTokenTime) / 1000 : 0
       const estimatedPromptTokens = promptTokens || Math.round(promptChars / 2)
@@ -590,7 +603,8 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
           outputTokensPerSecond: tokensPerSecond,
           totalTokens: estimatedTotalTokens,
           promptTokens: estimatedPromptTokens,
-          completionTokens: estimatedCompletionTokens
+          completionTokens: estimatedCompletionTokens,
+          cacheHit
         }
       })
       chatStore.setLoading(false)

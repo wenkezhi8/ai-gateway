@@ -110,7 +110,6 @@ func (h *ApiKeyHandler) ListApiKeys(c *gin.Context) {
 	keys := make([]*ApiKey, 0, len(h.store))
 	for _, k := range h.store {
 		keyCopy := *k
-		keyCopy.Key = maskKey(k.Key)
 		keys = append(keys, &keyCopy)
 	}
 
@@ -135,7 +134,6 @@ func (h *ApiKeyHandler) GetApiKey(c *gin.Context) {
 	}
 
 	keyCopy := *key
-	keyCopy.Key = maskKey(key.Key)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    &keyCopy,

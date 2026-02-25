@@ -39,6 +39,15 @@ func GetFeedbackHandler() *FeedbackHandler {
 	return globalFeedbackHandler
 }
 
+// RecordRequestResult records real request results into feedback collector.
+// It is safe to call even when feedback handler is not initialized.
+func RecordRequestResult(model, provider string, taskType routing.TaskType, difficulty routing.DifficultyLevel, success bool, latencyMs int64, tokensUsed int) {
+	if globalFeedbackHandler == nil || globalFeedbackHandler.collector == nil {
+		return
+	}
+	globalFeedbackHandler.collector.RecordRequestResult(model, provider, taskType, difficulty, success, latencyMs, tokensUsed)
+}
+
 // SubmitFeedback handles feedback submission
 func (h *FeedbackHandler) SubmitFeedback(c *gin.Context) {
 	var req FeedbackRequest
@@ -126,9 +135,18 @@ func (h *FeedbackHandler) GetTopModels(c *gin.Context) {
 
 // TriggerOptimization manually triggers score optimization
 func (h *FeedbackHandler) TriggerOptimization(c *gin.Context) {
-	h.collector.OptimizeScores()
+	result := h.collector.OptimizeScoresWithResult()
+	message := "Optimization completed"
+	if result.ModelsScanned == 0 {
+		message = "No feedback data yet"
+	} else if result.ModelsEligible == 0 {
+		message = "Not enough feedback samples to optimize"
+	} else if result.ModelsUpdated == 0 {
+		message = "Optimization completed (no score changes)"
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Optimization completed",
+		"message": message,
+		"data":    result,
 	})
 }
 

@@ -20,6 +20,7 @@ export const API_BASE_URL = `http://localhost:${PORTS.SERVER}`
 export const API = {
   // v1 接口 (统一入口)
   V1: {
+    BASE: '/api/v1',
     CHAT_COMPLETIONS: '/api/v1/chat/completions',
     COMPLETIONS: '/api/v1/completions',
     EMBEDDINGS: '/api/v1/embeddings',
@@ -27,6 +28,12 @@ export const API = {
     MODELS: '/api/v1/models',
     CONFIG_PROVIDERS: '/api/v1/config/providers',
     SEARCH: '/api/v1/search',
+  },
+
+  // Anthropic 兼容接口
+  ANTHROPIC: {
+    BASE: '/api/anthropic',
+    MESSAGES: '/api/anthropic/v1/messages',
   },
   
   // 认证接口
@@ -81,5 +88,6 @@ export const API = {
     QUALITY_CONFIG: '/api/admin/cache/quality-config',
     INVALIDATE_LOW_QUALITY: '/api/admin/cache/invalidate-low-quality',
     RULES: '/api/admin/cache/rules',
+    EXPORT: '/api/admin/cache/export',
   },
 } as const

@@ -56,7 +56,7 @@
             <el-table :data="apiKeys" stripe size="small" v-loading="loadingKeys">
               <el-table-column width="60" align="center">
                 <template #default="{ row }">
-                  <el-radio v-model="selectedConfigKeyId" :value="row.id" :disabled="!row.enabled" />
+                  <el-radio v-model="selectedConfigKeyId" :label="row.id" :value="row.id" :disabled="!row.enabled" />
                 </template>
               </el-table-column>
               <el-table-column label="名称" prop="name" width="150" />
@@ -265,11 +265,24 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
                 </div>
               </el-tab-pane>
 
-              <el-tab-pane label="其他工具" name="other">
+              <el-tab-pane label="Claude Code" name="claude-code-tab">
                 <div class="config-section">
                   <div class="config-desc">
                     <el-icon><InfoFilled /></el-icon>
-                    <span>配置其他 AI 工具使用此网关</span>
+                    <span>Claude Code 一键配置</span>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">一键配置脚本（推荐）</span>
+                      <el-button type="primary" size="small" @click="copyToolSetupScript('claude-code')">
+                        <el-icon><CopyDocument /></el-icon>
+                        复制命令
+                      </el-button>
+                    </div>
+                    <div class="code-block">
+                      <pre><code>{{ claudeCodeSetupScript }}</code></pre>
+                    </div>
                   </div>
 
                   <div class="tools-grid">
@@ -284,6 +297,90 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="OpenClaw" name="openclaw-tab">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>OpenClaw 一键配置</span>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">一键配置脚本（推荐）</span>
+                      <el-button type="primary" size="small" @click="copyToolSetupScript('openclaw')">
+                        <el-icon><CopyDocument /></el-icon>
+                        复制命令
+                      </el-button>
+                    </div>
+                    <div class="code-block">
+                      <pre><code>{{ openClawSetupScript }}</code></pre>
+                    </div>
+                  </div>
+
+                  <div class="tools-grid">
+                    <div class="tool-item">
+                      <div class="tool-name">OpenClaw</div>
+                      <div class="tool-desc">AI 编程工具</div>
+                      <div class="tool-config">
+                        <div class="config-row">
+                          <span class="config-label">API Base</span>
+                          <code>{{ apiBaseUrl }}/api/v1</code>
+                          <el-button type="primary" link size="small" @click="copyToolConfig('openclaw')">复制配置</el-button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="OpenCode" name="opencode-tab">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>OpenCode 一键配置</span>
+                  </div>
+
+                  <div class="config-block">
+                    <div class="block-header">
+                      <span class="block-title">一键配置脚本（推荐）</span>
+                      <el-button type="primary" size="small" @click="copyToolSetupScript('opencode')">
+                        <el-icon><CopyDocument /></el-icon>
+                        复制命令
+                      </el-button>
+                    </div>
+                    <div class="code-block">
+                      <pre><code>{{ openCodeSetupScript }}</code></pre>
+                    </div>
+                  </div>
+
+                  <div class="tools-grid">
+                    <div class="tool-item">
+                      <div class="tool-name">OpenCode</div>
+                      <div class="tool-desc">AI 编程工具</div>
+                      <div class="tool-config">
+                        <div class="config-row">
+                          <span class="config-label">API Base</span>
+                          <code>{{ apiBaseUrl }}/api/v1</code>
+                          <el-button type="primary" link size="small" @click="copyToolConfig('openclaw')">复制配置</el-button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </el-tab-pane>
+
+              <el-tab-pane label="其他工具" name="other">
+                <div class="config-section">
+                  <div class="config-desc">
+                    <el-icon><InfoFilled /></el-icon>
+                    <span>配置其他 AI 工具使用此网关</span>
+                  </div>
+
+                  <div class="tools-grid">
                     <div class="tool-item">
                       <div class="tool-name">Cursor</div>
                       <div class="tool-desc">AI 代码编辑器</div>
@@ -303,17 +400,6 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
                           <span class="config-label">OpenAI URL</span>
                           <code>{{ apiBaseUrl }}/api/v1</code>
                           <el-button type="primary" link size="small" @click="copyToolConfig('cline')">复制配置</el-button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="tool-item">
-                      <div class="tool-name">OpenClaw / OpenCode</div>
-                      <div class="tool-desc">AI 编程工具</div>
-                      <div class="tool-config">
-                        <div class="config-row">
-                          <span class="config-label">API Base</span>
-                          <code>{{ apiBaseUrl }}/api/v1</code>
-                          <el-button type="primary" link size="small" @click="copyToolConfig('openclaw')">复制配置</el-button>
                         </div>
                       </div>
                     </div>
@@ -588,9 +674,10 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { API } from '@/constants/api'
 
 interface ApiKey {
   id: string
@@ -690,11 +777,26 @@ const selectedConfigKey = computed(() => {
   }
   if (testForm.value.apiKey) return testForm.value.apiKey
   const enabledKey = apiKeys.value.find(k => k.enabled)
-  if (enabledKey && !selectedConfigKeyId.value) {
-    selectedConfigKeyId.value = enabledKey.id
-  }
   return enabledKey?.key || ''
 })
+
+function syncSelectedConfigKeyToTestForm() {
+  const selectedEnabledKey = apiKeys.value.find(k => k.id === selectedConfigKeyId.value && k.enabled)
+  if (selectedEnabledKey) {
+    testForm.value.apiKey = selectedEnabledKey.key
+    return
+  }
+
+  const firstEnabledKey = apiKeys.value.find(k => k.enabled)
+  if (firstEnabledKey) {
+    selectedConfigKeyId.value = firstEnabledKey.id
+    testForm.value.apiKey = firstEnabledKey.key
+    return
+  }
+
+  selectedConfigKeyId.value = ''
+  testForm.value.apiKey = ''
+}
 
 const configScriptOpenAI = computed(() => {
   const apiKey = selectedConfigKey.value || '<your-api-key>'
@@ -749,6 +851,32 @@ echo "export ANTHROPIC_DEFAULT_MODEL=\"${model}\"" >> ~/.bashrc
 echo "✅ Done!"
 SETUP_SCRIPT`
 })
+
+function buildCodingToolSetupScript(toolName: string): string {
+  const apiKey = selectedConfigKey.value || '<your-api-key>'
+  const model = selectedModelForConfig.value
+  const baseUrl = `${apiBaseUrl.value}/api/v1`
+
+  return `bash << 'SETUP_SCRIPT'
+# ${toolName} 一键配置
+
+cat << 'CONFIG_EOF'
+请将以下环境变量写入你的 shell 配置文件（~/.bashrc 或 ~/.zshrc）：
+
+export OPENAI_API_KEY="${apiKey}"
+export OPENAI_BASE_URL="${baseUrl}"
+export OPENAI_DEFAULT_MODEL="${model}"
+CONFIG_EOF
+
+echo ""
+echo "✅ 已生成 ${toolName} 配置。"
+echo "提示：写入后执行 source ~/.bashrc 或 source ~/.zshrc"
+SETUP_SCRIPT`
+}
+
+const claudeCodeSetupScript = computed(() => buildCodingToolSetupScript('Claude Code'))
+const openClawSetupScript = computed(() => buildCodingToolSetupScript('OpenClaw'))
+const openCodeSetupScript = computed(() => buildCodingToolSetupScript('OpenCode'))
 
 function maskKey(key: string): string {
   if (!key || key.length <= 12) return '****'
@@ -883,7 +1011,7 @@ const client = new Anthropic({
 
 const message = await client.messages.create({
   model: '${anthropicModel}',
-  maxTokens: 1024,
+  max_tokens: 1024,
   messages: [{ role: 'user', content: '你好' }]
 });
 
@@ -897,18 +1025,13 @@ async function loadApiKeys() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/api-keys', {
+    const res = await fetch(API.ADMIN.API_KEYS, {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()
     if (data.success) {
       apiKeys.value = (data.data || []).map((k: any) => ({ ...k, visible: false }))
-      if (apiKeys.value.length > 0 && !testForm.value.apiKey) {
-        const enabledKey = apiKeys.value.find(k => k.enabled)
-        if (enabledKey) {
-          testForm.value.apiKey = enabledKey.key
-        }
-      }
+      syncSelectedConfigKeyToTestForm()
     }
   } catch (e) {
     console.error('Failed to load API keys:', e)
@@ -931,7 +1054,7 @@ async function createApiKey() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/api-keys', {
+    const res = await fetch(API.ADMIN.API_KEYS, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -959,7 +1082,7 @@ async function toggleKeyStatus(row: ApiKey) {
   try {
     const token = getToken()
     if (!token) return
-    await fetch(`/api/admin/api-keys/${row.id}`, {
+    await fetch(`${API.ADMIN.API_KEYS}/${row.id}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -968,6 +1091,7 @@ async function toggleKeyStatus(row: ApiKey) {
       body: JSON.stringify({ enabled: !row.enabled })
     })
     row.enabled = !row.enabled
+    syncSelectedConfigKeyToTestForm()
     ElMessage.success(row.enabled ? '已启用' : '已禁用')
   } catch (e) {
     ElMessage.error('操作失败')
@@ -984,11 +1108,12 @@ async function deleteKey(row: ApiKey) {
   try {
     const token = getToken()
     if (!token) return
-    await fetch(`/api/admin/api-keys/${row.id}`, {
+    await fetch(`${API.ADMIN.API_KEYS}/${row.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` }
     })
     apiKeys.value = apiKeys.value.filter(k => k.id !== row.id)
+    syncSelectedConfigKeyToTestForm()
     ElMessage.success('已删除')
   } catch (e) {
     ElMessage.error('删除失败')
@@ -999,7 +1124,7 @@ async function loadRouterConfig() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/router/config', {
+    const res = await fetch(API.ROUTER.CONFIG, {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()
@@ -1019,7 +1144,7 @@ async function updateRouterConfig() {
   try {
     const token = getToken()
     if (!token) return
-    await fetch('/api/admin/router/config', {
+    await fetch(API.ROUTER.CONFIG, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -1041,7 +1166,7 @@ async function loadAvailableModels() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/router/available-models', {
+    const res = await fetch(API.ROUTER.AVAILABLE_MODELS, {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()
@@ -1057,7 +1182,7 @@ async function loadTopModels() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/router/top-models', {
+    const res = await fetch(API.ROUTER.TOP_MODELS, {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()
@@ -1073,7 +1198,7 @@ async function loadProviderDefaults() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch('/api/admin/router/provider-defaults', {
+    const res = await fetch(API.ROUTER.PROVIDER_DEFAULTS, {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()
@@ -1116,17 +1241,35 @@ async function runTest() {
   const startTime = Date.now()
 
   try {
-    const res = await fetch('/api/v1/chat/completions', {
+    const isAnthropic = selectedProtocol.value === 'anthropic'
+    const endpoint = isAnthropic ? API.ANTHROPIC.MESSAGES : API.V1.CHAT_COMPLETIONS
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    }
+
+    if (isAnthropic) {
+      headers['x-api-key'] = testForm.value.apiKey
+      headers['anthropic-version'] = '2023-06-01'
+    } else {
+      headers.Authorization = `Bearer ${testForm.value.apiKey}`
+    }
+
+    const payload = isAnthropic
+      ? {
+          model: testForm.value.model,
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: testForm.value.message }]
+        }
+      : {
+          model: testForm.value.model,
+          messages: [{ role: 'user', content: testForm.value.message }],
+          stream: false
+        }
+
+    const res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${testForm.value.apiKey}`
-      },
-      body: JSON.stringify({
-        model: testForm.value.model,
-        messages: [{ role: 'user', content: testForm.value.message }],
-        stream: false
-      })
+      headers,
+      body: JSON.stringify(payload)
     })
 
     const data = await res.json()
@@ -1138,8 +1281,15 @@ async function runTest() {
       data: JSON.stringify(data, null, 2)
     }
 
-    if (res.ok && data.choices?.[0]?.message?.content) {
-      testResult.value.data = data.choices[0].message.content
+    if (res.ok) {
+      if (isAnthropic && Array.isArray(data.content)) {
+        const firstTextBlock = data.content.find((block: any) => block?.type === 'text' && typeof block?.text === 'string')
+        if (firstTextBlock?.text) {
+          testResult.value.data = firstTextBlock.text
+        }
+      } else if (!isAnthropic && data.choices?.[0]?.message?.content) {
+        testResult.value.data = data.choices[0].message.content
+      }
     }
 
     loadApiKeys()
@@ -1177,6 +1327,20 @@ function copyConfigScript(type: string) {
   } else if (type === 'anthropic') {
     script = configScriptAnthropic.value
   }
+  navigator.clipboard.writeText(script)
+  ElMessage.success('已复制配置脚本')
+}
+
+function copyToolSetupScript(tool: string) {
+  let script = ''
+  if (tool === 'claude-code') {
+    script = claudeCodeSetupScript.value
+  } else if (tool === 'openclaw') {
+    script = openClawSetupScript.value
+  } else if (tool === 'opencode') {
+    script = openCodeSetupScript.value
+  }
+
   navigator.clipboard.writeText(script)
   ElMessage.success('已复制配置脚本')
 }
@@ -1270,6 +1434,13 @@ onMounted(() => {
   loadAvailableModels()
   loadTopModels()
   loadProviderDefaults()
+})
+
+watch(selectedConfigKeyId, () => {
+  const key = apiKeys.value.find(k => k.id === selectedConfigKeyId.value && k.enabled)
+  if (key) {
+    testForm.value.apiKey = key.key
+  }
 })
 </script>
 

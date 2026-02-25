@@ -226,6 +226,20 @@ func main() {
 		}
 	}
 
+	persistedSwitchHistory, err := admin.LoadPersistedSwitchHistory()
+	if err != nil {
+		logger.WithError(err).Warn("Failed to load persisted switch history")
+	} else if len(persistedSwitchHistory) > 0 {
+		accountManager.SetSwitchHistory(persistedSwitchHistory)
+		logger.Infof("Loaded persisted switch history: %d records", len(persistedSwitchHistory))
+	}
+
+	accountManager.SetSwitchHistorySaver(func(history []limiter.SwitchEvent) {
+		if err := admin.SaveSwitchHistoryToFile(history); err != nil {
+			logger.WithError(err).Warn("Failed to persist switch history to file")
+		}
+	})
+
 	cacheManager, err := cache.NewManager(cache.ManagerConfig{
 		Redis: cache.RedisConfig{
 			Host:     cfg.Redis.Host,
