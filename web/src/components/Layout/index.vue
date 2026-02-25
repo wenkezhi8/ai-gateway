@@ -162,6 +162,8 @@ const menuItems = [
   { path: '/api-management', title: 'API 管理', icon: 'Connection' },
   { path: '/model-management', title: '模型管理', icon: 'Collection' },
   { path: '/providers-accounts', title: '账号与限额', icon: 'Key' },
+  { path: '/limit-management', title: '使用记录', icon: 'DataAnalysis' },
+  { path: '/usage', title: 'API 使用统计', icon: 'DataLine' },
   { path: '/routing', title: '路由策略', icon: 'Guide' },
   { path: '/cache', title: '缓存管理', icon: 'Box' },
   { path: '/alerts', title: '告警管理', icon: 'Bell' },
