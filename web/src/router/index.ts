@@ -59,14 +59,14 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'providers-accounts',
         name: 'ProvidersAccounts',
-        component: () => import('@/views/providers-accounts/index.vue'),
-        meta: { title: 'API Key', icon: 'Key' }
+        component: () => import('@/views/accounts-limit/index.vue'),
+        meta: { title: '账号与限额', icon: 'Key' }
       },
       {
         path: 'limit-management',
         name: 'LimitManagement',
-        component: () => import('@/views/limit-management/index.vue'),
-        meta: { title: '限额管控', icon: 'DataAnalysis' }
+        component: () => import('@/views/accounts-limit/index.vue'),
+        meta: { title: '账号与限额', icon: 'Key' }
       },
       {
         path: 'chat',

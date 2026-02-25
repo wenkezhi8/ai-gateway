@@ -172,6 +172,39 @@
               </el-form>
             </el-tab-pane>
 
+            <el-tab-pane label="任务类型 TTL" name="task-ttl">
+              <div class="task-ttl-panel">
+                <div class="task-ttl-header">
+                  <div class="task-ttl-title">缓存策略（按任务类型 TTL）</div>
+                  <el-button type="primary" size="small" @click="saveTTLConfig" :loading="ttlSaving">
+                    <el-icon><Check /></el-icon>
+                    保存
+                  </el-button>
+                </div>
+
+                <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+                  <template #title>
+                    按任务类型设置缓存过期时间（小时），将同步到全局缓存 TTL 策略。
+                  </template>
+                </el-alert>
+
+                <div class="ttl-list">
+                  <div v-for="item in ttlTaskTypeList" :key="item.key" class="ttl-item">
+                    <div class="ttl-info">
+                      <div class="ttl-name">{{ item.name }}</div>
+                      <div class="ttl-desc">{{ item.description }}</div>
+                    </div>
+                    <el-input-number v-model="item.ttl" :min="0" :max="2160" :step="24" size="small" />
+                  </div>
+                </div>
+
+                <el-button style="width: 100%; margin-top: 12px" @click="resetTTLConfig">
+                  <el-icon><Refresh /></el-icon>
+                  恢复默认
+                </el-button>
+              </div>
+            </el-tab-pane>
+
             <el-tab-pane label="规则管理" name="rules">
               <div class="rules-header">
                 <el-button type="primary" size="small" @click="showAddRuleDialog">
@@ -666,8 +699,16 @@ interface HotCache {
   createdAt: string
 }
 
+interface TaskTTLItem {
+  key: string
+  name: string
+  description: string
+  ttl: number
+}
+
 const loading = ref(false)
 const activeTab = ref('general')
+const ttlSaving = ref(false)
 const ruleDialogVisible = ref(false)
 const detailDialogVisible = ref(false)
 const isEditRule = ref(false)
@@ -703,6 +744,30 @@ const cacheConfig = reactive({
   maxEntries: 10000,
   evictionPolicy: 'lru'
 })
+
+const defaultTaskTTL: Record<string, number> = {
+  fact: 24,
+  code: 168,
+  math: 720,
+  chat: 1,
+  creative: 0,
+  reasoning: 168,
+  translate: 72,
+  long_text: 360,
+  unknown: 24
+}
+
+const ttlTaskTypeList = ref<TaskTTLItem[]>([
+  { key: 'fact', name: '事实查询', description: '公共事实、政策、常识等，可能定期更新', ttl: defaultTaskTTL.fact ?? 24 },
+  { key: 'code', name: '代码生成', description: '通用代码片段，更新频率低', ttl: defaultTaskTTL.code ?? 168 },
+  { key: 'math', name: '数学计算', description: '数学题结果，几乎不会变化', ttl: defaultTaskTTL.math ?? 720 },
+  { key: 'chat', name: '日常对话', description: '个性化对话，上下文相关性强', ttl: defaultTaskTTL.chat ?? 1 },
+  { key: 'creative', name: '创意写作', description: '个性化创意内容，默认不缓存', ttl: defaultTaskTTL.creative ?? 0 },
+  { key: 'reasoning', name: '逻辑推理', description: '推理结果，稳定性高', ttl: defaultTaskTTL.reasoning ?? 168 },
+  { key: 'translate', name: '翻译', description: '标准翻译结果，仅术语更新时变化', ttl: defaultTaskTTL.translate ?? 72 },
+  { key: 'long_text', name: '长文本处理', description: '文档摘要、PDF解析等，同一文本结果固定', ttl: defaultTaskTTL.long_text ?? 360 },
+  { key: 'unknown', name: '其他类型', description: '未分类任务', ttl: defaultTaskTTL.unknown ?? 24 }
+])
 
 const redisHealth = reactive({
   status: 'unknown',
@@ -979,6 +1044,7 @@ const refreshAllCache = async () => {
   await Promise.all([
     loadCacheStats(),
     loadCacheConfig(),
+    loadTTLConfig(),
     loadCacheHealth(),
     loadCacheRules(),
     loadCacheEntries()
@@ -1206,6 +1272,47 @@ async function loadCacheConfig() {
   } catch (e) {
     console.warn('Failed to load cache config:', e)
   }
+}
+
+async function loadTTLConfig() {
+  try {
+    const data: any = await request.get('/admin/router/ttl-config')
+    if (data?.data?.task_type_defaults) {
+      const defaults = data.data.task_type_defaults as Record<string, number>
+      ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
+        ...item,
+        ttl: defaults[item.key] ?? defaultTaskTTL[item.key] ?? 24
+      }))
+    }
+  } catch (e) {
+    console.warn('Failed to load TTL config:', e)
+  }
+}
+
+async function saveTTLConfig() {
+  ttlSaving.value = true
+  try {
+    const taskTypeDefaults: Record<string, number> = {}
+    for (const item of ttlTaskTypeList.value) {
+      taskTypeDefaults[item.key] = item.ttl
+    }
+    await request.put('/admin/router/ttl-config', {
+      task_type_defaults: taskTypeDefaults
+    })
+    handleSuccess('任务类型 TTL 配置已保存')
+  } catch (e) {
+    handleApiError(e, '保存失败')
+  } finally {
+    ttlSaving.value = false
+  }
+}
+
+function resetTTLConfig() {
+  ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
+    ...item,
+    ttl: defaultTaskTTL[item.key] ?? 24
+  }))
+  handleSuccess('已恢复默认配置')
 }
 
 // 改动点: 读取 health 返回的 backend/latency 字段
@@ -1523,6 +1630,7 @@ async function exportCacheData() {
 onMounted(() => {
   loadCacheStats()
   loadCacheConfig()
+  loadTTLConfig()
   loadCacheHealth()
   loadCacheRules()
   loadCacheEntries()
@@ -1862,6 +1970,56 @@ onUnmounted(() => {
     margin-left: 8px;
     color: var(--el-text-color-secondary);
   }
+}
+
+.task-ttl-panel {
+  max-width: 820px;
+}
+
+.task-ttl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.task-ttl-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.ttl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ttl-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 8px;
+}
+
+.ttl-info {
+  min-width: 0;
+}
+
+.ttl-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.ttl-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.4;
 }
 
 .rules-header {

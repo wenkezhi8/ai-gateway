@@ -218,6 +218,9 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	}
 
 	config := convertRequestToAccountConfig(&req)
+	if strings.TrimSpace(config.ID) == "" {
+		config.ID = generateAccountID(config.Provider)
+	}
 
 	// Map frontend provider names to backend provider types
 	// Keep original provider name for display, use ProviderType for routing
@@ -246,6 +249,15 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 			"message": "Account created successfully",
 		},
 	})
+}
+
+func generateAccountID(provider string) string {
+	p := strings.TrimSpace(strings.ToLower(provider))
+	if p == "" {
+		p = "account"
+	}
+	p = strings.ReplaceAll(p, " ", "-")
+	return fmt.Sprintf("%s-%d", p, time.Now().UnixNano())
 }
 
 // mapProviderToBackend maps frontend provider names to backend provider types

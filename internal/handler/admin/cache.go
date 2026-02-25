@@ -15,9 +15,9 @@ import (
 
 // CacheHandler handles cache management requests
 type CacheHandler struct {
-	manager *cache.Manager
+	manager  *cache.Manager
 	settings cache.CacheSettings
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 }
 
 // NewCacheHandler creates a new cache handler
@@ -347,12 +347,20 @@ func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 	if _, ok := h.manager.Cache().(*cache.RedisCache); ok {
 		backend = "redis"
 	}
+	persistent := backend == "redis"
+	degraded := !persistent
 
 	response := gin.H{
 		"status":     map[bool]string{true: "healthy", false: "unhealthy"}[healthy],
 		"backend":    backend,
+		"persistent": persistent,
+		"degraded":   degraded,
 		"latency_ms": latency.Milliseconds(),
 		"timestamp":  time.Now(),
+	}
+
+	if degraded {
+		response["reason"] = "cache backend is memory"
 	}
 
 	if !healthy {
