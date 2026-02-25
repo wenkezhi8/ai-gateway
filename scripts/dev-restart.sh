@@ -15,6 +15,31 @@ cd web
 npm run build
 
 echo ""
+echo "🔍 检查 Redis (6379)..."
+if lsof -ti:6379 >/dev/null 2>&1; then
+    echo "✓ Redis 端口可用 (6379)"
+else
+    echo "⚠️  Redis 未运行，尝试自动启动..."
+
+    if command -v brew >/dev/null 2>&1; then
+        brew services start redis >/dev/null 2>&1 || true
+        sleep 2
+    fi
+
+    if ! lsof -ti:6379 >/dev/null 2>&1 && command -v redis-server >/dev/null 2>&1; then
+        nohup redis-server > /tmp/redis.log 2>&1 &
+        sleep 2
+    fi
+
+    if lsof -ti:6379 >/dev/null 2>&1; then
+        echo "✓ Redis 启动成功 (6379)"
+    else
+        echo "❌ Redis 启动失败，缓存将降级为内存模式（重启丢失）"
+        echo "   可手动执行: brew services start redis"
+    fi
+fi
+
+echo ""
 echo "🛑 停止所有旧服务（包括僵尸进程）..."
 # 停止所有 gateway 相关进程
 pkill -9 -f "go run ./cmd/gateway" 2>/dev/null || true
@@ -48,6 +73,13 @@ echo "🔍 检查服务状态..."
 HEALTH=$(curl -s http://localhost:8566/health)
 if echo "$HEALTH" | grep -q "healthy"; then
     echo "✅ 服务启动成功"
+
+    CACHE_BACKEND_LINE=$(grep -E "Cache backend is memory|Connected to Redis" /tmp/ai-gateway.log | tail -1 || true)
+    if [ -n "$CACHE_BACKEND_LINE" ]; then
+        echo ""
+        echo "🧠 缓存后端:"
+        echo "   $CACHE_BACKEND_LINE"
+    fi
     
     # 显示内存使用
     MEM=$(ps -p $GATEWAY_PID -o rss= 2>/dev/null | awk '{print int($1/1024) "MB"}')
