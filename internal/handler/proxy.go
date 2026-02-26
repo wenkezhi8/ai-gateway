@@ -266,7 +266,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
 			tokens := extractTotalTokensFromBody(semanticEntry.Response)
-			h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), tokens, true)
+			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
 			c.Header("X-Local-Cache-Hit", "1")
 			c.Data(http.StatusOK, "application/json", semanticEntry.Response)
@@ -293,7 +293,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				}).Info("Response cache hit")
 
 				tokens := extractTotalTokensFromBody(cached.Body)
-				h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), tokens, true)
+				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
 				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
 				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 				c.Header("X-Local-Cache-Hit", "1")

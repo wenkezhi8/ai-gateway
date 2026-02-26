@@ -315,8 +315,11 @@ const fetchUsageLogs = async () => {
     
     const rows: UsageRow[] = []
     for (const log of data) {
-      const inputTokens = log.input_tokens || Math.round(log.tokens * 0.6)
-      const outputTokens = log.output_tokens || Math.max(0, log.tokens - inputTokens)
+      const totalTokens = Number(log.tokens || 0)
+      const inputTokens = log.input_tokens ?? Math.round(totalTokens * 0.6)
+      const outputTokens = log.output_tokens ?? Math.max(0, totalTokens - inputTokens)
+      // Backward compatibility: legacy rows had cache_hit incorrectly persisted as false.
+      const inferredCacheHit = Boolean(log.cache_hit) || (log.success === true && Number(log.latency_ms || 0) === 0 && totalTokens > 0)
       
       rows.push({
         id: String(log.id || log.timestamp),
@@ -331,9 +334,9 @@ const fetchUsageLogs = async () => {
         model: log.model || '-',
         inputTokens,
         outputTokens,
-        totalTokens: log.tokens || 0,
-        cacheHit: log.cache_hit ? '命中' : '未命中',
-        cost: (log.tokens || 0) * 0.00000035
+        totalTokens,
+        cacheHit: inferredCacheHit ? '命中' : '未命中',
+        cost: totalTokens * 0.00000035
       })
     }
     
