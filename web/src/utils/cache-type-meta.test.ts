@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CACHE_TYPE_META, listCacheTypeMeta } from './cache-type-meta'
+import { CACHE_TYPE_META, buildCacheTypeCards, listCacheTypeMeta } from './cache-type-meta'
 
 describe('cache-type-meta', () => {
   it('exposes all core cache types with required fields', () => {
@@ -21,5 +21,18 @@ describe('cache-type-meta', () => {
   it('includes cache key prefixes for known types', () => {
     expect(CACHE_TYPE_META.response.prefix).toBe('ai-gateway:ai-response:*')
     expect(CACHE_TYPE_META.request.prefix).toBe('ai-gateway:req:*')
+  })
+
+  it('builds cache type cards with stats merged and order preserved', () => {
+    const cards = buildCacheTypeCards([
+      { id: 'response', hitRate: 75, entries: 12, size: '2 MB', enabled: false }
+    ])
+
+    expect(cards[0].id).toBe('response')
+    expect(cards[0].hitRate).toBe(75)
+    expect(cards[0].entries).toBe(12)
+    expect(cards[0].enabled).toBe(false)
+    expect(cards[1].id).toBe('request')
+    expect(cards[1].hitRate).toBe(0)
   })
 })
