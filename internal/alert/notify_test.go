@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -67,6 +69,50 @@ func TestNotifier_SendDingTalk(t *testing.T) {
 		StartsAt:    time.Now(),
 		Labels:      map[string]string{"env": "test"},
 		Annotations: map[string]string{"detail": "test detail"},
+	}
+
+	err := notifier.sendDingTalk(alert)
+	assert.NoError(t, err)
+}
+
+func TestBuildDingTalkWebhookURL_WithSecret(t *testing.T) {
+	base := "https://oapi.dingtalk.com/robot/send?access_token=test-token"
+	secret := "sec-test-secret"
+	now := time.UnixMilli(1700000000000)
+
+	signedURL, err := buildDingTalkWebhookURL(base, secret, now)
+	require.NoError(t, err)
+
+	parsed, err := url.Parse(signedURL)
+	require.NoError(t, err)
+	query := parsed.Query()
+	assert.Equal(t, strconv.FormatInt(now.UnixMilli(), 10), query.Get("timestamp"))
+	assert.NotEmpty(t, query.Get("sign"))
+}
+
+func TestNotifier_SendDingTalk_WithSecretAddsSignatureQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		assert.NotEmpty(t, q.Get("timestamp"))
+		assert.NotEmpty(t, q.Get("sign"))
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 0, "errmsg": "ok"})
+	}))
+	defer server.Close()
+
+	cfg := &NotifierConfig{
+		DingTalkWebhook: server.URL,
+		DingTalkSecret:  "sec-test-secret",
+		EnabledLevels:   []AlertLevel{AlertLevelWarning},
+	}
+	notifier := NewNotifier(cfg)
+
+	alert := Alert{
+		Name:     "Test Alert",
+		Level:    AlertLevelWarning,
+		Message:  "Test message",
+		StartsAt: time.Now(),
 	}
 
 	err := notifier.sendDingTalk(alert)

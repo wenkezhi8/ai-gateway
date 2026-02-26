@@ -2,11 +2,16 @@ package alert
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/smtp"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -168,17 +173,17 @@ func (n *Notifier) sendDingTalk(alert Alert) error {
 		return fmt.Errorf("failed to marshal dingtalk message: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", n.config.DingTalkWebhook, bytes.NewReader(body))
+	webhookURL, err := buildDingTalkWebhookURL(n.config.DingTalkWebhook, n.config.DingTalkSecret, time.Now())
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create dingtalk request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-
-	// TODO: Add signature support if secret is provided
-	// if n.config.DingTalkSecret != "" {
-	//     // Add signature to URL
-	// }
 
 	resp, err := n.client.Do(req)
 	if err != nil {
@@ -201,6 +206,34 @@ func (n *Notifier) sendDingTalk(alert Alert) error {
 
 	log.Printf("[Alert] DingTalk notification sent: %s", alert.Name)
 	return nil
+}
+
+func buildDingTalkWebhookURL(webhook, secret string, ts time.Time) (string, error) {
+	if strings.TrimSpace(webhook) == "" {
+		return "", fmt.Errorf("dingtalk webhook is empty")
+	}
+	if strings.TrimSpace(secret) == "" {
+		return webhook, nil
+	}
+
+	timestamp := strconv.FormatInt(ts.UnixMilli(), 10)
+	stringToSign := timestamp + "\n" + secret
+
+	mac := hmac.New(sha256.New, []byte(secret))
+	if _, err := mac.Write([]byte(stringToSign)); err != nil {
+		return "", fmt.Errorf("failed to calculate dingtalk signature: %w", err)
+	}
+
+	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+	parsed, err := url.Parse(webhook)
+	if err != nil {
+		return "", fmt.Errorf("invalid dingtalk webhook: %w", err)
+	}
+	query := parsed.Query()
+	query.Set("timestamp", timestamp)
+	query.Set("sign", signature)
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), nil
 }
 
 // sendEmail sends an alert via email
