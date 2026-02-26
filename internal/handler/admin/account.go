@@ -844,9 +844,12 @@ type ProviderModelsResponse struct {
 }
 
 type ProviderModel struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	OwnedBy string `json:"owned_by"`
+	ID          string `json:"id"`
+	Object      string `json:"object"`
+	Created     int    `json:"created,omitempty"`
+	OwnedBy     string `json:"owned_by,omitempty"`
+	Type        string `json:"type,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // FetchModels fetches available models from the provider's API
@@ -995,7 +998,7 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 		return
 	}
 
-	var modelsResp ProviderModelsResponse
+	var modelsResp map[string]interface{}
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -1007,21 +1010,49 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 		return
 	}
 
-	// Extract model IDs
-	models := make([]string, 0, len(modelsResp.Data))
-	for _, m := range modelsResp.Data {
-		if m.ID != "" {
-			models = append(models, m.ID)
+	// Keep provider model format as-is, only extract id for sync
+	rawData, ok := modelsResp["data"].([]interface{})
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "parse_failed",
+				"message": "Provider response missing data array",
+			},
+		})
+		return
+	}
+
+	models := make([]map[string]interface{}, 0, len(rawData))
+	modelIDs := make([]string, 0, len(rawData))
+	modelDisplayNames := make(map[string]string, len(rawData))
+	for _, item := range rawData {
+		modelObj, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		modelID, _ := modelObj["id"].(string)
+		if modelID == "" {
+			continue
+		}
+
+		models = append(models, modelObj)
+		modelIDs = append(modelIDs, modelID)
+
+		if displayName, ok := modelObj["display_name"].(string); ok && displayName != "" {
+			modelDisplayNames[modelID] = displayName
 		}
 	}
 
 	// Sync to smart router if requested
 	syncedCount := 0
 	if syncModels && globalRouter != nil {
-		for _, modelID := range models {
+		for _, modelID := range modelIDs {
 			globalRouter.UpdateModelScore(modelID, &routing.ModelScore{
 				Model:        modelID,
 				Provider:     account.Provider,
+				DisplayName:  modelDisplayNames[modelID],
 				QualityScore: 80,
 				SpeedScore:   80,
 				CostScore:    80,

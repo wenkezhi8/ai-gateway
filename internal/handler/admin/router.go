@@ -46,6 +46,7 @@ type StrategyOption struct {
 type ModelScoreResponse struct {
 	Model          string  `json:"model"`
 	Provider       string  `json:"provider"`
+	DisplayName    string  `json:"display_name,omitempty"`
 	QualityScore   int     `json:"quality_score"`
 	SpeedScore     int     `json:"speed_score"`
 	CostScore      int     `json:"cost_score"`
@@ -64,6 +65,7 @@ type UpdateRouterConfigRequest struct {
 type UpdateModelScoreRequest struct {
 	Model        string `json:"model"`
 	Provider     string `json:"provider"`
+	DisplayName  string `json:"display_name,omitempty"`
 	QualityScore int    `json:"quality_score"`
 	SpeedScore   int    `json:"speed_score"`
 	CostScore    int    `json:"cost_score"`
@@ -296,6 +298,7 @@ func (h *RouterHandler) GetModelScores(c *gin.Context) {
 		response = append(response, ModelScoreResponse{
 			Model:          model,
 			Provider:       score.Provider,
+			DisplayName:    score.DisplayName,
 			QualityScore:   score.QualityScore,
 			SpeedScore:     score.SpeedScore,
 			CostScore:      score.CostScore,
@@ -330,6 +333,7 @@ func (h *RouterHandler) UpdateModelScore(c *gin.Context) {
 	score := &routing.ModelScore{
 		Model:        model,
 		Provider:     req.Provider,
+		DisplayName:  req.DisplayName,
 		QualityScore: req.QualityScore,
 		SpeedScore:   req.SpeedScore,
 		CostScore:    req.CostScore,
@@ -358,9 +362,34 @@ func (h *RouterHandler) DeleteModelScore(c *gin.Context) {
 }
 
 // GetAvailableModels returns list of enabled models
-// GET /api/admin/router/available-models
+// GET /api/admin/router/available-models?format=object
 func (h *RouterHandler) GetAvailableModels(c *gin.Context) {
+	format := c.DefaultQuery("format", "string")
 	models := h.router.GetAvailableModels()
+
+	if format == "object" {
+		type ModelWithDisplay struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name,omitempty"`
+		}
+		result := make([]ModelWithDisplay, 0, len(models))
+		for _, model := range models {
+			score := h.router.GetModelScore(model)
+			displayName := ""
+			if score != nil {
+				displayName = score.DisplayName
+			}
+			result = append(result, ModelWithDisplay{
+				ID:          model,
+				DisplayName: displayName,
+			})
+		}
+		c.JSON(200, gin.H{
+			"success": true,
+			"data":    result,
+		})
+		return
+	}
 
 	c.JSON(200, gin.H{
 		"success": true,

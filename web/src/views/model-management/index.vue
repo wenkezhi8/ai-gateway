@@ -55,7 +55,7 @@
                   <el-option
                     v-for="model in row.models"
                     :key="model"
-                    :label="model"
+                    :label="getModelLabel(row.id, model)"
                     :value="model"
                   />
                 </el-select>
@@ -71,7 +71,7 @@
                     size="small"
                     class="model-tag"
                   >
-                    {{ model }}
+                    {{ getModelLabel(row.id, model) }}
                   </el-tag>
                   <el-tag v-if="row.models.length > 3" size="small" type="info">
                     +{{ row.models.length - 3 }}
@@ -290,7 +290,7 @@
         <div class="models-list">
           <el-checkbox-group v-model="selectedModels">
             <div v-for="model in editProvider?.models" :key="model" class="model-item">
-              <el-checkbox :value="model">{{ model }}</el-checkbox>
+              <el-checkbox :value="model">{{ getModelLabel(editProvider?.id || '', model) }}</el-checkbox>
             </div>
           </el-checkbox-group>
           <el-empty v-if="!editProvider?.models?.length" description="暂无模型" :image-size="60" />
@@ -332,6 +332,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
+import { useModelLabels } from '@/composables/useModelLabels'
+
+const { getModelLabel, fetchModelLabels } = useModelLabels()
 
 interface ProviderSetting {
   id: string
@@ -433,6 +436,9 @@ function saveToLocalStorage() {
 async function loadSettings() {
   loading.value = true
   try {
+    // Fetch model labels using composable
+    await fetchModelLabels()
+    
     // Load model scores from backend - this is the single source of truth
     const modelsRes = await request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any)
     
@@ -456,12 +462,12 @@ async function loadSettings() {
     const defaultIds = new Set(defaultProviders.map(p => p.id))
     const newSettings: ProviderSetting[] = []
     
-    // Add known providers with their models
+    // Add known providers with their models (no fallback to defaults - deleted models should stay deleted)
     for (const p of defaultProviders) {
       const models = modelsByProvider[p.id] || []
       newSettings.push({
         ...p,
-        models: models.length > 0 ? models : p.models
+        models: models
       })
     }
     
@@ -798,17 +804,27 @@ async function handleBatchDeleteModels() {
     const idx = providerSettings.value.findIndex(p => p.id === editProvider.value!.id)
     if (idx > -1) {
       const provider = providerSettings.value[idx]!
-      provider.models = provider.models.filter(m => !selectedModels.value.includes(m))
-      editProvider.value!.models = [...provider.models]
       
-      // Sync deletions to backend
+      // Sync deletions to backend first
+      const deleteErrors: string[] = []
       for (const model of selectedModels.value) {
         try {
           await request.delete(`/admin/router/models/${encodeURIComponent(model)}`)
-        } catch (e) {
-          // Ignore individual delete errors
+        } catch (e: any) {
+          deleteErrors.push(`${model}: ${e?.message || 'failed'}`)
         }
       }
+      
+      if (deleteErrors.length > 0) {
+        ElMessage.error(`部分模型删除失败: ${deleteErrors.join(', ')}`)
+        // Reload from backend to sync state
+        await loadSettings()
+        return
+      }
+      
+      // Only update local state after successful backend delete
+      provider.models = provider.models.filter(m => !selectedModels.value.includes(m))
+      editProvider.value!.models = [...provider.models]
       
       saveToLocalStorage()
       selectedModels.value = []

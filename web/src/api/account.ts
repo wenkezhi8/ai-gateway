@@ -133,6 +133,6 @@ export const accountApi = {
 
   fetchModels(id: string, sync: boolean = false) {
     const params = sync ? { sync: 'true' } : {}
-    return request.get<{ success: boolean; data: { account_id: string; provider: string; models: string[]; total_models: number; synced?: boolean; synced_count?: number } }>(`/admin/accounts/${id}/fetch-models`, { params })
+    return request.get<{ success: boolean; data: { account_id: string; provider: string; models: Array<Record<string, any>>; total_models: number; synced?: boolean; synced_count?: number; fallback?: boolean } }>(`/admin/accounts/${id}/fetch-models`, { params })
   }
 }

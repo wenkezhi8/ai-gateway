@@ -7,31 +7,48 @@ import type { ChatMessage, Conversation, ProviderConfig } from '@/types/chat'
 import { createConversation } from '@/types/chat'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
+import { useModelLabels } from '@/composables/useModelLabels'
+
+const { fetchModelLabels, resetLabels, getModelLabel } = useModelLabels()
+
+/** Default providers configuration (fallback) - must be defined before first use */
+const DEFAULT_PROVIDERS: ProviderConfig[] = [
+  { label: 'OpenAI', value: 'openai', color: '#10A37F', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'], logo: '/logos/openai.svg' },
+  { label: 'Anthropic Claude', value: 'anthropic', color: '#CC785C', models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'], logo: '/logos/anthropic.svg' },
+  { label: 'DeepSeek', value: 'deepseek', color: '#4D6BFE', models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-coder'], logo: '/logos/deepseek.svg' },
+  { label: '阿里云通义千问', value: 'qwen', color: '#FF6A00', models: ['qwen-max', 'qwen-plus', 'qwen-turbo'], logo: '/logos/qwen.svg' },
+  { label: '智谱AI', value: 'zhipu', color: '#3657ED', models: ['glm-4-plus', 'glm-4', 'glm-4-flash'], logo: '/logos/zhipu.svg' },
+  { label: '月之暗面 (Kimi)', value: 'moonshot', color: '#1A1A1A', models: ['moonshot-v1-8k', 'moonshot-v1-32k'], logo: '/logos/moonshot.svg' },
+  { label: '火山方舟 (豆包)', value: 'volcengine', color: '#FF4D4F', models: ['doubao-pro-128k', 'doubao-lite-128k'], logo: '/logos/volcengine.svg' },
+]
+
+/** Dynamic providers (reactive) */
+export const PROVIDERS = ref<ProviderConfig[]>([...DEFAULT_PROVIDERS])
+
+// Re-export getModelLabel from composable for compatibility
+export { getModelLabel }
 
 /** Extract date from model name for sorting (newest first) */
 function extractModelDate(modelName: string): number {
-  // Match patterns like: 240515, 20240515, 2024-05-15, 250228
   const patterns = [
-    /(\d{4})-(\d{2})-(\d{2})/,  // 2024-05-15
-    /(\d{8})/,                   // 20240515
-    /(\d{6})$/,                  // 240515 at end
+    /(\d{4})-(\d{2})-(\d{2})/,
+    /(\d{8})/,
+    /(\d{6})$/,
   ]
   
   for (const pattern of patterns) {
     const match = modelName.match(pattern)
     if (match) {
       if (match.length === 4) {
-        // YYYY-MM-DD format
         return parseInt(`${match[1]}${match[2]}${match[3]}`)
       } else if (match[1] && match[1].length === 8) {
         return parseInt(match[1])
       } else if (match[1] && match[1].length === 6) {
-        // Convert YYMMDD to YYYYMMDD (assume 20xx)
         return parseInt(`20${match[1]}`)
       }
     }
   }
-  return 0 // No date found
+  return 0
 }
 
 /** Sort models with newest first */
@@ -45,20 +62,6 @@ function sortModelsNewestFirst(models: string[]): string[] {
     return a.localeCompare(b)
   })
 }
-
-/** Default providers configuration (fallback) */
-const DEFAULT_PROVIDERS: ProviderConfig[] = [
-  { label: 'OpenAI', value: 'openai', color: '#10A37F', models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'], logo: '/logos/openai.svg' },
-  { label: 'Anthropic Claude', value: 'anthropic', color: '#CC785C', models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'], logo: '/logos/anthropic.svg' },
-  { label: 'DeepSeek', value: 'deepseek', color: '#4D6BFE', models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-coder'], logo: '/logos/deepseek.svg' },
-  { label: '阿里云通义千问', value: 'qwen', color: '#FF6A00', models: ['qwen-max', 'qwen-plus', 'qwen-turbo'], logo: '/logos/qwen.svg' },
-  { label: '智谱AI', value: 'zhipu', color: '#3657ED', models: ['glm-4-plus', 'glm-4', 'glm-4-flash'], logo: '/logos/zhipu.svg' },
-  { label: '月之暗面 (Kimi)', value: 'moonshot', color: '#1A1A1A', models: ['moonshot-v1-8k', 'moonshot-v1-32k'], logo: '/logos/moonshot.svg' },
-  { label: '火山方舟 (豆包)', value: 'volcengine', color: '#FF4D4F', models: ['doubao-pro-128k', 'doubao-lite-128k'], logo: '/logos/volcengine.svg' },
-]
-
-/** Dynamic providers (reactive) */
-export const PROVIDERS = ref<ProviderConfig[]>([...DEFAULT_PROVIDERS])
 
 /** Load providers from public API (works without authentication) */
 export async function loadProvidersFromPublicAPI(): Promise<boolean> {
@@ -89,6 +92,9 @@ export async function loadProvidersFromPublicAPI(): Promise<boolean> {
     
     if (providers.length > 0) {
       PROVIDERS.value = providers
+
+      // Public API doesn't provide display_name; reset to identity mapping.
+      resetLabels()
       return true
     }
     return false
@@ -101,6 +107,9 @@ export async function loadProvidersFromPublicAPI(): Promise<boolean> {
 /** Load providers from backend API (requires authentication) */
 export async function loadProvidersFromAdminAPI(): Promise<boolean> {
   try {
+    // Fetch model labels using composable
+    await fetchModelLabels()
+    
     const [configsRes, modelsRes, accountsRes] = await Promise.all([
       request.get<{ success: boolean; data: Array<{ value: string; label: string; color: string; base_url: string; is_openai_compatible: boolean }> }>('/admin/providers/configs', { silent: true } as any),
       request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any),

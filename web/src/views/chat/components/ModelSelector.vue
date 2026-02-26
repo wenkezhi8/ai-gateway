@@ -42,12 +42,12 @@
       <el-option
         v-for="model in availableModels"
         :key="model"
-        :label="model"
+        :label="getModelLabel(selectedProvider, model)"
         :value="model"
       >
         <!-- 改动点: 标注支持推理的模型 -->
         <span class="model-option">
-          <span class="model-name">{{ model }}</span>
+          <span class="model-name">{{ getModelLabel(selectedProvider, model) }}</span>
           <span v-if="isReasoningModel(model)" class="model-badge">支持推理</span>
         </span>
       </el-option>
@@ -58,7 +58,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { PROVIDERS } from '@/store/chat'
+import { PROVIDERS, getModelLabel } from '@/store/chat'
 
 const props = defineProps<{
   provider?: string

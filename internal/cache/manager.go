@@ -353,6 +353,7 @@ type CacheEntryDetail struct {
 // ListEntries returns a list of cache entries
 func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo {
 	entries := make([]*CacheEntryInfo, 0)
+	ctx := context.Background()
 
 	keys := m.cache.Keys(getKeyPattern(cacheType))
 	for _, key := range keys {
@@ -380,6 +381,22 @@ func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo
 				entry.Model = meta.Model
 				entry.Provider = meta.Provider
 				entry.TaskType = meta.TaskType
+			}
+		} else {
+			var value interface{}
+			if err := m.cache.Get(ctx, key, &value); err == nil {
+				entry.Size = estimateValueSize(value)
+				if entry.CreatedAt.IsZero() {
+					entry.CreatedAt = extractCreatedAt(value)
+				}
+			}
+
+			if rc, ok := m.cache.(*RedisCache); ok {
+				if ttl, err := rc.TTL(ctx, key); err == nil && ttl > 0 {
+					entry.TTL = int(ttl.Seconds())
+					exp := time.Now().Add(ttl)
+					entry.ExpiresAt = &exp
+				}
 			}
 		}
 
@@ -430,7 +447,22 @@ func (m *Manager) GetEntryDetail(ctx context.Context, key string) (*CacheEntryDe
 		}
 	}
 
+	if detail.Size == 0 {
+		detail.Size = estimateValueSize(value)
+	}
+
 	return detail, nil
+}
+
+func estimateValueSize(value interface{}) int {
+	if value == nil {
+		return 0
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return 0
+	}
+	return len(raw)
 }
 
 func extractCreatedAt(value interface{}) time.Time {

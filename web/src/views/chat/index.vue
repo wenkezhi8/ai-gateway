@@ -38,7 +38,7 @@
           <div class="conversation-content">
             <span class="title">{{ conversation.title || t('chat.newConversation') }}</span>
             <span class="model-badge">
-              {{ getModelDisplayName(conversation.model) }}
+              {{ getModelDisplayName(conversation.provider, conversation.model) }}
             </span>
           </div>
           <el-button
@@ -140,7 +140,7 @@
               class="conv-tag"
             >
               <img v-if="getProviderLogo(conv.provider)" :src="getProviderLogo(conv.provider)" class="tag-logo" />
-              {{ conv.title || '新对话' }} ({{ getModelDisplayName(conv.model) }})
+              {{ conv.title || '新对话' }} ({{ getModelDisplayName(conv.provider, conv.model) }})
             </el-tag>
           </div>
         </div>
@@ -168,7 +168,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Plus, ChatDotRound, Delete, Operation, Loading } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
-import { useChatStore, initializeProviders, PROVIDERS } from '@/store/chat'
+import { useChatStore, initializeProviders, PROVIDERS, getModelLabel } from '@/store/chat'
 import { streamCompletion, search } from '@/api/chat'
 import { createMessage, type ChatMessage as ChatMessageType } from '@/types/chat'
 import ChatMessage from './components/ChatMessage.vue'
@@ -356,12 +356,14 @@ function getProviderLogo(provider: string): string {
   return providerLogos[provider] || ''
 }
 
-function getModelDisplayName(model: string): string {
-  // Truncate long model names
-  if (model.length > 20) {
-    return model.substring(0, 17) + '...'
+function getModelDisplayName(provider: string, model: string): string {
+  // 改动点: UI 展示优先使用 display_name（大小写与服务商一致）
+  const label = getModelLabel(provider, model)
+  // Truncate long labels
+  if (label.length > 20) {
+    return label.substring(0, 17) + '...'
   }
-  return model
+  return label
 }
 
 function createNewChat(): void {

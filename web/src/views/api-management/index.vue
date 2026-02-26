@@ -154,9 +154,9 @@
                 <el-select v-model="routerConfig.default_model" @change="updateRouterConfig" filterable style="width: 300px">
                   <el-option
                     v-for="model in availableModels"
-                    :key="model"
-                    :label="model"
-                    :value="model"
+                    :key="model.id"
+                    :label="model.display_name || model.id"
+                    :value="model.id"
                   />
                 </el-select>
               </el-form-item>
@@ -567,9 +567,9 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
                 <el-option-group label="指定模型">
                   <el-option
                     v-for="model in availableModels"
-                    :key="model"
-                    :label="model"
-                    :value="model"
+                    :key="model.id"
+                    :label="model.display_name || model.id"
+                    :value="model.id"
                   />
                 </el-option-group>
               </el-select>
@@ -736,7 +736,7 @@ const strategies = ref([
   { value: 'custom', label: '自定义规则', description: '根据任务类型自动选择' }
 ])
 
-const availableModels = ref<string[]>([])
+const availableModels = ref<Array<{ id: string; display_name?: string }>>([])
 const topModels = ref<string[]>([])
 const providerDefaults = ref<{ id: string; label: string; defaultModel: string }[]>([])
 
@@ -1166,7 +1166,7 @@ async function loadAvailableModels() {
   try {
     const token = getToken()
     if (!token) return
-    const res = await fetch(API.ROUTER.AVAILABLE_MODELS, {
+    const res = await fetch(API.ROUTER.AVAILABLE_MODELS + '?format=object', {
       headers: { Authorization: `Bearer ${token}` }
     })
     const data = await res.json()

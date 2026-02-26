@@ -34,6 +34,7 @@ const (
 type ModelScore struct {
 	Model        string `json:"model"`
 	Provider     string `json:"provider"`
+	DisplayName  string `json:"display_name,omitempty"`
 	QualityScore int    `json:"quality_score"` // 0-100
 	SpeedScore   int    `json:"speed_score"`   // 0-100
 	CostScore    int    `json:"cost_score"`    // 0-100 (higher = cheaper)
@@ -478,6 +479,17 @@ func (r *SmartRouter) GetProviderForModel(model string) string {
 		return score.Provider
 	}
 	return ""
+}
+
+// GetModelScore returns the model score for a given model
+func (r *SmartRouter) GetModelScore(model string) *ModelScore {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if score, ok := r.config.ModelScores[model]; ok {
+		return score
+	}
+	return nil
 }
 
 // GetProviderDefaults returns all provider default models

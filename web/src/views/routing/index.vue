@@ -99,9 +99,9 @@
                   >
                     <el-option
                       v-for="m in availableModels"
-                      :key="m"
-                      :label="m"
-                      :value="m"
+                      :key="m.id"
+                      :label="m.display_name || m.id"
+                      :value="m.id"
                     />
                   </el-select>
                 </div>
@@ -306,7 +306,11 @@ interface ModelScore {
 const saving = ref(false)
 const modelSearch = ref('')
 const modelScores = ref<ModelScore[]>([])
-const availableModels = ref<string[]>([])
+interface ModelOption {
+  id: string
+  display_name?: string
+}
+const availableModels = ref<ModelOption[]>([])
 const autoSaveEnabled = ref(false) // FIX: 自动保存开关
 const lastSavedAt = ref<string | null>(null) // FIX: 最近保存时间
 const isMappingReady = ref(false) // FIX: 防止初始化阶段触发自动保存
@@ -478,7 +482,7 @@ async function loadModelScores() {
           enabled: (score as any).enabled ?? true
         }))
       }
-      availableModels.value = modelScores.value.map(m => m.model)
+      availableModels.value = modelScores.value.map(m => ({ id: m.model }))
     }
   } catch (e) {
     console.warn('Failed to load model scores:', e)
@@ -487,7 +491,7 @@ async function loadModelScores() {
 
 async function loadAvailableModels() {
   try {
-    const data: any = await request.get('/admin/router/available-models')
+    const data: any = await request.get('/admin/router/available-models?format=object')
     if (data?.data) {
       availableModels.value = data.data
     }
