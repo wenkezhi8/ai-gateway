@@ -2353,6 +2353,19 @@ onUnmounted(() => {
 
 .signature-section {
   background: linear-gradient(120deg, rgba(14, 165, 233, 0.08), rgba(248, 250, 252, 0.95));
+
+  :deep(.el-table) {
+    background: transparent;
+  }
+
+  :deep(.el-table th.el-table__cell) {
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--cache-muted);
+  }
+
+  :deep(.el-table__row) {
+    background: transparent;
+  }
 }
 
 .summary-card {
@@ -2405,7 +2418,7 @@ onUnmounted(() => {
   }
 
   :deep(.el-tabs__item.is-active) {
-    background: #2563eb;
+    background: var(--cache-accent-strong);
     color: #fff;
   }
 
@@ -2549,7 +2562,7 @@ onUnmounted(() => {
     .key-text {
       font-family: var(--font-family-mono, monospace);
       font-size: 12px;
-      background: #f1f5f9;
+      background: rgba(148, 163, 184, 0.18);
       padding: 2px 6px;
       border-radius: 4px;
       word-break: break-all;
@@ -2563,10 +2576,10 @@ onUnmounted(() => {
 }
 
 .entries-skeleton {
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--cache-border);
   border-radius: 10px;
   padding: 12px;
-  background: #fff;
+  background: var(--cache-panel);
 
   .skeleton-row {
     display: flex;
