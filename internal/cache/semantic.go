@@ -163,9 +163,18 @@ type SemanticCache struct {
 	persistCh       chan semanticPersistJob
 }
 
-// SemanticCacheStats tracks semantic cache statistics
+// SemanticCacheStats tracks semantic cache statistics (internal, contains mutex)
 type SemanticCacheStats struct {
 	mu            sync.RWMutex
+	TotalQueries  int64   `json:"total_queries"`
+	CacheHits     int64   `json:"cache_hits"`
+	CacheMisses   int64   `json:"cache_misses"`
+	Evictions     int64   `json:"evictions"`
+	AvgSimilarity float64 `json:"avg_similarity"`
+}
+
+// SemanticCacheStatsData represents cache statistics for external use (no mutex)
+type SemanticCacheStatsData struct {
 	TotalQueries  int64   `json:"total_queries"`
 	CacheHits     int64   `json:"cache_hits"`
 	CacheMisses   int64   `json:"cache_misses"`
@@ -520,11 +529,17 @@ func (c *SemanticCache) Cleanup() int {
 	return count
 }
 
-// GetStats returns cache statistics
-func (c *SemanticCache) GetStats() SemanticCacheStats {
+// GetStats returns cache statistics (copy without mutex)
+func (c *SemanticCache) GetStats() SemanticCacheStatsData {
 	c.stats.mu.RLock()
 	defer c.stats.mu.RUnlock()
-	return c.stats
+	return SemanticCacheStatsData{
+		TotalQueries:  c.stats.TotalQueries,
+		CacheHits:     c.stats.CacheHits,
+		CacheMisses:   c.stats.CacheMisses,
+		Evictions:     c.stats.Evictions,
+		AvgSimilarity: c.stats.AvgSimilarity,
+	}
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors
