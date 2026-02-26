@@ -140,8 +140,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { apiKeyApi } from '@/api/apiKey'
-import type { ApiKey } from '@/api/apiKey'
 import { getCacheStats } from '@/api/metrics'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
@@ -173,7 +171,6 @@ const pageSize = ref(20)
 const selectedModel = ref('')
 
 const usageRows = ref<UsageRow[]>([])
-const apiKeys = ref<ApiKey[]>([])
 const cacheStats = ref({ hits: 0, misses: 0, hit_rate: 0 })
 
 const rangeStart = computed(() => {
@@ -279,18 +276,6 @@ const formatDateTime = (time: number) => {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
-const maskApiKey = (key: string) => {
-  if (!key) return '****'
-  if (key.length <= 12) return '****'
-  return `${key.slice(0, 8)}...${key.slice(-4)}`
-}
-
-const fetchApiKeys = async () => {
-  const res = await apiKeyApi.getList()
-  const data = (res as any)?.data || []
-  apiKeys.value = Array.isArray(data) ? data : []
-}
-
 const fetchCacheStats = async () => {
   const res = await getCacheStats()
   const data = (res as any)?.data || res || {}
@@ -319,22 +304,6 @@ const fetchUsageLogs = async () => {
       }
     })
     const data = (res as any)?.data || []
-    const apiKeyNameByKey = new Map<string, string>()
-    const apiKeyNameByMasked = new Map<string, string>()
-    const apiKeyNames = new Set<string>()
-
-    for (const keyInfo of apiKeys.value) {
-      const key = String(keyInfo.key || '').trim()
-      const name = String(keyInfo.name || '').trim()
-      if (name) {
-        apiKeyNames.add(name)
-      }
-      if (key && name) {
-        apiKeyNameByKey.set(key, name)
-        apiKeyNameByMasked.set(maskApiKey(key), name)
-      }
-    }
-    
     const rows: UsageRow[] = []
     for (const log of data) {
       const totalTokens = Number(log.tokens || 0)
@@ -344,12 +313,8 @@ const fetchUsageLogs = async () => {
       const inferredCacheHit = Boolean(log.cache_hit) || (log.success === true && Number(log.latency_ms || 0) === 0 && totalTokens > 0)
       const apiKeyValue = String(log.api_key || '').trim()
       let accountName = '-'
-      if (apiKeyValue) {
-        accountName = apiKeyNameByKey.get(apiKeyValue)
-          || apiKeyNameByMasked.get(apiKeyValue)
-          || (apiKeyNames.has(apiKeyValue) ? apiKeyValue : apiKeyValue)
-      } else if (String(log.user_id || '').trim()) {
-        accountName = String(log.user_id || '').trim()
+      if (apiKeyValue && !apiKeyValue.includes('****')) {
+        accountName = apiKeyValue
       }
       const ttftMs = Number(log.ttft_ms || 0)
       
@@ -382,7 +347,7 @@ const fetchUsageLogs = async () => {
 const refreshAll = async () => {
   loading.value = true
   try {
-    await Promise.all([fetchApiKeys(), fetchCacheStats()])
+    await fetchCacheStats()
     await fetchUsageLogs()
     page.value = 1
   } finally {

@@ -4,6 +4,7 @@ import (
 	"ai-gateway/internal/storage"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -113,13 +114,17 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 
 	response := make([]UsageLogResponse, 0, len(logs))
 	for _, log := range logs {
+		apiKey := getString(log, "api_key")
+		if strings.Contains(apiKey, "****") {
+			apiKey = ""
+		}
 		item := UsageLogResponse{
 			ID:           getInt64(log, "id"),
 			Timestamp:    getInt64(log, "timestamp"),
 			Model:        getString(log, "model"),
 			Provider:     getString(log, "provider"),
 			UserID:       getString(log, "user_id"),
-			APIKey:       getString(log, "api_key"),
+			APIKey:       apiKey,
 			Tokens:       getInt64(log, "tokens"),
 			InputTokens:  getInt64(log, "input_tokens"),
 			OutputTokens: getInt64(log, "output_tokens"),
