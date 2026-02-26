@@ -101,6 +101,15 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 		return
 	}
 
+	prompt := extractAnthropicPrompt(req.Messages)
+	assessment := h.smartRouter.AssessDifficulty(prompt, "")
+	classifierCfg := h.smartRouter.GetClassifierConfig()
+	controlCfg := classifierCfg.Control
+	if controlCfg.Enable && controlCfg.RiskTagEnable {
+		logControlRiskSignals(assessment)
+	}
+	applyControlToolGateAnthropic(&req, controlCfg, assessment)
+
 	requestedModel := req.Model
 	if req.Model == "auto" || req.Model == "latest" || req.Model == "default" {
 		availableModels := make([]string, 0)
@@ -112,7 +121,6 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 			}
 		}
 
-		prompt := extractAnthropicPrompt(req.Messages)
 		switch req.Model {
 		case "latest":
 			requestedModel = h.smartRouter.SelectModelWithStrategy("latest", routing.StrategyQuality, prompt, availableModels)
@@ -161,6 +169,23 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	antResp := buildAnthropicResponseFromProvider(resp)
 	h.recordMetrics("", "", providerReq.Model, time.Since(startTime), resp.Usage.TotalTokens, true)
 	c.JSON(http.StatusOK, antResp)
+}
+
+func applyControlToolGateAnthropic(req *AnthropicMessagesRequest, controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) {
+	if req == nil || !controlCfg.Enable || !controlCfg.ToolGateEnable || assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	if assessment.ControlSignals.ToolNeeded == nil || *assessment.ControlSignals.ToolNeeded {
+		return
+	}
+	if len(req.Tools) == 0 {
+		return
+	}
+	if controlCfg.ShadowOnly {
+		return
+	}
+	req.Tools = nil
+	req.ToolChoice = nil
 }
 
 func buildProviderRequestFromAnthropic(req AnthropicMessagesRequest, model string) *provider.ChatRequest {

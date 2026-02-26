@@ -2,6 +2,7 @@ package handler
 
 import (
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/routing"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,4 +119,30 @@ func TestBuildAnthropicResponseFromProvider(t *testing.T) {
 	require.GreaterOrEqual(t, len(antResp.Content), 2)
 	assert.Equal(t, "text", antResp.Content[0].Type)
 	assert.Equal(t, "tool_use", antResp.Content[1].Type)
+}
+
+func TestApplyControlToolGateAnthropic(t *testing.T) {
+	req := &AnthropicMessagesRequest{
+		Tools: []AnthropicTool{{Name: "get_weather"}},
+		ToolChoice: map[string]interface{}{
+			"type": "tool",
+		},
+	}
+
+	cfg := routing.ControlConfig{Enable: true, ToolGateEnable: true}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtr(false)}}
+
+	applyControlToolGateAnthropic(req, cfg, assessment)
+	assert.Len(t, req.Tools, 0)
+	assert.Nil(t, req.ToolChoice)
+
+	shadowReq := &AnthropicMessagesRequest{Tools: []AnthropicTool{{Name: "get_weather"}}}
+	shadowCfg := routing.ControlConfig{Enable: true, ToolGateEnable: true, ShadowOnly: true}
+	applyControlToolGateAnthropic(shadowReq, shadowCfg, assessment)
+	assert.Len(t, shadowReq.Tools, 1)
+
+	allowReq := &AnthropicMessagesRequest{Tools: []AnthropicTool{{Name: "get_weather"}}}
+	allowAssessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtr(true)}}
+	applyControlToolGateAnthropic(allowReq, cfg, allowAssessment)
+	assert.Len(t, allowReq.Tools, 1)
 }
