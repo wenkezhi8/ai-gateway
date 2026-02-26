@@ -11,6 +11,7 @@ import (
 )
 
 var globalDashboardHandler *DashboardHandler
+var globalApiKeyHandler *ApiKeyHandler
 
 // Handlers contains all admin handlers
 type Handlers struct {
@@ -34,7 +35,7 @@ func NewHandlers(
 	registry *provider.Registry,
 	cacheManager *cache.Manager,
 ) *Handlers {
-	smartRouter := routing.NewSmartRouter()
+	smartRouter := routing.GetGlobalSmartRouter()
 	SetGlobalRouter(smartRouter)
 
 	// Initialize feedback collector
@@ -59,12 +60,18 @@ func NewHandlers(
 		Usage:       usageHandler,
 	}
 	globalDashboardHandler = handlers.Dashboard
+	globalApiKeyHandler = handlers.ApiKey
 	return handlers
 }
 
 // GetDashboardHandler returns the global dashboard handler
 func GetDashboardHandler() *DashboardHandler {
 	return globalDashboardHandler
+}
+
+// GetApiKeyHandler returns the global API key handler.
+func GetApiKeyHandler() *ApiKeyHandler {
+	return globalApiKeyHandler
 }
 
 // RegisterRoutes registers all admin routes
@@ -135,6 +142,9 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		// Task model mapping
 		routerGroup.GET("/task-model-mapping", handlers.SmartRouter.GetTaskModelMapping)
 		routerGroup.PUT("/task-model-mapping", handlers.SmartRouter.UpdateTaskModelMapping)
+		routerGroup.GET("/classifier/health", handlers.SmartRouter.GetClassifierHealth)
+		routerGroup.GET("/classifier/stats", handlers.SmartRouter.GetClassifierStats)
+		routerGroup.POST("/classifier/switch", handlers.SmartRouter.SwitchClassifierModel)
 	}
 
 	// Cache management routes
@@ -148,6 +158,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.DELETE("/model/:model", handlers.Cache.InvalidateModel)
 		cacheGroup.GET("/health", handlers.Cache.GetCacheHealth)
 		cacheGroup.GET("/summary", handlers.Cache.GetCacheSummary)
+		cacheGroup.GET("/semantic-signatures", handlers.Cache.GetSemanticSignatures)
 		cacheGroup.GET("/quality-config", handlers.Cache.GetCacheQualityConfig)
 		cacheGroup.PUT("/quality-config", handlers.Cache.UpdateCacheQualityConfig)
 		cacheGroup.POST("/invalidate-low-quality", handlers.Cache.InvalidateLowQualityCache)

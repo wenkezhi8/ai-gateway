@@ -1848,12 +1848,20 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 
 	// Log to storage for usage tracking
 	if storage := storage.GetSQLite(); storage != nil {
+		apiKeyDisplay := maskAPIKey(apiKey)
+		if apiKey != "" {
+			if keyHandler := admin.GetApiKeyHandler(); keyHandler != nil {
+				if name := keyHandler.FindNameByKey(apiKey); name != "" {
+					apiKeyDisplay = name
+				}
+			}
+		}
 		storage.LogUsage(map[string]interface{}{
 			"timestamp":     time.Now().UnixMilli(),
 			"model":         model,
 			"provider":      provider,
 			"user_id":       userID,
-			"api_key":       maskAPIKey(apiKey),
+			"api_key":       apiKeyDisplay,
 			"tokens":        int64(tokens),
 			"input_tokens":  int64(inputTokens),
 			"output_tokens": int64(tokens - inputTokens),

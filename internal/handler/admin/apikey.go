@@ -119,6 +119,19 @@ func (h *ApiKeyHandler) ListApiKeys(c *gin.Context) {
 	})
 }
 
+// FindNameByKey returns the API key name for display purposes.
+func (h *ApiKeyHandler) FindNameByKey(apiKey string) string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	for _, k := range h.store {
+		if k.Key == apiKey {
+			return k.Name
+		}
+	}
+	return ""
+}
+
 func (h *ApiKeyHandler) GetApiKey(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
