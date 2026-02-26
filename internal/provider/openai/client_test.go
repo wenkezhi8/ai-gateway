@@ -280,6 +280,39 @@ func TestIsRetryableError(t *testing.T) {
 	}
 }
 
+func TestShouldUseResponsesFallback(t *testing.T) {
+	assert.True(t, shouldUseResponsesFallback(400, []byte(`{"error":{"message":"Unsupported legacy protocol: /v1/chat/completions is not supported. Please use /v1/responses"}}`)))
+	assert.False(t, shouldUseResponsesFallback(500, []byte(`{"error":{"message":"internal error"}}`)))
+	assert.False(t, shouldUseResponsesFallback(200, []byte(`ok`)))
+}
+
+func TestExtractResponsesTextAndUsage(t *testing.T) {
+	resp := map[string]interface{}{
+		"id":    "resp_test",
+		"model": "gpt-5",
+		"output": []interface{}{
+			map[string]interface{}{
+				"type": "message",
+				"content": []interface{}{
+					map[string]interface{}{"type": "output_text", "text": "hello"},
+					map[string]interface{}{"type": "output_text", "text": " world"},
+				},
+			},
+		},
+		"usage": map[string]interface{}{
+			"input_tokens":  12.0,
+			"output_tokens": 8.0,
+			"total_tokens":  20.0,
+		},
+	}
+
+	assert.Equal(t, "hello world", extractResponsesText(resp))
+	usage := extractResponsesUsage(resp)
+	assert.Equal(t, 12, usage.PromptTokens)
+	assert.Equal(t, 8, usage.CompletionTokens)
+	assert.Equal(t, 20, usage.TotalTokens)
+}
+
 func TestChatRequest_Marshal(t *testing.T) {
 	req := &ChatRequest{
 		Model: "gpt-4",

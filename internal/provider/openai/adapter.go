@@ -77,6 +77,9 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 	// Handle error responses
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if shouldUseResponsesFallback(resp.StatusCode, body) {
+			return a.chatWithResponses(ctx, req)
+		}
 		var errResp ChatResponse
 		if json.Unmarshal(body, &errResp) == nil && errResp.Error != nil {
 			errResp.Error.StatusCode = resp.StatusCode
@@ -131,6 +134,17 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 		}
 	}
 
+	// Some OpenAI-compatible backends only support /v1/responses.
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if shouldUseResponsesFallback(resp.StatusCode, body) {
+			return a.streamViaResponses(ctx, req)
+		}
+		close(chunkChan)
+		return chunkChan, providerErrorFromBody(resp.StatusCode, body)
+	}
+
 	go func() {
 		defer close(chunkChan)
 		defer resp.Body.Close()
@@ -180,6 +194,258 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	}()
 
 	return chunkChan, nil
+}
+
+func (a *Adapter) chatWithResponses(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	respBody, err := a.callResponsesAPI(ctx, req, false)
+	if err != nil {
+		return nil, err
+	}
+
+	id := getStringFromMap(respBody, "id")
+	model := getStringFromMap(respBody, "model")
+	if model == "" {
+		model = req.Model
+	}
+	if id == "" {
+		id = fmt.Sprintf("resp_%d", time.Now().UnixNano())
+	}
+
+	content := extractResponsesText(respBody)
+	usage := extractResponsesUsage(respBody)
+
+	return &provider.ChatResponse{
+		ID:      id,
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   model,
+		Choices: []provider.Choice{
+			{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: content,
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: usage,
+	}, nil
+}
+
+func (a *Adapter) streamViaResponses(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	chunkChan := make(chan *provider.StreamChunk, 8)
+
+	resp, err := a.chatWithResponses(ctx, req)
+	if err != nil {
+		close(chunkChan)
+		return chunkChan, err
+	}
+
+	go func() {
+		defer close(chunkChan)
+
+		content := ""
+		if len(resp.Choices) > 0 {
+			if text, ok := resp.Choices[0].Message.Content.(string); ok {
+				content = text
+			}
+		}
+
+		if content != "" {
+			chunkChan <- &provider.StreamChunk{
+				ID:      resp.ID,
+				Object:  "chat.completion.chunk",
+				Created: resp.Created,
+				Model:   resp.Model,
+				Choices: []provider.StreamChoice{
+					{
+						Index: 0,
+						Delta: &provider.StreamDelta{
+							Role:    "assistant",
+							Content: content,
+						},
+					},
+				},
+			}
+		}
+
+		chunkChan <- &provider.StreamChunk{
+			ID:      resp.ID,
+			Object:  "chat.completion.chunk",
+			Created: resp.Created,
+			Model:   resp.Model,
+			Choices: []provider.StreamChoice{
+				{
+					Index:        0,
+					Delta:        &provider.StreamDelta{},
+					FinishReason: "stop",
+				},
+			},
+			Usage: &provider.Usage{
+				PromptTokens:     resp.Usage.PromptTokens,
+				CompletionTokens: resp.Usage.CompletionTokens,
+				TotalTokens:      resp.Usage.TotalTokens,
+			},
+			Done: true,
+		}
+	}()
+
+	return chunkChan, nil
+}
+
+func (a *Adapter) callResponsesAPI(ctx context.Context, req *provider.ChatRequest, stream bool) (map[string]interface{}, error) {
+	body := map[string]interface{}{
+		"model":  req.Model,
+		"input":  buildResponsesInput(req.Messages),
+		"stream": stream,
+	}
+
+	if req.Temperature > 0 {
+		body["temperature"] = req.Temperature
+	}
+	if req.MaxTokens > 0 {
+		body["max_output_tokens"] = req.MaxTokens
+	}
+
+	resp, err := a.client.DoRequest(ctx, "POST", "/responses", body)
+	if err != nil {
+		return nil, &provider.ProviderError{
+			Code:     http.StatusInternalServerError,
+			Message:  fmt.Sprintf("failed to make responses request: %v", err),
+			Provider: "openai",
+		}
+	}
+	defer resp.Body.Close()
+
+	respBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, providerErrorFromBody(resp.StatusCode, respBytes)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(respBytes, &parsed); err != nil {
+		return nil, &provider.ProviderError{
+			Code:     http.StatusInternalServerError,
+			Message:  fmt.Sprintf("failed to decode responses body: %v", err),
+			Provider: "openai",
+		}
+	}
+
+	return parsed, nil
+}
+
+func shouldUseResponsesFallback(statusCode int, body []byte) bool {
+	if statusCode < 400 {
+		return false
+	}
+	text := strings.ToLower(string(body))
+	return strings.Contains(text, "unsupported legacy protocol") && strings.Contains(text, "/v1/responses")
+}
+
+func providerErrorFromBody(statusCode int, body []byte) *provider.ProviderError {
+	message := strings.TrimSpace(string(body))
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		if errObj, ok := parsed["error"].(map[string]interface{}); ok {
+			if msg, ok := errObj["message"].(string); ok && msg != "" {
+				message = msg
+			}
+		}
+	}
+	return &provider.ProviderError{
+		Code:      statusCode,
+		Message:   message,
+		Provider:  "openai",
+		Retryable: isRetryableError(statusCode),
+	}
+}
+
+func buildResponsesInput(messages []provider.ChatMessage) []map[string]interface{} {
+	input := make([]map[string]interface{}, 0, len(messages))
+	for i := range messages {
+		msg := messages[i]
+		text := ""
+		switch v := msg.Content.(type) {
+		case string:
+			text = v
+		default:
+			text = (&msg).GetTextContent()
+		}
+		input = append(input, map[string]interface{}{
+			"role":    msg.Role,
+			"content": text,
+		})
+	}
+	return input
+}
+
+func extractResponsesText(resp map[string]interface{}) string {
+	if outputText, ok := resp["output_text"].(string); ok && outputText != "" {
+		return outputText
+	}
+	output, ok := resp["output"].([]interface{})
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, item := range output {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		contentArr, ok := itemMap["content"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, c := range contentArr {
+			contentMap, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if text, ok := contentMap["text"].(string); ok {
+				b.WriteString(text)
+			} else if text, ok := contentMap["output_text"].(string); ok {
+				b.WriteString(text)
+			}
+		}
+	}
+	return b.String()
+}
+
+func extractResponsesUsage(resp map[string]interface{}) provider.Usage {
+	usage := provider.Usage{}
+	usageMap, ok := resp["usage"].(map[string]interface{})
+	if !ok {
+		return usage
+	}
+	usage.PromptTokens = int(getFloatFromMap(usageMap, "input_tokens"))
+	usage.CompletionTokens = int(getFloatFromMap(usageMap, "output_tokens"))
+	usage.TotalTokens = int(getFloatFromMap(usageMap, "total_tokens"))
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+	return usage
+}
+
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if m == nil {
+		return ""
+	}
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func getFloatFromMap(m map[string]interface{}, key string) float64 {
+	if m == nil {
+		return 0
+	}
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return 0
 }
 
 // ValidateKey validates the API key
