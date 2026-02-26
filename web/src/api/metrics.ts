@@ -133,6 +133,17 @@ export interface RecentError {
   count: number
 }
 
+export interface DashboardAlert {
+  id: string
+  type: string
+  level: string
+  message: string
+  account_id?: string
+  provider?: string
+  timestamp: string
+  acknowledged: boolean
+}
+
 // API 接口
 
 /**
@@ -175,4 +186,18 @@ export function getUsage(params?: { start?: string; end?: string }) {
  */
 export function getRealtime() {
   return request.get<RealtimeData>('/admin/dashboard/realtime', { silent: true } as any)
+}
+
+/**
+ * 获取仪表盘告警事件
+ */
+export function getDashboardAlerts(params?: { limit?: number; level?: string; acknowledged?: string }) {
+  return request.get<DashboardAlert[]>('/admin/dashboard/alerts', { params, silent: true } as any)
+}
+
+/**
+ * 确认仪表盘告警事件
+ */
+export function acknowledgeDashboardAlert(id: string) {
+  return request.post(`/admin/dashboard/alerts/${id}/acknowledge`)
 }

@@ -97,6 +97,24 @@
 
     <!-- 正常数据展示 -->
     <template v-else>
+      <div class="dashboard-hero">
+        <div class="hero-main">
+          <div class="hero-title">AI Gateway 运行仪表盘</div>
+          <div class="hero-subtitle">一屏掌握请求趋势、缓存效能与告警态势</div>
+          <div class="hero-metrics">
+            <div v-for="item in heroMetrics" :key="item.label" class="hero-metric">
+              <span class="metric-label">{{ item.label }}</span>
+              <span class="metric-value">{{ item.value }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <el-button type="primary" @click="$router.push('/alerts')">告警事件管理</el-button>
+          <el-button @click="$router.push('/ops')">运维监控</el-button>
+          <el-button @click="$router.push('/providers')">服务商配置</el-button>
+        </div>
+      </div>
+
       <!-- 统计卡片 -->
       <el-row :gutter="20" class="stats-row">
         <el-col :span="6" v-for="stat in stats" :key="stat.title">
@@ -221,32 +239,62 @@
         </el-card>
       </el-col>
       <el-col :span="12">
-        <el-card shadow="hover">
+        <el-card shadow="hover" class="alert-card" v-loading="alertLoading">
           <template #header>
             <div class="card-header">
-              <span>最近错误</span>
-              <el-button type="primary" link @click="$router.push('/alerts')">
-                查看全部
-              </el-button>
+              <div class="alert-header">
+                <span>告警事件管理</span>
+                <div class="alert-badges">
+                  <el-tag size="small" type="danger">严重 {{ alertSummary.critical }}</el-tag>
+                  <el-tag size="small" type="warning">警告 {{ alertSummary.warning }}</el-tag>
+                  <el-tag size="small" type="info">信息 {{ alertSummary.info }}</el-tag>
+                </div>
+              </div>
+              <div class="alert-actions">
+                <el-button type="primary" link @click="refreshAlerts">刷新</el-button>
+                <el-button type="primary" link @click="$router.push('/alerts')">进入告警中心</el-button>
+              </div>
             </div>
           </template>
-          <el-table :data="recentErrors" stripe size="small" max-height="200" v-if="recentErrors.length > 0">
-            <el-table-column prop="timestamp" label="时间" width="100">
+          <div class="alert-filters">
+            <el-select v-model="alertFilters.level" placeholder="级别" clearable size="small" style="width: 120px">
+              <el-option label="严重" value="critical" />
+              <el-option label="警告" value="warning" />
+              <el-option label="信息" value="info" />
+            </el-select>
+            <el-select v-model="alertFilters.acknowledged" placeholder="确认状态" size="small" style="width: 140px">
+              <el-option label="全部" value="all" />
+              <el-option label="未确认" value="false" />
+              <el-option label="已确认" value="true" />
+            </el-select>
+          </div>
+          <el-table :data="filteredDashboardAlerts" stripe size="small" max-height="230" v-if="filteredDashboardAlerts.length > 0">
+            <el-table-column prop="timestamp" label="时间" width="130">
               <template #default="{ row }">
-                {{ formatTime(row.timestamp) }}
+                {{ formatAlertTime(row.timestamp) }}
               </template>
             </el-table-column>
-            <el-table-column prop="provider" label="服务商" width="90">
+            <el-table-column prop="level" label="级别" width="90">
               <template #default="{ row }">
-                <el-tag size="small">{{ row.provider }}</el-tag>
+                <el-tag size="small" :type="getAlertLevelTag(row.level)">{{ getAlertLevelName(row.level) }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="error" label="错误" />
-            <el-table-column prop="count" label="次数" width="60" />
+            <el-table-column prop="message" label="告警信息" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="provider" label="来源" width="90">
+              <template #default="{ row }">
+                <span>{{ row.provider || row.type || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="90">
+              <template #default="{ row }">
+                <el-button v-if="!row.acknowledged" type="primary" link size="small" @click="acknowledgeAlert(row)">确认</el-button>
+                <span v-else class="text-muted">已确认</span>
+              </template>
+            </el-table-column>
           </el-table>
           <div v-else class="no-errors">
             <el-icon :size="48" color="#34C759"><CircleCheckFilled /></el-icon>
-            <p>运行正常,暂无错误</p>
+            <p>当前暂无告警事件</p>
           </div>
         </el-card>
       </el-col>
@@ -256,7 +304,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, reactive } from 'vue'
 import * as echarts from 'echarts'
 import {
   getOverview,
@@ -264,8 +312,11 @@ import {
   getProviders,
   getRealtime,
   getCacheStats,
+  getDashboardAlerts,
+  acknowledgeDashboardAlert,
   type OverviewData,
-  type RealtimeData
+  type RealtimeData,
+  type DashboardAlert
 } from '@/api/metrics'
 
 const loading = ref(false)
@@ -282,6 +333,12 @@ const realtimeData = ref<RealtimeData>({
   top_models: [],
   recent_errors: []
 })
+const dashboardAlerts = ref<DashboardAlert[]>([])
+const alertLoading = ref(false)
+const alertFilters = reactive({
+  level: '',
+  acknowledged: 'all'
+})
 
 // 判断是否为空数据状态
 const isEmptyData = computed(() => {
@@ -297,6 +354,13 @@ const isEmptyData = computed(() => {
 })
 
 const cacheHitRate = computed(() => overviewData.value?.cache_hit_rate?.toFixed(1) || '0')
+
+const heroMetrics = computed(() => [
+  { label: '缓存命中', value: `${cacheHitRate.value}%` },
+  { label: '平均延迟', value: `${overviewData.value?.avg_latency_ms || 0}ms` },
+  { label: '今日请求', value: formatNumber(overviewData.value?.requests_today || 0) },
+  { label: '成功率', value: `${(overviewData.value?.success_rate || 0).toFixed(1)}%` }
+])
 
 const stats = computed(() => [
   {
@@ -342,7 +406,27 @@ const modelRanking = computed(() => {
   }))
 })
 
-const recentErrors = computed(() => realtimeData.value?.recent_errors || [])
+const alertSummary = computed(() => {
+  const summary = { critical: 0, warning: 0, info: 0 }
+  for (const alert of dashboardAlerts.value) {
+    if (alert.level === 'critical') summary.critical += 1
+    if (alert.level === 'warning') summary.warning += 1
+    if (alert.level === 'info') summary.info += 1
+  }
+  return summary
+})
+
+const filteredDashboardAlerts = computed(() => {
+  let alerts = [...dashboardAlerts.value]
+  if (alertFilters.level) {
+    alerts = alerts.filter(alert => alert.level === alertFilters.level)
+  }
+  if (alertFilters.acknowledged !== 'all') {
+    const target = alertFilters.acknowledged === 'true'
+    alerts = alerts.filter(alert => alert.acknowledged === target)
+  }
+  return alerts.slice(0, 12)
+})
 
 const formatNumber = (num: number): string => {
   if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
@@ -355,10 +439,23 @@ const formatPercent = (num: number): string => {
   return num.toFixed(2).replace(/\.?0+$/, '')
 }
 
-const formatTime = (timestamp: string): string => {
+const formatAlertTime = (timestamp: string): string => {
   if (!timestamp) return ''
   const date = new Date(timestamp)
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const getAlertLevelTag = (level: string): string => {
+  if (level === 'critical') return 'danger'
+  if (level === 'warning') return 'warning'
+  return 'info'
+}
+
+const getAlertLevelName = (level: string): string => {
+  if (level === 'critical') return '严重'
+  if (level === 'warning') return '警告'
+  if (level === 'info') return '信息'
+  return level || '-'
 }
 
 // 图表相关
@@ -372,6 +469,7 @@ let pieChart: echarts.ECharts | null = null
 let cacheChart: echarts.ECharts | null = null
 let tokenChart: echarts.ECharts | null = null
 let realtimeTimer: ReturnType<typeof setInterval> | null = null
+let alertTimer: ReturnType<typeof setInterval> | null = null
 let themeObserver: MutationObserver | null = null
 
 const getChartTheme = () => {
@@ -753,6 +851,21 @@ const fetchRealtime = async () => {
   }
 }
 
+const fetchDashboardAlerts = async () => {
+  alertLoading.value = true
+  try {
+    const params: any = { limit: 50 }
+    if (alertFilters.level) params.level = alertFilters.level
+    if (alertFilters.acknowledged !== 'all') params.acknowledged = alertFilters.acknowledged
+    const res = await getDashboardAlerts(params)
+    dashboardAlerts.value = (res as any)?.data || res || []
+  } catch (error) {
+    console.warn('Dashboard alerts not available', error)
+  } finally {
+    alertLoading.value = false
+  }
+}
+
 const fetchAllData = async () => {
   loading.value = true
   loadError.value = false
@@ -762,7 +875,8 @@ const fetchAllData = async () => {
       fetchRequestTrend(),
       fetchProviders(),
       fetchRealtime(),
-      fetchCacheStats()
+      fetchCacheStats(),
+      fetchDashboardAlerts()
     ])
     // Initialize token chart with overview data
     if (overviewData.value) {
@@ -836,6 +950,8 @@ onMounted(async () => {
 
     // Refresh realtime data every 10 seconds
     realtimeTimer = setInterval(fetchRealtime, 10000)
+
+    alertTimer = setInterval(fetchDashboardAlerts, 15000)
     
     // Refresh overview data every 5 seconds
     setInterval(() => {
@@ -860,16 +976,103 @@ onUnmounted(() => {
   if (realtimeTimer) {
     clearInterval(realtimeTimer)
   }
+  if (alertTimer) {
+    clearInterval(alertTimer)
+  }
 })
 
 // 监听时间范围变化
 watch(requestTrendRange, () => {
   fetchRequestTrend()
 })
+
+watch(
+  () => [alertFilters.level, alertFilters.acknowledged],
+  () => {
+    fetchDashboardAlerts()
+  }
+)
+
+const refreshAlerts = async () => {
+  await fetchDashboardAlerts()
+}
+
+const acknowledgeAlert = async (alert: DashboardAlert) => {
+  if (alert.acknowledged) return
+  try {
+    await acknowledgeDashboardAlert(alert.id)
+    alert.acknowledged = true
+  } catch (error) {
+    console.warn('Acknowledge alert failed', error)
+  }
+}
 </script>
 
 <style scoped lang="scss">
 .dashboard-page {
+  .dashboard-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--spacing-xl);
+    padding: var(--spacing-2xl);
+    margin-bottom: var(--spacing-xl);
+    border-radius: var(--border-radius-xl);
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.12), rgba(52, 199, 89, 0.08), rgba(175, 82, 222, 0.12));
+    border: 1px solid rgba(0, 122, 255, 0.1);
+
+    .hero-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .hero-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: var(--spacing-sm);
+    }
+
+    .hero-subtitle {
+      color: var(--text-secondary);
+      font-size: var(--font-size-md);
+      margin-bottom: var(--spacing-lg);
+    }
+
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: var(--spacing-lg);
+    }
+
+    .hero-metric {
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(12px);
+      border-radius: var(--border-radius-lg);
+      padding: var(--spacing-md);
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-xs);
+
+      .metric-label {
+        color: var(--text-tertiary);
+        font-size: var(--font-size-sm);
+      }
+
+      .metric-value {
+        font-size: var(--font-size-xl);
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacing-sm);
+    }
+  }
+
   .stats-row,
   .chart-row,
   .metrics-row,
@@ -1179,6 +1382,57 @@ watch(requestTrendRange, () => {
     p {
       margin-top: var(--spacing-md);
       font-size: var(--font-size-md);
+    }
+  }
+
+  .alert-card {
+    .alert-header {
+      display: flex;
+      align-items: center;
+      gap: var(--spacing-md);
+
+      .alert-badges {
+        display: flex;
+        gap: var(--spacing-xs);
+        flex-wrap: wrap;
+      }
+    }
+
+    .alert-actions {
+      display: flex;
+      gap: var(--spacing-sm);
+    }
+
+    .alert-filters {
+      display: flex;
+      gap: var(--spacing-sm);
+      padding: var(--spacing-sm) 0 var(--spacing-md);
+    }
+  }
+
+  @media (max-width: 1200px) {
+    .dashboard-hero {
+      flex-direction: column;
+      align-items: stretch;
+
+      .hero-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+    }
+  }
+
+  @media (max-width: 768px) {
+    .dashboard-hero {
+      padding: var(--spacing-xl);
+
+      .hero-metrics {
+        grid-template-columns: repeat(1, minmax(0, 1fr));
+      }
     }
   }
 
