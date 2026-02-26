@@ -8,6 +8,7 @@ import (
 	"ai-gateway/internal/middleware"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
+	"ai-gateway/internal/storage"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1770,9 +1771,34 @@ func (h *ProxyHandler) ListModels(c *gin.Context) {
 
 // recordMetrics records request metrics
 func (h *ProxyHandler) recordMetrics(userID, apiKey, model string, latency time.Duration, tokens int, success bool) {
+	h.recordMetricsExtended(userID, apiKey, model, "", latency, tokens, success, false, 0, 0, "", "", "")
+}
+
+func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType string) {
 	// Update dashboard stats
 	if dh := admin.GetDashboardHandler(); dh != nil {
 		dh.UpdateStats(success, latency.Milliseconds(), int64(tokens), model)
+	}
+
+	// Log to storage for usage tracking
+	if storage := storage.GetSQLite(); storage != nil {
+		storage.LogUsage(map[string]interface{}{
+			"timestamp":     time.Now().UnixMilli(),
+			"model":         model,
+			"provider":      provider,
+			"user_id":       userID,
+			"api_key":       maskAPIKey(apiKey),
+			"tokens":        int64(tokens),
+			"input_tokens":  int64(inputTokens),
+			"output_tokens": int64(tokens - inputTokens),
+			"latency_ms":    latency.Milliseconds(),
+			"ttft_ms":       ttftMs,
+			"cache_hit":     cacheHit,
+			"success":       success,
+			"task_type":     taskType,
+			"difficulty":    difficulty,
+			"error_type":    errorType,
+		})
 	}
 
 	// Log metrics

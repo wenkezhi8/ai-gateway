@@ -11,7 +11,7 @@
     "grepInvert": null,
     "maxFailures": 0,
     "metadata": {
-      "actualWorkers": 2
+      "actualWorkers": 1
     },
     "preserveOutput": "always",
     "projects": [
@@ -20,7 +20,7 @@
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "chromium",
         "name": "chromium",
@@ -36,7 +36,7 @@
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "firefox",
         "name": "firefox",
@@ -52,7 +52,7 @@
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
-          "actualWorkers": 2
+          "actualWorkers": 1
         },
         "id": "webkit",
         "name": "webkit",
@@ -102,152 +102,55 @@
   },
   "suites": [
     {
-      "title": "scenarios/limit-management.spec.ts",
-      "file": "scenarios/limit-management.spec.ts",
+      "title": "scenarios/chat-model-display-name.spec.ts",
+      "file": "scenarios/chat-model-display-name.spec.ts",
       "column": 0,
       "line": 0,
-      "specs": [],
-      "suites": [
+      "specs": [
         {
-          "title": "Limit Management Page",
-          "file": "scenarios/limit-management.spec.ts",
-          "line": 48,
-          "column": 6,
-          "specs": [
+          "title": "chat model selector shows provider display_name",
+          "ok": true,
+          "tags": [],
+          "tests": [
             {
-              "title": "should render controls, filter, and paginate accounts",
-              "ok": false,
-              "tags": [],
-              "tests": [
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
                 {
-                  "timeout": 30000,
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1669,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-02-26T00:39:04.271Z",
                   "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 6977,
-                      "error": {
-                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.accounts-table')\nExpected substring: \u001b[32m\"Account 23\"\u001b[39m\nReceived string:    \u001b[31m\"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.accounts-table')\u001b[22m\n\u001b[2m    2 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n\u001b[2m    7 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table is-scrolling-left\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n",
-                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.accounts-table')\nExpected substring: \u001b[32m\"Account 23\"\u001b[39m\nReceived string:    \u001b[31m\"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.accounts-table')\u001b[22m\n\u001b[2m    2 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n\u001b[2m    7 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table is-scrolling-left\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n\n    at /Users/openclaw/ai-gateway/web/tests/scenarios/limit-management.spec.ts:95:51",
-                        "location": {
-                          "file": "/Users/openclaw/ai-gateway/web/tests/scenarios/limit-management.spec.ts",
-                          "column": 51,
-                          "line": 95
-                        },
-                        "snippet": "  93 |\n  94 |     await page.locator('.search-input input').fill('Account 23');\n> 95 |     await expect(page.locator('.accounts-table')).toContainText('Account 23');\n     |                                                   ^\n  96 |\n  97 |     await page.locator('button:has-text(\"重置\")').click();\n  98 |     await expect(page.locator('.accounts-table')).toContainText('Account 1');"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "/Users/openclaw/ai-gateway/web/tests/scenarios/limit-management.spec.ts",
-                            "column": 51,
-                            "line": 95
-                          },
-                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoContainText\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.accounts-table')\nExpected substring: \u001b[32m\"Account 23\"\u001b[39m\nReceived string:    \u001b[31m\"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[39m\nTimeout: 5000ms\n\nCall log:\n\u001b[2m  - Expect \"toContainText\" with timeout 5000ms\u001b[22m\n\u001b[2m  - waiting for locator('.accounts-table')\u001b[22m\n\u001b[2m    2 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n\u001b[2m    7 × locator resolved to <div data-prefix=\"el\" data-v-c48f0351=\"\" class=\"el-table--fit el-table--striped el-table--scrollable-x el-table el-table--layout-fixed accounts-table is-scrolling-left\">…</div>\u001b[22m\n\u001b[2m      - unexpected value \"账号名称服务商多级限额状态RPM状态操作无匹配结果\"\u001b[22m\n\n\n  93 |\n  94 |     await page.locator('.search-input input').fill('Account 23');\n> 95 |     await expect(page.locator('.accounts-table')).toContainText('Account 23');\n     |                                                   ^\n  96 |\n  97 |     await page.locator('button:has-text(\"重置\")').click();\n  98 |     await expect(page.locator('.accounts-table')).toContainText('Account 1');\n    at /Users/openclaw/ai-gateway/web/tests/scenarios/limit-management.spec.ts:95:51"
-                        }
-                      ],
-                      "stdout": [
-                        {
-                          "text": "[PERF] Login: 689ms (PASS)\n"
-                        },
-                        {
-                          "text": "[PERF] Navigate to /limit-management: 628ms (PASS)\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-24T19:14:53.665Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "/Users/openclaw/ai-gateway/web/tests/results/artifacts/scenarios-limit-management-72206-ilter-and-paginate-accounts-chromium/test-failed-1.png"
-                        },
-                        {
-                          "name": "video",
-                          "contentType": "video/webm",
-                          "path": "/Users/openclaw/ai-gateway/web/tests/results/artifacts/scenarios-limit-management-72206-ilter-and-paginate-accounts-chromium/video.webm"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "/Users/openclaw/ai-gateway/web/tests/results/artifacts/scenarios-limit-management-72206-ilter-and-paginate-accounts-chromium/error-context.md"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "/Users/openclaw/ai-gateway/web/tests/scenarios/limit-management.spec.ts",
-                        "column": 51,
-                        "line": 95
-                      }
-                    }
-                  ],
-                  "status": "unexpected"
+                  "attachments": []
                 }
               ],
-              "id": "af2be0ee785844fd0790-abd156b03f9f8244ece6",
-              "file": "scenarios/limit-management.spec.ts",
-              "line": 53,
-              "column": 3
-            },
-            {
-              "title": "should toggle auto refresh mode",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 2327,
-                      "errors": [],
-                      "stdout": [
-                        {
-                          "text": "[PERF] Login: 928ms (PASS)\n"
-                        },
-                        {
-                          "text": "[PERF] Navigate to /limit-management: 1211ms (PASS)\n"
-                        }
-                      ],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-24T19:14:53.665Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "af2be0ee785844fd0790-c782887fdfb738acb0a7",
-              "file": "scenarios/limit-management.spec.ts",
-              "line": 101,
-              "column": 3
+              "status": "expected"
             }
-          ]
+          ],
+          "id": "5087eddd64f864e3d3f1-498a1b84ca68d882070a",
+          "file": "scenarios/chat-model-display-name.spec.ts",
+          "line": 3,
+          "column": 1
         }
       ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-02-24T19:14:53.163Z",
-    "duration": 8311.173999999999,
+    "startTime": "2026-02-26T00:39:03.757Z",
+    "duration": 3148.456,
     "expected": 1,
     "skipped": 0,
-    "unexpected": 1,
+    "unexpected": 0,
     "flaky": 0
   }
 }

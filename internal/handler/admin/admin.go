@@ -5,6 +5,7 @@ import (
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
+	"ai-gateway/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,6 +25,7 @@ type Handlers struct {
 	Alert       *AlertHandler
 	Feedback    *FeedbackHandler
 	Ops         *OpsHandler
+	Usage       *UsageHandler
 }
 
 // NewHandlers creates all admin handlers
@@ -39,6 +41,9 @@ func NewHandlers(
 	feedbackCollector := routing.NewFeedbackCollector(smartRouter.GetDifficultyAssessor(), smartRouter)
 	InitFeedbackHandler(feedbackCollector)
 
+	// Initialize usage handler with storage
+	usageHandler := NewUsageHandler(storage.GetSQLite())
+
 	handlers := &Handlers{
 		Account:     NewAccountHandler(accountManager),
 		Provider:    NewProviderHandler(registry),
@@ -51,6 +56,7 @@ func NewHandlers(
 		Alert:       NewAlertHandler(),
 		Feedback:    GetFeedbackHandler(),
 		Ops:         NewOpsHandler(),
+		Usage:       usageHandler,
 	}
 	globalDashboardHandler = handlers.Dashboard
 	return handlers
@@ -231,5 +237,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		ops.GET("/events", handlers.Ops.GetEvents)
 		ops.GET("/providers/health", handlers.Ops.GetProviderHealth)
 		ops.GET("/export", handlers.Ops.ExportMetrics)
+	}
+
+	// Usage routes
+	usage := r.Group("/usage")
+	{
+		usage.GET("/logs", handlers.Usage.GetUsageLogs)
+		usage.GET("/stats", handlers.Usage.GetUsageStats)
 	}
 }

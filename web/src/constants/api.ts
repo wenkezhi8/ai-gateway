@@ -90,4 +90,9 @@ export const API = {
     RULES: '/api/admin/cache/rules',
     EXPORT: '/api/admin/cache/export',
   },
+  
+  USAGE: {
+    LOGS: '/api/admin/usage/logs',
+    STATS: '/api/admin/usage/stats',
+  },
 } as const

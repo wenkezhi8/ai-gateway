@@ -142,6 +142,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { accountApi } from '@/api/account'
 import { getCacheStats } from '@/api/metrics'
+import { request } from '@/api/request'
+import { API } from '@/constants/api'
 
 type RangeType = '24h' | '7d' | '30d'
 
@@ -161,26 +163,6 @@ interface UsageRow {
   totalTokens: number
   cacheHit: string
   cost: number
-}
-
-interface ChatMessageLite {
-  id: string
-  role: string
-  timestamp: number
-  stats?: {
-    firstTokenTime?: number
-    totalTime?: number
-    totalTokens?: number
-    promptTokens?: number
-    completionTokens?: number
-    cacheHit?: boolean
-  }
-}
-
-interface ConversationLite {
-  provider: string
-  model: string
-  messages: ChatMessageLite[]
 }
 
 const loading = ref(false)
@@ -296,90 +278,6 @@ const formatDateTime = (time: number) => {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
-const providerLabelMap: Record<string, string> = {
-  openai: 'OpenAI',
-  anthropic: 'Anthropic',
-  deepseek: 'DeepSeek',
-  qwen: '通义千问',
-  zhipu: '智谱AI',
-  moonshot: 'Kimi',
-  volcengine: '火山方舟',
-  minimax: 'MiniMax',
-  baichuan: '百川'
-}
-
-const resolveProviderLabel = (provider: string) => providerLabelMap[provider] || provider || '-'
-
-const resolveAccountNameByProvider = (providerName: string) => {
-  const normalized = providerName.toLowerCase()
-  const exact = accountRows.value.find(account => {
-    const p = (account.provider || account.provider_type || '').toLowerCase()
-    return p === normalized && account.is_active
-  }) || accountRows.value.find(account => {
-    const p = (account.provider || account.provider_type || '').toLowerCase()
-    return p === normalized
-  })
-
-  if (!exact) return '-'
-  return exact.name || exact.id || '-'
-}
-
-const loadUsageRowsFromChat = () => {
-  const raw = localStorage.getItem('chat_conversations')
-  if (!raw) {
-    usageRows.value = []
-    return
-  }
-
-  let conversations: ConversationLite[] = []
-  try {
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed)) {
-      conversations = parsed
-    }
-  } catch {
-    conversations = []
-  }
-
-  const rows: UsageRow[] = []
-  for (const conversation of conversations) {
-    const providerValue = conversation.provider || ''
-    const provider = resolveProviderLabel(providerValue)
-    const accountName = resolveAccountNameByProvider(providerValue)
-
-    for (const message of conversation.messages || []) {
-      if (message.role !== 'assistant') continue
-      const totalTokens = message.stats?.totalTokens || 0
-      if (totalTokens <= 0) continue
-
-      const inputTokens = message.stats?.promptTokens || Math.round(totalTokens * 0.6)
-      const outputTokensValue = message.stats?.completionTokens || Math.max(0, totalTokens - inputTokens)
-      const firstTokenSeconds = Number(message.stats?.firstTokenTime || 0)
-      const totalDurationSeconds = Number(message.stats?.totalTime || 0)
-
-      rows.push({
-        id: message.id,
-        accountName,
-        provider,
-        time: formatDateTime(message.timestamp),
-        timestamp: message.timestamp,
-        firstTokenLatency: `${firstTokenSeconds.toFixed(2)}s`,
-        totalLatency: `${totalDurationSeconds.toFixed(2)}s`,
-        firstTokenSeconds,
-        totalDurationSeconds,
-        model: conversation.model || '-',
-        inputTokens,
-        outputTokens: outputTokensValue,
-        totalTokens,
-        cacheHit: message.stats?.cacheHit === true ? '命中' : '未命中',
-        cost: totalTokens * 0.00000035
-      })
-    }
-  }
-
-  usageRows.value = rows.sort((a, b) => b.timestamp - a.timestamp)
-}
-
 const fetchAccounts = async () => {
   const res = await accountApi.getList({ page: 1, pageSize: 200 })
   const data = (res as any)?.data || []
@@ -404,11 +302,53 @@ const fetchCacheStats = async () => {
   }
 }
 
+const fetchUsageLogs = async () => {
+  try {
+    const rangeParam = range.value
+    const res = await request.get(API.USAGE.LOGS, {
+      params: {
+        range: rangeParam,
+        limit: 1000
+      }
+    })
+    const data = (res as any)?.data || []
+    
+    const rows: UsageRow[] = []
+    for (const log of data) {
+      const inputTokens = log.input_tokens || Math.round(log.tokens * 0.6)
+      const outputTokens = log.output_tokens || Math.max(0, log.tokens - inputTokens)
+      
+      rows.push({
+        id: String(log.id || log.timestamp),
+        accountName: log.api_key || '-',
+        provider: log.provider || '-',
+        time: log.timestamp ? formatDateTime(log.timestamp) : '-',
+        timestamp: log.timestamp || 0,
+        firstTokenLatency: log.ttft_ms ? `${(log.ttft_ms / 1000).toFixed(2)}s` : '-',
+        totalLatency: `${(log.latency_ms / 1000).toFixed(2)}s`,
+        firstTokenSeconds: log.ttft_ms ? log.ttft_ms / 1000 : 0,
+        totalDurationSeconds: log.latency_ms / 1000,
+        model: log.model || '-',
+        inputTokens,
+        outputTokens,
+        totalTokens: log.tokens || 0,
+        cacheHit: log.cache_hit ? '命中' : '未命中',
+        cost: (log.tokens || 0) * 0.00000035
+      })
+    }
+    
+    usageRows.value = rows.sort((a, b) => b.timestamp - a.timestamp)
+  } catch (e) {
+    console.warn('Failed to fetch usage logs from API:', e)
+    usageRows.value = []
+  }
+}
+
 const refreshAll = async () => {
   loading.value = true
   try {
     await Promise.all([fetchAccounts(), fetchCacheStats()])
-    loadUsageRowsFromChat()
+    await fetchUsageLogs()
     page.value = 1
   } finally {
     loading.value = false

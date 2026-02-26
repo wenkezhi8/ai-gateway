@@ -225,6 +225,113 @@ func (s *MemoryStorage) GetUsageLogs(limit int, offset int) ([]map[string]interf
 	return result, nil
 }
 
+type UsageFilter struct {
+	Model     string
+	Provider  string
+	StartTime int64
+	EndTime   int64
+}
+
+func (s *MemoryStorage) GetUsageLogsWithFilter(filter UsageFilter, limit int, offset int) ([]map[string]interface{}, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	filtered := make([]map[string]interface{}, 0)
+	for i := len(s.usageLogs) - 1; i >= 0; i-- {
+		log := s.usageLogs[i]
+
+		if filter.Model != "" {
+			if model, ok := log["model"].(string); !ok || model != filter.Model {
+				continue
+			}
+		}
+		if filter.Provider != "" {
+			if provider, ok := log["provider"].(string); !ok || provider != filter.Provider {
+				continue
+			}
+		}
+		if filter.StartTime > 0 {
+			if ts, ok := log["timestamp"].(int64); !ok || ts < filter.StartTime {
+				continue
+			}
+		}
+		if filter.EndTime > 0 {
+			if ts, ok := log["timestamp"].(int64); !ok || ts > filter.EndTime {
+				continue
+			}
+		}
+
+		filtered = append(filtered, log)
+	}
+
+	if offset >= len(filtered) {
+		return []map[string]interface{}{}, nil
+	}
+
+	end := offset + limit
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+
+	return filtered[offset:end], nil
+}
+
+func (s *MemoryStorage) GetUsageStats() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var totalRequests, totalTokens, cacheHits, cacheMisses int64
+	var totalLatency int64
+	modelStats := make(map[string]map[string]int64)
+
+	for _, log := range s.usageLogs {
+		totalRequests++
+		if tokens, ok := log["tokens"].(int64); ok {
+			totalTokens += tokens
+		}
+		if latency, ok := log["latency_ms"].(int64); ok {
+			totalLatency += latency
+		}
+		if hit, ok := log["cache_hit"].(bool); ok {
+			if hit {
+				cacheHits++
+			} else {
+				cacheMisses++
+			}
+		}
+		if model, ok := log["model"].(string); ok && model != "" {
+			if modelStats[model] == nil {
+				modelStats[model] = map[string]int64{"requests": 0, "tokens": 0}
+			}
+			modelStats[model]["requests"]++
+			if tokens, ok := log["tokens"].(int64); ok {
+				modelStats[model]["tokens"] += tokens
+			}
+		}
+	}
+
+	var avgLatency int64
+	if totalRequests > 0 {
+		avgLatency = totalLatency / totalRequests
+	}
+
+	var cacheHitRate float64
+	totalCache := cacheHits + cacheMisses
+	if totalCache > 0 {
+		cacheHitRate = float64(cacheHits) / float64(totalCache) * 100
+	}
+
+	return map[string]interface{}{
+		"total_requests": totalRequests,
+		"total_tokens":   totalTokens,
+		"cache_hits":     cacheHits,
+		"cache_misses":   cacheMisses,
+		"cache_hit_rate": cacheHitRate,
+		"avg_latency_ms": avgLatency,
+		"model_stats":    modelStats,
+	}
+}
+
 func (s *MemoryStorage) GetConfig(key string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
