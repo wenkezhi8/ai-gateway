@@ -92,8 +92,15 @@ Git权限：允许 commit + push main，不打 tag
 每次阶段结束时必须明确回报：
 1. 是否已本地提交（是/否）
 2. 最新 commit hash（若有）
-3. 是否已 push（是/否）
-4. 工作区是否 clean（`git status` 结果）
+3. 当前版本号（必须带 `git tag`，例如 `v1.5.1`；无 tag 则写 `no-tag`）
+4. 是否已 push（是/否）
+5. 工作区是否 clean（`git status` 结果）
+
+推荐命令：
+
+```bash
+git describe --tags --abbrev=0 2>/dev/null || echo no-tag
+```
 
   
 ---
