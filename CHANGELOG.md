@@ -14,6 +14,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.4.9] - 2026-02-26
+
+### Added
+- Admin router endpoint `GET /api/admin/router/classifier/models` to return classifier candidate models for manual switching.
+- Playwright scenario `web/tests/scenarios/routing.spec.ts` to cover classifier model list refresh and model switching flow.
+- Dashboard alert management section with filters and acknowledgment actions.
+- Cache entries now record task type source for UI display.
+
+### Changed
+- Routing page now supports manual "refresh model list" for classifier candidates and updates options from real-time Ollama installed models.
+- Router config response now enriches `classifier.candidate_models` with Ollama `/api/tags` results while preserving active model and configured fallbacks.
+- Dashboard layout refreshed with hero summary and alert quick actions.
+
+### Fixed
+- Fixed `/routing` manual classifier model switch dropdown only showing static default candidates.
+- Improved fallback behavior for classifier model list retrieval when Ollama is unavailable.
+- Cache hit metrics now record task type source and avoid unknown-only classification.
+- Classifier fallback now routes `unknown` to heuristic detection for short greetings.
+
 ## [1.0.0] - 2024-01-01
 
 ### Added
@@ -40,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.4.9 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
 | 1.0.0 | 2024-01-01 | Initial release |
 
 ---
