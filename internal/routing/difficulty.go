@@ -374,11 +374,25 @@ func (a *DifficultyAssessor) GetSuccessRate(model string, taskType TaskType) flo
 
 // AssessmentResult represents the result of difficulty assessment
 type AssessmentResult struct {
-	TaskType     TaskType           `json:"task_type"`
-	Difficulty   DifficultyLevel    `json:"difficulty"`
-	Confidence   float64            `json:"confidence"`
-	Dimensions   map[string]float64 `json:"dimensions"`
-	SuggestedTTL time.Duration      `json:"suggested_ttl"`
+	TaskType          TaskType             `json:"task_type"`
+	Difficulty        DifficultyLevel      `json:"difficulty"`
+	Confidence        float64              `json:"confidence"`
+	Dimensions        map[string]float64   `json:"dimensions"`
+	SuggestedTTL      time.Duration        `json:"suggested_ttl"`
+	SemanticSignature string               `json:"semantic_signature,omitempty"`
+	ControlSignals    *ControlSignals      `json:"control_signals,omitempty"`
+	RouteHint         string               `json:"route_hint,omitempty"`
+	Source            ClassificationSource `json:"source,omitempty"`
+	FallbackReason    string               `json:"fallback_reason,omitempty"`
+}
+
+type ControlSignals struct {
+	ControlVersion      string  `json:"control_version,omitempty"`
+	NormalizedQuery     string  `json:"normalized_query,omitempty"`
+	QueryStabilityScore float64 `json:"query_stability_score,omitempty"`
+	Cacheable           *bool   `json:"cacheable,omitempty"`
+	CacheReason         string  `json:"cache_reason,omitempty"`
+	TTLBand             string  `json:"ttl_band,omitempty"`
 }
 
 // AssessWithResult returns detailed assessment result
@@ -409,11 +423,13 @@ func (a *DifficultyAssessor) AssessWithResult(prompt string, context string) *As
 	}
 
 	return &AssessmentResult{
-		TaskType:     taskType,
-		Difficulty:   difficulty,
-		Confidence:   confidence,
-		Dimensions:   dimensions,
-		SuggestedTTL: suggestedTTL,
+		TaskType:          taskType,
+		Difficulty:        difficulty,
+		Confidence:        confidence,
+		Dimensions:        dimensions,
+		SuggestedTTL:      suggestedTTL,
+		SemanticSignature: buildFallbackSignature(taskType, prompt),
+		Source:            ClassificationSourceHeuristic,
 	}
 }
 

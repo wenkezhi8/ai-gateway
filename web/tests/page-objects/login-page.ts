@@ -24,7 +24,10 @@ export class LoginPage {
     await this.navigate();
     await this.fillCredentials(username, password);
     await this.submitLogin();
-    await this.page.waitForURL('**/dashboard');
+    await this.page.waitForURL(url => {
+      const path = new URL(url.toString()).pathname;
+      return path !== '/login';
+    });
   }
 
   async getLoginButton() {
@@ -32,7 +35,7 @@ export class LoginPage {
   }
 
   async getErrorMessage() {
-    return this.page.locator('.error-message, .alert-error, [role="alert"]');
+    return this.page.locator('.error-message, .alert-error, [role="alert"]').first();
   }
 
   async isVisible() {

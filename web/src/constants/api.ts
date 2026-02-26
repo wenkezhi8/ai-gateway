@@ -69,6 +69,9 @@ export const API = {
     PROVIDER_DEFAULTS: '/api/admin/router/provider-defaults',
     TTL_CONFIG: '/api/admin/router/ttl-config',
     CASCADE_RULES: '/api/admin/router/cascade-rules',
+    CLASSIFIER_HEALTH: '/api/admin/router/classifier/health',
+    CLASSIFIER_STATS: '/api/admin/router/classifier/stats',
+    CLASSIFIER_SWITCH: '/api/admin/router/classifier/switch',
   },
   
   FEEDBACK: {
@@ -85,6 +88,7 @@ export const API = {
     CONFIG: '/api/admin/cache/config',
     HEALTH: '/api/admin/cache/health',
     SUMMARY: '/api/admin/cache/summary',
+    SEMANTIC_SIGNATURES: '/api/admin/cache/semantic-signatures',
     QUALITY_CONFIG: '/api/admin/cache/quality-config',
     INVALIDATE_LOW_QUALITY: '/api/admin/cache/invalidate-low-quality',
     RULES: '/api/admin/cache/rules',

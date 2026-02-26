@@ -91,6 +91,9 @@ test.describe('Limit Management Page', () => {
     await page.locator('.el-select-dropdown__item:has-text("已超限")').click();
     await expect(page.locator('.accounts-table .row-exceeded')).toHaveCount(5);
 
+    await page.locator('.filter-select').nth(1).click();
+    await page.locator('.el-select-dropdown__item:has-text("全部状态")').click();
+
     await page.locator('.search-input input').fill('Account 23');
     await expect(page.locator('.accounts-table')).toContainText('Account 23');
 

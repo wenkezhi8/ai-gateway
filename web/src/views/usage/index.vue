@@ -88,34 +88,34 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="pagedRows" stripe class="usage-table" v-loading="loading">
+      <el-table :data="pagedRows" stripe class="usage-table" v-loading="loading" table-layout="auto">
         <el-table-column prop="accountName" label="API Key账号" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="provider" label="服务商" width="120" />
-        <el-table-column prop="time" label="最近时间" width="180" />
-        <el-table-column prop="firstTokenLatency" label="首 Token 耗时" width="130" align="right" />
-        <el-table-column prop="totalLatency" label="总耗时" width="110" align="right" />
+        <el-table-column prop="provider" label="服务商" min-width="120" />
+        <el-table-column prop="time" label="最近时间" min-width="180" />
+        <el-table-column prop="firstTokenLatency" label="首 Token 耗时" min-width="140" align="right" />
+        <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
         <el-table-column prop="model" label="模型" min-width="170" />
-        <el-table-column label="入 Token" width="130" align="right">
+        <el-table-column label="入 Token" min-width="120" align="right">
           <template #default="{ row }">
             {{ formatCompact(row.inputTokens) }}
           </template>
         </el-table-column>
-        <el-table-column label="出 Token" width="130" align="right">
+        <el-table-column label="出 Token" min-width="120" align="right">
           <template #default="{ row }">
             {{ formatCompact(row.outputTokens) }}
           </template>
         </el-table-column>
-        <el-table-column label="总 Token" width="140" align="right">
+        <el-table-column label="总 Token" min-width="130" align="right">
           <template #default="{ row }">
             <div class="token-total">{{ formatCompact(row.totalTokens) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="缓存命中" width="150" align="right">
+        <el-table-column label="缓存命中" min-width="120" align="right">
           <template #default="{ row }">
             <span>{{ row.cacheHit }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="费用" width="120" align="right">
+        <el-table-column label="费用" min-width="120" align="right">
           <template #default="{ row }">
             <span class="cost">${{ row.cost.toFixed(5) }}</span>
           </template>
@@ -140,7 +140,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { accountApi } from '@/api/account'
+import { apiKeyApi } from '@/api/apiKey'
+import type { ApiKey } from '@/api/apiKey'
 import { getCacheStats } from '@/api/metrics'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
@@ -172,7 +173,7 @@ const pageSize = ref(20)
 const selectedModel = ref('')
 
 const usageRows = ref<UsageRow[]>([])
-const accountRows = ref<Array<{ id: string; name?: string; provider?: string; provider_type?: string; is_active?: boolean }>>([])
+const apiKeys = ref<ApiKey[]>([])
 const cacheStats = ref({ hits: 0, misses: 0, hit_rate: 0 })
 
 const rangeStart = computed(() => {
@@ -278,10 +279,16 @@ const formatDateTime = (time: number) => {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
-const fetchAccounts = async () => {
-  const res = await accountApi.getList({ page: 1, pageSize: 200 })
+const maskApiKey = (key: string) => {
+  if (!key) return '****'
+  if (key.length <= 12) return '****'
+  return `${key.slice(0, 8)}...${key.slice(-4)}`
+}
+
+const fetchApiKeys = async () => {
+  const res = await apiKeyApi.getList()
   const data = (res as any)?.data || []
-  accountRows.value = Array.isArray(data) ? data : []
+  apiKeys.value = Array.isArray(data) ? data : []
 }
 
 const fetchCacheStats = async () => {
@@ -312,6 +319,21 @@ const fetchUsageLogs = async () => {
       }
     })
     const data = (res as any)?.data || []
+    const apiKeyNameByKey = new Map<string, string>()
+    const apiKeyNameByMasked = new Map<string, string>()
+    const apiKeyNames = new Set<string>()
+
+    for (const keyInfo of apiKeys.value) {
+      const key = String(keyInfo.key || '').trim()
+      const name = String(keyInfo.name || '').trim()
+      if (name) {
+        apiKeyNames.add(name)
+      }
+      if (key && name) {
+        apiKeyNameByKey.set(key, name)
+        apiKeyNameByMasked.set(maskApiKey(key), name)
+      }
+    }
     
     const rows: UsageRow[] = []
     for (const log of data) {
@@ -320,16 +342,26 @@ const fetchUsageLogs = async () => {
       const outputTokens = log.output_tokens ?? Math.max(0, totalTokens - inputTokens)
       // Backward compatibility: legacy rows had cache_hit incorrectly persisted as false.
       const inferredCacheHit = Boolean(log.cache_hit) || (log.success === true && Number(log.latency_ms || 0) === 0 && totalTokens > 0)
+      const apiKeyValue = String(log.api_key || '').trim()
+      let accountName = '-'
+      if (apiKeyValue) {
+        accountName = apiKeyNameByKey.get(apiKeyValue)
+          || apiKeyNameByMasked.get(apiKeyValue)
+          || (apiKeyNames.has(apiKeyValue) ? apiKeyValue : apiKeyValue)
+      } else if (String(log.user_id || '').trim()) {
+        accountName = String(log.user_id || '').trim()
+      }
+      const ttftMs = Number(log.ttft_ms || 0)
       
       rows.push({
         id: String(log.id || log.timestamp),
-        accountName: log.api_key || '-',
+        accountName,
         provider: log.provider || '-',
         time: log.timestamp ? formatDateTime(log.timestamp) : '-',
         timestamp: log.timestamp || 0,
-        firstTokenLatency: log.ttft_ms ? `${(log.ttft_ms / 1000).toFixed(2)}s` : '-',
+        firstTokenLatency: ttftMs > 0 ? `${(ttftMs / 1000).toFixed(2)}s` : '0 ms',
         totalLatency: `${(log.latency_ms / 1000).toFixed(2)}s`,
-        firstTokenSeconds: log.ttft_ms ? log.ttft_ms / 1000 : 0,
+        firstTokenSeconds: ttftMs / 1000,
         totalDurationSeconds: log.latency_ms / 1000,
         model: log.model || '-',
         inputTokens,
@@ -350,7 +382,7 @@ const fetchUsageLogs = async () => {
 const refreshAll = async () => {
   loading.value = true
   try {
-    await Promise.all([fetchAccounts(), fetchCacheStats()])
+    await Promise.all([fetchApiKeys(), fetchCacheStats()])
     await fetchUsageLogs()
     page.value = 1
   } finally {

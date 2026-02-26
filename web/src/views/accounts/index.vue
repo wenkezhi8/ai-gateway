@@ -19,14 +19,14 @@
             </template>
           </el-input>
         </div>
-        <el-button type="primary" @click="showAddDialog">
+        <el-button type="primary" class="add-button" @click="showAddDialog">
           <el-icon><Plus /></el-icon>
           添加账号
         </el-button>
       </div>
 
       <!-- 数据表格 -->
-      <el-table :data="filteredAccounts" stripe class="data-table">
+      <el-table :data="filteredAccounts" stripe class="data-table account-list">
         <el-table-column prop="name" label="账号名称" min-width="150">
           <template #default="{ row }">
             <div class="account-name">
@@ -146,7 +146,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitForm">确定</el-button>
+        <el-button type="primary" class="submit-button" @click="submitForm">确定</el-button>
       </template>
     </el-dialog>
 

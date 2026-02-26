@@ -175,6 +175,12 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if semanticQuery == "" {
 		semanticQuery = prompt
 	}
+	classifierCfg := h.smartRouter.GetClassifierConfig()
+	controlCfg := classifierCfg.Control
+	normalizedQuery := ""
+	if assessment.ControlSignals != nil {
+		normalizedQuery = strings.TrimSpace(assessment.ControlSignals.NormalizedQuery)
+	}
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
@@ -246,20 +252,26 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// Try semantic cache first (for non-streaming requests with cacheable task types)
-	if !req.Stream && allowSemantic && h.semanticCache != nil {
-		// Use simple embedding for semantic matching (no API call needed)
-		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
+
+	// Try semantic cache first (supports both non-streaming and streaming requests)
+	if allowSemantic && h.semanticCache != nil {
 		similarityThreshold := semanticThresholdForDifficulty(cacheSettings.SimilarityThreshold, assessment.Difficulty)
 
-		semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), semanticQuery, queryVector)
-		if semanticEntry != nil && similarity >= similarityThreshold {
+		for _, candidateQuery := range semanticCandidates {
+			queryVector := cache.SimpleEmbedding(candidateQuery, 1536)
+			semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), candidateQuery, queryVector)
+			if semanticEntry == nil || similarity < similarityThreshold {
+				continue
+			}
+
 			logrus.WithFields(logrus.Fields{
-				"model":      req.Model,
-				"similarity": similarity,
-				"threshold":  similarityThreshold,
-				"task_type":  assessment.TaskType,
-				"cache_id":   semanticEntry.ID,
+				"model":              req.Model,
+				"similarity":         similarity,
+				"threshold":          similarityThreshold,
+				"task_type":          assessment.TaskType,
+				"cache_id":           semanticEntry.ID,
+				"semantic_candidate": candidateQuery,
 			}).Info("Semantic cache hit")
 
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
@@ -267,7 +279,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
 			c.Header("X-Local-Cache-Hit", "1")
-			c.Data(http.StatusOK, "application/json", semanticEntry.Response)
+			if req.Stream {
+				h.writeCachedResponseAsStream(c, req.Model, semanticEntry.Response)
+			} else {
+				c.Data(http.StatusOK, "application/json", semanticEntry.Response)
+			}
 			return
 		}
 	}
@@ -410,7 +426,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
+		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
 		return
 	}
 
@@ -1114,6 +1130,8 @@ func (h *ProxyHandler) handleStreamResponse(
 	userID string,
 	apiKey string,
 	prompt string,
+	semanticQuery string,
+	allowSemantic bool,
 	cacheEnabled bool,
 	recommendedTTL time.Duration,
 	taskType string,
@@ -1276,6 +1294,20 @@ func (h *ProxyHandler) handleStreamResponse(
 						if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 							h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
 						}
+					}
+
+					if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
+						queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+						h.semanticCache.Set(
+							c.Request.Context(),
+							semanticQuery,
+							queryVector,
+							body,
+							req.Model,
+							providerName,
+							taskType,
+							recommendedTTL,
+						)
 					}
 				}
 			}
@@ -1498,6 +1530,20 @@ func (h *ProxyHandler) handleStreamResponse(
 					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, model, taskType, prompt, cacheKey)
 					}
+				}
+
+				if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
+					queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+					h.semanticCache.Set(
+						c.Request.Context(),
+						semanticQuery,
+						queryVector,
+						body,
+						model,
+						providerName,
+						taskType,
+						recommendedTTL,
+					)
 				}
 			}
 		}
@@ -1950,6 +1996,34 @@ func semanticThresholdForDifficulty(base float64, difficulty routing.DifficultyL
 	default:
 		return base
 	}
+}
+
+func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, semanticSignature, prompt string) []string {
+	candidates := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	appendUnique := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, ok := seen[v]; ok {
+			return
+		}
+		seen[v] = struct{}{}
+		candidates = append(candidates, v)
+	}
+
+	if normalizedEnabled {
+		appendUnique(normalizedQuery)
+	}
+	appendUnique(semanticSignature)
+	appendUnique(prompt)
+
+	if len(candidates) == 0 {
+		appendUnique(prompt)
+	}
+
+	return candidates
 }
 
 func shouldUsePromptOnlyCache(taskType routing.TaskType) bool {

@@ -2,7 +2,7 @@ import { test, expect } from '../utils/test-helper';
 
 test.describe('Performance and Error Handling Tests', () => {
   test.beforeEach(async ({ helper }) => {
-    await helper.login('admin', 'admin');
+    await helper.login('admin', 'admin123');
   });
 
   test('should measure page load performance for all major routes', async ({ helper }) => {
@@ -119,7 +119,7 @@ test.describe('Performance and Error Handling Tests', () => {
     await helper.page.waitForLoadState('networkidle');
 
     await helper.measurePerformance('Handle network timeout', async () => {
-      const searchInput = await helper.page.locator('.search-input');
+      const searchInput = helper.page.locator('.search-input input, input[placeholder*="搜索账号名称"]').first();
       if (await searchInput.isVisible()) {
         await searchInput.fill('test');
         await helper.page.waitForTimeout(12000);
@@ -265,9 +265,18 @@ test.describe('Performance and Error Handling Tests', () => {
 
     await helper.measurePerformance('Test concurrent operations', async () => {
       const operations = [
-        () => helper.page.locator('.add-button').click(),
-        () => helper.page.locator('.search-input').fill('test'),
-        () => helper.page.locator('.refresh-button').click()
+        async () => {
+          const add = helper.page.locator('.add-button, .el-button:has-text("添加")').first();
+          if (await add.isVisible()) await add.click();
+        },
+        async () => {
+          const search = helper.page.locator('.search-input input, input[placeholder*="搜索服务商"]').first();
+          if (await search.isVisible()) await search.fill('test');
+        },
+        async () => {
+          const refresh = helper.page.locator('.refresh-button, .el-button:has-text("刷新")').first();
+          if (await refresh.isVisible()) await refresh.click();
+        }
       ];
 
       await Promise.all(operations.map(op => op()));

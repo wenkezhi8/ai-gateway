@@ -1,9 +1,11 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,10 +31,11 @@ func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 
 // RouterConfigResponse represents the router configuration response
 type RouterConfigResponse struct {
-	UseAutoMode     string           `json:"use_auto_mode"` // "auto", "default", "fixed", "latest"
-	DefaultStrategy string           `json:"default_strategy"`
-	DefaultModel    string           `json:"default_model"`
-	Strategies      []StrategyOption `json:"strategies"`
+	UseAutoMode     string                   `json:"use_auto_mode"` // "auto", "default", "fixed", "latest"
+	DefaultStrategy string                   `json:"default_strategy"`
+	DefaultModel    string                   `json:"default_model"`
+	Classifier      routing.ClassifierConfig `json:"classifier"`
+	Strategies      []StrategyOption         `json:"strategies"`
 }
 
 // StrategyOption represents a strategy option
@@ -56,9 +59,10 @@ type ModelScoreResponse struct {
 
 // UpdateRouterConfigRequest represents update request
 type UpdateRouterConfigRequest struct {
-	UseAutoMode     json.RawMessage `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed", "latest" or bool
-	DefaultStrategy *string         `json:"default_strategy,omitempty"`
-	DefaultModel    *string         `json:"default_model,omitempty"`
+	UseAutoMode     json.RawMessage           `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed", "latest" or bool
+	DefaultStrategy *string                   `json:"default_strategy,omitempty"`
+	DefaultModel    *string                   `json:"default_model,omitempty"`
+	Classifier      *routing.ClassifierConfig `json:"classifier,omitempty"`
 }
 
 // UpdateModelScoreRequest represents model score update request
@@ -74,9 +78,10 @@ type UpdateModelScoreRequest struct {
 
 // PersistedRouterConfig is the structure stored for UI routing mode selection
 type PersistedRouterConfig struct {
-	UseAutoMode     string `json:"use_auto_mode"`
-	DefaultStrategy string `json:"default_strategy"`
-	DefaultModel    string `json:"default_model"`
+	UseAutoMode     string                   `json:"use_auto_mode"`
+	DefaultStrategy string                   `json:"default_strategy"`
+	DefaultModel    string                   `json:"default_model"`
+	Classifier      routing.ClassifierConfig `json:"classifier"`
 }
 
 const routerUIConfigFile = "data/router_ui_config.json"
@@ -112,6 +117,58 @@ func parseAutoModeJSON(raw json.RawMessage, fallback string) string {
 		return "fixed"
 	}
 	return normalizeAutoMode(fallback)
+}
+
+func mergeClassifierCandidateModels(activeModel string, groups ...[]string) []string {
+	merged := make([]string, 0)
+	seen := make(map[string]struct{})
+	appendUnique := func(model string) {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			return
+		}
+		if _, ok := seen[model]; ok {
+			return
+		}
+		seen[model] = struct{}{}
+		merged = append(merged, model)
+	}
+
+	appendUnique(activeModel)
+	for _, group := range groups {
+		for _, model := range group {
+			appendUnique(model)
+		}
+	}
+
+	if len(merged) == 0 {
+		def := routing.DefaultClassifierConfig()
+		return append([]string{}, def.CandidateModels...)
+	}
+	return merged
+}
+
+func resolveClassifierModels(ctx context.Context, cfg routing.ClassifierConfig) []string {
+	timeout := 2 * time.Second
+	if cfg.TimeoutMs > 0 {
+		candidate := time.Duration(cfg.TimeoutMs) * time.Millisecond
+		if candidate > timeout {
+			timeout = candidate
+		}
+	}
+	if timeout > 5*time.Second {
+		timeout = 5 * time.Second
+	}
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	models, err := routing.ListOllamaModels(ctxWithTimeout, cfg.BaseURL, timeout)
+	if err != nil {
+		return mergeClassifierCandidateModels(cfg.ActiveModel, cfg.CandidateModels)
+	}
+
+	return mergeClassifierCandidateModels(cfg.ActiveModel, models, cfg.CandidateModels)
 }
 
 func (h *RouterHandler) migrateLegacyRouterConfig() {
@@ -160,6 +217,10 @@ func (h *RouterHandler) loadConfig() {
 		UseAutoMode:     normalizeAutoMode(mode),
 		DefaultStrategy: string(config.DefaultStrategy),
 		DefaultModel:    config.DefaultModel,
+		Classifier:      routing.DefaultClassifierConfig(),
+	}
+	if config.Classifier.ActiveModel != "" {
+		cfg.Classifier = config.Classifier
 	}
 
 	if data, err := os.ReadFile(routerUIConfigFile); err == nil {
@@ -174,6 +235,9 @@ func (h *RouterHandler) loadConfig() {
 			if uiCfg.DefaultModel != "" {
 				cfg.DefaultModel = uiCfg.DefaultModel
 			}
+			if uiCfg.Classifier.ActiveModel != "" {
+				cfg.Classifier = routing.ClampClassifierConfig(uiCfg.Classifier)
+			}
 		}
 	}
 
@@ -183,6 +247,7 @@ func (h *RouterHandler) loadConfig() {
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = "deepseek-chat"
 	}
+	cfg.Classifier = routing.ClampClassifierConfig(cfg.Classifier)
 
 	persistedConfig = &cfg
 }
@@ -218,12 +283,17 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	h.mu.RUnlock()
 
 	config := h.router.GetConfig()
+	classifierCfg := h.router.GetClassifierConfig()
 	if cfg.DefaultStrategy == "" {
 		cfg.DefaultStrategy = string(config.DefaultStrategy)
 	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = config.DefaultModel
 	}
+	if cfg.Classifier.ActiveModel == "" {
+		cfg.Classifier = classifierCfg
+	}
+	cfg.Classifier.CandidateModels = resolveClassifierModels(c.Request.Context(), cfg.Classifier)
 
 	c.JSON(200, gin.H{
 		"success": true,
@@ -231,7 +301,23 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 			UseAutoMode:     normalizeAutoMode(cfg.UseAutoMode),
 			DefaultStrategy: cfg.DefaultStrategy,
 			DefaultModel:    cfg.DefaultModel,
+			Classifier:      cfg.Classifier,
 			Strategies:      strategies,
+		},
+	})
+}
+
+// GetClassifierModels returns classifier model options from Ollama + persisted config
+// GET /api/admin/router/classifier/models
+func (h *RouterHandler) GetClassifierModels(c *gin.Context) {
+	cfg := h.router.GetClassifierConfig()
+	models := resolveClassifierModels(c.Request.Context(), cfg)
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"data": gin.H{
+			"active_model": cfg.ActiveModel,
+			"models":       models,
 		},
 	})
 }
@@ -267,6 +353,10 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 	if req.DefaultModel != nil {
 		persistedConfig.DefaultModel = *req.DefaultModel
 		h.router.SetDefaultModel(*req.DefaultModel)
+	}
+	if req.Classifier != nil {
+		persistedConfig.Classifier = routing.ClampClassifierConfig(*req.Classifier)
+		h.router.SetClassifierConfig(persistedConfig.Classifier)
 	}
 	h.mu.Unlock()
 
@@ -721,6 +811,10 @@ func (h *RouterHandler) GetTaskModelMapping(c *gin.Context) {
 // UpdateTaskModelMappingRequest represents task model mapping update request
 type UpdateTaskModelMappingRequest map[string]string
 
+type SwitchClassifierModelRequest struct {
+	Model string `json:"model"`
+}
+
 // UpdateTaskModelMapping updates task type to model mapping
 // PUT /api/admin/router/task-model-mapping
 func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
@@ -742,4 +836,66 @@ func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
 		"success": true,
 		"message": "Task model mapping updated",
 	})
+}
+
+// SwitchClassifierModel switches classifier model after health verification
+// POST /api/admin/router/classifier/switch
+func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
+	var req SwitchClassifierModelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+	if req.Model == "" {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_model", "message": "model is required"}})
+		return
+	}
+
+	cfg := h.router.GetClassifierConfig()
+	originalModel := cfg.ActiveModel
+	cfg.ActiveModel = req.Model
+	h.router.SetClassifierConfig(cfg)
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	health := h.router.GetClassifierHealth(ctx)
+	if health == nil || !health.Healthy {
+		cfg.ActiveModel = originalModel
+		h.router.SetClassifierConfig(cfg)
+		message := "classifier health check failed"
+		if health != nil && health.Message != "" {
+			message = health.Message
+		}
+		c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "classifier_unhealthy", "message": message}})
+		return
+	}
+
+	h.loadConfig()
+	h.mu.Lock()
+	persistedConfig.Classifier = cfg
+	h.mu.Unlock()
+	_ = h.saveConfig()
+
+	c.JSON(200, gin.H{"success": true, "message": "Classifier model switched", "data": health})
+}
+
+// GetClassifierHealth returns classifier health
+// GET /api/admin/router/classifier/health
+func (h *RouterHandler) GetClassifierHealth(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	health := h.router.GetClassifierHealth(ctx)
+	if health == nil {
+		c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "classifier_unavailable", "message": "classifier unavailable"}})
+		return
+	}
+
+	c.JSON(200, gin.H{"success": true, "data": health})
+}
+
+// GetClassifierStats returns classifier runtime stats
+// GET /api/admin/router/classifier/stats
+func (h *RouterHandler) GetClassifierStats(c *gin.Context) {
+	stats := h.router.GetClassifierStats()
+	c.JSON(200, gin.H{"success": true, "data": stats})
 }

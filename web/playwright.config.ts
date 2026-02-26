@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// 改动点: 支持使用已运行的服务，避免测试时重复拉起 webServer
-const useExistingServer = process.env.E2E_USE_EXISTING_SERVER === '1';
+// 改动点: 默认使用已运行服务，避免与 8566 端口冲突
+const useExistingServer = process.env.E2E_USE_EXISTING_SERVER !== '0';
 // 改动点: 允许通过环境变量覆盖 baseURL
 const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:8566';
 

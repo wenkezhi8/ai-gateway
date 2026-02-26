@@ -25,7 +25,7 @@ test.describe('Authentication Tests', () => {
 
   test('should login with valid credentials', async ({ page, helper }) => {
     await helper.measurePerformance('Login with valid credentials', async () => {
-      await loginPage.login('admin', 'admin');
+      await loginPage.login('admin', 'admin123');
     });
 
     await helper.measurePerformance('Verify successful login', async () => {
@@ -62,7 +62,7 @@ test.describe('Authentication Tests', () => {
   });
 
   test('should logout successfully', async ({ page, helper }) => {
-    await helper.login('admin', 'admin');
+    await helper.login('admin', 'admin123');
     
     await helper.measurePerformance('Logout from application', async () => {
       await helper.logout();
@@ -89,7 +89,7 @@ test.describe('Authentication Tests', () => {
       await page.route('**/api/**', route => route.abort('failed'));
       
       await loginPage.navigate();
-      await loginPage.fillCredentials('admin', 'admin');
+      await loginPage.fillCredentials('admin', 'admin123');
       await loginPage.submitLogin();
       
       await page.unroute('**/api/**');

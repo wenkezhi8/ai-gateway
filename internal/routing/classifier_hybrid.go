@@ -2,6 +2,7 @@ package routing
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -73,8 +74,12 @@ func (h *HybridTaskClassifier) Classify(ctx context.Context, prompt, contextText
 	start := time.Now()
 	h.recordLLMAttempt()
 	result, err := classifier.Classify(ctx, prompt, contextText)
-	h.recordLLMLatency(time.Since(start).Milliseconds())
+	latencyMs := time.Since(start).Milliseconds()
+	h.recordLLMLatency(latencyMs)
 	if err != nil {
+		if errors.Is(err, ErrClassifierParseOutput) {
+			h.recordParseError()
+		}
 		h.recordFallback("classifier_error")
 		if cfg.FailOpen {
 			return h.fallback(prompt, contextText, ClassificationSourceFallback, "classifier_error")
@@ -93,6 +98,8 @@ func (h *HybridTaskClassifier) Classify(ctx context.Context, prompt, contextText
 		h.recordFallback("unknown_task_type")
 		return h.fallback(prompt, contextText, ClassificationSourceFallback, "unknown_task_type")
 	}
+	h.recordControlCoverage(result)
+	h.recordControlLatency(latencyMs)
 	h.recordLLMSuccess(string(ClassificationSourceOllama))
 	result.SuggestedTTL = h.assessor.getSuggestedTTL(result.TaskType, result.Difficulty)
 	if result.SemanticSignature == "" {
@@ -202,6 +209,36 @@ func (h *HybridTaskClassifier) recordLLMLatency(latencyMs int64) {
 		return
 	}
 	h.stats.AvgLLMLatencyMs = (h.stats.AvgLLMLatencyMs + float64(latencyMs)) / 2
+}
+
+func (h *HybridTaskClassifier) recordControlLatency(latencyMs int64) {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	if h.stats.AvgControlLatencyMs == 0 {
+		h.stats.AvgControlLatencyMs = float64(latencyMs)
+		return
+	}
+	h.stats.AvgControlLatencyMs = (h.stats.AvgControlLatencyMs + float64(latencyMs)) / 2
+}
+
+func (h *HybridTaskClassifier) recordParseError() {
+	h.statsMu.Lock()
+	defer h.statsMu.Unlock()
+	h.stats.ParseErrors++
+}
+
+func (h *HybridTaskClassifier) recordControlCoverage(result *AssessmentResult) {
+	if result == nil || result.ControlSignals == nil {
+		h.statsMu.Lock()
+		h.stats.ControlFieldsMissing++
+		h.statsMu.Unlock()
+		return
+	}
+	if strings.TrimSpace(result.ControlSignals.NormalizedQuery) == "" {
+		h.statsMu.Lock()
+		h.stats.ControlFieldsMissing++
+		h.statsMu.Unlock()
+	}
 }
 
 func (h *HybridTaskClassifier) fallback(prompt, contextText string, source ClassificationSource, reason string) *AssessmentResult {

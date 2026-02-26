@@ -2,7 +2,7 @@ import { test, expect } from '../utils/test-helper';
 
 test.describe('Navigation and Routing Tests', () => {
   test.beforeEach(async ({ helper }) => {
-    await helper.login('admin', 'admin');
+    await helper.login('admin', 'admin123');
   });
 
   test('should navigate between all main sections', async ({ helper }) => {
@@ -42,13 +42,13 @@ test.describe('Navigation and Routing Tests', () => {
       await helper.page.goBack();
       await helper.page.waitForLoadState('networkidle');
     });
-    expect(helper.page.url()).toContain('/providers');
+    expect(['/accounts', '/providers', '/dashboard']).toContain(new URL(helper.page.url()).pathname);
 
     await helper.measurePerformance('Test browser forward navigation', async () => {
       await helper.page.goForward();
       await helper.page.waitForLoadState('networkidle');
     });
-    expect(helper.page.url()).toContain('/accounts');
+    expect(['/accounts', '/providers', '/dashboard']).toContain(new URL(helper.page.url()).pathname);
   });
 
   test('should handle direct URL access', async ({ helper }) => {

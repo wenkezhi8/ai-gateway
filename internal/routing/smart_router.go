@@ -53,6 +53,7 @@ type RouterConfig struct {
 	DefaultStrategy  StrategyType           `json:"default_strategy"`
 	DefaultModel     string                 `json:"default_model"`
 	UseAutoMode      bool                   `json:"use_auto_mode"`
+	Classifier       ClassifierConfig       `json:"classifier"`
 	ModelScores      map[string]*ModelScore `json:"model_scores"`
 	TaskRules        []TaskRule             `json:"task_rules"`
 	ProviderDefaults map[string]string      `json:"provider_defaults"` // provider -> default model
@@ -63,6 +64,7 @@ type SmartRouter struct {
 	mu               sync.RWMutex
 	config           *RouterConfig
 	assessor         *DifficultyAssessor
+	hybridClassifier *HybridTaskClassifier
 	cascade          *CascadeRouter
 	taskModelMapping map[string]string // task type -> model
 }
@@ -170,6 +172,7 @@ func NewSmartRouter() *SmartRouter {
 			DefaultStrategy:  StrategyAuto,
 			DefaultModel:     "deepseek-chat",
 			UseAutoMode:      true,
+			Classifier:       DefaultClassifierConfig(),
 			ModelScores:      DefaultModelScores(),
 			TaskRules:        DefaultTaskRules(),
 			ProviderDefaults: DefaultProviderDefaults(),
@@ -177,6 +180,8 @@ func NewSmartRouter() *SmartRouter {
 		assessor:         NewDifficultyAssessor(),
 		taskModelMapping: make(map[string]string),
 	}
+
+	router.hybridClassifier = NewHybridTaskClassifier(router.assessor, router.config.Classifier)
 
 	router.cascade = NewCascadeRouter(router, router.assessor)
 
@@ -233,9 +238,10 @@ func (r *SmartRouter) SaveProviderDefaultsToFile() error {
 
 // RouterConfigPersist is the structure saved to file for router config
 type RouterConfigPersist struct {
-	DefaultStrategy string `json:"default_strategy"`
-	DefaultModel    string `json:"default_model"`
-	UseAutoMode     bool   `json:"use_auto_mode"`
+	DefaultStrategy string           `json:"default_strategy"`
+	DefaultModel    string           `json:"default_model"`
+	UseAutoMode     bool             `json:"use_auto_mode"`
+	Classifier      ClassifierConfig `json:"classifier"`
 }
 
 // SaveRouterConfigToFile saves router config to a file
@@ -253,6 +259,7 @@ func (r *SmartRouter) SaveRouterConfigToFile() error {
 		DefaultStrategy: string(r.config.DefaultStrategy),
 		DefaultModel:    r.config.DefaultModel,
 		UseAutoMode:     r.config.UseAutoMode,
+		Classifier:      r.config.Classifier,
 	}
 
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -278,7 +285,11 @@ func (r *SmartRouter) loadFromFile() {
 				r.config.DefaultModel = savedConfig.DefaultModel
 			}
 			r.config.UseAutoMode = savedConfig.UseAutoMode
+			r.config.Classifier = clampClassifierConfig(savedConfig.Classifier)
 			r.mu.Unlock()
+			if r.hybridClassifier != nil {
+				r.hybridClassifier.UpdateConfig(r.config.Classifier)
+			}
 			routerLogger.Info("Loaded router config from persistence file")
 		} else {
 			routerLogger.WithError(err).Warn("Failed to parse router config file")
@@ -346,8 +357,12 @@ func (r *SmartRouter) GetConfig() *RouterConfig {
 // SetConfig updates router configuration and persists to file
 func (r *SmartRouter) SetConfig(config *RouterConfig) {
 	r.mu.Lock()
+	config.Classifier = clampClassifierConfig(config.Classifier)
 	r.config = config
 	r.mu.Unlock()
+	if r.hybridClassifier != nil {
+		r.hybridClassifier.UpdateConfig(config.Classifier)
+	}
 
 	if err := r.SaveRouterConfigToFile(); err != nil {
 		routerLogger.WithError(err).Warn("Failed to save router config to file")
@@ -385,6 +400,54 @@ func (r *SmartRouter) SetUseAutoMode(useAuto bool) {
 	if err := r.SaveRouterConfigToFile(); err != nil {
 		routerLogger.WithError(err).Warn("Failed to save router config to file")
 	}
+}
+
+func (r *SmartRouter) GetClassifierConfig() ClassifierConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.Classifier
+}
+
+func (r *SmartRouter) SetClassifierConfig(cfg ClassifierConfig) {
+	cfg = clampClassifierConfig(cfg)
+	r.mu.Lock()
+	r.config.Classifier = cfg
+	r.mu.Unlock()
+	if r.hybridClassifier != nil {
+		r.hybridClassifier.UpdateConfig(cfg)
+	}
+	if err := r.SaveRouterConfigToFile(); err != nil {
+		routerLogger.WithError(err).Warn("Failed to save router config to file")
+	}
+}
+
+func (r *SmartRouter) SwitchClassifierModel(model string) {
+	r.mu.Lock()
+	r.config.Classifier.ActiveModel = model
+	r.config.Classifier = clampClassifierConfig(r.config.Classifier)
+	updated := r.config.Classifier
+	r.mu.Unlock()
+	if r.hybridClassifier != nil {
+		r.hybridClassifier.UpdateConfig(updated)
+	}
+	if err := r.SaveRouterConfigToFile(); err != nil {
+		routerLogger.WithError(err).Warn("Failed to save router config to file")
+	}
+}
+
+func (r *SmartRouter) GetClassifierHealth(ctx context.Context) *ClassifierHealth {
+	if r.hybridClassifier == nil {
+		cfg := r.GetClassifierConfig()
+		return &ClassifierHealth{Healthy: false, Model: cfg.ActiveModel, Provider: cfg.Provider, Message: "classifier not initialized", CheckedAt: time.Now().UnixMilli()}
+	}
+	return r.hybridClassifier.Health(ctx)
+}
+
+func (r *SmartRouter) GetClassifierStats() ClassifierStats {
+	if r.hybridClassifier == nil {
+		return ClassifierStats{}
+	}
+	return r.hybridClassifier.GetStats()
 }
 
 // UpdateModelScore updates score for a specific model and persists to file
@@ -787,7 +850,7 @@ func (r *SmartRouter) ResetCascadeRules() {
 // SelectModelWithAssessment selects model with difficulty assessment
 // 改动点: 集成难度评估到模型选择
 func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt string, context string, availableModels []string) (string, *AssessmentResult) {
-	assessment := r.assessor.AssessWithResult(prompt, context)
+	assessment := r.classify(prompt, context)
 
 	// 改动点: 任务类型映射优先于难度策略，确保 /routing 页面映射配置生效
 	if requestedModel == "auto" || requestedModel == "" {
@@ -796,7 +859,7 @@ func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt st
 		}
 	}
 
-	difficultyStrategy := r.getStrategyForDifficulty(assessment.Difficulty)
+	difficultyStrategy := r.getStrategyForAssessment(assessment)
 
 	selectedModel := r.SelectModelWithStrategy(requestedModel, difficultyStrategy, prompt, availableModels)
 
@@ -851,9 +914,24 @@ func (r *SmartRouter) getStrategyForDifficulty(difficulty DifficultyLevel) Strat
 	}
 }
 
+func (r *SmartRouter) getStrategyForAssessment(assessment *AssessmentResult) StrategyType {
+	if assessment != nil {
+		switch assessment.RouteHint {
+		case "speed":
+			return StrategySpeed
+		case "quality", "reasoning_first":
+			return StrategyQuality
+		case "balanced":
+			return StrategyAuto
+		}
+		return r.getStrategyForDifficulty(assessment.Difficulty)
+	}
+	return StrategyAuto
+}
+
 // AssessDifficulty assesses the difficulty of a prompt
 func (r *SmartRouter) AssessDifficulty(prompt string, context string) *AssessmentResult {
-	return r.assessor.AssessWithResult(prompt, context)
+	return r.classify(prompt, context)
 }
 
 // UpdateModelSuccessRate updates the success rate for a model
@@ -863,8 +941,21 @@ func (r *SmartRouter) UpdateModelSuccessRate(model string, taskType TaskType, su
 
 // GetRecommendedTTL returns recommended cache TTL for a request
 func (r *SmartRouter) GetRecommendedTTL(prompt string, context string) time.Duration {
-	assessment := r.assessor.AssessWithResult(prompt, context)
+	assessment := r.classify(prompt, context)
 	return assessment.SuggestedTTL
+}
+
+func (r *SmartRouter) classify(prompt string, contextText string) *AssessmentResult {
+	if r.hybridClassifier == nil {
+		return r.assessor.AssessWithResult(prompt, contextText)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), classifierTimeout(r.GetClassifierConfig()))
+	defer cancel()
+	result := r.hybridClassifier.Classify(ctx, prompt, contextText)
+	if result == nil {
+		return r.assessor.AssessWithResult(prompt, contextText)
+	}
+	return result
 }
 
 // GetTaskModelMapping returns the task type to model mapping

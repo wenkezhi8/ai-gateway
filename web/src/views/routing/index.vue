@@ -75,6 +75,72 @@
               </el-col>
             </el-row>
 
+            <el-divider content-position="left">0.5B 分类控制器</el-divider>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="启用分类器">
+                  <el-switch v-model="classifierConfig.enabled" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="Shadow模式">
+                  <el-switch v-model="classifierConfig.shadow_mode" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="运行模型">
+                  <el-tag size="small" :type="classifierHealth.healthy ? 'success' : 'warning'">
+                    {{ classifierConfig.active_model || '-' }}
+                  </el-tag>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="超时(ms)">
+                  <el-input-number v-model="classifierConfig.timeout_ms" :min="50" :max="2000" :step="10" style="width: 180px" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="置信度阈值">
+                  <el-slider v-model="classifierConfidencePercent" :min="30" :max="95" :step="1" show-input style="max-width: 320px" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="14">
+                <el-form-item label="手动切换模型">
+                  <el-select v-model="classifierSwitchModel" filterable clearable style="width: 100%" placeholder="选择分类模型">
+                    <el-option v-for="model in classifierConfig.candidate_models" :key="model" :label="model" :value="model" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="10">
+                <el-form-item label="操作">
+                  <el-button type="primary" :loading="classifierSaving" @click="saveClassifierConfig">保存配置</el-button>
+                  <el-button :loading="classifierSwitching" @click="switchClassifierModel">切换模型</el-button>
+                  <el-button :loading="classifierModelsLoading" @click="loadClassifierModels">刷新模型列表</el-button>
+                  <el-button link @click="loadClassifierHealth">健康检查</el-button>
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-alert
+              :title="`健康状态: ${classifierHealth.message || 'unknown'} (延迟 ${classifierHealth.latency_ms}ms)`"
+              :type="classifierHealth.healthy ? 'success' : 'warning'"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
+            <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
+              <el-descriptions-item label="总请求">{{ classifierStats.total_requests }}</el-descriptions-item>
+              <el-descriptions-item label="LLM尝试">{{ classifierStats.llm_attempts }}</el-descriptions-item>
+              <el-descriptions-item label="LLM成功">{{ classifierStats.llm_success }}</el-descriptions-item>
+              <el-descriptions-item label="回退次数">{{ classifierStats.fallbacks }}</el-descriptions-item>
+              <el-descriptions-item label="Shadow请求">{{ classifierStats.shadow_requests }}</el-descriptions-item>
+              <el-descriptions-item label="平均延迟">{{ classifierStats.avg_llm_latency_ms.toFixed(1) }}ms</el-descriptions-item>
+            </el-descriptions>
+
             <!-- 任务类型模型映射 -->
             <el-divider content-position="left">任务类型模型映射</el-divider>
             <el-alert type="info" :closable="false" style="margin-bottom: 16px">
@@ -314,6 +380,38 @@ const availableModels = ref<ModelOption[]>([])
 const autoSaveEnabled = ref(false) // FIX: 自动保存开关
 const lastSavedAt = ref<string | null>(null) // FIX: 最近保存时间
 const isMappingReady = ref(false) // FIX: 防止初始化阶段触发自动保存
+const classifierSaving = ref(false)
+const classifierSwitching = ref(false)
+const classifierModelsLoading = ref(false)
+const classifierSwitchModel = ref('')
+
+const classifierConfig = reactive({
+  enabled: true,
+  shadow_mode: false,
+  provider: 'ollama',
+  base_url: 'http://127.0.0.1:11434',
+  active_model: 'qwen2.5:0.5b-instruct',
+  candidate_models: ['qwen2.5:0.5b-instruct'],
+  timeout_ms: 120,
+  confidence_threshold: 0.65,
+  fail_open: true,
+  max_input_chars: 4000
+})
+
+const classifierHealth = reactive({
+  healthy: false,
+  latency_ms: 0,
+  message: '未检查'
+})
+
+const classifierStats = reactive({
+  total_requests: 0,
+  llm_attempts: 0,
+  llm_success: 0,
+  fallbacks: 0,
+  shadow_requests: 0,
+  avg_llm_latency_ms: 0
+})
 
 const config = reactive({
   // FIX: 使用字符串模式用于只读展示
@@ -404,6 +502,13 @@ const lastSavedLabel = computed(() => {
   return date.toLocaleString()
 })
 
+const classifierConfidencePercent = computed({
+  get: () => Math.round((classifierConfig.confidence_threshold || 0.65) * 100),
+  set: (value: number) => {
+    classifierConfig.confidence_threshold = value / 100
+  }
+})
+
 function calculateCompositeScore(row: ModelScore): number {
   return Math.round(row.quality_score * 0.4 + row.speed_score * 0.35 + row.cost_score * 0.25)
 }
@@ -434,6 +539,10 @@ async function loadConfig() {
       }
       if (data.data.strategies) {
         strategies.value = data.data.strategies
+      }
+      if (data.data.classifier) {
+        Object.assign(classifierConfig, data.data.classifier)
+        classifierSwitchModel.value = classifierConfig.active_model
       }
     }
     
@@ -515,6 +624,96 @@ async function loadFeedbackStats() {
     }
   } catch (e) {
     console.warn('Failed to load feedback stats:', e)
+  }
+}
+
+async function loadClassifierHealth() {
+  try {
+    const data: any = await request.get('/admin/router/classifier/health')
+    const health = data?.data || data
+    classifierHealth.healthy = Boolean(health?.healthy)
+    classifierHealth.latency_ms = Number(health?.latency_ms || 0)
+    classifierHealth.message = health?.message || 'ok'
+  } catch (e) {
+    classifierHealth.healthy = false
+    classifierHealth.message = '检查失败'
+    classifierHealth.latency_ms = 0
+    console.warn('Failed to load classifier health:', e)
+  }
+}
+
+async function loadClassifierModels() {
+  classifierModelsLoading.value = true
+  try {
+    const data: any = await request.get('/admin/router/classifier/models')
+    const payload = data?.data || {}
+    const models = Array.isArray(payload.models) ? payload.models : []
+    if (models.length > 0) {
+      classifierConfig.candidate_models = models
+    }
+    if (payload.active_model) {
+      classifierConfig.active_model = payload.active_model
+    }
+    if (!classifierSwitchModel.value) {
+      classifierSwitchModel.value = classifierConfig.active_model
+    }
+  } catch (e) {
+    console.warn('Failed to load classifier models:', e)
+  } finally {
+    classifierModelsLoading.value = false
+  }
+}
+
+async function loadClassifierStats() {
+  try {
+    const data: any = await request.get('/admin/router/classifier/stats')
+    const stats = data?.data || {}
+    classifierStats.total_requests = Number(stats.total_requests || 0)
+    classifierStats.llm_attempts = Number(stats.llm_attempts || 0)
+    classifierStats.llm_success = Number(stats.llm_success || 0)
+    classifierStats.fallbacks = Number(stats.fallbacks || 0)
+    classifierStats.shadow_requests = Number(stats.shadow_requests || 0)
+    classifierStats.avg_llm_latency_ms = Number(stats.avg_llm_latency_ms || 0)
+  } catch (e) {
+    console.warn('Failed to load classifier stats:', e)
+  }
+}
+
+async function saveClassifierConfig() {
+  classifierSaving.value = true
+  try {
+    await request.put('/admin/router/config', {
+      classifier: {
+        ...classifierConfig,
+        confidence_threshold: Number(classifierConfig.confidence_threshold || 0.65)
+      }
+    })
+    handleSuccess('分类器配置已保存')
+    await Promise.all([loadClassifierHealth(), loadClassifierStats(), loadClassifierModels()])
+  } catch (e) {
+    handleApiError(e, '保存分类器配置失败')
+  } finally {
+    classifierSaving.value = false
+  }
+}
+
+async function switchClassifierModel() {
+  if (!classifierSwitchModel.value) {
+    handleApiError(new Error('请选择要切换的模型'), '切换失败')
+    return
+  }
+  classifierSwitching.value = true
+  try {
+    await request.post('/admin/router/classifier/switch', {
+      model: classifierSwitchModel.value
+    })
+    classifierConfig.active_model = classifierSwitchModel.value
+    handleSuccess('分类模型切换成功')
+    await Promise.all([loadClassifierHealth(), loadClassifierStats()])
+  } catch (e) {
+    handleApiError(e, '切换分类模型失败')
+  } finally {
+    classifierSwitching.value = false
   }
 }
 
@@ -604,6 +803,9 @@ onMounted(() => {
   loadAvailableModels()
   loadFeedbackStats()
   loadTaskTypeDistribution()
+  loadClassifierHealth()
+  loadClassifierStats()
+  loadClassifierModels()
 })
 
 let autoSaveTimer: number | null = null

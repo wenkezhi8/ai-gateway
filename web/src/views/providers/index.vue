@@ -13,14 +13,14 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button type="primary" @click="showAddDialog">
+        <el-button type="primary" class="add-button" @click="showAddDialog">
           <el-icon><Plus /></el-icon>
           添加服务商
         </el-button>
       </div>
 
       <!-- 服务商卡片列表 -->
-      <el-row :gutter="20" class="provider-cards" v-if="filteredProviders.length > 0">
+      <el-row :gutter="20" class="provider-cards provider-list" v-if="filteredProviders.length > 0">
         <el-col :span="8" v-for="provider in filteredProviders" :key="provider.id">
           <el-card class="provider-card" shadow="hover" :class="{ disabled: !provider.enabled }">
             <div class="provider-header">
@@ -161,7 +161,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitForm">确定</el-button>
+        <el-button type="primary" class="submit-button" @click="submitForm">确定</el-button>
       </template>
     </el-dialog>
 

@@ -8,7 +8,7 @@ test.describe('Dashboard Tests', () => {
 
   test.beforeEach(async ({ page, helper }) => {
     dashboardPage = new DashboardPage(page);
-    await helper.login('admin', 'admin');
+    await helper.login('admin', 'admin123');
   });
 
   test('should load dashboard page correctly', async ({ page, helper }) => {

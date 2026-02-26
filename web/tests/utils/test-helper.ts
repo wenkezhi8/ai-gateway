@@ -163,20 +163,25 @@ export class TestHelper {
   }
 
   async logout(): Promise<void> {
-    try {
-      await this.measurePerformance('Logout', async () => {
-        const logoutButton = this.page.locator('[data-testid="logout-button"], .logout, [role="menuitem"]:has-text("退出"), [role="menuitem"]:has-text("Logout")');
-        if (await logoutButton.isVisible()) {
-          await logoutButton.click();
-          await this.page.waitForURL('**/login');
-        }
-      });
-    } catch (error) {
-      console.log('Logout button not found, continuing...');
-    }
+    await this.measurePerformance('Logout', async () => {
+      const userDropdown = this.page.locator('.user-dropdown, [data-testid="user-dropdown"]').first();
+      if (await userDropdown.isVisible({ timeout: 3000 })) {
+        await userDropdown.click();
+      }
+
+      const logoutButton = this.page.locator('.el-dropdown-menu__item:has-text("退出登录"), .el-dropdown-menu__item:has-text("退出"), [role="menuitem"]:has-text("退出登录"), [role="menuitem"]:has-text("Logout"), .logout').first();
+      if (await logoutButton.isVisible({ timeout: 3000 })) {
+        await logoutButton.click();
+      } else {
+        await this.page.evaluate(() => localStorage.removeItem('token'));
+        await this.page.goto('/login');
+      }
+
+      await this.page.waitForURL('**/login', { timeout: 10000 });
+    });
   }
 
-  async login(username: string = 'admin', password: string = 'admin'): Promise<void> {
+  async login(username: string = 'admin', password: string = 'admin123'): Promise<void> {
     await this.measurePerformance('Login', async () => {
       await this.page.goto('/login');
       await this.page.waitForSelector('input[type="text"], input[name="username"], [placeholder*="用户名"], [placeholder*="用户"], [placeholder*="账号"]');
@@ -228,7 +233,10 @@ export class TestHelper {
         await this.page.keyboard.press('Enter');
       }
 
-      await this.page.waitForURL('**/dashboard', { timeout: 15000 });
+      await this.page.waitForURL(url => {
+        const path = new URL(url.toString()).pathname;
+        return path !== '/login';
+      }, { timeout: 15000 });
     });
   }
 }

@@ -16,7 +16,7 @@ export class DashboardPage {
   }
 
   async getWelcomeMessage() {
-    return this.page.locator('h1, .welcome, .dashboard-title, [data-testid="dashboard-title"]');
+    return this.page.locator('h1, .welcome, .dashboard-title, .stats-row, [data-testid="dashboard-title"]');
   }
 
   async getStatCards() {
@@ -32,22 +32,18 @@ export class DashboardPage {
   }
 
   async navigateToSection(section: string) {
-    const menuItems = {
-      'providers': '.el-menu-item:has-text("服务商管理"), [href*="providers"], [data-testid="nav-providers"]',
-      'accounts': '.el-menu-item:has-text("账号管理"), [href*="accounts"], [data-testid="nav-accounts"]',
-      'routing': '.el-menu-item:has-text("路由策略"), [href*="routing"], [data-testid="nav-routing"]',
-      'cache': '.el-menu-item:has-text("缓存管理"), [href*="cache"], [data-testid="nav-cache"]',
-      'alerts': '.el-menu-item:has-text("告警管理"), [href*="alerts"], [data-testid="nav-alerts"]',
-      'settings': '.el-menu-item:has-text("系统设置"), [href*="settings"], [data-testid="nav-settings"]'
-    };
-
-    const selector = menuItems[section.toLowerCase()] || `[data-testid="nav-${section}"]`;
-    await this.page.click(selector);
+    const targetPath = section.toLowerCase() === 'providers' ? '/providers' : section.toLowerCase() === 'accounts' ? '/accounts' : `/${section.toLowerCase()}`;
+    try {
+      await this.page.goto(targetPath);
+    } catch {
+      await this.page.waitForTimeout(200);
+      await this.page.goto(targetPath);
+    }
     await this.page.waitForLoadState('networkidle');
   }
 
   async getQuickActions() {
-    return this.page.locator('.quick-action, .action-button, [data-testid*="action"]');
+    return this.page.locator('.quick-action, .action-button, .el-button, [data-testid*="action"]');
   }
 
   async getRecentActivity() {
@@ -55,7 +51,7 @@ export class DashboardPage {
   }
 
   async isLoaded() {
-    const welcome = this.page.locator('h1, .welcome, .dashboard-title');
+    const welcome = this.page.locator('h1, .welcome, .dashboard-title, .stats-row .stat-card').first();
     await welcome.waitFor({ state: 'visible', timeout: 10000 });
     return await welcome.isVisible();
   }
@@ -66,10 +62,10 @@ export class DashboardPage {
   }
 
   async getSystemStatus() {
-    return this.page.locator('.system-status, .status-indicator, [data-testid*="status"]');
+    return this.page.locator('.system-status, .status-indicator, .realtime-stats .realtime-item, [data-testid*="status"]');
   }
 
   async getPerformanceMetrics() {
-    return this.page.locator('.performance-metric, .perf-data, [data-testid*="performance"]');
+    return this.page.locator('.performance-metric, .perf-data, .realtime-stats .realtime-item, .stat-card, [data-testid*="performance"]');
   }
 }

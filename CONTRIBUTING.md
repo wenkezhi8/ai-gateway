@@ -51,15 +51,36 @@ ai-gateway/
 
 ## 开发工作流
 
-### 1. 创建分支
+### 1. 先对齐执行规范
 
-```bash
-git checkout -b feature/your-feature-name
-# 或
-git checkout -b fix/your-bug-fix
+- 开始开发前先阅读 `AGENTS.md`
+- AI 协作默认采用「先 Plan、后 Execute」
+- 默认不执行 `commit/push/tag`，除非需求中明确授权
+
+会话前建议直接使用流程卡：
+
+```text
+【本次流程卡】
+目标：<一句话目标>
+改动范围：<允许修改的文件或目录>
+执行模式：先Plan，后Execute（我回复“开始执行”再改代码）
+必跑验证：<命令1>、<命令2>、<命令3>
+输出顺序：根因 -> 方案 -> 改动清单 -> 测试结果 -> 风险/回滚 -> 接口一致性 -> 版本建议
+Git权限：<是否允许 commit/push/tag>
+版本策略：以最新 git tag 为准，同步更新 CHANGELOG.md 与 AGENTS.md
 ```
 
-### 2. 进行更改
+### 2. 分支策略
+
+```bash
+# 当前项目默认：main 直接开发
+git checkout main
+git pull origin main
+```
+
+如需协作评审或外部贡献，可按需创建 `feature/*`、`fix/*` 分支并发起 PR。
+
+### 3. 进行更改
 
 确保遵循代码规范：
 
@@ -89,7 +110,7 @@ npm run format
 npm run typecheck
 ```
 
-### 3. 提交代码
+### 4. 提交代码
 
 我们使用 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
 
@@ -110,9 +131,13 @@ fix: 修复 JWT token 过期时间计算错误
 docs: 更新部署文档
 ```
 
-### 4. 推送并创建 PR
+### 5. 推送并创建 PR（按需）
 
 ```bash
+# main 直开
+git push origin main
+
+# 或分支协作
 git push origin feature/your-feature-name
 ```
 
@@ -170,10 +195,43 @@ npm run test:auth
 
 ## 发布流程
 
-1. 更新 `CHANGELOG.md`
-2. 创建版本 tag: `git tag v1.x.x`
-3. 推送 tag: `git push origin v1.x.x`
-4. GitHub Actions 自动构建和发布
+### 版本号真相源
+
+- 版本唯一真相源：`git tag`
+- `CHANGELOG.md` 与 `AGENTS.md` 是同步展示，不是版本真相源
+
+### 发布步骤（SOP）
+
+1. 获取最新版本 tag：
+
+```bash
+git fetch --tags
+git describe --tags --abbrev=0
+```
+
+2. 按语义化规则计算下个版本：
+   - `PATCH`：向下兼容 bug 修复
+   - `MINOR`：向下兼容新功能
+   - `MAJOR`：不兼容变更
+
+3. 同步文档：更新 `CHANGELOG.md` 与 `AGENTS.md`
+
+4. 发布（示例）：
+
+```bash
+git add -A
+git commit -m "chore(release): vX.Y.Z"
+git tag -a vX.Y.Z -m "release: vX.Y.Z"
+git push origin main
+git push origin vX.Y.Z
+```
+
+5. 发布后核验：
+
+```bash
+git describe --tags --abbrev=0
+git show vX.Y.Z --name-only --oneline
+```
 
 ## 问题反馈
 

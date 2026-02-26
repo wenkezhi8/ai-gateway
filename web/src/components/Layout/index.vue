@@ -147,10 +147,12 @@
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
+import { useUserStore } from '@/store/user'
 
 const route = useRoute()
 const router = useRouter()
 const { currentTheme, toggleTheme, isDark } = useTheme()
+const userStore = useUserStore()
 
 const isCollapse = ref(false)
 const notificationCount = ref(3)
@@ -212,6 +214,7 @@ const handleUserCommand = (command: string) => {
       router.push('/settings')
       break
     case 'logout':
+      userStore.logout()
       router.push('/login')
       break
   }
