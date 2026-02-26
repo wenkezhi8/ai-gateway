@@ -92,7 +92,7 @@ export const API = {
   },
   
   USAGE: {
-    LOGS: '/api/admin/usage/logs',
-    STATS: '/api/admin/usage/stats',
+    LOGS: '/admin/usage/logs',
+    STATS: '/admin/usage/stats',
   },
 } as const
