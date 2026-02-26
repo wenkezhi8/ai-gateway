@@ -149,6 +149,30 @@ func (s *SQLiteStorage) migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_feedback_model ON feedback(model)`,
 		`CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at)`,
+
+		`CREATE TABLE IF NOT EXISTS usage_logs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			request_id TEXT,
+			timestamp INTEGER NOT NULL DEFAULT 0,
+			model TEXT NOT NULL,
+			provider TEXT,
+			user_id TEXT,
+			api_key TEXT,
+			tokens INTEGER DEFAULT 0,
+			input_tokens INTEGER DEFAULT 0,
+			output_tokens INTEGER DEFAULT 0,
+			latency_ms INTEGER DEFAULT 0,
+			ttft_ms INTEGER DEFAULT 0,
+			cache_hit INTEGER DEFAULT 0,
+			success INTEGER DEFAULT 1,
+			error_type TEXT,
+			task_type TEXT,
+			difficulty TEXT,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_model ON usage_logs(model)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_provider ON usage_logs(provider)`,
 	}
 
 	for _, schema := range schemas {
@@ -800,8 +824,33 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
-	_, err := s.db.Exec(`INSERT INTO usage_logs (request_id, model, provider, tokens, latency_ms, cache_hit, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		log["request_id"], log["model"], log["provider"], log["tokens"], log["latency_ms"], log["cache_hit"], now)
+	timestamp := usageInt64Value(log, "timestamp")
+	if timestamp <= 0 {
+		timestamp = time.Now().UnixMilli()
+	}
+
+	_, err := s.db.Exec(`INSERT INTO usage_logs (
+		request_id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		usageStringValue(log, "request_id"),
+		timestamp,
+		usageStringValue(log, "model"),
+		usageStringValue(log, "provider"),
+		usageStringValue(log, "user_id"),
+		usageStringValue(log, "api_key"),
+		usageInt64Value(log, "tokens"),
+		usageInt64Value(log, "input_tokens"),
+		usageInt64Value(log, "output_tokens"),
+		usageInt64Value(log, "latency_ms"),
+		usageInt64Value(log, "ttft_ms"),
+		boolToInt(usageBoolValue(log, "cache_hit")),
+		boolToInt(usageBoolValue(log, "success")),
+		usageStringValue(log, "error_type"),
+		usageStringValue(log, "task_type"),
+		usageStringValue(log, "difficulty"),
+		now,
+	)
 	return err
 }
 
@@ -809,7 +858,9 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	query := `SELECT id, model, provider, tokens, latency_ms, cache_hit, created_at FROM usage_logs WHERE 1=1`
+	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, created_at
+		FROM usage_logs WHERE 1=1`
 	args := []interface{}{}
 
 	if filter.Model != "" {
@@ -841,23 +892,86 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	var logs []map[string]interface{}
 	for rows.Next() {
 		var id int64
-		var model, provider, createdAt string
-		var tokens, latencyMs int64
-		var cacheHitInt int
-		if err := rows.Scan(&id, &model, &provider, &tokens, &latencyMs, &cacheHitInt, &createdAt); err != nil {
+		var timestamp, tokens, inputTokens, outputTokens, latencyMs, ttftMs int64
+		var model, createdAt string
+		var cacheHitInt, successInt int
+		var provider, userID, apiKey, errorType, taskType, difficulty sql.NullString
+		if err := rows.Scan(
+			&id, &timestamp, &model, &provider, &userID, &apiKey, &tokens, &inputTokens, &outputTokens,
+			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &createdAt,
+		); err != nil {
 			return nil, err
 		}
 		logs = append(logs, map[string]interface{}{
-			"id":         id,
-			"model":      model,
-			"provider":   provider,
-			"tokens":     tokens,
-			"latency_ms": latencyMs,
-			"cache_hit":  cacheHitInt == 1,
-			"created_at": createdAt,
+			"id":            id,
+			"timestamp":     timestamp,
+			"model":         model,
+			"provider":      provider.String,
+			"user_id":       userID.String,
+			"api_key":       apiKey.String,
+			"tokens":        tokens,
+			"input_tokens":  inputTokens,
+			"output_tokens": outputTokens,
+			"latency_ms":    latencyMs,
+			"ttft_ms":       ttftMs,
+			"cache_hit":     cacheHitInt == 1,
+			"success":       successInt == 1,
+			"error_type":    errorType.String,
+			"task_type":     taskType.String,
+			"difficulty":    difficulty.String,
+			"created_at":    createdAt,
 		})
 	}
 	return logs, nil
+}
+
+func usageStringValue(log map[string]interface{}, key string) string {
+	v, ok := log[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}
+
+func usageInt64Value(log map[string]interface{}, key string) int64 {
+	v, ok := log[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case float32:
+		return int64(n)
+	default:
+		return 0
+	}
+}
+
+func usageBoolValue(log map[string]interface{}, key string) bool {
+	v, ok := log[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch b := v.(type) {
+	case bool:
+		return b
+	case int:
+		return b == 1
+	case int64:
+		return b == 1
+	default:
+		return false
+	}
 }
 
 func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {

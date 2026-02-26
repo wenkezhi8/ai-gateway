@@ -490,3 +490,56 @@ func TestSQLiteStorage_Export(t *testing.T) {
 		assert.Contains(t, string(data), "accounts")
 	})
 }
+
+func TestSQLiteStorage_UsageLogs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	t.Run("Log and Query Usage", func(t *testing.T) {
+		err := store.LogUsage(map[string]interface{}{
+			"request_id":    "req-usage-1",
+			"timestamp":     time.Now().UnixMilli(),
+			"model":         "gpt-4o-mini",
+			"provider":      "openai",
+			"user_id":       "1",
+			"api_key":       "sk****test",
+			"tokens":        int64(120),
+			"input_tokens":  int64(80),
+			"output_tokens": int64(40),
+			"latency_ms":    int64(350),
+			"ttft_ms":       int64(120),
+			"cache_hit":     true,
+			"success":       true,
+			"task_type":     "code",
+			"difficulty":    "medium",
+		})
+		require.NoError(t, err)
+
+		logs, err := store.GetUsageLogsWithFilter(UsageFilter{
+			Model:    "gpt-4o-mini",
+			Provider: "openai",
+		}, 10, 0)
+		require.NoError(t, err)
+		require.Len(t, logs, 1)
+
+		assert.Equal(t, "gpt-4o-mini", logs[0]["model"])
+		assert.Equal(t, "openai", logs[0]["provider"])
+		assert.Equal(t, int64(120), logs[0]["tokens"])
+		assert.Equal(t, int64(80), logs[0]["input_tokens"])
+		assert.Equal(t, int64(40), logs[0]["output_tokens"])
+		assert.Equal(t, int64(350), logs[0]["latency_ms"])
+		assert.Equal(t, int64(120), logs[0]["ttft_ms"])
+		assert.Equal(t, true, logs[0]["cache_hit"])
+		assert.Equal(t, true, logs[0]["success"])
+	})
+
+	t.Run("Usage Stats", func(t *testing.T) {
+		stats := store.GetUsageStats()
+		assert.Equal(t, int64(1), stats["total_requests"])
+		assert.Equal(t, int64(120), stats["total_tokens"])
+		assert.Equal(t, int64(1), stats["cache_hits"])
+		assert.Equal(t, int64(0), stats["cache_misses"])
+	})
+}
