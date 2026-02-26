@@ -135,6 +135,13 @@ func (m *Manager) GetAllStats() map[string]StatsSnapshot {
 
 // GetEntriesStats returns entry count and size (best-effort) for a cache type.
 func (m *Manager) GetEntriesStats(cacheType string) (int, int64) {
+	if rc, ok := m.cache.(*RedisCache); ok {
+		count, sizeBytes, err := rc.StatsByPattern(context.Background(), getKeyPattern(cacheType))
+		if err == nil {
+			return count, sizeBytes
+		}
+	}
+
 	entries := m.ListEntries(cacheType, "")
 	var totalSize int64
 	for _, entry := range entries {

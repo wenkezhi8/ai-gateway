@@ -132,6 +132,41 @@ func (c *RedisCache) GetClient() *redis.Client {
 	return c.client
 }
 
+// StatsByPattern returns count and total byte size (based on STRLEN) for keys matching pattern.
+func (c *RedisCache) StatsByPattern(ctx context.Context, pattern string) (int, int64, error) {
+	fullPattern := c.prefix + pattern
+	var cursor uint64
+	count := 0
+	var totalBytes int64
+
+	for {
+		keys, nextCursor, err := c.client.Scan(ctx, cursor, fullPattern, 200).Result()
+		if err != nil {
+			return count, totalBytes, err
+		}
+		if len(keys) > 0 {
+			pipe := c.client.Pipeline()
+			cmds := make([]*redis.IntCmd, 0, len(keys))
+			for _, key := range keys {
+				cmds = append(cmds, pipe.StrLen(ctx, key))
+			}
+			_, _ = pipe.Exec(ctx)
+			for _, cmd := range cmds {
+				if val, err := cmd.Result(); err == nil {
+					totalBytes += val
+				}
+			}
+			count += len(keys)
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return count, totalBytes, nil
+}
+
 // Close closes the Redis connection
 func (c *RedisCache) Close() error {
 	return c.client.Close()

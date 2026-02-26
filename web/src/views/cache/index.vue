@@ -1298,7 +1298,12 @@ async function loadCacheStats() {
         }
       }
 
-      overallStats.hitRate = totalOps > 0 ? Math.round((totalHits / totalOps) * 100) : 0
+      const redisHitRate = stats.redis_hit_rate ?? stats.redisHitRate
+      if (typeof redisHitRate === 'number') {
+        overallStats.hitRate = Math.round(redisHitRate * 100)
+      } else {
+        overallStats.hitRate = totalOps > 0 ? Math.round((totalHits / totalOps) * 100) : 0
+      }
       overallStats.totalEntries = totalEntries
       overallStats.totalSize = formatSize(totalSizeBytes)
       overallStats.avgResponse = totalOps > 0 ? `${Math.round(totalLatencyMs / totalOps)}ms` : '0ms'

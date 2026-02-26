@@ -147,10 +147,36 @@ func (h *CacheHandler) GetCacheStats(c *gin.Context) {
 		}
 	}
 
+	if rc, ok := h.manager.Cache().(*cache.RedisCache); ok {
+		if info, err := rc.GetClient().Info(context.Background(), "stats").Result(); err == nil {
+			hits, misses := parseRedisHitStats(info)
+			response.RedisHits = hits
+			response.RedisMisses = misses
+			if hits+misses > 0 {
+				response.RedisHitRate = float64(hits) / float64(hits+misses)
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
 	})
+}
+
+func parseRedisHitStats(info string) (int64, int64) {
+	var hits int64
+	var misses int64
+	lines := strings.Split(info, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "keyspace_hits:") {
+			fmt.Sscanf(strings.TrimSpace(line), "keyspace_hits:%d", &hits)
+		}
+		if strings.HasPrefix(line, "keyspace_misses:") {
+			fmt.Sscanf(strings.TrimSpace(line), "keyspace_misses:%d", &misses)
+		}
+	}
+	return hits, misses
 }
 
 // ClearCache clears all caches

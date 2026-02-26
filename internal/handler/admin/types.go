@@ -126,18 +126,21 @@ type CacheStatsResponse struct {
 	UsageCache    CacheStatDetail `json:"usage_cache"`
 	ResponseCache CacheStatDetail `json:"response_cache"`
 	TokenSavings  int64           `json:"token_savings"`
+	RedisHits     int64           `json:"redis_hits,omitempty"`
+	RedisMisses   int64           `json:"redis_misses,omitempty"`
+	RedisHitRate  float64         `json:"redis_hit_rate,omitempty"`
 }
 
 // CacheStatDetail represents detailed cache statistics
 type CacheStatDetail struct {
-	Hits      int64   `json:"hits"`
-	Misses    int64   `json:"misses"`
-	HitRate   float64 `json:"hit_rate"`
-	SizeBytes int64   `json:"size_bytes"`
-	Entries   int64   `json:"entries"`
-	AvgLatencyMs int64 `json:"avg_latency_ms"`
-	MaxSize   int64   `json:"max_size"`
-	Evictions int64   `json:"evictions"`
+	Hits         int64   `json:"hits"`
+	Misses       int64   `json:"misses"`
+	HitRate      float64 `json:"hit_rate"`
+	SizeBytes    int64   `json:"size_bytes"`
+	Entries      int64   `json:"entries"`
+	AvgLatencyMs int64   `json:"avg_latency_ms"`
+	MaxSize      int64   `json:"max_size"`
+	Evictions    int64   `json:"evictions"`
 }
 
 // CacheConfigRequest represents cache configuration update
@@ -149,9 +152,9 @@ type CacheConfigRequest struct {
 	MaxEntries          *int     `json:"max_entries"`
 	EvictionPolicy      *string  `json:"eviction_policy"`
 	Dedup               *struct {
-		Enabled             *bool `json:"enabled"`
-		MaxPending          *int  `json:"max_pending"`
-		RequestTimeoutSeconds *int `json:"request_timeout_seconds"`
+		Enabled               *bool `json:"enabled"`
+		MaxPending            *int  `json:"max_pending"`
+		RequestTimeoutSeconds *int  `json:"request_timeout_seconds"`
 	} `json:"dedup"`
 
 	RequestTTL *int `json:"request_ttl_seconds"`
