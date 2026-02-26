@@ -459,6 +459,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	if err != nil {
+		// CHANGED: include provider/user/api info in usage logs for error paths.
 		providerName := req.Provider
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
@@ -478,6 +479,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Check for provider error in response
 	if resp.Error != nil {
+		// CHANGED: include provider/user/api info in usage logs for provider error responses.
 		providerName := req.Provider
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
@@ -493,6 +495,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Record metrics
 	latency := time.Since(startTime)
+	// CHANGED: include provider/user/api info and prompt tokens in usage logs.
 	providerName := req.Provider
 	if providerName == "" && targetProvider != nil {
 		providerName = targetProvider.Name()
@@ -1133,6 +1136,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	// Get stream channel from provider
 	stream, err := p.StreamChat(ctx, req)
 	if err != nil {
+		// CHANGED: include provider/user/api info in usage logs for stream start failures.
 		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		c.SSEvent("error", gin.H{"error": err.Error()})
@@ -1210,6 +1214,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
+			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
 			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, 0, promptTokens, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
 
@@ -1362,6 +1367,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		if err != nil {
+			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
 			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty stream and fallback failed: " + err.Error()})
@@ -1370,6 +1376,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		if resp == nil || len(resp.Choices) == 0 {
+			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
 			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
@@ -1379,6 +1386,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		content := getTextContent(resp.Choices[0].Message.Content)
 		if strings.TrimSpace(content) == "" {
+			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
 			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
@@ -1489,6 +1497,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		latency := time.Since(startTime)
+		// CHANGED: include provider/user/api info and prompt tokens in usage logs for fallback success.
 		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, taskType, string(difficulty), "")
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
