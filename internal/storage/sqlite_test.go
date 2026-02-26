@@ -499,27 +499,48 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 
 	t.Run("Log and Query Usage", func(t *testing.T) {
 		err := store.LogUsage(map[string]interface{}{
-			"request_id":    "req-usage-1",
-			"timestamp":     time.Now().UnixMilli(),
-			"model":         "gpt-4o-mini",
-			"provider":      "openai",
-			"user_id":       "1",
-			"api_key":       "sk****test",
-			"tokens":        int64(120),
-			"input_tokens":  int64(80),
-			"output_tokens": int64(40),
-			"latency_ms":    int64(350),
-			"ttft_ms":       int64(120),
-			"cache_hit":     true,
-			"success":       true,
-			"task_type":     "code",
-			"difficulty":    "medium",
+			"request_id":     "req-usage-1",
+			"timestamp":      time.Now().UnixMilli(),
+			"model":          "gpt-4o-mini",
+			"provider":       "openai",
+			"user_id":        "1",
+			"api_key":        "sk****test",
+			"tokens":         int64(120),
+			"input_tokens":   int64(80),
+			"output_tokens":  int64(40),
+			"latency_ms":     int64(350),
+			"ttft_ms":        int64(120),
+			"cache_hit":      true,
+			"success":        true,
+			"task_type":      "code",
+			"difficulty":     "medium",
+			"experiment_tag": "exp-a",
+			"domain_tag":     "finance",
+		})
+		require.NoError(t, err)
+
+		err = store.LogUsage(map[string]interface{}{
+			"request_id":     "req-usage-2",
+			"timestamp":      time.Now().UnixMilli(),
+			"model":          "gpt-4o-mini",
+			"provider":       "openai",
+			"tokens":         int64(90),
+			"input_tokens":   int64(50),
+			"output_tokens":  int64(40),
+			"latency_ms":     int64(420),
+			"ttft_ms":        int64(100),
+			"cache_hit":      false,
+			"success":        true,
+			"experiment_tag": "exp-b",
+			"domain_tag":     "general",
 		})
 		require.NoError(t, err)
 
 		logs, err := store.GetUsageLogsWithFilter(UsageFilter{
-			Model:    "gpt-4o-mini",
-			Provider: "openai",
+			Model:         "gpt-4o-mini",
+			Provider:      "openai",
+			ExperimentTag: "exp-a",
+			DomainTag:     "finance",
 		}, 10, 0)
 		require.NoError(t, err)
 		require.Len(t, logs, 1)
@@ -533,13 +554,24 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 		assert.Equal(t, int64(120), logs[0]["ttft_ms"])
 		assert.Equal(t, true, logs[0]["cache_hit"])
 		assert.Equal(t, true, logs[0]["success"])
+		assert.Equal(t, "exp-a", logs[0]["experiment_tag"])
+		assert.Equal(t, "finance", logs[0]["domain_tag"])
+
+		tagFiltered, err := store.GetUsageLogsWithFilter(UsageFilter{
+			ExperimentTag: "exp-b",
+			DomainTag:     "general",
+		}, 10, 0)
+		require.NoError(t, err)
+		require.Len(t, tagFiltered, 1)
+		assert.Equal(t, "exp-b", tagFiltered[0]["experiment_tag"])
+		assert.Equal(t, "general", tagFiltered[0]["domain_tag"])
 	})
 
 	t.Run("Usage Stats", func(t *testing.T) {
 		stats := store.GetUsageStats()
-		assert.Equal(t, int64(1), stats["total_requests"])
-		assert.Equal(t, int64(120), stats["total_tokens"])
+		assert.Equal(t, int64(2), stats["total_requests"])
+		assert.Equal(t, int64(210), stats["total_tokens"])
 		assert.Equal(t, int64(1), stats["cache_hits"])
-		assert.Equal(t, int64(0), stats["cache_misses"])
+		assert.Equal(t, int64(1), stats["cache_misses"])
 	})
 }

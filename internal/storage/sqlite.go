@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -168,17 +169,57 @@ func (s *SQLiteStorage) migrate() error {
 			error_type TEXT,
 			task_type TEXT,
 			difficulty TEXT,
+			experiment_tag TEXT,
+			domain_tag TEXT,
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_model ON usage_logs(model)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_provider ON usage_logs(provider)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_summary (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			total_requests INTEGER DEFAULT 0,
+			requests_today INTEGER DEFAULT 0,
+			success_count INTEGER DEFAULT 0,
+			failure_count INTEGER DEFAULT 0,
+			total_latency INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_models (
+			model TEXT PRIMARY KEY,
+			requests INTEGER DEFAULT 0,
+			tokens INTEGER DEFAULT 0,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_trends (
+			ts INTEGER PRIMARY KEY,
+			requests INTEGER DEFAULT 0,
+			success INTEGER DEFAULT 0,
+			failed INTEGER DEFAULT 0,
+			latency INTEGER DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_dashboard_trends_ts ON dashboard_trends(ts)`,
+		`CREATE TABLE IF NOT EXISTS dashboard_alerts (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL,
+			level TEXT NOT NULL,
+			message TEXT NOT NULL,
+			account_id TEXT,
+			provider TEXT,
+			timestamp INTEGER NOT NULL,
+			acknowledged INTEGER DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_dashboard_alerts_ts ON dashboard_alerts(timestamp)`,
 	}
 
 	for _, schema := range schemas {
 		if _, err := s.db.Exec(schema); err != nil {
 			return fmt.Errorf("schema error: %w", err)
 		}
+	}
+	if err := s.ensureUsageLogsColumns(); err != nil {
+		return fmt.Errorf("ensure usage logs columns failed: %w", err)
 	}
 	return nil
 }
@@ -789,30 +830,69 @@ func intFromInt64(i int64) int {
 }
 
 type UsageFilter struct {
-	Model     string
-	Provider  string
-	StartTime int64
-	EndTime   int64
+	Model         string
+	Provider      string
+	ExperimentTag string
+	DomainTag     string
+	StartTime     int64
+	EndTime       int64
 }
 
 type UsageLog struct {
-	ID           int64  `json:"id"`
-	Timestamp    int64  `json:"timestamp"`
-	Model        string `json:"model"`
-	Provider     string `json:"provider"`
-	UserID       string `json:"user_id"`
-	APIKey       string `json:"api_key"`
-	Tokens       int64  `json:"tokens"`
-	InputTokens  int64  `json:"input_tokens"`
-	OutputTokens int64  `json:"output_tokens"`
-	LatencyMs    int64  `json:"latency_ms"`
-	TTFTMs       int64  `json:"ttft_ms"`
-	CacheHit     bool   `json:"cache_hit"`
-	Success      bool   `json:"success"`
-	ErrorType    string `json:"error_type"`
-	TaskType     string `json:"task_type"`
-	Difficulty   string `json:"difficulty"`
-	CreatedAt    string `json:"created_at"`
+	ID            int64  `json:"id"`
+	Timestamp     int64  `json:"timestamp"`
+	Model         string `json:"model"`
+	Provider      string `json:"provider"`
+	UserID        string `json:"user_id"`
+	APIKey        string `json:"api_key"`
+	Tokens        int64  `json:"tokens"`
+	InputTokens   int64  `json:"input_tokens"`
+	OutputTokens  int64  `json:"output_tokens"`
+	LatencyMs     int64  `json:"latency_ms"`
+	TTFTMs        int64  `json:"ttft_ms"`
+	CacheHit      bool   `json:"cache_hit"`
+	Success       bool   `json:"success"`
+	ErrorType     string `json:"error_type"`
+	TaskType      string `json:"task_type"`
+	Difficulty    string `json:"difficulty"`
+	ExperimentTag string `json:"experiment_tag"`
+	DomainTag     string `json:"domain_tag"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type DashboardSummary struct {
+	TotalRequests int64
+	RequestsToday int64
+	SuccessCount  int64
+	FailureCount  int64
+	TotalLatency  int64
+	TotalTokens   int64
+	UpdatedAt     time.Time
+}
+
+type DashboardModelStat struct {
+	Model    string
+	Requests int64
+	Tokens   int64
+}
+
+type DashboardTrend struct {
+	Timestamp int64
+	Requests  int64
+	Success   int64
+	Failed    int64
+	Latency   int64
+}
+
+type DashboardAlert struct {
+	ID           string
+	Type         string
+	Level        string
+	Message      string
+	AccountID    string
+	Provider     string
+	Timestamp    int64
+	Acknowledged bool
 }
 
 func GetSQLite() *SQLiteStorage {
@@ -831,8 +911,8 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 
 	_, err := s.db.Exec(`INSERT INTO usage_logs (
 		request_id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		usageStringValue(log, "request_id"),
 		timestamp,
 		usageStringValue(log, "model"),
@@ -849,6 +929,8 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 		usageStringValue(log, "error_type"),
 		usageStringValue(log, "task_type"),
 		usageStringValue(log, "difficulty"),
+		usageStringValue(log, "experiment_tag"),
+		usageStringValue(log, "domain_tag"),
 		now,
 	)
 	return err
@@ -859,7 +941,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	defer s.mu.RUnlock()
 
 	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, created_at
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
 		FROM usage_logs WHERE 1=1`
 	args := []interface{}{}
 
@@ -870,6 +952,14 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	if filter.Provider != "" {
 		query += " AND provider = ?"
 		args = append(args, filter.Provider)
+	}
+	if filter.ExperimentTag != "" {
+		query += " AND experiment_tag = ?"
+		args = append(args, filter.ExperimentTag)
+	}
+	if filter.DomainTag != "" {
+		query += " AND domain_tag = ?"
+		args = append(args, filter.DomainTag)
 	}
 	if filter.StartTime > 0 {
 		query += " AND created_at >= ?"
@@ -895,34 +985,80 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 		var timestamp, tokens, inputTokens, outputTokens, latencyMs, ttftMs int64
 		var model, createdAt string
 		var cacheHitInt, successInt int
-		var provider, userID, apiKey, errorType, taskType, difficulty sql.NullString
+		var provider, userID, apiKey, errorType, taskType, difficulty, experimentTag, domainTag sql.NullString
 		if err := rows.Scan(
 			&id, &timestamp, &model, &provider, &userID, &apiKey, &tokens, &inputTokens, &outputTokens,
-			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &createdAt,
+			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &experimentTag, &domainTag, &createdAt,
 		); err != nil {
 			return nil, err
 		}
 		logs = append(logs, map[string]interface{}{
-			"id":            id,
-			"timestamp":     timestamp,
-			"model":         model,
-			"provider":      provider.String,
-			"user_id":       userID.String,
-			"api_key":       apiKey.String,
-			"tokens":        tokens,
-			"input_tokens":  inputTokens,
-			"output_tokens": outputTokens,
-			"latency_ms":    latencyMs,
-			"ttft_ms":       ttftMs,
-			"cache_hit":     cacheHitInt == 1,
-			"success":       successInt == 1,
-			"error_type":    errorType.String,
-			"task_type":     taskType.String,
-			"difficulty":    difficulty.String,
-			"created_at":    createdAt,
+			"id":             id,
+			"timestamp":      timestamp,
+			"model":          model,
+			"provider":       provider.String,
+			"user_id":        userID.String,
+			"api_key":        apiKey.String,
+			"tokens":         tokens,
+			"input_tokens":   inputTokens,
+			"output_tokens":  outputTokens,
+			"latency_ms":     latencyMs,
+			"ttft_ms":        ttftMs,
+			"cache_hit":      cacheHitInt == 1,
+			"success":        successInt == 1,
+			"error_type":     errorType.String,
+			"task_type":      taskType.String,
+			"difficulty":     difficulty.String,
+			"experiment_tag": experimentTag.String,
+			"domain_tag":     domainTag.String,
+			"created_at":     createdAt,
 		})
 	}
 	return logs, nil
+}
+
+func (s *SQLiteStorage) ensureUsageLogsColumns() error {
+	required := map[string]string{
+		"experiment_tag": "TEXT",
+		"domain_tag":     "TEXT",
+	}
+
+	rows, err := s.db.Query(`PRAGMA table_info(usage_logs)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dflt sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		existing[name] = struct{}{}
+	}
+
+	for col, colType := range required {
+		if _, ok := existing[col]; ok {
+			continue
+		}
+		if _, err := s.db.Exec(fmt.Sprintf(`ALTER TABLE usage_logs ADD COLUMN %s %s`, col, colType)); err != nil {
+			return err
+		}
+	}
+
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_usage_logs_experiment_tag ON usage_logs(experiment_tag)`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_usage_logs_domain_tag ON usage_logs(domain_tag)`); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func usageStringValue(log map[string]interface{}, key string) string {
@@ -1021,4 +1157,261 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 		"avg_latency_ms": avgLatency,
 		"model_stats":    modelStats,
 	}
+}
+
+func (s *SQLiteStorage) SaveDashboardSummary(summary DashboardSummary) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	updatedAt := summary.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = time.Now()
+	}
+
+	_, err := s.db.Exec(`INSERT INTO dashboard_summary (
+		id, total_requests, requests_today, success_count, failure_count, total_latency, total_tokens, updated_at
+	) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		total_requests = excluded.total_requests,
+		requests_today = excluded.requests_today,
+		success_count = excluded.success_count,
+		failure_count = excluded.failure_count,
+		total_latency = excluded.total_latency,
+		total_tokens = excluded.total_tokens,
+		updated_at = excluded.updated_at`,
+		summary.TotalRequests,
+		summary.RequestsToday,
+		summary.SuccessCount,
+		summary.FailureCount,
+		summary.TotalLatency,
+		summary.TotalTokens,
+		updatedAt.Format(time.RFC3339),
+	)
+	return err
+}
+
+func (s *SQLiteStorage) LoadDashboardSummary() (DashboardSummary, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var summary DashboardSummary
+	var updatedAt sql.NullString
+
+	err := s.db.QueryRow(`SELECT total_requests, requests_today, success_count, failure_count, total_latency, total_tokens, updated_at
+		FROM dashboard_summary WHERE id = 1`).
+		Scan(
+			&summary.TotalRequests,
+			&summary.RequestsToday,
+			&summary.SuccessCount,
+			&summary.FailureCount,
+			&summary.TotalLatency,
+			&summary.TotalTokens,
+			&updatedAt,
+		)
+	if err == sql.ErrNoRows {
+		return summary, false, nil
+	}
+	if err != nil {
+		return summary, false, err
+	}
+	if updatedAt.Valid {
+		if t, parseErr := time.Parse(time.RFC3339, updatedAt.String); parseErr == nil {
+			summary.UpdatedAt = t
+		}
+	}
+	return summary, true, nil
+}
+
+func (s *SQLiteStorage) SaveDashboardModelStat(model string, requests, tokens int64) error {
+	if strings.TrimSpace(model) == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now().Format(time.RFC3339)
+	_, err := s.db.Exec(`INSERT INTO dashboard_models (model, requests, tokens, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(model) DO UPDATE SET
+			requests = excluded.requests,
+			tokens = excluded.tokens,
+			updated_at = excluded.updated_at`,
+		model,
+		requests,
+		tokens,
+		now,
+	)
+	return err
+}
+
+func (s *SQLiteStorage) LoadDashboardModelStats() ([]DashboardModelStat, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT model, requests, tokens FROM dashboard_models`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make([]DashboardModelStat, 0)
+	for rows.Next() {
+		var item DashboardModelStat
+		if err := rows.Scan(&item.Model, &item.Requests, &item.Tokens); err != nil {
+			return nil, err
+		}
+		stats = append(stats, item)
+	}
+	return stats, nil
+}
+
+func (s *SQLiteStorage) SaveDashboardTrend(trend DashboardTrend) error {
+	if trend.Timestamp <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`INSERT INTO dashboard_trends (ts, requests, success, failed, latency)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(ts) DO UPDATE SET
+			requests = excluded.requests,
+			success = excluded.success,
+			failed = excluded.failed,
+			latency = excluded.latency`,
+		trend.Timestamp,
+		trend.Requests,
+		trend.Success,
+		trend.Failed,
+		trend.Latency,
+	)
+	return err
+}
+
+func (s *SQLiteStorage) LoadDashboardTrends(limit int) ([]DashboardTrend, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `SELECT ts, requests, success, failed, latency FROM dashboard_trends ORDER BY ts DESC`
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	trends := make([]DashboardTrend, 0)
+	for rows.Next() {
+		var item DashboardTrend
+		if err := rows.Scan(&item.Timestamp, &item.Requests, &item.Success, &item.Failed, &item.Latency); err != nil {
+			return nil, err
+		}
+		trends = append(trends, item)
+	}
+
+	for i, j := 0, len(trends)-1; i < j; i, j = i+1, j-1 {
+		trends[i], trends[j] = trends[j], trends[i]
+	}
+
+	return trends, nil
+}
+
+func (s *SQLiteStorage) SaveDashboardAlert(alert DashboardAlert) error {
+	if strings.TrimSpace(alert.ID) == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`INSERT INTO dashboard_alerts (
+		id, type, level, message, account_id, provider, timestamp, acknowledged
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET
+		type = excluded.type,
+		level = excluded.level,
+		message = excluded.message,
+		account_id = excluded.account_id,
+		provider = excluded.provider,
+		timestamp = excluded.timestamp,
+		acknowledged = excluded.acknowledged`,
+		alert.ID,
+		alert.Type,
+		alert.Level,
+		alert.Message,
+		alert.AccountID,
+		alert.Provider,
+		alert.Timestamp,
+		boolToInt(alert.Acknowledged),
+	)
+	return err
+}
+
+func (s *SQLiteStorage) LoadDashboardAlerts(limit int) ([]DashboardAlert, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	query := `SELECT id, type, level, message, account_id, provider, timestamp, acknowledged
+		FROM dashboard_alerts ORDER BY timestamp DESC`
+	args := []interface{}{}
+	if limit > 0 {
+		query += " LIMIT ?"
+		args = append(args, limit)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	alerts := make([]DashboardAlert, 0)
+	for rows.Next() {
+		var item DashboardAlert
+		var acknowledged int
+		var accountID, provider sql.NullString
+		if err := rows.Scan(
+			&item.ID,
+			&item.Type,
+			&item.Level,
+			&item.Message,
+			&accountID,
+			&provider,
+			&item.Timestamp,
+			&acknowledged,
+		); err != nil {
+			return nil, err
+		}
+		item.AccountID = accountID.String
+		item.Provider = provider.String
+		item.Acknowledged = intToBool(acknowledged)
+		alerts = append(alerts, item)
+	}
+
+	for i, j := 0, len(alerts)-1; i < j; i, j = i+1, j-1 {
+		alerts[i], alerts[j] = alerts[j], alerts[i]
+	}
+
+	return alerts, nil
+}
+
+func (s *SQLiteStorage) UpdateDashboardAlertAcknowledged(alertID string, acknowledged bool) error {
+	if strings.TrimSpace(alertID) == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`UPDATE dashboard_alerts SET acknowledged = ? WHERE id = ?`,
+		boolToInt(acknowledged),
+		alertID,
+	)
+	return err
 }

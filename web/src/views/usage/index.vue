@@ -72,6 +72,30 @@
             </el-select>
           </div>
           <div class="filter-item">
+            <div class="filter-label">实验标签</div>
+            <el-select v-model="selectedExperimentTag" style="width: 180px" placeholder="全部实验" clearable>
+              <el-option label="全部实验" value="" />
+              <el-option
+                v-for="tag in experimentTagOptions"
+                :key="tag"
+                :label="tag"
+                :value="tag"
+              />
+            </el-select>
+          </div>
+          <div class="filter-item">
+            <div class="filter-label">领域标签</div>
+            <el-select v-model="selectedDomainTag" style="width: 180px" placeholder="全部领域" clearable>
+              <el-option label="全部领域" value="" />
+              <el-option
+                v-for="tag in domainTagOptions"
+                :key="tag"
+                :label="tag"
+                :value="tag"
+              />
+            </el-select>
+          </div>
+          <div class="filter-item">
             <div class="filter-label">时间范围</div>
             <el-select v-model="range" style="width: 140px" @change="refreshAll">
               <el-option label="近 24 小时" value="24h" />
@@ -173,6 +197,8 @@ const range = ref<RangeType>('7d')
 const page = ref(1)
 const pageSize = ref(20)
 const selectedModel = ref('')
+const selectedExperimentTag = ref('')
+const selectedDomainTag = ref('')
 
 const usageRows = ref<UsageRow[]>([])
 const cacheStats = ref({ hits: 0, misses: 0, hit_rate: 0 })
@@ -192,10 +218,39 @@ const modelOptions = computed(() => {
   return Array.from(set)
 })
 
+const experimentTagOptions = computed(() => {
+  const set = new Set<string>()
+  rangeRows.value.forEach(row => {
+    if (row.experimentTag && row.experimentTag !== '-') {
+      set.add(row.experimentTag)
+    }
+  })
+  return Array.from(set)
+})
+
+const domainTagOptions = computed(() => {
+  const set = new Set<string>()
+  rangeRows.value.forEach(row => {
+    if (row.domainTag && row.domainTag !== '-') {
+      set.add(row.domainTag)
+    }
+  })
+  return Array.from(set)
+})
+
 const filteredRows = computed(() => {
-  const base = rangeRows.value
-  if (!selectedModel.value) return base
-  return base.filter(row => row.model === selectedModel.value)
+  return rangeRows.value.filter(row => {
+    if (selectedModel.value && row.model !== selectedModel.value) {
+      return false
+    }
+    if (selectedExperimentTag.value && row.experimentTag !== selectedExperimentTag.value) {
+      return false
+    }
+    if (selectedDomainTag.value && row.domainTag !== selectedDomainTag.value) {
+      return false
+    }
+    return true
+  })
 })
 
 const pagedRows = computed(() => {
@@ -363,6 +418,8 @@ const refreshAll = async () => {
 
 const resetFilters = async () => {
   selectedModel.value = ''
+  selectedExperimentTag.value = ''
+  selectedDomainTag.value = ''
   range.value = '7d'
   await refreshAll()
 }

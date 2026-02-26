@@ -77,8 +77,10 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 	}
 
 	filter := storage.UsageFilter{
-		Model:    c.Query("model"),
-		Provider: c.Query("provider"),
+		Model:         c.Query("model"),
+		Provider:      c.Query("provider"),
+		ExperimentTag: c.Query("experiment_tag"),
+		DomainTag:     c.Query("domain_tag"),
 	}
 
 	if start := c.Query("start_time"); start != "" {
