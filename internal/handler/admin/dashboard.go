@@ -174,6 +174,17 @@ func (h *DashboardHandler) loadPersistedState() {
 // GetStats returns dashboard overview statistics
 // GET /api/admin/dashboard/stats
 func (h *DashboardHandler) GetStats(c *gin.Context) {
+	providerUsageMap := make(map[string]storage.ProviderUsageStat)
+	if store := storage.GetSQLite(); store != nil {
+		if usageStats, err := store.GetProviderUsageStats(); err != nil {
+			logrus.WithError(err).Warn("Failed to load provider usage stats")
+		} else {
+			for _, item := range usageStats {
+				providerUsageMap[item.Provider] = item
+			}
+		}
+	}
+
 	// Get provider stats
 	providers := h.registry.ListEnabled()
 	providerStats := make([]ProviderStat, 0)
@@ -181,13 +192,13 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 
 	for _, p := range providers {
 		activeProviders++
-		// In production, these would come from metrics
+		usage := providerUsageMap[p.Name()]
 		providerStats = append(providerStats, ProviderStat{
 			Name:        p.Name(),
-			Requests:    0, // TODO: get from metrics
-			Tokens:      0, // TODO: get from metrics
-			SuccessRate: 0,
-			AvgLatency:  0,
+			Requests:    usage.Requests,
+			Tokens:      usage.Tokens,
+			SuccessRate: usage.SuccessRate,
+			AvgLatency:  usage.AvgLatency,
 		})
 	}
 

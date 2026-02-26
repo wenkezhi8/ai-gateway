@@ -47,7 +47,7 @@ func NewHandlers(
 
 	handlers := &Handlers{
 		Account:     NewAccountHandler(accountManager),
-		Provider:    NewProviderHandler(registry),
+		Provider:    NewProviderHandler(registry, accountManager),
 		Routing:     NewRoutingHandler(),
 		Cache:       NewCacheHandler(cacheManager),
 		Dashboard:   NewDashboardHandler(registry, accountManager, cacheManager),

@@ -573,5 +573,14 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 		assert.Equal(t, int64(210), stats["total_tokens"])
 		assert.Equal(t, int64(1), stats["cache_hits"])
 		assert.Equal(t, int64(1), stats["cache_misses"])
+
+		providerStats, err := store.GetProviderUsageStats()
+		require.NoError(t, err)
+		require.Len(t, providerStats, 1)
+		assert.Equal(t, "openai", providerStats[0].Provider)
+		assert.Equal(t, int64(2), providerStats[0].Requests)
+		assert.Equal(t, int64(210), providerStats[0].Tokens)
+		assert.Equal(t, 100.0, providerStats[0].SuccessRate)
+		assert.Equal(t, int64(385), providerStats[0].AvgLatency)
 	})
 }

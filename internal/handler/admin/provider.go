@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
 	"context"
 	"net/http"
@@ -12,13 +13,39 @@ import (
 // ProviderHandler handles provider management requests
 type ProviderHandler struct {
 	registry *provider.Registry
+	manager  *limiter.AccountManager
 }
 
 // NewProviderHandler creates a new provider handler
-func NewProviderHandler(registry *provider.Registry) *ProviderHandler {
+func NewProviderHandler(registry *provider.Registry, manager *limiter.AccountManager) *ProviderHandler {
 	return &ProviderHandler{
 		registry: registry,
+		manager:  manager,
 	}
+}
+
+func (h *ProviderHandler) getAccountCount(providerName string) int {
+	if h.manager == nil {
+		return 0
+	}
+	accounts := h.manager.GetAllAccounts()
+	count := 0
+	for _, acc := range accounts {
+		providerType := acc.ProviderType
+		if providerType == "" {
+			providerType = acc.Provider
+		}
+		if providerType == providerName || acc.Provider == providerName {
+			count++
+		}
+	}
+	return count
+}
+
+func (h *ProviderHandler) checkProviderHealth(ctx context.Context, p provider.Provider) bool {
+	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	return p.ValidateKey(checkCtx)
 }
 
 // ListProviders returns all providers
@@ -28,12 +55,14 @@ func (h *ProviderHandler) ListProviders(c *gin.Context) {
 
 	response := make([]ProviderResponse, 0, len(providers))
 	for _, p := range providers {
+		healthy := h.checkProviderHealth(c.Request.Context(), p)
 		providerResp := ProviderResponse{
 			Name:         p.Name(),
 			Models:       p.Models(),
 			Enabled:      p.IsEnabled(),
-			Healthy:      true, // TODO: implement health check
-			AccountCount: 0,    // TODO: count accounts per provider
+			Healthy:      healthy,
+			AccountCount: h.getAccountCount(p.Name()),
+			LastCheck:    time.Now(),
 		}
 
 		// Get base URL if available
@@ -71,8 +100,9 @@ func (h *ProviderHandler) GetProvider(c *gin.Context) {
 		Name:         p.Name(),
 		Models:       p.Models(),
 		Enabled:      p.IsEnabled(),
-		Healthy:      true,
-		AccountCount: 0,
+		Healthy:      h.checkProviderHealth(c.Request.Context(), p),
+		AccountCount: h.getAccountCount(p.Name()),
+		LastCheck:    time.Now(),
 	}
 
 	if baseProvider, ok := p.(interface{ BaseURL() string }); ok {

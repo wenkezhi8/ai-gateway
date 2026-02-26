@@ -895,6 +895,14 @@ type DashboardAlert struct {
 	Acknowledged bool
 }
 
+type ProviderUsageStat struct {
+	Provider    string
+	Requests    int64
+	Tokens      int64
+	SuccessRate float64
+	AvgLatency  int64
+}
+
 func GetSQLite() *SQLiteStorage {
 	return GetSQLiteStorage()
 }
@@ -1133,11 +1141,8 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 	}
 
 	rows, err := s.db.Query(`SELECT model, COUNT(*) as requests, COALESCE(SUM(tokens), 0) as tokens FROM usage_logs GROUP BY model`)
-	if err != nil {
-		rows.Close()
-	}
 	modelStats := make(map[string]map[string]int64)
-	if rows != nil {
+	if err == nil && rows != nil {
 		defer rows.Close()
 		for rows.Next() {
 			var model string
@@ -1157,6 +1162,49 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 		"avg_latency_ms": avgLatency,
 		"model_stats":    modelStats,
 	}
+}
+
+func (s *SQLiteStorage) GetProviderUsageStats() ([]ProviderUsageStat, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rows, err := s.db.Query(`SELECT
+		provider,
+		COUNT(*) as requests,
+		COALESCE(SUM(tokens), 0) as tokens,
+		COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0) as success_count,
+		COALESCE(SUM(latency_ms), 0) as total_latency
+	FROM usage_logs
+	WHERE provider IS NOT NULL AND provider != ''
+	GROUP BY provider`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := make([]ProviderUsageStat, 0)
+	for rows.Next() {
+		var provider string
+		var requests, tokens, successCount, totalLatency int64
+		if err := rows.Scan(&provider, &requests, &tokens, &successCount, &totalLatency); err != nil {
+			return nil, err
+		}
+		avgLatency := int64(0)
+		successRate := 0.0
+		if requests > 0 {
+			avgLatency = totalLatency / requests
+			successRate = float64(successCount) / float64(requests) * 100
+		}
+		stats = append(stats, ProviderUsageStat{
+			Provider:    provider,
+			Requests:    requests,
+			Tokens:      tokens,
+			SuccessRate: successRate,
+			AvgLatency:  avgLatency,
+		})
+	}
+
+	return stats, nil
 }
 
 func (s *SQLiteStorage) SaveDashboardSummary(summary DashboardSummary) error {
