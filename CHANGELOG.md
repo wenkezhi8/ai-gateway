@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.6.1] - 2026-02-27
+
+### Fixed
+- Preserve classifier control sub-flags when `control.enable=false` to avoid resetting staged control toggles during config save.
+
 ## [1.6.0] - 2026-02-27
 
 ### Added
@@ -80,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.6.1 | 2026-02-27 | Fix control config clamp to preserve sub-toggle values when control master switch is off |
 | 1.6.0 | 2026-02-27 | Add 0.5B control signals, cache/tool gates, router fit selection, and routing control UI |
 | 1.5.1 | 2026-02-26 | Patch release to align version and tag |
 | 1.5.0 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
