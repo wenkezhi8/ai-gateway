@@ -370,6 +370,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	providerReq.ToolChoice = req.ToolChoice
 
+	// 改动点: 如果上游需要 display_name（如 sub2api），用 display_name 替换 model id
+	if h.smartRouter != nil {
+		if score := h.smartRouter.GetModelScore(providerReq.Model); score != nil && score.DisplayName != "" && score.DisplayName != providerReq.Model {
+			logrus.WithFields(logrus.Fields{
+				"model_id":     providerReq.Model,
+				"display_name": score.DisplayName,
+				"provider":     req.Provider,
+			}).Debug("Using display_name for upstream request")
+			providerReq.Model = score.DisplayName
+		}
+	}
+
 	// Handle streaming request
 	if req.Stream {
 		h.handleStreamResponse(c, targetProvider, providerReq, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload)
@@ -1277,20 +1289,25 @@ func (h *ProxyHandler) handleStreamResponse(
 		nonStreamReq.Stream = false
 
 		resp, err := p.Chat(ctx, &nonStreamReq)
-		if err != nil && isModelNotFoundError(err) {
-			originalModel := nonStreamReq.Model
+		originalModel := nonStreamReq.Model
+
+		// Try alias model if original fails (for any error, not just model not found)
+		if err != nil {
 			aliasModel := normalizeModelAlias(originalModel)
 			if aliasModel != "" && aliasModel != originalModel {
 				nonStreamReq.Model = aliasModel
 				resp, err = p.Chat(ctx, &nonStreamReq)
 			}
-			if err != nil {
-				if fallbackModel := h.selectFallbackModel(originalModel, providerName); fallbackModel != "" && fallbackModel != nonStreamReq.Model {
-					nonStreamReq.Model = fallbackModel
-					resp, err = p.Chat(ctx, &nonStreamReq)
-				}
+		}
+
+		// Try fallback model for any error (upstream may return 502, timeout, etc.)
+		if err != nil {
+			if fallbackModel := h.selectFallbackModel(originalModel, providerName); fallbackModel != "" && fallbackModel != nonStreamReq.Model {
+				nonStreamReq.Model = fallbackModel
+				resp, err = p.Chat(ctx, &nonStreamReq)
 			}
 		}
+
 		if err != nil {
 			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
