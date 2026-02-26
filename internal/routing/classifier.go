@@ -120,12 +120,17 @@ func clampClassifierConfig(cfg ClassifierConfig) ClassifierConfig {
 	if cfg.MaxInputChars <= 0 {
 		cfg.MaxInputChars = def.MaxInputChars
 	}
-	if !cfg.Control.Enable {
-		cfg.Control = def.Control
-	}
+	cfg.Control = clampControlConfig(cfg.Control, def.Control)
 	if !cfg.FailOpen {
 		cfg.FailOpen = true
 	}
+	return cfg
+}
+
+func clampControlConfig(cfg ControlConfig, def ControlConfig) ControlConfig {
+	// Keep user-provided flags as-is. This method exists to centralize
+	// defaulting behavior when new control fields are added later.
+	_ = def
 	return cfg
 }
 
