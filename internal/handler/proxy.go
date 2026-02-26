@@ -2044,7 +2044,7 @@ func shouldAllowCacheWrite(controlCfg routing.ControlConfig, signals *routing.Co
 }
 
 func applyControlToolGate(req *ChatCompletionRequest, controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) {
-	if req == nil || !controlCfg.Enable || controlCfg.ShadowOnly || !controlCfg.ToolGateEnable || assessment == nil || assessment.ControlSignals == nil {
+	if req == nil || !controlCfg.Enable || !controlCfg.ToolGateEnable || assessment == nil || assessment.ControlSignals == nil {
 		return
 	}
 	if assessment.ControlSignals.ToolNeeded == nil {
@@ -2054,6 +2054,15 @@ func applyControlToolGate(req *ChatCompletionRequest, controlCfg routing.Control
 		return
 	}
 	if len(req.Tools) == 0 {
+		return
+	}
+	if controlCfg.ShadowOnly {
+		logrus.WithFields(logrus.Fields{
+			"task_type":         assessment.TaskType,
+			"difficulty":        assessment.Difficulty,
+			"assessment_source": assessment.Source,
+			"tool_count":        len(req.Tools),
+		}).Info("Control tool gate shadow decision (no mutation)")
 		return
 	}
 

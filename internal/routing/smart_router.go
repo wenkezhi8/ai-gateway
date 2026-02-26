@@ -903,9 +903,10 @@ func (r *SmartRouter) selectModelByControlFit(assessment *AssessmentResult, avai
 	}
 
 	cfg := r.GetClassifierConfig()
-	if !cfg.Control.Enable || cfg.Control.ShadowOnly || !cfg.Control.ModelFitEnable {
+	if !cfg.Control.Enable || !cfg.Control.ModelFitEnable {
 		return ""
 	}
+	applySelection := !cfg.Control.ShadowOnly
 
 	availableSet := make(map[string]struct{}, len(availableModels))
 	for _, model := range availableModels {
@@ -937,10 +938,14 @@ func (r *SmartRouter) selectModelByControlFit(assessment *AssessmentResult, avai
 
 	if bestModel != "" {
 		routerLogger.WithFields(logrus.Fields{
-			"model":     bestModel,
-			"score":     bestScore,
-			"task_type": assessment.TaskType,
+			"model":       bestModel,
+			"score":       bestScore,
+			"task_type":   assessment.TaskType,
+			"shadow_only": cfg.Control.ShadowOnly,
 		}).Info("Control model-fit selected model")
+	}
+	if !applySelection {
+		return ""
 	}
 
 	return bestModel

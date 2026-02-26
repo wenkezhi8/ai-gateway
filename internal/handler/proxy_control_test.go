@@ -73,6 +73,14 @@ func TestApplyControlToolGate(t *testing.T) {
 	if len(req2.Tools) == 0 {
 		t.Fatal("expected tools preserved when tool_needed=true")
 	}
+
+	req3 := &ChatCompletionRequest{Tools: []Tool{{Type: "function", Function: Function{Name: "lookup"}}}}
+	shadowCfg := routing.ControlConfig{Enable: true, ToolGateEnable: true, ShadowOnly: true}
+	assessment3 := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtr(false)}}
+	applyControlToolGate(req3, shadowCfg, assessment3)
+	if len(req3.Tools) == 0 {
+		t.Fatal("expected tools preserved in shadow mode")
+	}
 }
 
 func TestBuildSemanticQueryCandidates(t *testing.T) {

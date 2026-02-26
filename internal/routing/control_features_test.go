@@ -68,4 +68,11 @@ func TestSelectModelByControlFit(t *testing.T) {
 	if selected != "" {
 		t.Fatalf("expected empty selection when feature disabled, got %s", selected)
 	}
+
+	r.config.Classifier.Control.ModelFitEnable = true
+	r.config.Classifier.Control.ShadowOnly = true
+	selected = r.selectModelByControlFit(assessment, []string{modelA, modelB})
+	if selected != "" {
+		t.Fatalf("expected shadow mode to skip apply, got %s", selected)
+	}
 }
