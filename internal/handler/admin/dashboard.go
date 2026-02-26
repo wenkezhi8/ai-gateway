@@ -5,12 +5,14 @@ import (
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/metrics"
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/storage"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // DashboardHandler handles dashboard data requests
@@ -74,7 +76,7 @@ func NewDashboardHandler(
 	manager *limiter.AccountManager,
 	cache *cache.Manager,
 ) *DashboardHandler {
-	return &DashboardHandler{
+	handler := &DashboardHandler{
 		registry:        registry,
 		manager:         manager,
 		cache:           cache,
@@ -84,6 +86,88 @@ func NewDashboardHandler(
 		lastAlerts:      make(map[string]time.Time),
 		modelStats:      make(map[string]*ModelStatData),
 		lastMinuteReset: time.Now(),
+	}
+	handler.loadPersistedState()
+	return handler
+}
+
+func (h *DashboardHandler) loadPersistedState() {
+	store := storage.GetSQLite()
+	if store == nil {
+		return
+	}
+
+	const maxTrends = 288
+	const maxAlerts = 100
+
+	summary, summaryOK, summaryErr := store.LoadDashboardSummary()
+	models, modelErr := store.LoadDashboardModelStats()
+	trends, trendErr := store.LoadDashboardTrends(maxTrends)
+	alerts, alertErr := store.LoadDashboardAlerts(maxAlerts)
+
+	if summaryErr != nil {
+		logrus.WithError(summaryErr).Warn("Failed to load dashboard summary")
+	}
+	if modelErr != nil {
+		logrus.WithError(modelErr).Warn("Failed to load dashboard model stats")
+	}
+	if trendErr != nil {
+		logrus.WithError(trendErr).Warn("Failed to load dashboard trends")
+	}
+	if alertErr != nil {
+		logrus.WithError(alertErr).Warn("Failed to load dashboard alerts")
+	}
+
+	if !summaryOK && modelErr != nil && trendErr != nil && alertErr != nil {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if summaryOK {
+		h.totalRequests = summary.TotalRequests
+		h.requestsToday = summary.RequestsToday
+		h.successCount = summary.SuccessCount
+		h.failureCount = summary.FailureCount
+		h.totalLatency = summary.TotalLatency
+		h.totalTokens = summary.TotalTokens
+	}
+
+	if modelErr == nil {
+		for _, item := range models {
+			h.modelStats[item.Model] = &ModelStatData{
+				Requests: item.Requests,
+				Tokens:   item.Tokens,
+			}
+		}
+	}
+
+	if trendErr == nil {
+		for _, item := range trends {
+			h.requestTrends = append(h.requestTrends, RequestTrend{
+				Timestamp: time.UnixMilli(item.Timestamp),
+				Requests:  item.Requests,
+				Success:   item.Success,
+				Failed:    item.Failed,
+				Latency:   item.Latency,
+			})
+		}
+	}
+
+	if alertErr == nil {
+		for _, item := range alerts {
+			h.alerts = append(h.alerts, AlertListItem{
+				ID:           item.ID,
+				Type:         item.Type,
+				Level:        item.Level,
+				Message:      item.Message,
+				AccountID:    item.AccountID,
+				Provider:     item.Provider,
+				Timestamp:    time.UnixMilli(item.Timestamp),
+				Acknowledged: item.Acknowledged,
+			})
+		}
 	}
 }
 
@@ -305,20 +389,32 @@ func (h *DashboardHandler) AcknowledgeAlert(c *gin.Context) {
 	alertID := c.Param("id")
 
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	found := false
 
 	for i, alert := range h.alerts {
 		if alert.ID == alertID {
 			h.alerts[i].Acknowledged = true
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data": gin.H{
-					"id":      alertID,
-					"message": "Alert acknowledged",
-				},
-			})
-			return
+			found = true
+			break
 		}
+	}
+	h.mu.Unlock()
+
+	if found {
+		if store := storage.GetSQLite(); store != nil {
+			if err := store.UpdateDashboardAlertAcknowledged(alertID, true); err != nil {
+				logrus.WithError(err).Warn("Failed to persist dashboard alert acknowledgement")
+			}
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"id":      alertID,
+				"message": "Alert acknowledged",
+			},
+		})
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{
@@ -499,8 +595,15 @@ func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 
 // UpdateStats updates internal statistics (called by other handlers)
 func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64, model ...string) {
+	var (
+		summary       storage.DashboardSummary
+		modelName     string
+		modelSnapshot *ModelStatData
+		trendSnapshot RequestTrend
+		hasTrend      bool
+	)
+
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	now := time.Now()
 
@@ -537,6 +640,11 @@ func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64
 		}
 		h.modelStats[model[0]].Requests++
 		h.modelStats[model[0]].Tokens += tokens
+		modelName = model[0]
+		modelSnapshot = &ModelStatData{
+			Requests: h.modelStats[model[0]].Requests,
+			Tokens:   h.modelStats[model[0]].Tokens,
+		}
 	}
 
 	// Add to trends
@@ -560,6 +668,48 @@ func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64
 			last.Success++
 		} else {
 			last.Failed++
+		}
+	}
+
+	if len(h.requestTrends) > 0 {
+		trendSnapshot = h.requestTrends[len(h.requestTrends)-1]
+		hasTrend = true
+	}
+
+	summary = storage.DashboardSummary{
+		TotalRequests: h.totalRequests,
+		RequestsToday: h.requestsToday,
+		SuccessCount:  h.successCount,
+		FailureCount:  h.failureCount,
+		TotalLatency:  h.totalLatency,
+		TotalTokens:   h.totalTokens,
+		UpdatedAt:     now,
+	}
+
+	h.mu.Unlock()
+
+	store := storage.GetSQLite()
+	if store == nil {
+		return
+	}
+
+	if err := store.SaveDashboardSummary(summary); err != nil {
+		logrus.WithError(err).Warn("Failed to persist dashboard summary")
+	}
+	if modelSnapshot != nil && modelName != "" {
+		if err := store.SaveDashboardModelStat(modelName, modelSnapshot.Requests, modelSnapshot.Tokens); err != nil {
+			logrus.WithError(err).Warn("Failed to persist dashboard model stats")
+		}
+	}
+	if hasTrend {
+		if err := store.SaveDashboardTrend(storage.DashboardTrend{
+			Timestamp: trendSnapshot.Timestamp.UnixMilli(),
+			Requests:  trendSnapshot.Requests,
+			Success:   trendSnapshot.Success,
+			Failed:    trendSnapshot.Failed,
+			Latency:   trendSnapshot.Latency,
+		}); err != nil {
+			logrus.WithError(err).Warn("Failed to persist dashboard trends")
 		}
 	}
 }
@@ -633,7 +783,6 @@ func (h *DashboardHandler) GetRealtime(c *gin.Context) {
 // AddAlert adds an alert to the list
 func (h *DashboardHandler) AddAlert(alert AlertListItem) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 
 	now := alert.Timestamp
 	if now.IsZero() {
@@ -647,6 +796,7 @@ func (h *DashboardHandler) AddAlert(alert AlertListItem) {
 		}
 		key := buildAlertDedupKey(alert.Type, alert.Level, alert.Message, alert.AccountID, alert.Provider)
 		if last, ok := h.lastAlerts[key]; ok && now.Sub(last) < h.alertCooldown {
+			h.mu.Unlock()
 			return
 		}
 		h.lastAlerts[key] = now
@@ -657,6 +807,23 @@ func (h *DashboardHandler) AddAlert(alert AlertListItem) {
 	// Keep only last 100 alerts
 	if len(h.alerts) > 100 {
 		h.alerts = h.alerts[1:]
+	}
+
+	h.mu.Unlock()
+
+	if store := storage.GetSQLite(); store != nil {
+		if err := store.SaveDashboardAlert(storage.DashboardAlert{
+			ID:           alert.ID,
+			Type:         alert.Type,
+			Level:        alert.Level,
+			Message:      alert.Message,
+			AccountID:    alert.AccountID,
+			Provider:     alert.Provider,
+			Timestamp:    alert.Timestamp.UnixMilli(),
+			Acknowledged: alert.Acknowledged,
+		}); err != nil {
+			logrus.WithError(err).Warn("Failed to persist dashboard alert")
+		}
 	}
 }
 
