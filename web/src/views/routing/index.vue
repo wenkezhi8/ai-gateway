@@ -138,6 +138,11 @@
                   <el-switch v-model="classifierConfig.control.model_fit_enable" active-text="开启" inactive-text="关闭" />
                 </el-form-item>
               </el-col>
+              <el-col :span="12">
+                <el-form-item label="参数建议">
+                  <el-switch v-model="classifierConfig.control.parameter_hint_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
             </el-row>
             <el-row :gutter="24">
               <el-col :span="12">
@@ -458,7 +463,8 @@ const classifierConfig = reactive({
     risk_tag_enable: false,
     risk_block_enable: false,
     tool_gate_enable: false,
-    model_fit_enable: false
+    model_fit_enable: false,
+    parameter_hint_enable: false
   }
 })
 
@@ -490,7 +496,8 @@ function ensureControlConfig() {
       risk_tag_enable: false,
       risk_block_enable: false,
       tool_gate_enable: false,
-      model_fit_enable: false
+      model_fit_enable: false,
+      parameter_hint_enable: false
     }
     return
   }
@@ -502,6 +509,7 @@ function ensureControlConfig() {
   classifierConfig.control.risk_block_enable = Boolean(classifierConfig.control.risk_block_enable)
   classifierConfig.control.tool_gate_enable = Boolean(classifierConfig.control.tool_gate_enable)
   classifierConfig.control.model_fit_enable = Boolean(classifierConfig.control.model_fit_enable)
+  classifierConfig.control.parameter_hint_enable = Boolean(classifierConfig.control.parameter_hint_enable)
 }
 
 const config = reactive({

@@ -37,6 +37,7 @@ type ControlConfig struct {
 	RiskBlockEnable           bool `json:"risk_block_enable"`
 	ToolGateEnable            bool `json:"tool_gate_enable"`
 	ModelFitEnable            bool `json:"model_fit_enable"`
+	ParameterHintEnable       bool `json:"parameter_hint_enable"`
 }
 
 func DefaultClassifierConfig() ClassifierConfig {
@@ -59,6 +60,7 @@ func DefaultClassifierConfig() ClassifierConfig {
 			RiskBlockEnable:           false,
 			ToolGateEnable:            false,
 			ModelFitEnable:            false,
+			ParameterHintEnable:       false,
 		},
 	}
 }

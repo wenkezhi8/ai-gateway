@@ -200,7 +200,10 @@ func buildClassifierPrompt(prompt, contextText string) string {
   "tool_needed":false,
   "rag_needed":false,
   "context_load":"medium",
-  "model_fit":{"gpt-4o-mini":0.72}
+  "model_fit":{"gpt-4o-mini":0.72},
+  "recommended_temperature":0.2,
+  "recommended_top_p":0.95,
+  "recommended_max_tokens":1024
 }
 
 用户输入:
@@ -227,23 +230,26 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	raw = strings.TrimSpace(raw)
 
 	var data struct {
-		TaskType            string             `json:"task_type"`
-		Difficulty          string             `json:"difficulty"`
-		Confidence          float64            `json:"confidence"`
-		SemanticSignature   string             `json:"semantic_signature"`
-		RouteHint           string             `json:"route_hint"`
-		ControlVersion      string             `json:"control_version"`
-		NormalizedQuery     string             `json:"normalized_query"`
-		QueryStabilityScore float64            `json:"query_stability_score"`
-		Cacheable           *bool              `json:"cacheable"`
-		CacheReason         string             `json:"cache_reason"`
-		TTLBand             string             `json:"ttl_band"`
-		RiskLevel           string             `json:"risk_level"`
-		RiskTags            []string           `json:"risk_tags"`
-		ToolNeeded          *bool              `json:"tool_needed"`
-		RAGNeeded           *bool              `json:"rag_needed"`
-		ContextLoad         string             `json:"context_load"`
-		ModelFit            map[string]float64 `json:"model_fit"`
+		TaskType               string             `json:"task_type"`
+		Difficulty             string             `json:"difficulty"`
+		Confidence             float64            `json:"confidence"`
+		SemanticSignature      string             `json:"semantic_signature"`
+		RouteHint              string             `json:"route_hint"`
+		ControlVersion         string             `json:"control_version"`
+		NormalizedQuery        string             `json:"normalized_query"`
+		QueryStabilityScore    float64            `json:"query_stability_score"`
+		Cacheable              *bool              `json:"cacheable"`
+		CacheReason            string             `json:"cache_reason"`
+		TTLBand                string             `json:"ttl_band"`
+		RiskLevel              string             `json:"risk_level"`
+		RiskTags               []string           `json:"risk_tags"`
+		ToolNeeded             *bool              `json:"tool_needed"`
+		RAGNeeded              *bool              `json:"rag_needed"`
+		ContextLoad            string             `json:"context_load"`
+		ModelFit               map[string]float64 `json:"model_fit"`
+		RecommendedTemperature *float64           `json:"recommended_temperature"`
+		RecommendedTopP        *float64           `json:"recommended_top_p"`
+		RecommendedMaxTokens   *int               `json:"recommended_max_tokens"`
 	}
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
 		return nil, fmt.Errorf("%w: parse classifier json: %v", ErrClassifierParseOutput, err)
@@ -274,6 +280,9 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 		data.RAGNeeded,
 		data.ContextLoad,
 		data.ModelFit,
+		data.RecommendedTemperature,
+		data.RecommendedTopP,
+		data.RecommendedMaxTokens,
 	)
 
 	result := &AssessmentResult{
@@ -287,7 +296,7 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	return result, nil
 }
 
-func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64) *ControlSignals {
+func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64, recommendedTemperature, recommendedTopP *float64, recommendedMaxTokens *int) *ControlSignals {
 	controlVersion = strings.TrimSpace(controlVersion)
 	normalizedQuery = strings.TrimSpace(normalizedQuery)
 	cacheReason = strings.TrimSpace(cacheReason)
@@ -340,23 +349,42 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		cleanModelFit[m] = score
 	}
 
-	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 && toolNeeded == nil && ragNeeded == nil && contextLoad == "" && len(cleanModelFit) == 0 {
+	if recommendedTemperature != nil {
+		if *recommendedTemperature < 0 || *recommendedTemperature > 2 {
+			recommendedTemperature = nil
+		}
+	}
+	if recommendedTopP != nil {
+		if *recommendedTopP <= 0 || *recommendedTopP > 1 {
+			recommendedTopP = nil
+		}
+	}
+	if recommendedMaxTokens != nil {
+		if *recommendedMaxTokens <= 0 || *recommendedMaxTokens > 16384 {
+			recommendedMaxTokens = nil
+		}
+	}
+
+	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 && toolNeeded == nil && ragNeeded == nil && contextLoad == "" && len(cleanModelFit) == 0 && recommendedTemperature == nil && recommendedTopP == nil && recommendedMaxTokens == nil {
 		return nil
 	}
 
 	return &ControlSignals{
-		ControlVersion:      controlVersion,
-		NormalizedQuery:     normalizedQuery,
-		QueryStabilityScore: queryStabilityScore,
-		Cacheable:           cacheable,
-		CacheReason:         cacheReason,
-		TTLBand:             ttlBand,
-		RiskLevel:           riskLevel,
-		RiskTags:            cleanRiskTags,
-		ToolNeeded:          toolNeeded,
-		RAGNeeded:           ragNeeded,
-		ContextLoad:         contextLoad,
-		ModelFit:            cleanModelFit,
+		ControlVersion:         controlVersion,
+		NormalizedQuery:        normalizedQuery,
+		QueryStabilityScore:    queryStabilityScore,
+		Cacheable:              cacheable,
+		CacheReason:            cacheReason,
+		TTLBand:                ttlBand,
+		RiskLevel:              riskLevel,
+		RiskTags:               cleanRiskTags,
+		ToolNeeded:             toolNeeded,
+		RAGNeeded:              ragNeeded,
+		ContextLoad:            contextLoad,
+		ModelFit:               cleanModelFit,
+		RecommendedTemperature: recommendedTemperature,
+		RecommendedTopP:        recommendedTopP,
+		RecommendedMaxTokens:   recommendedMaxTokens,
 	}
 }
 

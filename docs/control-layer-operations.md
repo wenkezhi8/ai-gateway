@@ -20,6 +20,7 @@ All flags are under `classifier.control` in `/api/admin/router/config`.
 - `risk_block_enable`: block request when risk level is high (requires `risk_tag_enable=true`)
 - `tool_gate_enable`: apply `tool_needed`/`rag_needed` decisions
 - `model_fit_enable`: allow model-fit score to influence auto model selection
+- `parameter_hint_enable`: apply recommended generation params (temperature/top_p/max_tokens)
 
 ## Rollout Order
 
@@ -36,6 +37,7 @@ Recommended order:
 4. `risk_block_enable` (start in shadow mode first)
 5. `tool_gate_enable`
 6. `model_fit_enable`
+7. `parameter_hint_enable`
 
 ## Fast Rollback
 

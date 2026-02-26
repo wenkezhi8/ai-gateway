@@ -146,3 +146,33 @@ func TestApplyControlToolGateAnthropic(t *testing.T) {
 	applyControlToolGateAnthropic(allowReq, cfg, allowAssessment)
 	assert.Len(t, allowReq.Tools, 1)
 }
+
+func TestApplyControlGenerationHintsAnthropic(t *testing.T) {
+	temp := 0.25
+	topP := 0.88
+	maxTokens := 1200
+
+	req := &AnthropicMessagesRequest{}
+	cfg := routing.ControlConfig{Enable: true, ParameterHintEnable: true}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{
+		RecommendedTemperature: &temp,
+		RecommendedTopP:        &topP,
+		RecommendedMaxTokens:   &maxTokens,
+	}}
+
+	applyControlGenerationHintsAnthropic(req, cfg, assessment)
+	if assert.NotNil(t, req.Temperature) {
+		assert.Equal(t, temp, *req.Temperature)
+	}
+	if assert.NotNil(t, req.TopP) {
+		assert.Equal(t, topP, *req.TopP)
+	}
+	assert.Equal(t, maxTokens, req.MaxTokens)
+
+	shadowReq := &AnthropicMessagesRequest{}
+	shadowCfg := routing.ControlConfig{Enable: true, ParameterHintEnable: true, ShadowOnly: true}
+	applyControlGenerationHintsAnthropic(shadowReq, shadowCfg, assessment)
+	assert.Nil(t, shadowReq.Temperature)
+	assert.Nil(t, shadowReq.TopP)
+	assert.Equal(t, 0, shadowReq.MaxTokens)
+}

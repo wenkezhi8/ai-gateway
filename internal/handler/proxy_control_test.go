@@ -142,6 +142,38 @@ func TestShouldBlockByRisk(t *testing.T) {
 	}
 }
 
+func TestApplyControlGenerationHints(t *testing.T) {
+	temp := 0.3
+	topP := 0.85
+	maxTokens := 768
+
+	req := &ChatCompletionRequest{}
+	cfg := routing.ControlConfig{Enable: true, ParameterHintEnable: true}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{
+		RecommendedTemperature: &temp,
+		RecommendedTopP:        &topP,
+		RecommendedMaxTokens:   &maxTokens,
+	}}
+
+	applyControlGenerationHints(req, cfg, assessment)
+	if req.Temperature == nil || *req.Temperature != temp {
+		t.Fatal("expected temperature hint applied")
+	}
+	if req.TopP == nil || *req.TopP != topP {
+		t.Fatal("expected top_p hint applied")
+	}
+	if req.MaxTokens == nil || *req.MaxTokens != maxTokens {
+		t.Fatal("expected max_tokens hint applied")
+	}
+
+	shadowReq := &ChatCompletionRequest{}
+	shadowCfg := routing.ControlConfig{Enable: true, ParameterHintEnable: true, ShadowOnly: true}
+	applyControlGenerationHints(shadowReq, shadowCfg, assessment)
+	if shadowReq.Temperature != nil || shadowReq.TopP != nil || shadowReq.MaxTokens != nil {
+		t.Fatal("expected no mutation in shadow mode")
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

@@ -113,6 +113,7 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 		return
 	}
 	applyControlToolGateAnthropic(&req, controlCfg, assessment)
+	applyControlGenerationHintsAnthropic(&req, controlCfg, assessment)
 
 	requestedModel := req.Model
 	if req.Model == "auto" || req.Model == "latest" || req.Model == "default" {
@@ -190,6 +191,27 @@ func applyControlToolGateAnthropic(req *AnthropicMessagesRequest, controlCfg rou
 	}
 	req.Tools = nil
 	req.ToolChoice = nil
+}
+
+func applyControlGenerationHintsAnthropic(req *AnthropicMessagesRequest, controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) {
+	if req == nil || !controlCfg.Enable || !controlCfg.ParameterHintEnable || assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	if controlCfg.ShadowOnly {
+		return
+	}
+
+	if req.Temperature == nil && assessment.ControlSignals.RecommendedTemperature != nil {
+		v := *assessment.ControlSignals.RecommendedTemperature
+		req.Temperature = &v
+	}
+	if req.TopP == nil && assessment.ControlSignals.RecommendedTopP != nil {
+		v := *assessment.ControlSignals.RecommendedTopP
+		req.TopP = &v
+	}
+	if req.MaxTokens <= 0 && assessment.ControlSignals.RecommendedMaxTokens != nil {
+		req.MaxTokens = *assessment.ControlSignals.RecommendedMaxTokens
+	}
 }
 
 func buildProviderRequestFromAnthropic(req AnthropicMessagesRequest, model string) *provider.ChatRequest {

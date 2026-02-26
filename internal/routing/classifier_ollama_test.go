@@ -23,7 +23,10 @@ func TestParseClassifierOutput_WithControlSignals(t *testing.T) {
   "tool_needed":true,
   "rag_needed":false,
   "context_load":"high",
-  "model_fit":{"gpt-4o-mini":0.72,"invalid":1.8}
+  "model_fit":{"gpt-4o-mini":0.72,"invalid":1.8},
+  "recommended_temperature":0.2,
+  "recommended_top_p":0.9,
+  "recommended_max_tokens":1024
 }`
 
 	result, err := parseClassifierOutput(raw)
@@ -61,6 +64,15 @@ func TestParseClassifierOutput_WithControlSignals(t *testing.T) {
 	if len(result.ControlSignals.ModelFit) != 1 {
 		t.Fatalf("expected cleaned model_fit size 1, got %d", len(result.ControlSignals.ModelFit))
 	}
+	if result.ControlSignals.RecommendedTemperature == nil || *result.ControlSignals.RecommendedTemperature != 0.2 {
+		t.Fatal("expected recommended temperature 0.2")
+	}
+	if result.ControlSignals.RecommendedTopP == nil || *result.ControlSignals.RecommendedTopP != 0.9 {
+		t.Fatal("expected recommended top_p 0.9")
+	}
+	if result.ControlSignals.RecommendedMaxTokens == nil || *result.ControlSignals.RecommendedMaxTokens != 1024 {
+		t.Fatal("expected recommended max_tokens 1024")
+	}
 }
 
 func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
@@ -75,7 +87,10 @@ func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
   "risk_level":"critical",
   "context_load":"extreme",
   "risk_tags":["  ","A"],
-  "model_fit":{"x":-1}
+  "model_fit":{"x":-1},
+  "recommended_temperature":3,
+  "recommended_top_p":2,
+  "recommended_max_tokens":99999
 }`
 
 	result, err := parseClassifierOutput(raw)
@@ -100,6 +115,15 @@ func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
 	}
 	if len(result.ControlSignals.ModelFit) != 0 {
 		t.Fatalf("expected invalid model_fit removed, got %#v", result.ControlSignals.ModelFit)
+	}
+	if result.ControlSignals.RecommendedTemperature != nil {
+		t.Fatal("expected invalid recommended_temperature dropped")
+	}
+	if result.ControlSignals.RecommendedTopP != nil {
+		t.Fatal("expected invalid recommended_top_p dropped")
+	}
+	if result.ControlSignals.RecommendedMaxTokens != nil {
+		t.Fatal("expected invalid recommended_max_tokens dropped")
 	}
 }
 

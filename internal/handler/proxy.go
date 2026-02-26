@@ -192,6 +192,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		logControlRoutingSignals(assessment)
 	}
 	applyControlToolGate(&req, controlCfg, assessment)
+	applyControlGenerationHints(&req, controlCfg, assessment)
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
@@ -2097,6 +2098,33 @@ func applyControlToolGate(req *ChatCompletionRequest, controlCfg routing.Control
 
 	req.Tools = nil
 	req.ToolChoice = nil
+}
+
+func applyControlGenerationHints(req *ChatCompletionRequest, controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) {
+	if req == nil || !controlCfg.Enable || !controlCfg.ParameterHintEnable || assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	if controlCfg.ShadowOnly {
+		logrus.WithFields(logrus.Fields{
+			"has_temperature": assessment.ControlSignals.RecommendedTemperature != nil,
+			"has_top_p":       assessment.ControlSignals.RecommendedTopP != nil,
+			"has_max_tokens":  assessment.ControlSignals.RecommendedMaxTokens != nil,
+		}).Info("Control generation hint shadow decision (no mutation)")
+		return
+	}
+
+	if req.Temperature == nil && assessment.ControlSignals.RecommendedTemperature != nil {
+		v := *assessment.ControlSignals.RecommendedTemperature
+		req.Temperature = &v
+	}
+	if req.TopP == nil && assessment.ControlSignals.RecommendedTopP != nil {
+		v := *assessment.ControlSignals.RecommendedTopP
+		req.TopP = &v
+	}
+	if req.MaxTokens == nil && assessment.ControlSignals.RecommendedMaxTokens != nil {
+		v := *assessment.ControlSignals.RecommendedMaxTokens
+		req.MaxTokens = &v
+	}
 }
 
 func logControlRiskSignals(assessment *routing.AssessmentResult) {
