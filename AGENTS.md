@@ -431,6 +431,12 @@ git fetch --tags
 git describe --tags --abbrev=0
 ```
 
+**版本同步脚本（从本地 tag 同步展示文件）**：
+
+```bash
+./scripts/sync-version-from-tag.sh --fetch
+```
+
 ### 版本发布SOP（强制）
 
 > 目标：解决“AGENTS/CHANGELOG/实际代码版本不一致”问题。
@@ -443,6 +449,7 @@ git describe --tags --abbrev=0
 3. 同步更新文档：
    - `CHANGELOG.md` 新增对应版本段
    - `AGENTS.md` 仅同步展示版本号
+   - 若发现文档与最新 tag 不一致，执行 `./scripts/sync-version-from-tag.sh --fetch` 纠偏
 4. 仅在用户明确要求时执行发布命令：
 
 ```bash
