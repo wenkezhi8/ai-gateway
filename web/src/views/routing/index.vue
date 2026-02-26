@@ -88,6 +88,50 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            <el-divider content-position="left">控制面开关</el-divider>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="控制层总开关">
+                  <el-switch v-model="classifierConfig.control.enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="控制层Shadow">
+                  <el-switch v-model="classifierConfig.control.shadow_only" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="归一化查询读">
+                  <el-switch v-model="classifierConfig.control.normalized_query_read_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="缓存写门禁">
+                  <el-switch v-model="classifierConfig.control.cache_write_gate_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="风险打标">
+                  <el-switch v-model="classifierConfig.control.risk_tag_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="工具门控">
+                  <el-switch v-model="classifierConfig.control.tool_gate_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="Model Fit 选模">
+                  <el-switch v-model="classifierConfig.control.model_fit_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
             <el-row :gutter="24">
               <el-col :span="12">
                 <el-form-item label="运行模型">
@@ -139,6 +183,9 @@
               <el-descriptions-item label="回退次数">{{ classifierStats.fallbacks }}</el-descriptions-item>
               <el-descriptions-item label="Shadow请求">{{ classifierStats.shadow_requests }}</el-descriptions-item>
               <el-descriptions-item label="平均延迟">{{ classifierStats.avg_llm_latency_ms.toFixed(1) }}ms</el-descriptions-item>
+              <el-descriptions-item label="控制层延迟">{{ classifierStats.avg_control_latency_ms.toFixed(1) }}ms</el-descriptions-item>
+              <el-descriptions-item label="解析错误">{{ classifierStats.parse_errors }}</el-descriptions-item>
+              <el-descriptions-item label="控制字段缺失">{{ classifierStats.control_fields_missing }}</el-descriptions-item>
             </el-descriptions>
 
             <!-- 任务类型模型映射 -->
@@ -395,7 +442,16 @@ const classifierConfig = reactive({
   timeout_ms: 120,
   confidence_threshold: 0.65,
   fail_open: true,
-  max_input_chars: 4000
+  max_input_chars: 4000,
+  control: {
+    enable: false,
+    shadow_only: true,
+    normalized_query_read_enable: false,
+    cache_write_gate_enable: false,
+    risk_tag_enable: false,
+    tool_gate_enable: false,
+    model_fit_enable: false
+  }
 })
 
 const classifierHealth = reactive({
@@ -410,8 +466,33 @@ const classifierStats = reactive({
   llm_success: 0,
   fallbacks: 0,
   shadow_requests: 0,
-  avg_llm_latency_ms: 0
+  avg_llm_latency_ms: 0,
+  avg_control_latency_ms: 0,
+  parse_errors: 0,
+  control_fields_missing: 0
 })
+
+function ensureControlConfig() {
+  if (!classifierConfig.control) {
+    ;(classifierConfig as any).control = {
+      enable: false,
+      shadow_only: true,
+      normalized_query_read_enable: false,
+      cache_write_gate_enable: false,
+      risk_tag_enable: false,
+      tool_gate_enable: false,
+      model_fit_enable: false
+    }
+    return
+  }
+  classifierConfig.control.enable = Boolean(classifierConfig.control.enable)
+  classifierConfig.control.shadow_only = Boolean(classifierConfig.control.shadow_only)
+  classifierConfig.control.normalized_query_read_enable = Boolean(classifierConfig.control.normalized_query_read_enable)
+  classifierConfig.control.cache_write_gate_enable = Boolean(classifierConfig.control.cache_write_gate_enable)
+  classifierConfig.control.risk_tag_enable = Boolean(classifierConfig.control.risk_tag_enable)
+  classifierConfig.control.tool_gate_enable = Boolean(classifierConfig.control.tool_gate_enable)
+  classifierConfig.control.model_fit_enable = Boolean(classifierConfig.control.model_fit_enable)
+}
 
 const config = reactive({
   // FIX: 使用字符串模式用于只读展示
@@ -542,6 +623,7 @@ async function loadConfig() {
       }
       if (data.data.classifier) {
         Object.assign(classifierConfig, data.data.classifier)
+        ensureControlConfig()
         classifierSwitchModel.value = classifierConfig.active_model
       }
     }
@@ -674,6 +756,9 @@ async function loadClassifierStats() {
     classifierStats.fallbacks = Number(stats.fallbacks || 0)
     classifierStats.shadow_requests = Number(stats.shadow_requests || 0)
     classifierStats.avg_llm_latency_ms = Number(stats.avg_llm_latency_ms || 0)
+    classifierStats.avg_control_latency_ms = Number(stats.avg_control_latency_ms || 0)
+    classifierStats.parse_errors = Number(stats.parse_errors || 0)
+    classifierStats.control_fields_missing = Number(stats.control_fields_missing || 0)
   } catch (e) {
     console.warn('Failed to load classifier stats:', e)
   }
