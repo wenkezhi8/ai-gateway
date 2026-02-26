@@ -15,7 +15,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -73,18 +72,9 @@ var defaultProviderModels = map[string][]string{
 	},
 }
 
-// Global smart router instance
-var (
-	globalSmartRouter     *routing.SmartRouter
-	globalSmartRouterOnce sync.Once
-)
-
 // GetSmartRouter returns the global smart router instance
 func GetSmartRouter() *routing.SmartRouter {
-	globalSmartRouterOnce.Do(func() {
-		globalSmartRouter = routing.NewSmartRouter()
-	})
-	return globalSmartRouter
+	return routing.GetGlobalSmartRouter()
 }
 
 // ProxyHandler handles AI provider proxy requests
@@ -181,6 +171,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Assess difficulty and get recommended TTL
 	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
 	recommendedTTL := assessment.SuggestedTTL
+	semanticQuery := strings.TrimSpace(assessment.SemanticSignature)
+	if semanticQuery == "" {
+		semanticQuery = prompt
+	}
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
@@ -199,6 +193,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		"task_type":       assessment.TaskType,
 		"difficulty":      assessment.Difficulty,
 		"recommended_ttl": recommendedTTL,
+		"classifier":      assessment.Source,
+		"fallback_reason": assessment.FallbackReason,
 	}).Info("Request difficulty assessment")
 
 	// Handle "auto", "latest", and "default" model selection
@@ -253,13 +249,15 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Try semantic cache first (for non-streaming requests with cacheable task types)
 	if !req.Stream && allowSemantic && h.semanticCache != nil {
 		// Use simple embedding for semantic matching (no API call needed)
-		queryVector := cache.SimpleEmbedding(prompt, 1536)
+		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+		similarityThreshold := semanticThresholdForDifficulty(cacheSettings.SimilarityThreshold, assessment.Difficulty)
 
-		semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), prompt, queryVector)
-		if semanticEntry != nil && similarity >= 0.92 {
+		semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), semanticQuery, queryVector)
+		if semanticEntry != nil && similarity >= similarityThreshold {
 			logrus.WithFields(logrus.Fields{
 				"model":      req.Model,
 				"similarity": similarity,
+				"threshold":  similarityThreshold,
 				"task_type":  assessment.TaskType,
 				"cache_id":   semanticEntry.ID,
 			}).Info("Semantic cache hit")
@@ -412,7 +410,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
+		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
 		return
 	}
 
@@ -461,7 +459,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	if err != nil {
-		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
+		providerName := req.Provider
+		if providerName == "" && targetProvider != nil {
+			providerName = targetProvider.Name()
+		}
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
@@ -476,7 +478,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Check for provider error in response
 	if resp.Error != nil {
-		h.recordMetrics(userID, apiKey, req.Model, time.Since(startTime), 0, false)
+		providerName := req.Provider
+		if providerName == "" && targetProvider != nil {
+			providerName = targetProvider.Name()
+		}
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
@@ -487,7 +493,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Record metrics
 	latency := time.Since(startTime)
-	h.recordMetrics(userID, apiKey, req.Model, latency, resp.Usage.TotalTokens, true)
+	providerName := req.Provider
+	if providerName == "" && targetProvider != nil {
+		providerName = targetProvider.Name()
+	}
+	h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, string(assessment.TaskType), string(assessment.Difficulty), "")
 	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
 	// Record successful model name mapping if different from original
@@ -566,10 +576,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// 改动点: 存储到语义缓存供相似请求复用
 	if allowSemantic && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
 		responseBody, _ := json.Marshal(response)
-		queryVector := cache.SimpleEmbedding(prompt, 1536)
+		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
 		h.semanticCache.Set(
 			c.Request.Context(),
-			prompt,
+			semanticQuery,
 			queryVector,
 			responseBody,
 			req.Model,
@@ -1097,6 +1107,8 @@ func (h *ProxyHandler) handleStreamResponse(
 	c *gin.Context,
 	p provider.Provider,
 	req *provider.ChatRequest,
+	userID string,
+	apiKey string,
 	prompt string,
 	cacheEnabled bool,
 	recommendedTTL time.Duration,
@@ -1121,13 +1133,14 @@ func (h *ProxyHandler) handleStreamResponse(
 	// Get stream channel from provider
 	stream, err := p.StreamChat(ctx, req)
 	if err != nil {
-		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
 	}
 
 	var totalTokens int
+	var promptTokens int
 	var fullContent strings.Builder
 	receivedChunks := 0
 	hasReasoningOutput := false
@@ -1138,6 +1151,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		receivedChunks++
 		if chunk.Usage != nil {
 			totalTokens = chunk.Usage.TotalTokens
+			promptTokens = chunk.Usage.PromptTokens
 		}
 		for _, ch := range chunk.Choices {
 			if ch.Delta != nil && ch.Delta.Content != "" {
@@ -1196,7 +1210,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
-			h.recordMetrics("", "", req.Model, latency, totalTokens, true)
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, 0, promptTokens, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
 
 			// Record successful model name mapping if different from original
@@ -1348,7 +1362,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		if err != nil {
-			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty stream and fallback failed: " + err.Error()})
 			c.Writer.Flush()
@@ -1356,7 +1370,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		if resp == nil || len(resp.Choices) == 0 {
-			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
@@ -1365,7 +1379,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		content := getTextContent(resp.Choices[0].Message.Content)
 		if strings.TrimSpace(content) == "" {
-			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
@@ -1475,7 +1489,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 
 		latency := time.Since(startTime)
-		h.recordMetrics("", "", req.Model, latency, resp.Usage.TotalTokens, true)
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, taskType, string(difficulty), "")
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
 		// Record successful model name mapping if fallback used a different model
@@ -1893,6 +1907,26 @@ func buildResponseCacheKeyPayload(req *ChatCompletionRequest, taskType routing.T
 		}
 	}
 	return req
+}
+
+func semanticThresholdForDifficulty(base float64, difficulty routing.DifficultyLevel) float64 {
+	if base <= 0 {
+		base = 0.92
+	}
+	switch difficulty {
+	case routing.DifficultyLow:
+		if base-0.04 < 0.7 {
+			return 0.7
+		}
+		return base - 0.04
+	case routing.DifficultyHigh:
+		if base+0.03 > 0.98 {
+			return 0.98
+		}
+		return base + 0.03
+	default:
+		return base
+	}
 }
 
 func shouldUsePromptOnlyCache(taskType routing.TaskType) bool {
