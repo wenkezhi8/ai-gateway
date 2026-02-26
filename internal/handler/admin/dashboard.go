@@ -30,6 +30,9 @@ type DashboardHandler struct {
 	requestTrends []RequestTrend
 	alerts        []AlertListItem
 
+	alertCooldown time.Duration
+	lastAlerts    map[string]time.Time
+
 	// Model stats
 	modelStats map[string]*ModelStatData
 
@@ -77,6 +80,8 @@ func NewDashboardHandler(
 		cache:           cache,
 		requestTrends:   make([]RequestTrend, 0),
 		alerts:          make([]AlertListItem, 0),
+		alertCooldown:   defaultAlertCooldown,
+		lastAlerts:      make(map[string]time.Time),
 		modelStats:      make(map[string]*ModelStatData),
 		lastMinuteReset: time.Now(),
 	}
@@ -629,6 +634,23 @@ func (h *DashboardHandler) GetRealtime(c *gin.Context) {
 func (h *DashboardHandler) AddAlert(alert AlertListItem) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	now := alert.Timestamp
+	if now.IsZero() {
+		now = time.Now()
+		alert.Timestamp = now
+	}
+
+	if h.alertCooldown > 0 {
+		if h.lastAlerts == nil {
+			h.lastAlerts = make(map[string]time.Time)
+		}
+		key := buildAlertDedupKey(alert.Type, alert.Level, alert.Message, alert.AccountID, alert.Provider)
+		if last, ok := h.lastAlerts[key]; ok && now.Sub(last) < h.alertCooldown {
+			return
+		}
+		h.lastAlerts[key] = now
+	}
 
 	h.alerts = append(h.alerts, alert)
 

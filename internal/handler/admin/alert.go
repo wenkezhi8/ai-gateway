@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,7 +66,12 @@ type AlertHandler struct {
 	alerts   []AlertRecord
 	mu       sync.RWMutex
 	dataPath string
+
+	alertCooldown time.Duration
+	lastAlerts    map[string]time.Time
 }
+
+const defaultAlertCooldown = 5 * time.Minute
 
 // Global alert handler
 var globalAlertHandler *AlertHandler
@@ -73,9 +79,11 @@ var globalAlertHandler *AlertHandler
 // NewAlertHandler creates a new alert handler
 func NewAlertHandler() *AlertHandler {
 	h := &AlertHandler{
-		rules:    make([]AlertRule, 0),
-		alerts:   make([]AlertRecord, 0),
-		dataPath: "./data/alerts.json",
+		rules:         make([]AlertRule, 0),
+		alerts:        make([]AlertRecord, 0),
+		dataPath:      "./data/alerts.json",
+		alertCooldown: defaultAlertCooldown,
+		lastAlerts:    make(map[string]time.Time),
 	}
 
 	// Load persisted data
@@ -427,9 +435,21 @@ func (h *AlertHandler) AddAlert(level, source, message string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	key := buildAlertDedupKey(level, source, message)
+	now := time.Now()
+	if h.alertCooldown > 0 {
+		if h.lastAlerts == nil {
+			h.lastAlerts = make(map[string]time.Time)
+		}
+		if last, ok := h.lastAlerts[key]; ok && now.Sub(last) < h.alertCooldown {
+			return
+		}
+		h.lastAlerts[key] = now
+	}
+
 	alert := AlertRecord{
 		ID:      "alert-" + generateID(),
-		Time:    time.Now().Format(time.RFC3339),
+		Time:    now.Format(time.RFC3339),
 		Level:   level,
 		Source:  source,
 		Message: message,
@@ -444,4 +464,15 @@ func (h *AlertHandler) AddAlert(level, source, message string) {
 	}
 
 	h.saveData()
+}
+
+func buildAlertDedupKey(parts ...string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		normalized = append(normalized, strings.TrimSpace(part))
+	}
+	return strings.Join(normalized, "|")
 }
