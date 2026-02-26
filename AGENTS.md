@@ -93,14 +93,19 @@ Git权限：允许 commit + push main，不打 tag
 1. 是否已本地提交（是/否）
 2. 最新 commit hash（若有）
 3. 当前版本号（必须带 `git tag`，例如 `v1.5.1`；无 tag 则写 `no-tag`）
-4. 是否已 push（是/否）
-5. 工作区是否 clean（`git status` 结果）
+4. 建议版本号（按本次改动语义化评估：PATCH/MINOR/MAJOR）
+5. 是否已 push（是/否）
+6. 工作区是否 clean（`git status` 结果）
 
 推荐命令：
 
 ```bash
 git describe --tags --abbrev=0 2>/dev/null || echo no-tag
 ```
+
+说明：
+- `当前版本号` = Git 真实版本（tag）。
+- `建议版本号` = 本次变更完成后建议升级到的目标版本（用于发布决策，不等于已发布）。
 
   
 ---
