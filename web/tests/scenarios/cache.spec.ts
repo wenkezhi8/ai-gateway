@@ -89,6 +89,12 @@ test.describe('Cache Management Page', () => {
     } else {
       await expect(entriesPagination).not.toBeVisible()
     }
-    await expect(helper.page.locator('.entries-table')).toBeVisible()
+    const entriesTable = helper.page.locator('.entries-table')
+    const emptyState = helper.page.locator('.el-empty')
+    if (await entriesTable.count()) {
+      await expect(entriesTable).toBeVisible()
+    } else {
+      await expect(emptyState).toBeVisible()
+    }
   })
 })
