@@ -1179,3 +1179,4 @@ export REDIS_DB=0
 - [SECURITY.md](SECURITY.md) - 安全策略
 - [CHANGELOG.md](CHANGELOG.md) - 变更日志
 - [ENTERPRISE_OPTIMIZATION.md](ENTERPRISE_OPTIMIZATION.md) - 优化分析
+- [docs/control-layer-operations.md](docs/control-layer-operations.md) - 0.5B 控制层灰度与回滚手册
