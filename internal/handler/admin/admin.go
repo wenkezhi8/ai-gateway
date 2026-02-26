@@ -42,7 +42,7 @@ func NewHandlers(
 	InitFeedbackHandler(feedbackCollector)
 
 	// Initialize usage handler with storage
-	usageHandler := NewUsageHandler(storage.GetSQLite())
+	usageHandler := NewUsageHandler(storage.GetSQLiteStorage())
 
 	handlers := &Handlers{
 		Account:     NewAccountHandler(accountManager),

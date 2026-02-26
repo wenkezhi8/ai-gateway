@@ -10,10 +10,10 @@ import (
 )
 
 type UsageHandler struct {
-	storage *storage.MemoryStorage
+	storage *storage.SQLiteStorage
 }
 
-func NewUsageHandler(storage *storage.MemoryStorage) *UsageHandler {
+func NewUsageHandler(storage *storage.SQLiteStorage) *UsageHandler {
 	return &UsageHandler{
 		storage: storage,
 	}

@@ -21,7 +21,7 @@ type ServiceContainer struct {
 	registry     *provider.Registry
 	cacheManager *cache.Manager
 	smartRouter  *routing.SmartRouter
-	storage      *storage.MemoryStorage
+	storage      *storage.SQLiteStorage
 	security     *security.SecurityConfig
 
 	initialized bool
@@ -65,7 +65,7 @@ func (c *ServiceContainer) Initialize(cfg *config.Config) error {
 	}
 	c.cacheManager = cacheMgr
 
-	c.storage = storage.GetSQLite()
+	c.storage = storage.GetSQLiteStorage()
 
 	c.initialized = true
 	containerLogger.Info("Service container initialized")
@@ -97,7 +97,7 @@ func (c *ServiceContainer) SmartRouter() *routing.SmartRouter {
 	return c.smartRouter
 }
 
-func (c *ServiceContainer) Storage() *storage.MemoryStorage {
+func (c *ServiceContainer) Storage() *storage.SQLiteStorage {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.storage

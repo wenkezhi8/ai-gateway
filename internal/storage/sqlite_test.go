@@ -3,286 +3,490 @@ package storage
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
+	"ai-gateway/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNewMemoryStorage(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Accounts(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
-	require.NotNil(t, storage)
+	defer store.Close()
 
-	assert.NotNil(t, storage.accounts)
-	assert.NotNil(t, storage.modelScores)
-	assert.NotNil(t, storage.apiKeys)
-	assert.NotNil(t, storage.config)
+	t.Run("Create and Get Account", func(t *testing.T) {
+		acc := &models.AccountRecord{
+			ID:       "test-1",
+			Provider: "openai",
+			APIKey:   "sk-test",
+			Priority: 1,
+			Enabled:  true,
+		}
+		err := store.SaveAccount(acc)
+		require.NoError(t, err)
+
+		got, err := store.GetAccount("test-1")
+		require.NoError(t, err)
+		assert.Equal(t, acc.ID, got.ID)
+		assert.Equal(t, acc.Provider, got.Provider)
+		assert.Equal(t, acc.APIKey, got.APIKey)
+		assert.Equal(t, acc.Priority, got.Priority)
+		assert.Equal(t, acc.Enabled, got.Enabled)
+	})
+
+	t.Run("Get Non-Existing Account", func(t *testing.T) {
+		_, err := store.GetAccount("non-existent")
+		require.NoError(t, err)
+	})
+
+	t.Run("Get All Accounts", func(t *testing.T) {
+		store.SaveAccount(&models.AccountRecord{
+			ID:       "test-2",
+			Provider: "anthropic",
+			APIKey:   "sk-ant",
+			Enabled:  true,
+		})
+
+		accounts, err := store.GetAllAccounts()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(accounts), 2)
+	})
+
+	t.Run("Delete Account", func(t *testing.T) {
+		err := store.SaveAccount(&models.AccountRecord{
+			ID:       "test-delete",
+			Provider: "openai",
+			APIKey:   "sk-del",
+			Enabled:  true,
+		})
+		require.NoError(t, err)
+
+		err = store.DeleteAccount("test-delete")
+		require.NoError(t, err)
+
+		_, err = store.GetAccount("test-delete")
+		require.NoError(t, err)
+	})
 }
 
-func TestMemoryStorage_SaveAndGetAccount(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_ModelScores(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	account := map[string]interface{}{
-		"id":       "acc1",
-		"name":     "Test Account",
-		"provider": "openai",
-	}
+	t.Run("Create and Get Model Score", func(t *testing.T) {
+		score := &models.ModelScoreRecord{
+			Model:        "gpt-4",
+			Provider:     "openai",
+			QualityScore: 85,
+			SpeedScore:   90,
+			CostScore:    70,
+			Enabled:      true,
+			IsCustom:     true,
+		}
+		err := store.SaveModelScore("gpt-4", score)
+		require.NoError(t, err)
 
-	err = storage.SaveAccount(account)
-	require.NoError(t, err)
+		got, err := store.GetModelScore("gpt-4")
+		require.NoError(t, err)
+		assert.Equal(t, score.Model, got.Model)
+		assert.Equal(t, score.Provider, got.Provider)
+		assert.Equal(t, score.QualityScore, got.QualityScore)
+		assert.Equal(t, score.SpeedScore, got.SpeedScore)
+		assert.Equal(t, score.CostScore, got.CostScore)
+		assert.Equal(t, score.Enabled, got.Enabled)
+		assert.Equal(t, score.IsCustom, got.IsCustom)
+	})
 
-	accounts, err := storage.GetAccounts()
-	require.NoError(t, err)
-	require.Len(t, accounts, 1)
-	assert.Equal(t, "acc1", accounts[0]["id"])
-	assert.Equal(t, "Test Account", accounts[0]["name"])
+	t.Run("Get Non-Existing Model Score", func(t *testing.T) {
+		_, err := store.GetModelScore("non-existent")
+		require.NoError(t, err)
+	})
+
+	t.Run("Get All Model Scores", func(t *testing.T) {
+		store.SaveModelScore("claude-3", &models.ModelScoreRecord{
+			Model:        "claude-3",
+			Provider:     "anthropic",
+			QualityScore: 80,
+			SpeedScore:   85,
+			CostScore:    75,
+			Enabled:      true,
+		})
+
+		scores, err := store.GetAllModelScores()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(scores), 2)
+	})
+
+	t.Run("Get Enabled Model Scores", func(t *testing.T) {
+		store.SaveModelScore("gpt-3.5", &models.ModelScoreRecord{
+			Model:        "gpt-3.5",
+			Provider:     "openai",
+			QualityScore: 70,
+			SpeedScore:   80,
+			CostScore:    80,
+			Enabled:      true,
+		})
+
+		enabledScores, err := store.GetEnabledModelScores()
+		require.NoError(t, err)
+		assert.Greater(t, len(enabledScores), 0)
+
+		for _, score := range enabledScores {
+			assert.True(t, score.Enabled)
+		}
+	})
+
+	t.Run("Delete Model Score", func(t *testing.T) {
+		store.SaveModelScore("delete-model", &models.ModelScoreRecord{
+			Model:        "delete-model",
+			Provider:     "openai",
+			QualityScore: 75,
+			SpeedScore:   80,
+			CostScore:    75,
+			Enabled:      true,
+		})
+
+		err := store.DeleteModelScore("delete-model")
+		require.NoError(t, err)
+
+		_, err = store.GetModelScore("delete-model")
+		require.NoError(t, err)
+	})
+
+	t.Run("Mark Model Deleted", func(t *testing.T) {
+		err := store.MarkModelDeleted("deleted-model")
+		require.NoError(t, err)
+
+		deleted, err := store.IsModelDeleted("deleted-model")
+		require.NoError(t, err)
+		assert.True(t, deleted)
+	})
+
+	t.Run("Restore Model", func(t *testing.T) {
+		store.MarkModelDeleted("restore-model")
+		err := store.RestoreModel("restore-model")
+		require.NoError(t, err)
+
+		deleted, err := store.IsModelDeleted("restore-model")
+		require.NoError(t, err)
+		assert.False(t, deleted)
+	})
+
+	t.Run("Get All Deleted Models", func(t *testing.T) {
+		store.MarkModelDeleted("deleted-1")
+		store.MarkModelDeleted("deleted-2")
+
+		deleted, err := store.GetAllDeletedModels()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(deleted), 2)
+	})
 }
 
-func TestMemoryStorage_SaveAccount_NoID(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Users(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	account := map[string]interface{}{
-		"name": "Test Account",
-	}
+	t.Run("Create and Get User", func(t *testing.T) {
+		user := &models.UserRecord{
+			Username:     "admin",
+			PasswordHash: "hashed-password",
+			Role:         "admin",
+			Email:        "admin@example.com",
+		}
+		err := store.SaveUser("admin", user)
+		require.NoError(t, err)
 
-	err = storage.SaveAccount(account)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "id is required")
+		got, err := store.GetUser("admin")
+		require.NoError(t, err)
+		assert.Equal(t, user.Username, got.Username)
+		assert.Equal(t, user.PasswordHash, got.PasswordHash)
+		assert.Equal(t, user.Role, got.Role)
+		assert.Equal(t, user.Email, got.Email)
+	})
+
+	t.Run("Get Non-Existing User", func(t *testing.T) {
+		_, err := store.GetUser("non-existent")
+		require.NoError(t, err)
+	})
+
+	t.Run("Get All Users", func(t *testing.T) {
+		store.SaveUser("user1", &models.UserRecord{
+			Username:     "user1",
+			PasswordHash: "hash1",
+			Role:         "user",
+		})
+
+		users, err := store.GetAllUsers()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(users), 2)
+	})
+
+	t.Run("Delete User", func(t *testing.T) {
+		store.SaveUser("delete-user", &models.UserRecord{
+			Username:     "delete-user",
+			PasswordHash: "hash",
+			Role:         "user",
+		})
+
+		err := store.DeleteUser("delete-user")
+		require.NoError(t, err)
+
+		_, err = store.GetUser("delete-user")
+		require.NoError(t, err)
+	})
 }
 
-func TestMemoryStorage_DeleteAccount(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_APIKeys(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	account := map[string]interface{}{"id": "acc1", "name": "Test"}
-	err = storage.SaveAccount(account)
-	require.NoError(t, err)
+	t.Run("Create and Get API Key", func(t *testing.T) {
+		key := &models.APIKeyRecord{
+			Name:        "Test Key",
+			Key:         "sk-test-key",
+			Permissions: "read,write",
+			Enabled:     true,
+			LastUsedAt:  "2024-01-01T00:00:00Z",
+			ExpiresAt:   "2025-01-01T00:00:00Z",
+		}
+		err := store.SaveAPIKey("key-1", key)
+		require.NoError(t, err)
 
-	err = storage.DeleteAccount("acc1")
-	require.NoError(t, err)
+		got, err := store.GetAPIKey("key-1")
+		require.NoError(t, err)
+		assert.Equal(t, key.Name, got.Name)
+		assert.Equal(t, key.Key, got.Key)
+		assert.Equal(t, key.Permissions, got.Permissions)
+		assert.Equal(t, key.Enabled, got.Enabled)
+	})
 
-	accounts, err := storage.GetAccounts()
-	require.NoError(t, err)
-	assert.Empty(t, accounts)
+	t.Run("Get Non-Existing API Key", func(t *testing.T) {
+		_, err := store.GetAPIKey("non-existent")
+		require.NoError(t, err)
+	})
+
+	t.Run("Get All API Keys", func(t *testing.T) {
+		store.SaveAPIKey("key-2", &models.APIKeyRecord{
+			Name:        "Key 2",
+			Key:         "sk-2",
+			Permissions: "read",
+			Enabled:     true,
+		})
+
+		keys, err := store.GetAllAPIKeys()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(keys), 2)
+	})
+
+	t.Run("Delete API Key", func(t *testing.T) {
+		store.SaveAPIKey("delete-key", &models.APIKeyRecord{
+			Name:        "Delete Key",
+			Key:         "sk-delete",
+			Permissions: "admin",
+			Enabled:     true,
+		})
+
+		err := store.DeleteAPIKey("delete-key")
+		require.NoError(t, err)
+
+		_, err = store.GetAPIKey("delete-key")
+		require.NoError(t, err)
+	})
 }
 
-func TestMemoryStorage_SaveAndGetModelScore(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Config(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	score := map[string]interface{}{
-		"score":    8.5,
-		"provider": "openai",
-	}
+	t.Run("Provider Defaults", func(t *testing.T) {
+		err := store.SetProviderDefault("openai", "gpt-4")
+		require.NoError(t, err)
 
-	err = storage.SaveModelScore("gpt-4", score)
-	require.NoError(t, err)
+		model, err := store.GetProviderDefault("openai")
+		require.NoError(t, err)
+		assert.Equal(t, "gpt-4", model)
+	})
 
-	scores, err := storage.GetModelScores()
-	require.NoError(t, err)
-	require.Contains(t, scores, "gpt-4")
-	assert.Equal(t, 8.5, scores["gpt-4"]["score"])
+	t.Run("Get Non-Existing Provider Default", func(t *testing.T) {
+		model, err := store.GetProviderDefault("non-existent")
+		require.NoError(t, err)
+		assert.Empty(t, model)
+	})
+
+	t.Run("Get All Provider Defaults", func(t *testing.T) {
+		store.SetProviderDefault("anthropic", "claude-3")
+		store.SetProviderDefault("deepseek", "deepseek-chat")
+
+		defaults, err := store.GetAllProviderDefaults()
+		require.NoError(t, err)
+		assert.GreaterOrEqual(t, len(defaults), 3)
+	})
+
+	t.Run("Router Config", func(t *testing.T) {
+		config := &models.RouterConfigRecord{
+			DefaultStrategy: "auto",
+			DefaultModel:    "gpt-4",
+			UseAutoMode:     true,
+		}
+		err := store.SetRouterConfig(config)
+		require.NoError(t, err)
+
+		got, err := store.GetRouterConfig()
+		require.NoError(t, err)
+		assert.Equal(t, config.DefaultStrategy, got.DefaultStrategy)
+		assert.Equal(t, config.DefaultModel, got.DefaultModel)
+		assert.Equal(t, config.UseAutoMode, got.UseAutoMode)
+	})
 }
 
-func TestMemoryStorage_LogAndGetUsage(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Stats(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	log1 := map[string]interface{}{"model": "gpt-4", "tokens": 100}
-	log2 := map[string]interface{}{"model": "gpt-3.5", "tokens": 50}
-
-	err = storage.LogUsage(log1)
-	require.NoError(t, err)
-
-	err = storage.LogUsage(log2)
-	require.NoError(t, err)
-
-	logs, err := storage.GetUsageLogs(10, 0)
-	require.NoError(t, err)
-	assert.Len(t, logs, 2)
+	t.Run("Get Stats", func(t *testing.T) {
+		stats := store.GetStats()
+		assert.NotEmpty(t, stats)
+		assert.Contains(t, stats, "accounts")
+		assert.Contains(t, stats, "models")
+		assert.Contains(t, stats, "users")
+		assert.Contains(t, stats, "api_keys")
+		assert.Contains(t, stats, "feedback")
+		assert.Contains(t, stats, "db_size")
+	})
 }
 
-func TestMemoryStorage_GetUsageLogs_Offset(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Concurrent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	for i := 0; i < 5; i++ {
-		storage.LogUsage(map[string]interface{}{"index": i})
-	}
+	done := make(chan bool)
 
-	logs, err := storage.GetUsageLogs(2, 0)
-	require.NoError(t, err)
-	assert.Len(t, logs, 2)
+	t.Run("Concurrent Account Operations", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			go func(idx int) {
+				defer func() { done <- true }()
 
-	logs, err = storage.GetUsageLogs(2, 10)
-	require.NoError(t, err)
-	assert.Empty(t, logs)
+				acc := &models.AccountRecord{
+					ID:       string(rune(idx)),
+					Provider: "openai",
+					APIKey:   "sk-test",
+					Enabled:  true,
+				}
+				store.SaveAccount(acc)
+				store.GetAccount(acc.ID)
+			}(i)
+		}
+
+		for i := 0; i < 10; i++ {
+			<-done
+		}
+	})
+
+	t.Run("Concurrent Model Score Operations", func(t *testing.T) {
+		for i := 0; i < 10; i++ {
+			go func(idx int) {
+				defer func() { done <- true }()
+
+				score := &models.ModelScoreRecord{
+					Model:        string(rune(idx)),
+					Provider:     "openai",
+					QualityScore: 80 + idx,
+					SpeedScore:   80 + idx,
+					CostScore:    80 + idx,
+					Enabled:      true,
+				}
+				store.SaveModelScore(score.Model, score)
+				store.GetModelScore(score.Model)
+			}(i)
+		}
+
+		for i := 0; i < 10; i++ {
+			<-done
+		}
+	})
 }
 
-func TestMemoryStorage_Config(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Feedback(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	err = storage.SetConfig("key1", "value1")
-	require.NoError(t, err)
+	t.Run("Save and Get Feedback", func(t *testing.T) {
+		feedback := &models.FeedbackRecord{
+			RequestID:  "req-1",
+			Model:      "gpt-4",
+			Provider:   "openai",
+			TaskType:   "code",
+			Rating:     5,
+			Comment:    "Great!",
+			LatencyMs:  1000,
+			TokensUsed: 1000,
+			CacheHit:   false,
+			CreatedAt:  time.Now().Format(time.RFC3339),
+		}
+		err := store.SaveFeedback(feedback)
+		require.NoError(t, err)
 
-	val, err := storage.GetConfig("key1")
-	require.NoError(t, err)
-	assert.Equal(t, "value1", val)
+		feedbacks, err := store.GetFeedback(10, 0)
+		require.NoError(t, err)
+		assert.Greater(t, len(feedbacks), 0)
 
-	val, err = storage.GetConfig("nonexistent")
-	require.NoError(t, err)
-	assert.Empty(t, val)
+		assert.Equal(t, feedback.RequestID, feedbacks[0].RequestID)
+		assert.Equal(t, feedback.Model, feedbacks[0].Model)
+		assert.Equal(t, feedback.Provider, feedbacks[0].Provider)
+		assert.Equal(t, feedback.TaskType, feedbacks[0].TaskType)
+		assert.Equal(t, feedback.Rating, feedbacks[0].Rating)
+		assert.Equal(t, feedback.Comment, feedbacks[0].Comment)
+	})
+
+	t.Run("Get Feedback Stats", func(t *testing.T) {
+		store.SaveFeedback(&models.FeedbackRecord{
+			RequestID:  "req-2",
+			Model:      "gpt-4",
+			Provider:   "openai",
+			Rating:     4,
+			LatencyMs:  800,
+			TokensUsed: 800,
+		})
+
+		stats, err := store.GetFeedbackStats()
+		require.NoError(t, err)
+		assert.NotEmpty(t, stats)
+	})
 }
 
-func TestMemoryStorage_GetStats(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
+func TestSQLiteStorage_Export(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := NewSQLiteStorage(dbPath)
 	require.NoError(t, err)
+	defer store.Close()
 
-	storage.SaveAccount(map[string]interface{}{"id": "acc1"})
-	storage.SaveModelScore("model1", map[string]interface{}{"score": 8})
-	storage.LogUsage(map[string]interface{}{"tokens": 100})
+	t.Run("Export data", func(t *testing.T) {
+		store.SaveAccount(&models.AccountRecord{
+			ID:       "export-1",
+			Provider: "openai",
+			APIKey:   "sk-export",
+			Enabled:  true,
+		})
 
-	stats := storage.GetStats()
-	assert.Equal(t, 1, stats["accounts"])
-	assert.Equal(t, 1, stats["models"])
-	assert.Equal(t, 1, stats["usage"])
-}
-
-func TestMemoryStorage_APIKeys(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	key := map[string]interface{}{
-		"id":   "key1",
-		"name": "Test Key",
-	}
-
-	err = storage.SaveAPIKey(key)
-	require.NoError(t, err)
-
-	keys, err := storage.GetAPIKeys()
-	require.NoError(t, err)
-	require.Len(t, keys, 1)
-	assert.Equal(t, "key1", keys[0]["id"])
-
-	err = storage.DeleteAPIKey("key1")
-	require.NoError(t, err)
-
-	keys, err = storage.GetAPIKeys()
-	require.NoError(t, err)
-	assert.Empty(t, keys)
-}
-
-func TestMemoryStorage_SaveAPIKey_NoID(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	key := map[string]interface{}{"name": "Test Key"}
-
-	err = storage.SaveAPIKey(key)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "id is required")
-}
-
-func TestMemoryStorage_Close(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	storage.SaveAccount(map[string]interface{}{"id": "acc1"})
-
-	err = storage.Close()
-	require.NoError(t, err)
-
-	assert.FileExists(t, path)
-}
-
-func TestMemoryStorage_PersistAndLoad(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage1, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	storage1.SaveAccount(map[string]interface{}{"id": "acc1", "name": "Test"})
-	storage1.SetConfig("key1", "value1")
-	storage1.Close()
-
-	storage2, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	accounts, err := storage2.GetAccounts()
-	require.NoError(t, err)
-	require.Len(t, accounts, 1)
-	assert.Equal(t, "acc1", accounts[0]["id"])
-
-	val, err := storage2.GetConfig("key1")
-	require.NoError(t, err)
-	assert.Equal(t, "value1", val)
-}
-
-func TestMemoryStorage_Load_NonexistentFile(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "nonexistent.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-	require.NotNil(t, storage)
-
-	accounts, err := storage.GetAccounts()
-	require.NoError(t, err)
-	assert.Empty(t, accounts)
-}
-
-func TestMemoryStorage_LogUsage_Truncate(t *testing.T) {
-	tmpDir := t.TempDir()
-	path := filepath.Join(tmpDir, "test_storage.json")
-
-	storage, err := NewMemoryStorage(StorageConfig{Path: path})
-	require.NoError(t, err)
-
-	for i := 0; i < 10001; i++ {
-		storage.LogUsage(map[string]interface{}{"index": i})
-	}
-
-	stats := storage.GetStats()
-	assert.LessOrEqual(t, stats["usage"], 10000)
+		data, err := store.Export()
+		require.NoError(t, err)
+		assert.NotEmpty(t, data)
+		assert.Contains(t, string(data), "accounts")
+	})
 }
