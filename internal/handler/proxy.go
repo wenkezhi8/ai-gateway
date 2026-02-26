@@ -155,7 +155,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Get user context
 	userID := middleware.GetUserID(c)
-	apiKey := middleware.GetAPIKey(c)
+	apiKey := resolveAPIKeyFromRequest(c)
 
 	// Extract prompt from messages for smart routing and assessment
 	prompt := ""
@@ -1938,7 +1938,6 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 	if storage := storage.GetSQLite(); storage != nil {
 		apiKeyDisplay := ""
 		if apiKey != "" {
-			apiKeyDisplay = maskAPIKey(apiKey)
 			if keyHandler := admin.GetApiKeyHandler(); keyHandler != nil {
 				if name := keyHandler.FindNameByKey(apiKey); name != "" {
 					apiKeyDisplay = name
@@ -1985,6 +1984,37 @@ func maskAPIKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "****" + key[len(key)-4:]
+}
+
+func resolveAPIKeyFromRequest(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+
+	if apiKey := middleware.GetAPIKey(c); apiKey != "" {
+		return apiKey
+	}
+
+	rawKey := strings.TrimSpace(c.GetHeader("X-API-Key"))
+	if rawKey == "" {
+		auth := strings.TrimSpace(c.GetHeader("Authorization"))
+		if strings.HasPrefix(auth, "Bearer ") {
+			auth = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+		}
+		rawKey = auth
+	}
+
+	if rawKey == "" {
+		return ""
+	}
+
+	if keyHandler := admin.GetApiKeyHandler(); keyHandler != nil {
+		if name := keyHandler.FindNameByKey(rawKey); name != "" {
+			return rawKey
+		}
+	}
+
+	return ""
 }
 
 // getFloat64 helper
