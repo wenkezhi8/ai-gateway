@@ -120,6 +120,13 @@
                 </el-form-item>
               </el-col>
               <el-col :span="12">
+                <el-form-item label="风险拦截">
+                  <el-switch v-model="classifierConfig.control.risk_block_enable" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
                 <el-form-item label="工具门控">
                   <el-switch v-model="classifierConfig.control.tool_gate_enable" active-text="开启" inactive-text="关闭" />
                 </el-form-item>
@@ -449,6 +456,7 @@ const classifierConfig = reactive({
     normalized_query_read_enable: false,
     cache_write_gate_enable: false,
     risk_tag_enable: false,
+    risk_block_enable: false,
     tool_gate_enable: false,
     model_fit_enable: false
   }
@@ -480,6 +488,7 @@ function ensureControlConfig() {
       normalized_query_read_enable: false,
       cache_write_gate_enable: false,
       risk_tag_enable: false,
+      risk_block_enable: false,
       tool_gate_enable: false,
       model_fit_enable: false
     }
@@ -490,6 +499,7 @@ function ensureControlConfig() {
   classifierConfig.control.normalized_query_read_enable = Boolean(classifierConfig.control.normalized_query_read_enable)
   classifierConfig.control.cache_write_gate_enable = Boolean(classifierConfig.control.cache_write_gate_enable)
   classifierConfig.control.risk_tag_enable = Boolean(classifierConfig.control.risk_tag_enable)
+  classifierConfig.control.risk_block_enable = Boolean(classifierConfig.control.risk_block_enable)
   classifierConfig.control.tool_gate_enable = Boolean(classifierConfig.control.tool_gate_enable)
   classifierConfig.control.model_fit_enable = Boolean(classifierConfig.control.model_fit_enable)
 }

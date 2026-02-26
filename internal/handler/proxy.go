@@ -184,6 +184,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
 	}
+	if shouldBlockByRisk(controlCfg, assessment) {
+		Error(c, http.StatusForbidden, "risk_blocked", "Request blocked by control risk policy")
+		return
+	}
 	if controlCfg.Enable {
 		logControlRoutingSignals(assessment)
 	}
@@ -2116,6 +2120,32 @@ func logControlRiskSignals(assessment *routing.AssessmentResult) {
 		return
 	}
 	logrus.WithFields(fields).Info("Control risk signal observed")
+}
+
+func shouldBlockByRisk(controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) bool {
+	if !controlCfg.Enable || !controlCfg.RiskTagEnable || !controlCfg.RiskBlockEnable || assessment == nil || assessment.ControlSignals == nil {
+		return false
+	}
+	riskLevel := strings.TrimSpace(strings.ToLower(assessment.ControlSignals.RiskLevel))
+	if riskLevel != "high" {
+		return false
+	}
+
+	fields := logrus.Fields{
+		"task_type":         assessment.TaskType,
+		"difficulty":        assessment.Difficulty,
+		"risk_level":        riskLevel,
+		"risk_tags":         assessment.ControlSignals.RiskTags,
+		"assessment_source": assessment.Source,
+	}
+
+	if controlCfg.ShadowOnly {
+		logrus.WithFields(fields).Warn("Control risk block shadow decision (no mutation)")
+		return false
+	}
+
+	logrus.WithFields(fields).Warn("Control risk block enforced")
+	return true
 }
 
 func logControlRoutingSignals(assessment *routing.AssessmentResult) {

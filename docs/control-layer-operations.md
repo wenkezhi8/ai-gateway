@@ -17,6 +17,7 @@ All flags are under `classifier.control` in `/api/admin/router/config`.
 - `normalized_query_read_enable`: semantic cache candidate includes normalized query first
 - `cache_write_gate_enable`: control signals can gate cache write and ttl band mapping
 - `risk_tag_enable`: log risk-level and risk-tags for observation
+- `risk_block_enable`: block request when risk level is high (requires `risk_tag_enable=true`)
 - `tool_gate_enable`: apply `tool_needed`/`rag_needed` decisions
 - `model_fit_enable`: allow model-fit score to influence auto model selection
 
@@ -32,8 +33,9 @@ Recommended order:
 1. `normalized_query_read_enable`
 2. `cache_write_gate_enable`
 3. `risk_tag_enable`
-4. `tool_gate_enable`
-5. `model_fit_enable`
+4. `risk_block_enable` (start in shadow mode first)
+5. `tool_gate_enable`
+6. `model_fit_enable`
 
 ## Fast Rollback
 

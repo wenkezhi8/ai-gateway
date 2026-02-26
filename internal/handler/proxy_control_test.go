@@ -122,6 +122,26 @@ func TestBuildSemanticQueryCandidates(t *testing.T) {
 	}
 }
 
+func TestShouldBlockByRisk(t *testing.T) {
+	cfg := routing.ControlConfig{Enable: true, RiskTagEnable: true, RiskBlockEnable: true}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{RiskLevel: "high"}}
+
+	if !shouldBlockByRisk(cfg, assessment) {
+		t.Fatal("expected high risk to be blocked")
+	}
+
+	cfg.ShadowOnly = true
+	if shouldBlockByRisk(cfg, assessment) {
+		t.Fatal("expected shadow mode not to block")
+	}
+
+	cfg.ShadowOnly = false
+	assessment.ControlSignals.RiskLevel = "low"
+	if shouldBlockByRisk(cfg, assessment) {
+		t.Fatal("expected low risk not to be blocked")
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

@@ -34,6 +34,7 @@ type ControlConfig struct {
 	NormalizedQueryReadEnable bool `json:"normalized_query_read_enable"`
 	CacheWriteGateEnable      bool `json:"cache_write_gate_enable"`
 	RiskTagEnable             bool `json:"risk_tag_enable"`
+	RiskBlockEnable           bool `json:"risk_block_enable"`
 	ToolGateEnable            bool `json:"tool_gate_enable"`
 	ModelFitEnable            bool `json:"model_fit_enable"`
 }
@@ -55,6 +56,7 @@ func DefaultClassifierConfig() ClassifierConfig {
 			NormalizedQueryReadEnable: false,
 			CacheWriteGateEnable:      false,
 			RiskTagEnable:             false,
+			RiskBlockEnable:           false,
 			ToolGateEnable:            false,
 			ModelFitEnable:            false,
 		},
