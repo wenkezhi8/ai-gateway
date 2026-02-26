@@ -97,6 +97,7 @@
 
     <!-- 正常数据展示 -->
     <template v-else>
+      <!-- 改动点: 仪表盘头部与快捷入口 -->
       <div class="dashboard-hero">
         <div class="hero-main">
           <div class="hero-title">AI Gateway 运行仪表盘</div>
@@ -238,6 +239,7 @@
           </div>
         </el-card>
       </el-col>
+      <!-- 改动点: 告警事件管理 -->
       <el-col :span="12">
         <el-card shadow="hover" class="alert-card" v-loading="alertLoading">
           <template #header>
@@ -333,6 +335,7 @@ const realtimeData = ref<RealtimeData>({
   top_models: [],
   recent_errors: []
 })
+// 改动点: 仪表盘告警事件数据
 const dashboardAlerts = ref<DashboardAlert[]>([])
 const alertLoading = ref(false)
 const alertFilters = reactive({
@@ -355,6 +358,7 @@ const isEmptyData = computed(() => {
 
 const cacheHitRate = computed(() => overviewData.value?.cache_hit_rate?.toFixed(1) || '0')
 
+// 改动点: 仪表盘顶部指标
 const heroMetrics = computed(() => [
   { label: '缓存命中', value: `${cacheHitRate.value}%` },
   { label: '平均延迟', value: `${overviewData.value?.avg_latency_ms || 0}ms` },
@@ -406,6 +410,7 @@ const modelRanking = computed(() => {
   }))
 })
 
+// 改动点: 告警统计摘要
 const alertSummary = computed(() => {
   const summary = { critical: 0, warning: 0, info: 0 }
   for (const alert of dashboardAlerts.value) {
@@ -416,6 +421,7 @@ const alertSummary = computed(() => {
   return summary
 })
 
+// 改动点: 告警事件筛选
 const filteredDashboardAlerts = computed(() => {
   let alerts = [...dashboardAlerts.value]
   if (alertFilters.level) {
@@ -439,12 +445,14 @@ const formatPercent = (num: number): string => {
   return num.toFixed(2).replace(/\.?0+$/, '')
 }
 
+// 改动点: 告警时间格式化
 const formatAlertTime = (timestamp: string): string => {
   if (!timestamp) return ''
   const date = new Date(timestamp)
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+// 改动点: 告警级别展示
 const getAlertLevelTag = (level: string): string => {
   if (level === 'critical') return 'danger'
   if (level === 'warning') return 'warning'
@@ -469,6 +477,7 @@ let pieChart: echarts.ECharts | null = null
 let cacheChart: echarts.ECharts | null = null
 let tokenChart: echarts.ECharts | null = null
 let realtimeTimer: ReturnType<typeof setInterval> | null = null
+// 改动点: 告警刷新定时器
 let alertTimer: ReturnType<typeof setInterval> | null = null
 let themeObserver: MutationObserver | null = null
 
@@ -851,6 +860,7 @@ const fetchRealtime = async () => {
   }
 }
 
+// 改动点: 拉取告警事件
 const fetchDashboardAlerts = async () => {
   alertLoading.value = true
   try {
@@ -986,6 +996,7 @@ watch(requestTrendRange, () => {
   fetchRequestTrend()
 })
 
+// 改动点: 告警筛选联动
 watch(
   () => [alertFilters.level, alertFilters.acknowledged],
   () => {
@@ -997,6 +1008,7 @@ const refreshAlerts = async () => {
   await fetchDashboardAlerts()
 }
 
+// 改动点: 告警确认
 const acknowledgeAlert = async (alert: DashboardAlert) => {
   if (alert.acknowledged) return
   try {
@@ -1010,6 +1022,7 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
 
 <style scoped lang="scss">
 .dashboard-page {
+  // 改动点: 仪表盘头部区域
   .dashboard-hero {
     display: flex;
     justify-content: space-between;
@@ -1386,6 +1399,7 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
   }
 
   .alert-card {
+    // 改动点: 告警事件管理样式
     .alert-header {
       display: flex;
       align-items: center;

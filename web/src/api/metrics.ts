@@ -133,6 +133,7 @@ export interface RecentError {
   count: number
 }
 
+// 改动点: 仪表盘告警事件类型
 export interface DashboardAlert {
   id: string
   type: string
@@ -191,6 +192,7 @@ export function getRealtime() {
 /**
  * 获取仪表盘告警事件
  */
+// 改动点: 仪表盘告警事件列表
 export function getDashboardAlerts(params?: { limit?: number; level?: string; acknowledged?: string }) {
   return request.get<DashboardAlert[]>('/admin/dashboard/alerts', { params, silent: true } as any)
 }
@@ -198,6 +200,7 @@ export function getDashboardAlerts(params?: { limit?: number; level?: string; ac
 /**
  * 确认仪表盘告警事件
  */
+// 改动点: 仪表盘告警事件确认
 export function acknowledgeDashboardAlert(id: string) {
   return request.post(`/admin/dashboard/alerts/${id}/acknowledge`)
 }
