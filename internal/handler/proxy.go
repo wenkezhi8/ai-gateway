@@ -184,6 +184,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
 	}
+	if controlCfg.Enable {
+		logControlRoutingSignals(assessment)
+	}
+	applyControlToolGate(&req, controlCfg, assessment)
 	recommendedTTL = applyControlTTLBand(recommendedTTL, controlCfg, assessment.ControlSignals)
 	cacheWriteAllowed := shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
 
@@ -2039,6 +2043,31 @@ func shouldAllowCacheWrite(controlCfg routing.ControlConfig, signals *routing.Co
 	return *signals.Cacheable
 }
 
+func applyControlToolGate(req *ChatCompletionRequest, controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) {
+	if req == nil || !controlCfg.Enable || controlCfg.ShadowOnly || !controlCfg.ToolGateEnable || assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	if assessment.ControlSignals.ToolNeeded == nil {
+		return
+	}
+	if *assessment.ControlSignals.ToolNeeded {
+		return
+	}
+	if len(req.Tools) == 0 {
+		return
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"task_type":         assessment.TaskType,
+		"difficulty":        assessment.Difficulty,
+		"assessment_source": assessment.Source,
+		"tool_count":        len(req.Tools),
+	}).Info("Control tool gate disabled tool calls")
+
+	req.Tools = nil
+	req.ToolChoice = nil
+}
+
 func logControlRiskSignals(assessment *routing.AssessmentResult) {
 	if assessment == nil || assessment.ControlSignals == nil {
 		return
@@ -2060,6 +2089,23 @@ func logControlRiskSignals(assessment *routing.AssessmentResult) {
 		return
 	}
 	logrus.WithFields(fields).Info("Control risk signal observed")
+}
+
+func logControlRoutingSignals(assessment *routing.AssessmentResult) {
+	if assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	contextLoad := strings.TrimSpace(strings.ToLower(assessment.ControlSignals.ContextLoad))
+	if contextLoad == "" && len(assessment.ControlSignals.ModelFit) == 0 {
+		return
+	}
+	logrus.WithFields(logrus.Fields{
+		"task_type":         assessment.TaskType,
+		"difficulty":        assessment.Difficulty,
+		"context_load":      contextLoad,
+		"model_fit_count":   len(assessment.ControlSignals.ModelFit),
+		"assessment_source": assessment.Source,
+	}).Info("Control routing signal observed")
 }
 
 func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, semanticSignature, prompt string) []string {

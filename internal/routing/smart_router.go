@@ -857,6 +857,9 @@ func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt st
 		if mappedModel := r.selectMappedModelForTask(assessment.TaskType, availableModels); mappedModel != "" {
 			return mappedModel, assessment
 		}
+		if fitModel := r.selectModelByControlFit(assessment, availableModels); fitModel != "" {
+			return fitModel, assessment
+		}
 	}
 
 	difficultyStrategy := r.getStrategyForAssessment(assessment)
@@ -892,6 +895,55 @@ func (r *SmartRouter) selectMappedModelForTask(taskType TaskType, availableModel
 	}
 
 	return mappedModel
+}
+
+func (r *SmartRouter) selectModelByControlFit(assessment *AssessmentResult, availableModels []string) string {
+	if assessment == nil || assessment.ControlSignals == nil || len(assessment.ControlSignals.ModelFit) == 0 {
+		return ""
+	}
+
+	cfg := r.GetClassifierConfig()
+	if !cfg.Control.Enable || cfg.Control.ShadowOnly || !cfg.Control.ModelFitEnable {
+		return ""
+	}
+
+	availableSet := make(map[string]struct{}, len(availableModels))
+	for _, model := range availableModels {
+		availableSet[model] = struct{}{}
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	bestModel := ""
+	bestScore := -1.0
+	for model, score := range assessment.ControlSignals.ModelFit {
+		if score < 0 || score > 1 {
+			continue
+		}
+		if len(availableSet) > 0 {
+			if _, ok := availableSet[model]; !ok {
+				continue
+			}
+		}
+		if ms, ok := r.config.ModelScores[model]; !ok || !ms.Enabled {
+			continue
+		}
+		if score > bestScore {
+			bestScore = score
+			bestModel = model
+		}
+	}
+
+	if bestModel != "" {
+		routerLogger.WithFields(logrus.Fields{
+			"model":     bestModel,
+			"score":     bestScore,
+			"task_type": assessment.TaskType,
+		}).Info("Control model-fit selected model")
+	}
+
+	return bestModel
 }
 
 // SelectModelCascade selects model using cascade routing

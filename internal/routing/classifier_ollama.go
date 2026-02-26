@@ -180,6 +180,7 @@ func buildClassifierPrompt(prompt, contextText string) string {
 可选 route_hint: speed, balanced, quality, reasoning_first
 可选 ttl_band: short, medium, long
 可选 risk_level: none, low, medium, high
+可选 context_load: low, medium, high
 
 输出 JSON 字段:
 {
@@ -195,7 +196,11 @@ func buildClassifierPrompt(prompt, contextText string) string {
   "cache_reason":"",
   "ttl_band":"medium",
   "risk_level":"none",
-  "risk_tags":[]
+  "risk_tags":[],
+  "tool_needed":false,
+  "rag_needed":false,
+  "context_load":"medium",
+  "model_fit":{"gpt-4o-mini":0.72}
 }
 
 用户输入:
@@ -222,19 +227,23 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	raw = strings.TrimSpace(raw)
 
 	var data struct {
-		TaskType            string   `json:"task_type"`
-		Difficulty          string   `json:"difficulty"`
-		Confidence          float64  `json:"confidence"`
-		SemanticSignature   string   `json:"semantic_signature"`
-		RouteHint           string   `json:"route_hint"`
-		ControlVersion      string   `json:"control_version"`
-		NormalizedQuery     string   `json:"normalized_query"`
-		QueryStabilityScore float64  `json:"query_stability_score"`
-		Cacheable           *bool    `json:"cacheable"`
-		CacheReason         string   `json:"cache_reason"`
-		TTLBand             string   `json:"ttl_band"`
-		RiskLevel           string   `json:"risk_level"`
-		RiskTags            []string `json:"risk_tags"`
+		TaskType            string             `json:"task_type"`
+		Difficulty          string             `json:"difficulty"`
+		Confidence          float64            `json:"confidence"`
+		SemanticSignature   string             `json:"semantic_signature"`
+		RouteHint           string             `json:"route_hint"`
+		ControlVersion      string             `json:"control_version"`
+		NormalizedQuery     string             `json:"normalized_query"`
+		QueryStabilityScore float64            `json:"query_stability_score"`
+		Cacheable           *bool              `json:"cacheable"`
+		CacheReason         string             `json:"cache_reason"`
+		TTLBand             string             `json:"ttl_band"`
+		RiskLevel           string             `json:"risk_level"`
+		RiskTags            []string           `json:"risk_tags"`
+		ToolNeeded          *bool              `json:"tool_needed"`
+		RAGNeeded           *bool              `json:"rag_needed"`
+		ContextLoad         string             `json:"context_load"`
+		ModelFit            map[string]float64 `json:"model_fit"`
 	}
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
 		return nil, fmt.Errorf("%w: parse classifier json: %v", ErrClassifierParseOutput, err)
@@ -261,6 +270,10 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 		data.TTLBand,
 		data.RiskLevel,
 		data.RiskTags,
+		data.ToolNeeded,
+		data.RAGNeeded,
+		data.ContextLoad,
+		data.ModelFit,
 	)
 
 	result := &AssessmentResult{
@@ -274,12 +287,13 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	return result, nil
 }
 
-func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string) *ControlSignals {
+func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64) *ControlSignals {
 	controlVersion = strings.TrimSpace(controlVersion)
 	normalizedQuery = strings.TrimSpace(normalizedQuery)
 	cacheReason = strings.TrimSpace(cacheReason)
 	ttlBand = strings.TrimSpace(ttlBand)
 	riskLevel = strings.TrimSpace(strings.ToLower(riskLevel))
+	contextLoad = strings.TrimSpace(strings.ToLower(contextLoad))
 
 	if queryStabilityScore < 0 || queryStabilityScore > 1 {
 		queryStabilityScore = 0
@@ -293,6 +307,11 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 	case "none", "low", "medium", "high", "":
 	default:
 		riskLevel = ""
+	}
+	switch contextLoad {
+	case "low", "medium", "high", "":
+	default:
+		contextLoad = ""
 	}
 
 	cleanRiskTags := make([]string, 0, len(riskTags))
@@ -309,7 +328,19 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		cleanRiskTags = append(cleanRiskTags, t)
 	}
 
-	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 {
+	cleanModelFit := make(map[string]float64)
+	for model, score := range modelFit {
+		m := strings.TrimSpace(model)
+		if m == "" {
+			continue
+		}
+		if score < 0 || score > 1 {
+			continue
+		}
+		cleanModelFit[m] = score
+	}
+
+	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 && toolNeeded == nil && ragNeeded == nil && contextLoad == "" && len(cleanModelFit) == 0 {
 		return nil
 	}
 
@@ -322,6 +353,10 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		TTLBand:             ttlBand,
 		RiskLevel:           riskLevel,
 		RiskTags:            cleanRiskTags,
+		ToolNeeded:          toolNeeded,
+		RAGNeeded:           ragNeeded,
+		ContextLoad:         contextLoad,
+		ModelFit:            cleanModelFit,
 	}
 }
 
