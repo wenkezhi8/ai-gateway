@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.6.2] - 2026-02-27
+
+### Added
+- Unit tests for control-layer cache/tool gates and model-fit routing selection.
+
+### Changed
+- Workflow card now explicitly enforces continuous execution to final deliverable output unless blocked.
+
 ## [1.6.1] - 2026-02-27
 
 ### Fixed
@@ -85,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.6.2 | 2026-02-27 | Add control-layer unit tests and update workflow card for direct final-result delivery |
 | 1.6.1 | 2026-02-27 | Fix control config clamp to preserve sub-toggle values when control master switch is off |
 | 1.6.0 | 2026-02-27 | Add 0.5B control signals, cache/tool gates, router fit selection, and routing control UI |
 | 1.5.1 | 2026-02-26 | Patch release to align version and tag |
