@@ -31,7 +31,7 @@
 5. **测试执行说明**：运行测试脚本，它将启动一个浏览器并模拟用户操作。测试地址：`http://localhost:8566/` 账号：`admin` 密码：`admin123`。
 6. **优化建议**：给出2-5个无侵入、不影响原有业务的低风险可落地优化建议。
 7. **接口一致性校验**：若涉及接口调用，必须校验前后端接口定义一致性，确保入参、出参、协议、请求方式完全对齐。
-8. **版本号**：修复完成后按`X.Y.Z`规则提供版本号（X=大版本迭代，Y=功能新增，Z=问题修复）。
+8. **版本号**： 修复完成后按`X.Y.Z`规则提供版本号（X=大版本迭代，Y=功能新增，Z=问题修复）。更新版本号前需要重新读取这个文件。因为其他ai工具也在升级版本号，获取最新版本号
 9. 默认每次修复后自动提交并推送 main   commit + push main
   
 ---
@@ -400,7 +400,7 @@ git status
 | MINOR | 向下兼容的新功能 | 1.1.0 → 1.2.0 |
 | PATCH | 向下兼容的问题修复 | 1.1.0 → 1.1.1 |
 
-**当前版本**: `v1.4.6`
+**当前版本**: `v1.4.8`
 
 ### 强制提交规范
 
@@ -916,7 +916,7 @@ export REDIS_DB=0
 
 ### 当前版本
 
-**v1.4.4** (2026-02-26)
+**v1.4.8** (2026-02-26)
 
 ### 当前迭代 (v1.4)
 
@@ -972,19 +972,31 @@ export REDIS_DB=0
 
 | 模块 | 覆盖率 |
 |------|--------|
-| internal/routing | 54.1% |
-| internal/cache | 30.2% |
+| internal/models | 100.0% |
+| internal/routing | 60.3% |
+| internal/cache | 47.9% |
+| internal/limiter | 34.9% |
+| internal/handler/admin | 10.0% |
 | pkg/crypto | 81.8% |
 | pkg/security | 62.5% |
-| internal/metrics | 98.2% |
-| internal/provider | 43.1% |
+| internal/metrics | 75.0% |
+| internal/provider | 58.0% |
+| internal/storage | 73.7% |
+| **整体覆盖率** | **40.7%** |
 
 ### 待开发
 
 | 任务 | 优先级 | 说明 |
 |------|--------|------|
 | SQLite 持久化 | 低 | 可选，替代 JSON 文件存储 |
-| 单元测试补充 | 中 | 提升核心模块覆盖率至 80% |
+| 单元测试补充 | 中 | 提升核心模块覆盖率至 80%（进行中） |
+
+### 已完成测试补充
+
+- 新增 `internal/handler/admin/account_helper_test.go` - 测试 generateAccountID, mapProviderToBackend
+- 新增 `internal/handler/admin/router_helper_test.go` - 测试 generateID, normalizeAutoMode, parseAutoModeJSON
+- 新增 `internal/handler/admin/cache_helper_test.go` - 测试 15+ 缓存辅助函数
+- handler/admin 覆盖率从 1.4% 提升至 10.0%
 
 ### 已知问题
 
