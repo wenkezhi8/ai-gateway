@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.5.1] - 2026-02-26
+
+### Changed
+- Bump version to 1.5.1 for release tag alignment.
+
 ## [1.5.0] - 2026-02-26
 
 ### Added
@@ -59,6 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.5.1 | 2026-02-26 | Patch release to align version and tag |
 | 1.5.0 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
 | 1.0.0 | 2024-01-01 | Initial release |
 
