@@ -966,11 +966,15 @@ watch(answerHighlightEnabled, (val) => {
 .model-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-lg) 0 var(--spacing-lg);
   max-width: 900px;
   margin: 0 auto;
+}
+
+.model-row :deep(.model-selector) {
+  flex: 1;
+  padding: 0;
 }
 
 .chat-settings {
@@ -978,6 +982,7 @@ watch(answerHighlightEnabled, (val) => {
   align-items: center;
   gap: var(--spacing-sm);
   flex-shrink: 0;
+  margin-left: auto;
 
   .setting-item {
     display: inline-flex;
