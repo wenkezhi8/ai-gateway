@@ -89,14 +89,15 @@ func GetSmartRouter() *routing.SmartRouter {
 
 // ProxyHandler handles AI provider proxy requests
 type ProxyHandler struct {
-	config         *config.Config
-	registry       *provider.Registry
-	accountManager *limiter.AccountManager
-	smartRouter    *routing.SmartRouter
-	cache          *cache.Manager
-	deduplicator   *cache.RequestDeduplicator
-	semanticCache  *cache.SemanticCache
-	embeddingSvc   cache.EmbeddingProvider
+	config            *config.Config
+	registry          *provider.Registry
+	accountManager    *limiter.AccountManager
+	smartRouter       *routing.SmartRouter
+	cache             *cache.Manager
+	deduplicator      *cache.RequestDeduplicator
+	semanticCache     *cache.SemanticCache
+	embeddingSvc      cache.EmbeddingProvider
+	modelMappingCache *cache.ModelMappingCache
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -120,14 +121,20 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		}
 	}()
 
+	modelMappingCache := cache.NewModelMappingCache(cache.ModelMappingConfig{
+		MaxSize: 1000,
+		TTL:     24 * time.Hour,
+	})
+
 	return &ProxyHandler{
-		config:         cfg,
-		registry:       provider.GetRegistry(),
-		accountManager: accountManager,
-		smartRouter:    GetSmartRouter(),
-		cache:          cacheManager,
-		deduplicator:   cache.GetRequestDeduplicator(),
-		semanticCache:  semanticCache,
+		config:            cfg,
+		registry:          provider.GetRegistry(),
+		accountManager:    accountManager,
+		smartRouter:       GetSmartRouter(),
+		cache:             cacheManager,
+		deduplicator:      cache.GetRequestDeduplicator(),
+		semanticCache:     semanticCache,
+		modelMappingCache: modelMappingCache,
 	}
 }
 
@@ -371,21 +378,41 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	providerReq.ToolChoice = req.ToolChoice
 
-	// 改动点: 如果上游需要 display_name（如 sub2api），用 display_name 替换 model id
-	if h.smartRouter != nil {
-		if score := h.smartRouter.GetModelScore(providerReq.Model); score != nil && score.DisplayName != "" && score.DisplayName != providerReq.Model {
+	// 改动点: 模型名称智能映射（缓存优先）
+	originalModelID := providerReq.Model
+	effectiveModel := providerReq.Model
+
+	// 1. 先检查缓存
+	if h.modelMappingCache != nil {
+		if cached, ok := h.modelMappingCache.GetEffectiveModel(req.Provider, originalModelID); ok {
+			effectiveModel = cached
 			logrus.WithFields(logrus.Fields{
-				"model_id":     providerReq.Model,
-				"display_name": score.DisplayName,
-				"provider":     req.Provider,
-			}).Debug("Using display_name for upstream request")
-			providerReq.Model = score.DisplayName
+				"provider":        req.Provider,
+				"original_model":  originalModelID,
+				"effective_model": effectiveModel,
+				"source":          "cache",
+			}).Debug("Using cached model name mapping")
 		}
 	}
 
+	// 2. 如果缓存没有命中，检查是否有 display_name
+	if effectiveModel == originalModelID && h.smartRouter != nil {
+		if score := h.smartRouter.GetModelScore(originalModelID); score != nil && score.DisplayName != "" && score.DisplayName != originalModelID {
+			effectiveModel = score.DisplayName
+			logrus.WithFields(logrus.Fields{
+				"provider":        req.Provider,
+				"original_model":  originalModelID,
+				"effective_model": effectiveModel,
+				"source":          "display_name",
+			}).Debug("Using display_name for upstream request")
+		}
+	}
+
+	providerReq.Model = effectiveModel
+
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload)
+		h.handleStreamResponse(c, targetProvider, providerReq, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
 		return
 	}
 
@@ -462,6 +489,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	latency := time.Since(startTime)
 	h.recordMetrics(userID, apiKey, req.Model, latency, resp.Usage.TotalTokens, true)
 	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
+
+	// Record successful model name mapping if different from original
+	if h.modelMappingCache != nil && originalModelID != "" && originalModelID != providerReq.Model {
+		h.modelMappingCache.RecordSuccess(req.Provider, originalModelID, providerReq.Model)
+	}
 
 	// Build response
 	response := ChatCompletionResponse{
@@ -1073,6 +1105,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	providerName string,
 	cacheModelDimension string,
 	cacheKeyPayload interface{},
+	originalModelID string,
 ) {
 	startTime := time.Now()
 
@@ -1165,6 +1198,11 @@ func (h *ProxyHandler) handleStreamResponse(
 			latency := time.Since(startTime)
 			h.recordMetrics("", "", req.Model, latency, totalTokens, true)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
+
+			// Record successful model name mapping if different from original
+			if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
+				h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
+			}
 
 			// Record stream response into cache for observability/management page
 			// Skip caching when provider returned no text content to avoid empty-cache pollution.
@@ -1439,6 +1477,11 @@ func (h *ProxyHandler) handleStreamResponse(
 		latency := time.Since(startTime)
 		h.recordMetrics("", "", req.Model, latency, resp.Usage.TotalTokens, true)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
+
+		// Record successful model name mapping if fallback used a different model
+		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != nonStreamReq.Model {
+			h.modelMappingCache.RecordSuccess(providerName, originalModelID, nonStreamReq.Model)
+		}
 	}
 }
 
@@ -2114,4 +2157,9 @@ func getTextContent(content interface{}) string {
 		}
 	}
 	return ""
+}
+
+// GetModelMappingCache returns the model mapping cache for admin handlers
+func (h *ProxyHandler) GetModelMappingCache() *cache.ModelMappingCache {
+	return h.modelMappingCache
 }

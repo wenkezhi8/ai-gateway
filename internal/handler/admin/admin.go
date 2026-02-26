@@ -167,6 +167,10 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.POST("/test-entry", handlers.Cache.AddTestCacheEntry)
 		cacheGroup.GET("/export", handlers.Cache.ExportCacheEntries)
 		cacheGroup.GET("/trend", handlers.Cache.GetCacheTrend)
+		// Model name mapping cache
+		cacheGroup.GET("/model-mappings", handlers.Cache.GetModelMappings)
+		cacheGroup.DELETE("/model-mappings", handlers.Cache.ClearModelMappings)
+		cacheGroup.POST("/model-mappings/cleanup", handlers.Cache.CleanupModelMappings)
 	}
 
 	// Dashboard routes

@@ -20,9 +20,10 @@ var cacheTaskTypeAssessor = routing.NewDifficultyAssessor()
 
 // CacheHandler handles cache management requests
 type CacheHandler struct {
-	manager  *cache.Manager
-	settings cache.CacheSettings
-	mu       sync.RWMutex
+	manager           *cache.Manager
+	settings          cache.CacheSettings
+	modelMappingCache *cache.ModelMappingCache
+	mu                sync.RWMutex
 }
 
 const emptyResponseCleanupInterval = 15 * time.Minute
@@ -35,6 +36,13 @@ func NewCacheHandler(manager *cache.Manager) *CacheHandler {
 	}
 	h.startEmptyResponseCleaner()
 	return h
+}
+
+// SetModelMappingCache sets the model mapping cache
+func (h *CacheHandler) SetModelMappingCache(mmc *cache.ModelMappingCache) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.modelMappingCache = mmc
 }
 
 func (h *CacheHandler) startEmptyResponseCleaner() {
@@ -1631,4 +1639,71 @@ func selectPrimaryModel(stats map[string]int) string {
 
 func selectPrimaryModelInt64(stats map[string]int) string {
 	return selectPrimaryModel(stats)
+}
+
+// GetModelMappings returns all model name mappings
+// GET /api/admin/cache/model-mappings
+func (h *CacheHandler) GetModelMappings(c *gin.Context) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	if h.modelMappingCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    []interface{}{},
+			"stats":   nil,
+		})
+		return
+	}
+
+	mappings := h.modelMappingCache.GetAll()
+	stats := h.modelMappingCache.Stats()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    mappings,
+		"stats":   stats,
+	})
+}
+
+// ClearModelMappings clears all model name mappings
+// DELETE /api/admin/cache/model-mappings
+func (h *CacheHandler) ClearModelMappings(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.modelMappingCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"cleared": 0,
+		})
+		return
+	}
+
+	count := h.modelMappingCache.Clear()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"cleared": count,
+	})
+}
+
+// CleanupModelMappings cleans up expired model name mappings
+// POST /api/admin/cache/model-mappings/cleanup
+func (h *CacheHandler) CleanupModelMappings(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.modelMappingCache == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"expired": 0,
+		})
+		return
+	}
+
+	expired := h.modelMappingCache.Cleanup()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"expired": expired,
+	})
 }

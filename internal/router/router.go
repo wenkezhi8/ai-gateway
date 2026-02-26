@@ -156,6 +156,12 @@ func NewFullWithConfig(
 		}
 
 		adminHandlers := admin.NewHandlers(accountManager, registry, cacheManager)
+
+		// Set model mapping cache from proxy handler
+		if mmc := proxyHandler.GetModelMappingCache(); mmc != nil {
+			adminHandlers.Cache.SetModelMappingCache(mmc)
+		}
+
 		adminGroup := r.Group(constants.AdminPrefix)
 		{
 			if routerCfg.JWTConfig.Secret != "" {
