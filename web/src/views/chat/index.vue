@@ -90,31 +90,33 @@
 
         <!-- Model Selector & Input -->
         <div class="input-area">
-          <div class="chat-settings">
-            <el-tooltip content="默认展开/收起深度思考过程" placement="top">
-              <div class="setting-item">
-                <span>推理默认展开</span>
-                <el-switch v-model="defaultExpandReasoning" />
-              </div>
-            </el-tooltip>
-            <el-tooltip content="答案区域淡色背景" placement="top">
-              <div class="setting-item">
-                <span>答案背景</span>
-                <el-switch v-model="answerHighlightEnabled" />
-              </div>
-            </el-tooltip>
-            <el-tooltip content="关闭后使用非流式响应（便于测试缓存）" placement="top">
-              <div class="setting-item">
-                <span>流式响应</span>
-                <el-switch v-model="streamEnabled" />
-              </div>
-            </el-tooltip>
+          <div class="model-row">
+            <ModelSelector
+              v-model:provider="selectedProvider"
+              v-model:model="selectedModel"
+              @change="handleModelChange"
+            />
+            <div class="chat-settings">
+              <el-tooltip content="默认展开/收起深度思考过程" placement="top">
+                <div class="setting-item">
+                  <span>推理默认展开</span>
+                  <el-switch v-model="defaultExpandReasoning" />
+                </div>
+              </el-tooltip>
+              <el-tooltip content="答案区域淡色背景" placement="top">
+                <div class="setting-item">
+                  <span>答案背景</span>
+                  <el-switch v-model="answerHighlightEnabled" />
+                </div>
+              </el-tooltip>
+              <el-tooltip content="关闭后使用非流式响应（便于测试缓存）" placement="top">
+                <div class="setting-item">
+                  <span>流式响应</span>
+                  <el-switch v-model="streamEnabled" />
+                </div>
+              </el-tooltip>
+            </div>
           </div>
-          <ModelSelector
-            v-model:provider="selectedProvider"
-            v-model:model="selectedModel"
-            @change="handleModelChange"
-          />
           <ChatInput
             ref="chatInputRef"
             :is-loading="isStreaming"
@@ -961,24 +963,33 @@ watch(answerHighlightEnabled, (val) => {
   padding-bottom: 80px;
 }
 
-.chat-settings {
+.model-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-md);
   padding: var(--spacing-sm) var(--spacing-lg) 0 var(--spacing-lg);
   max-width: 900px;
   margin: 0 auto;
+}
+
+.chat-settings {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
 
   .setting-item {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     font-size: 12px;
     color: var(--text-secondary);
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-md);
-    padding: 6px 10px;
+    padding: 4px 8px;
+    white-space: nowrap;
   }
 }
 
