@@ -53,7 +53,7 @@ A unified API gateway for multiple AI service providers with intelligent rate li
    make docker-up
    ```
 
-2. Access the gateway at `http://localhost:8080`
+2. Access the gateway at `http://localhost:8566`
 
 ## Configuration
 
@@ -64,7 +64,7 @@ Configuration is managed via `configs/config.json`. Environment variables can ov
 | Variable | Description |
 |----------|-------------|
 | `CONFIG_PATH` | Path to config file (default: `./configs/config.json`) |
-| `SERVER_PORT` | Server port (default: `8080`) |
+| `SERVER_PORT` | Server port (default: `8566`) |
 | `GIN_MODE` | Gin mode: `debug` or `release` |
 | `REDIS_HOST` | Redis host |
 | `OPENAI_API_KEY` | OpenAI API key |
