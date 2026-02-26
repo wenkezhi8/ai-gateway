@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/metrics"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -356,7 +358,15 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 		if err == nil {
 			select {
 			case c.persistCh <- semanticPersistJob{key: "semantic:" + id, data: data, ttl: ttl}:
+				if m := metrics.GetMetrics(); m != nil {
+					m.RecordSemanticPersistEnqueued("semantic")
+					m.SetSemanticPersistQueueDepth("semantic", len(c.persistCh))
+				}
 			default:
+				if m := metrics.GetMetrics(); m != nil {
+					m.RecordSemanticPersistDropped("semantic")
+					m.SetSemanticPersistQueueDepth("semantic", len(c.persistCh))
+				}
 				semanticLogger.WithField("query_id", id).Warn("Semantic cache persist queue full, dropping entry")
 			}
 		}
@@ -624,6 +634,9 @@ type semanticPersistJob struct {
 
 func (c *SemanticCache) persistLoop() {
 	for job := range c.persistCh {
+		if m := metrics.GetMetrics(); m != nil {
+			m.SetSemanticPersistQueueDepth("semantic", len(c.persistCh))
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		_ = c.backend.Set(ctx, job.key, job.data, job.ttl)
 		cancel()

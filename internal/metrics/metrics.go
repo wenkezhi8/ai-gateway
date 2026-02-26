@@ -33,9 +33,12 @@ type Metrics struct {
 	TokenUsagePercent *prometheus.GaugeVec
 
 	// Cache metrics
-	CacheHits    *prometheus.CounterVec
-	CacheMisses  *prometheus.CounterVec
-	CacheHitRate *prometheus.GaugeVec
+	CacheHits                 *prometheus.CounterVec
+	CacheMisses               *prometheus.CounterVec
+	CacheHitRate              *prometheus.GaugeVec
+	SemanticPersistEnqueued   *prometheus.CounterVec
+	SemanticPersistDropped    *prometheus.CounterVec
+	SemanticPersistQueueDepth *prometheus.GaugeVec
 
 	// Provider metrics
 	ProviderRequestsTotal   *prometheus.CounterVec
@@ -215,6 +218,33 @@ func NewMetrics() *Metrics {
 				Subsystem: Subsystem,
 				Name:      "cache_hit_rate",
 				Help:      "Cache hit rate percentage",
+			},
+			[]string{"cache_type"},
+		),
+		SemanticPersistEnqueued: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: Subsystem,
+				Name:      "semantic_persist_enqueued_total",
+				Help:      "Total number of semantic cache persist enqueues",
+			},
+			[]string{"cache_type"},
+		),
+		SemanticPersistDropped: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: Namespace,
+				Subsystem: Subsystem,
+				Name:      "semantic_persist_dropped_total",
+				Help:      "Total number of semantic cache persist drops",
+			},
+			[]string{"cache_type"},
+		),
+		SemanticPersistQueueDepth: promauto.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: Namespace,
+				Subsystem: Subsystem,
+				Name:      "semantic_persist_queue_depth",
+				Help:      "Current semantic cache persist queue depth",
 			},
 			[]string{"cache_type"},
 		),
@@ -477,6 +507,21 @@ func (m *Metrics) RecordCacheMiss(cacheType string) {
 // SetCacheHitRate sets the cache hit rate
 func (m *Metrics) SetCacheHitRate(cacheType string, rate float64) {
 	m.CacheHitRate.WithLabelValues(cacheType).Set(rate)
+}
+
+// RecordSemanticPersistEnqueued records a semantic cache persist enqueue.
+func (m *Metrics) RecordSemanticPersistEnqueued(cacheType string) {
+	m.SemanticPersistEnqueued.WithLabelValues(cacheType).Inc()
+}
+
+// RecordSemanticPersistDropped records a semantic cache persist drop.
+func (m *Metrics) RecordSemanticPersistDropped(cacheType string) {
+	m.SemanticPersistDropped.WithLabelValues(cacheType).Inc()
+}
+
+// SetSemanticPersistQueueDepth sets current persist queue depth.
+func (m *Metrics) SetSemanticPersistQueueDepth(cacheType string, depth int) {
+	m.SemanticPersistQueueDepth.WithLabelValues(cacheType).Set(float64(depth))
 }
 
 // RecordMultimodalRequest records a multimodal request

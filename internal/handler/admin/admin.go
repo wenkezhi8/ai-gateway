@@ -59,6 +59,8 @@ func NewHandlers(
 		Ops:         NewOpsHandler(),
 		Usage:       usageHandler,
 	}
+	// 改动点: 定时健康检测并触发告警
+	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
 	globalDashboardHandler = handlers.Dashboard
 	globalApiKeyHandler = handlers.ApiKey
 	return handlers
@@ -144,6 +146,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.PUT("/task-model-mapping", handlers.SmartRouter.UpdateTaskModelMapping)
 		routerGroup.GET("/classifier/health", handlers.SmartRouter.GetClassifierHealth)
 		routerGroup.GET("/classifier/stats", handlers.SmartRouter.GetClassifierStats)
+		routerGroup.GET("/classifier/models", handlers.SmartRouter.GetClassifierModels)
 		routerGroup.POST("/classifier/switch", handlers.SmartRouter.SwitchClassifierModel)
 	}
 

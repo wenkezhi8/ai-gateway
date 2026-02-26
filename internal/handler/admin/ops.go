@@ -2,6 +2,8 @@ package admin
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -35,6 +37,13 @@ type OpsHandler struct {
 
 	peakQPS float64
 	peakTPS float64
+
+	healthMu             sync.Mutex
+	healthMonitorStarted bool
+	healthStop           chan struct{}
+	lastAlerts           map[string]time.Time
+	lastGCCount          uint32
+	lastGCPauseTotalNs   uint64
 }
 
 type RequestMetric struct {
@@ -154,7 +163,39 @@ func NewOpsHandler() *OpsHandler {
 		errors:         make([]ErrorMetric, 0),
 		lastCleanup:    time.Now(),
 		lastMinuteTime: time.Now(),
+		lastAlerts:     make(map[string]time.Time),
 	}
+}
+
+// StartHealthMonitor starts periodic health checks and alerts.
+func (h *OpsHandler) StartHealthMonitor(alertHandler *AlertHandler, dashboardHandler *DashboardHandler) {
+	if alertHandler == nil && dashboardHandler == nil {
+		return
+	}
+
+	h.healthMu.Lock()
+	if h.healthMonitorStarted {
+		h.healthMu.Unlock()
+		return
+	}
+	h.healthMonitorStarted = true
+	if h.healthStop == nil {
+		h.healthStop = make(chan struct{})
+	}
+	h.healthMu.Unlock()
+
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				h.runHealthCheck(alertHandler, dashboardHandler)
+			case <-h.healthStop:
+				ticker.Stop()
+				return
+			}
+		}
+	}()
 }
 
 func (h *OpsHandler) GetDashboard(c *gin.Context) {
@@ -509,6 +550,73 @@ func (h *OpsHandler) getResourceMetrics() ResourceMetrics {
 		GCCount:        m.NumGC,
 		GCPauseTotalNs: m.PauseTotalNs,
 	}
+}
+
+func (h *OpsHandler) runHealthCheck(alertHandler *AlertHandler, dashboardHandler *DashboardHandler) {
+	resources := h.getResourceMetrics()
+	now := time.Now()
+
+	h.healthMu.Lock()
+	gcDelta := resources.GCCount - h.lastGCCount
+	pauseDelta := resources.GCPauseTotalNs - h.lastGCPauseTotalNs
+	h.lastGCCount = resources.GCCount
+	h.lastGCPauseTotalNs = resources.GCPauseTotalNs
+	h.healthMu.Unlock()
+
+	const memoryWarning = 80.0
+	const memoryCritical = 95.0
+
+	if resources.MemoryUsage >= memoryCritical {
+		h.emitHealthAlert("memory_critical", "critical", fmt.Sprintf("内存使用率过高: %.1f%%", resources.MemoryUsage), now, alertHandler, dashboardHandler)
+	} else if resources.MemoryUsage >= memoryWarning {
+		h.emitHealthAlert("memory_warning", "warning", fmt.Sprintf("内存使用率偏高: %.1f%%", resources.MemoryUsage), now, alertHandler, dashboardHandler)
+	}
+
+	if resources.Goroutines >= resources.GoroutineCrit {
+		h.emitHealthAlert("goroutine_critical", "critical", fmt.Sprintf("Goroutine 数过高: %d", resources.Goroutines), now, alertHandler, dashboardHandler)
+	} else if resources.Goroutines >= resources.GoroutineWarn {
+		h.emitHealthAlert("goroutine_warning", "warning", fmt.Sprintf("Goroutine 数偏高: %d", resources.Goroutines), now, alertHandler, dashboardHandler)
+	}
+
+	pauseDeltaMs := float64(pauseDelta) / 1e6
+	if pauseDeltaMs >= 2000 {
+		h.emitHealthAlert("gc_pause_critical", "critical", fmt.Sprintf("GC 暂停过长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta), now, alertHandler, dashboardHandler)
+	} else if pauseDeltaMs >= 500 {
+		h.emitHealthAlert("gc_pause_warning", "warning", fmt.Sprintf("GC 暂停偏长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta), now, alertHandler, dashboardHandler)
+	}
+}
+
+func (h *OpsHandler) emitHealthAlert(key, level, message string, now time.Time, alertHandler *AlertHandler, dashboardHandler *DashboardHandler) {
+	h.healthMu.Lock()
+	defer h.healthMu.Unlock()
+
+	last, ok := h.lastAlerts[key]
+	if ok && now.Sub(last) < 5*time.Minute {
+		return
+	}
+	h.lastAlerts[key] = now
+
+	if alertHandler != nil {
+		alertHandler.AddAlert(level, "system", message)
+	}
+	if dashboardHandler != nil {
+		dashboardHandler.AddAlert(AlertListItem{
+			ID:           "health-" + randomHexID(),
+			Type:         "health",
+			Level:        level,
+			Message:      message,
+			Timestamp:    now,
+			Acknowledged: false,
+		})
+	}
+}
+
+func randomHexID() string {
+	buf := make([]byte, 4)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf)
 }
 
 func getSystemMemoryUsage() (usedMB, totalMB uint64) {
