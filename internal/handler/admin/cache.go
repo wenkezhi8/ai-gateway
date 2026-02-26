@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -424,6 +425,66 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", summary)
 }
 
+type SemanticSignatureItem struct {
+	Signature string  `json:"signature"`
+	TaskType  string  `json:"task_type"`
+	Model     string  `json:"model"`
+	Provider  string  `json:"provider"`
+	HitCount  int     `json:"hit_count"`
+	Quality   float64 `json:"quality_score"`
+}
+
+// GetSemanticSignatures returns top semantic signatures for cache auditing
+// GET /api/admin/cache/semantic-signatures
+func (h *CacheHandler) GetSemanticSignatures(c *gin.Context) {
+	semanticCache := h.manager.GetSemanticCache()
+	if semanticCache == nil {
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": []SemanticSignatureItem{}})
+		return
+	}
+
+	limit := 10
+	if raw := c.Query("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil {
+			limit = parsed
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		if limit > 100 {
+			limit = 100
+		}
+	}
+
+	entries := semanticCache.GetEntries()
+	items := make([]SemanticSignatureItem, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		items = append(items, SemanticSignatureItem{
+			Signature: entry.Query,
+			TaskType:  entry.TaskType,
+			Model:     entry.Model,
+			Provider:  entry.Provider,
+			HitCount:  entry.HitCount,
+			Quality:   entry.QualityScore,
+		})
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].HitCount == items[j].HitCount {
+			return items[i].Quality > items[j].Quality
+		}
+		return items[i].HitCount > items[j].HitCount
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
+}
+
 // GetCacheQualityConfig returns cache quality configuration
 // GET /api/admin/cache/quality-config
 func (h *CacheHandler) GetCacheQualityConfig(c *gin.Context) {
@@ -719,8 +780,9 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 			continue
 		}
 		enrichEntryFromDetail(entry, detail)
-		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entryTaskType, userMsg, aiResp, taskTypeSource := extractCacheSummary(detail.Value)
 		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		entry.TaskTypeSource = resolveTaskTypeSource(entry.TaskTypeSource, taskTypeSource, entry.TaskType, userMsg)
 		if userMsg != "" {
 			entry.UserMessage = userMsg
 		}
@@ -871,8 +933,9 @@ func (h *CacheHandler) DeleteCacheEntryGroup(c *gin.Context) {
 			continue
 		}
 		enrichEntryFromDetail(entry, detail)
-		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entryTaskType, userMsg, aiResp, taskTypeSource := extractCacheSummary(detail.Value)
 		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		entry.TaskTypeSource = resolveTaskTypeSource(entry.TaskTypeSource, taskTypeSource, entry.TaskType, userMsg)
 		if userMsg != "" {
 			entry.UserMessage = userMsg
 		}
@@ -924,8 +987,9 @@ func (h *CacheHandler) CleanupInvalidEntries(c *gin.Context) {
 			continue
 		}
 		enrichEntryFromDetail(entry, detail)
-		entryTaskType, userMsg, aiResp := extractCacheSummary(detail.Value)
+		entryTaskType, userMsg, aiResp, taskTypeSource := extractCacheSummary(detail.Value)
 		entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+		entry.TaskTypeSource = resolveTaskTypeSource(entry.TaskTypeSource, taskTypeSource, entry.TaskType, userMsg)
 		if userMsg != "" {
 			entry.UserMessage = userMsg
 		}
@@ -981,7 +1045,7 @@ func (h *CacheHandler) cleanupEmptyResponseEntries(ctx context.Context) (deleted
 			continue
 		}
 
-		_, _, aiResp := extractCacheSummary(detail.Value)
+		_, _, aiResp, _ := extractCacheSummary(detail.Value)
 		if strings.TrimSpace(aiResp) != "" {
 			continue
 		}
@@ -1056,7 +1120,7 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 	// Store request cache
 	reqKey := "req:test:" + key
 	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
-		mc.SetWithTaskType(ctx, reqKey, requestData, ttl, req.Model, req.Provider, req.TaskType)
+		mc.SetWithTaskType(ctx, reqKey, requestData, ttl, req.Model, req.Provider, req.TaskType, "manual")
 	} else {
 		h.manager.Cache().Set(ctx, reqKey, requestData, ttl)
 	}
@@ -1064,7 +1128,7 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 	// Store response cache
 	respKey := "ai-response:test:" + key
 	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
-		mc.SetWithTaskType(ctx, respKey, responseData, ttl, req.Model, req.Provider, req.TaskType)
+		mc.SetWithTaskType(ctx, respKey, responseData, ttl, req.Model, req.Provider, req.TaskType, "manual")
 	} else {
 		h.manager.Cache().Set(ctx, respKey, responseData, ttl)
 	}
@@ -1104,7 +1168,7 @@ func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 		if err == nil {
 			taskType := entry.TaskType
 			if taskType == "" {
-				if extracted, _, _ := extractCacheSummary(detail.Value); extracted != "" {
+				if extracted, _, _, _ := extractCacheSummary(detail.Value); extracted != "" {
 					taskType = extracted
 				}
 			}
@@ -1166,11 +1230,12 @@ func (h *CacheHandler) GetCacheTrend(c *gin.Context) {
 	})
 }
 
-func extractCacheSummary(value interface{}) (string, string, string) {
-	// taskType, userMessage, aiResponse
+func extractCacheSummary(value interface{}) (string, string, string, string) {
+	// taskType, userMessage, aiResponse, taskTypeSource
 	var taskType string
 	var userMsg string
 	var aiResp string
+	var taskTypeSource string
 
 	switch v := value.(type) {
 	case map[string]interface{}:
@@ -1180,6 +1245,12 @@ func extractCacheSummary(value interface{}) (string, string, string) {
 		}
 		if tt, ok := v["TaskType"]; ok && taskType == "" {
 			taskType, _ = tt.(string)
+		}
+		if ts, ok := v["task_type_source"]; ok {
+			taskTypeSource, _ = ts.(string)
+		}
+		if ts, ok := v["TaskTypeSource"]; ok && taskTypeSource == "" {
+			taskTypeSource, _ = ts.(string)
 		}
 		// prompt / user message
 		if p, ok := v["prompt"]; ok {
@@ -1244,7 +1315,7 @@ func extractCacheSummary(value interface{}) (string, string, string) {
 		return extractCacheSummary(converted)
 	}
 
-	return taskType, truncatePreview(userMsg), truncatePreview(aiResp)
+	return taskType, truncatePreview(userMsg), truncatePreview(aiResp), taskTypeSource
 }
 
 func resolveTaskType(metaTaskType, payloadTaskType, userMsg string) string {
@@ -1281,6 +1352,49 @@ func normalizeTaskType(taskType string) string {
 		return "unknown"
 	case "long_context":
 		return "long_text"
+	default:
+		return normalized
+	}
+}
+
+func resolveTaskTypeSource(metaSource, payloadSource, resolvedTaskType, userMsg string) string {
+	normalizedMeta := normalizeTaskTypeSource(metaSource)
+	if normalizedMeta != "" {
+		return normalizedMeta
+	}
+
+	normalizedPayload := normalizeTaskTypeSource(payloadSource)
+	if normalizedPayload != "" {
+		return normalizedPayload
+	}
+
+	if normalizeTaskType(resolvedTaskType) == "unknown" {
+		return "unknown"
+	}
+
+	if strings.TrimSpace(userMsg) != "" {
+		inferred := cacheTaskTypeAssessor.DetectTaskType(userMsg)
+		if inferred != routing.TaskTypeUnknown {
+			return "heuristic"
+		}
+	}
+
+	return "legacy"
+}
+
+func normalizeTaskTypeSource(source string) string {
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	switch normalized {
+	case "":
+		return ""
+	case "llm", "model", "ollama", "classifier":
+		return "ollama"
+	case "heuristic", "rule", "keyword":
+		return "heuristic"
+	case "fallback":
+		return "fallback"
+	case "manual":
+		return "manual"
 	default:
 		return normalized
 	}
@@ -1576,6 +1690,11 @@ func aggregateCacheEntries(entries []*cache.CacheEntryInfo) []*cache.CacheEntryI
 			existing.Hits += entry.Hits
 			existing.HitRecorded = existing.HitRecorded || entry.HitRecorded
 			existing.ModelStats = mergeModelStats(existing.ModelStats, entry.ModelStats, entry.Model)
+			if existing.TaskTypeSource == "" {
+				existing.TaskTypeSource = entry.TaskTypeSource
+			} else if entry.TaskTypeSource != "" && existing.TaskTypeSource != entry.TaskTypeSource && existing.TaskTypeSource != "mixed" {
+				existing.TaskTypeSource = "mixed"
+			}
 			if entry.CreatedAt.After(existing.CreatedAt) {
 				existing.CreatedAt = entry.CreatedAt
 				existing.TTL = entry.TTL

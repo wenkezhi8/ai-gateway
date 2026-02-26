@@ -14,26 +14,28 @@ var (
 )
 
 type cacheItem struct {
-	value     []byte
-	expiresAt time.Time
-	createdAt time.Time
-	hits      int
-	ttl       int
-	preview   string
-	model     string
-	provider  string
-	taskType  string
+	value          []byte
+	expiresAt      time.Time
+	createdAt      time.Time
+	hits           int
+	ttl            int
+	preview        string
+	model          string
+	provider       string
+	taskType       string
+	taskTypeSource string
 }
 
 type CacheMeta struct {
-	Size      int
-	Hits      int
-	CreatedAt time.Time
-	TTL       int
-	Preview   string
-	Model     string
-	Provider  string
-	TaskType  string
+	Size           int
+	Hits           int
+	CreatedAt      time.Time
+	TTL            int
+	Preview        string
+	Model          string
+	Provider       string
+	TaskType       string
+	TaskTypeSource string
 }
 
 // MemoryCache is an in-memory cache implementation
@@ -144,7 +146,7 @@ func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interfa
 }
 
 // SetWithTaskType stores a value with task type metadata
-func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value interface{}, ttl time.Duration, model, provider, taskType string) error {
+func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value interface{}, ttl time.Duration, model, provider, taskType, taskTypeSource string) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -166,14 +168,15 @@ func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value int
 	}
 
 	c.items[key] = &cacheItem{
-		value:     data,
-		expiresAt: expiresAt,
-		createdAt: time.Now(),
-		ttl:       int(ttl.Seconds()),
-		preview:   preview,
-		model:     model,
-		provider:  provider,
-		taskType:  taskType,
+		value:          data,
+		expiresAt:      expiresAt,
+		createdAt:      time.Now(),
+		ttl:            int(ttl.Seconds()),
+		preview:        preview,
+		model:          model,
+		provider:       provider,
+		taskType:       taskType,
+		taskTypeSource: taskTypeSource,
 	}
 
 	return nil
@@ -257,14 +260,15 @@ func (c *MemoryCache) GetMeta(key string) *CacheMeta {
 	}
 
 	return &CacheMeta{
-		Size:      len(item.value),
-		Hits:      item.hits,
-		CreatedAt: item.createdAt,
-		TTL:       item.ttl,
-		Preview:   item.preview,
-		Model:     item.model,
-		Provider:  item.provider,
-		TaskType:  item.taskType,
+		Size:           len(item.value),
+		Hits:           item.hits,
+		CreatedAt:      item.createdAt,
+		TTL:            item.ttl,
+		Preview:        item.preview,
+		Model:          item.model,
+		Provider:       item.provider,
+		TaskType:       item.taskType,
+		TaskTypeSource: item.taskTypeSource,
 	}
 }
 

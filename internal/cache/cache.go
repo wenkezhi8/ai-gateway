@@ -38,16 +38,17 @@ func NewResponseCache(cache Cache, ttl time.Duration) *ResponseCache {
 
 // CachedResponse represents a cached AI response
 type CachedResponse struct {
-	StatusCode int               `json:"status_code"`
-	Headers    map[string]string `json:"headers"`
-	Body       json.RawMessage   `json:"body"`
-	CreatedAt  time.Time         `json:"created_at"`
-	HitCount   int64             `json:"hit_count"`
-	HitModels  map[string]int64  `json:"hit_models,omitempty"`
-	Provider   string            `json:"provider"`
-	Model      string            `json:"model"`
-	Prompt     string            `json:"prompt"`    // 便于缓存管理页面展示用户消息
-	TaskType   string            `json:"task_type"` // 便于按任务类型过滤
+	StatusCode     int               `json:"status_code"`
+	Headers        map[string]string `json:"headers"`
+	Body           json.RawMessage   `json:"body"`
+	CreatedAt      time.Time         `json:"created_at"`
+	HitCount       int64             `json:"hit_count"`
+	HitModels      map[string]int64  `json:"hit_models,omitempty"`
+	Provider       string            `json:"provider"`
+	Model          string            `json:"model"`
+	Prompt         string            `json:"prompt"`    // 便于缓存管理页面展示用户消息
+	TaskType       string            `json:"task_type"` // 便于按任务类型过滤
+	TaskTypeSource string            `json:"task_type_source,omitempty"`
 }
 
 // GenerateKey creates a cache key from request parameters

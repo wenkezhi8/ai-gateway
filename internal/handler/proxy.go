@@ -410,7 +410,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
+		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, cacheEnabled, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
 		return
 	}
 
@@ -534,22 +534,23 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		responseBody, _ := json.Marshal(response)
 		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
 		cachedResp := &cache.CachedResponse{
-			StatusCode: http.StatusOK,
-			Headers:    map[string]string{"Content-Type": "application/json"},
-			Body:       responseBody,
-			CreatedAt:  time.Now(),
-			HitCount:   0,
-			HitModels:  map[string]int64{req.Model: 1},
-			Provider:   req.Provider,
-			Model:      req.Model,
-			Prompt:     prompt,
-			TaskType:   string(assessment.TaskType),
+			StatusCode:     http.StatusOK,
+			Headers:        map[string]string{"Content-Type": "application/json"},
+			Body:           responseBody,
+			CreatedAt:      time.Now(),
+			HitCount:       0,
+			HitModels:      map[string]int64{req.Model: 1},
+			Provider:       req.Provider,
+			Model:          req.Model,
+			Prompt:         prompt,
+			TaskType:       string(assessment.TaskType),
+			TaskTypeSource: string(assessment.Source),
 		}
 
 		// Use SetWithTaskType to record task type for filtering
 		if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
 			taskTypeStr := string(assessment.TaskType)
-			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr)
+			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr, string(assessment.Source))
 		} else {
 			h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
 		}
@@ -1116,6 +1117,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	cacheEnabled bool,
 	recommendedTTL time.Duration,
 	taskType string,
+	taskTypeSource string,
 	difficulty routing.DifficultyLevel,
 	providerName string,
 	cacheModelDimension string,
@@ -1227,10 +1229,12 @@ func (h *ProxyHandler) handleStreamResponse(
 			// Skip caching when provider returned no text content to avoid empty-cache pollution.
 			if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
 				responsePayload := map[string]interface{}{
-					"id":      chunk.ID,
-					"object":  "chat.completion",
-					"created": chunk.Created,
-					"model":   req.Model,
+					"id":               chunk.ID,
+					"object":           "chat.completion",
+					"created":          chunk.Created,
+					"model":            req.Model,
+					"task_type":        taskType,
+					"task_type_source": taskTypeSource,
 					"choices": []map[string]interface{}{
 						{
 							"index": 0,
@@ -1252,19 +1256,20 @@ func (h *ProxyHandler) handleStreamResponse(
 					cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
 					if keyErr == nil {
 						cachedResp := &cache.CachedResponse{
-							StatusCode: http.StatusOK,
-							Headers:    map[string]string{"Content-Type": "application/json"},
-							Body:       body,
-							CreatedAt:  time.Now(),
-							HitCount:   0,
-							HitModels:  map[string]int64{req.Model: 1},
-							Provider:   providerName,
-							Model:      req.Model,
-							Prompt:     prompt,
-							TaskType:   taskType,
+							StatusCode:     http.StatusOK,
+							Headers:        map[string]string{"Content-Type": "application/json"},
+							Body:           body,
+							CreatedAt:      time.Now(),
+							HitCount:       0,
+							HitModels:      map[string]int64{req.Model: 1},
+							Provider:       providerName,
+							Model:          req.Model,
+							Prompt:         prompt,
+							TaskType:       taskType,
+							TaskTypeSource: taskTypeSource,
 						}
 						if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-							mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType)
+							mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource)
 						} else {
 							h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
 						}
@@ -1473,19 +1478,20 @@ func (h *ProxyHandler) handleStreamResponse(
 				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
 				if keyErr == nil {
 					cachedResp := &cache.CachedResponse{
-						StatusCode: http.StatusOK,
-						Headers:    map[string]string{"Content-Type": "application/json"},
-						Body:       body,
-						CreatedAt:  time.Now(),
-						HitCount:   0,
-						HitModels:  map[string]int64{model: 1},
-						Provider:   providerName,
-						Model:      model,
-						Prompt:     prompt,
-						TaskType:   taskType,
+						StatusCode:     http.StatusOK,
+						Headers:        map[string]string{"Content-Type": "application/json"},
+						Body:           body,
+						CreatedAt:      time.Now(),
+						HitCount:       0,
+						HitModels:      map[string]int64{model: 1},
+						Provider:       providerName,
+						Model:          model,
+						Prompt:         prompt,
+						TaskType:       taskType,
+						TaskTypeSource: taskTypeSource,
 					}
 					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-						mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType)
+						mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource)
 					} else {
 						h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
 					}

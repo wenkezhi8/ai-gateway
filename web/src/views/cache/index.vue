@@ -126,6 +126,25 @@
           </div>
         </div>
 
+        <div class="signature-panel">
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">语义签名命中观察</div>
+              <div class="panel-subtitle">展示 0.5B 生成的高频语义签名，用于审计缓存命中原因</div>
+            </div>
+            <el-button link type="primary" @click="loadSemanticSignatures">刷新</el-button>
+          </div>
+          <el-table :data="semanticSignatures" size="small" max-height="240" empty-text="暂无语义签名数据">
+            <el-table-column prop="signature" label="语义签名" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="task_type" label="任务类型" width="100" />
+            <el-table-column prop="hit_count" label="命中" width="80" />
+            <el-table-column prop="quality_score" label="质量" width="90">
+              <template #default="{ row }">{{ Number(row.quality_score || 0).toFixed(1) }}</template>
+            </el-table-column>
+            <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
+          </el-table>
+        </div>
+
         <el-tabs v-model="activeTab" class="cache-tabs">
             <el-tab-pane label="缓存内容" name="entries">
               <div class="entries-toolbar">
@@ -202,6 +221,11 @@
                 <el-table-column label="任务类型" width="100">
                   <template #default="{ row }">
                     <el-tag size="small" :type="getTaskTypeTag(row.task_type)">{{ getTaskTypeName(row.task_type) }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="任务类型来源" width="110">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="getTaskTypeSourceTag(row.task_type_source)">{{ getTaskTypeSourceName(row.task_type_source) }}</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column label="ID" width="120" show-overflow-tooltip>
@@ -529,6 +553,8 @@
             <code class="detail-key">{{ entryDetail.key }}</code>
           </el-descriptions-item>
           <el-descriptions-item label="类型">{{ entryDetail.type }}</el-descriptions-item>
+          <el-descriptions-item label="任务类型">{{ getTaskTypeName(entryDetail.task_type) }}</el-descriptions-item>
+          <el-descriptions-item label="任务类型来源">{{ getTaskTypeSourceName(entryDetail.task_type_source) }}</el-descriptions-item>
           <el-descriptions-item label="大小">{{ formatSize(entryDetail.size) }}</el-descriptions-item>
           <el-descriptions-item label="命中次数">{{ entryDetail.hits || 0 }}</el-descriptions-item>
           <el-descriptions-item label="TTL">{{ entryDetail.ttl === 0 ? '永不过期' : formatTTL(entryDetail.ttl) }}</el-descriptions-item>
@@ -901,6 +927,7 @@ const strategySummary = computed(() => [
 const cacheRules = ref<CacheRule[]>([])
 
 const hotCaches = ref<HotCache[]>([])
+const semanticSignatures = ref<Array<{ signature: string; task_type: string; hit_count: number; quality_score: number; model: string }>>([])
 
 // 缓存内容管理相关
 const cacheEntries = ref<any[]>([])
@@ -1300,6 +1327,15 @@ async function loadCacheStats() {
   }
 }
 
+async function loadSemanticSignatures() {
+  try {
+    const data: any = await request.get('/admin/cache/semantic-signatures?limit=12')
+    semanticSignatures.value = data?.data || []
+  } catch (e) {
+    console.warn('Failed to load semantic signatures:', e)
+  }
+}
+
 // 改动点: 兼容后端 snake_case 字段并换算相似度
 async function loadCacheConfig() {
   try {
@@ -1557,7 +1593,9 @@ async function viewEntryDetail(row: any) {
     if (data?.data) {
       entryDetail.value = {
         ...data.data,
-        model_stats: row.model_stats || data.data.model_stats
+        model_stats: row.model_stats || data.data.model_stats,
+        task_type: row.task_type || data.data.task_type,
+        task_type_source: row.task_type_source || data.data.task_type_source
       }
       entryDetailVisible.value = true
     }
@@ -1761,6 +1799,32 @@ function getTaskTypeName(taskType: string): string {
   return names[taskType] || taskType || '其他'
 }
 
+function getTaskTypeSourceTag(source: string): string {
+  const types: Record<string, string> = {
+    ollama: 'success',
+    heuristic: 'warning',
+    fallback: 'danger',
+    manual: 'info',
+    mixed: 'warning',
+    legacy: 'info',
+    unknown: 'info'
+  }
+  return types[source] || 'info'
+}
+
+function getTaskTypeSourceName(source: string): string {
+  const names: Record<string, string> = {
+    ollama: 'LLM',
+    heuristic: '启发式',
+    fallback: '回退',
+    manual: '手动',
+    mixed: '混合',
+    legacy: '旧数据',
+    unknown: '未知'
+  }
+  return names[source] || source || '-'
+}
+
 // 从缓存内容中提取用户消息
 function getUserMessage(row: any): string {
   if (row.user_message) return row.user_message
@@ -1866,6 +1930,7 @@ onMounted(() => {
   loadCacheHealth()
   loadCacheRules()
   loadCacheEntries()
+  loadSemanticSignatures()
 })
 
 onUnmounted(() => {
@@ -2134,6 +2199,14 @@ onUnmounted(() => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.signature-panel {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 12px;
+  background: #f8fafc;
 }
 
 .summary-card {
