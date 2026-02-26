@@ -169,6 +169,7 @@ import { computed, onMounted, ref } from 'vue'
 import { getCacheStats } from '@/api/metrics'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
+import { filterUsageRows, getTagOptions } from '@/utils/usage-filters'
 
 type RangeType = '24h' | '7d' | '30d'
 
@@ -219,37 +220,18 @@ const modelOptions = computed(() => {
 })
 
 const experimentTagOptions = computed(() => {
-  const set = new Set<string>()
-  rangeRows.value.forEach(row => {
-    if (row.experimentTag && row.experimentTag !== '-') {
-      set.add(row.experimentTag)
-    }
-  })
-  return Array.from(set)
+  return getTagOptions(rangeRows.value.map(row => row.experimentTag))
 })
 
 const domainTagOptions = computed(() => {
-  const set = new Set<string>()
-  rangeRows.value.forEach(row => {
-    if (row.domainTag && row.domainTag !== '-') {
-      set.add(row.domainTag)
-    }
-  })
-  return Array.from(set)
+  return getTagOptions(rangeRows.value.map(row => row.domainTag))
 })
 
 const filteredRows = computed(() => {
-  return rangeRows.value.filter(row => {
-    if (selectedModel.value && row.model !== selectedModel.value) {
-      return false
-    }
-    if (selectedExperimentTag.value && row.experimentTag !== selectedExperimentTag.value) {
-      return false
-    }
-    if (selectedDomainTag.value && row.domainTag !== selectedDomainTag.value) {
-      return false
-    }
-    return true
+  return filterUsageRows(rangeRows.value, {
+    model: selectedModel.value,
+    experimentTag: selectedExperimentTag.value,
+    domainTag: selectedDomainTag.value
   })
 })
 
@@ -359,7 +341,10 @@ const fetchUsageLogs = async () => {
     const res = await request.get(API.USAGE.LOGS, {
       params: {
         range: rangeParam,
-        limit: 1000
+        limit: 1000,
+        model: selectedModel.value || undefined,
+        experiment_tag: selectedExperimentTag.value || undefined,
+        domain_tag: selectedDomainTag.value || undefined
       }
     })
     const data = (res as any)?.data || []
