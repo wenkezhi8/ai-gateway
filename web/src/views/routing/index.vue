@@ -183,7 +183,7 @@
               </el-col>
             </el-row>
             <el-alert
-              :title="`健康状态: ${classifierHealth.message || 'unknown'} (延迟 ${classifierHealth.latency_ms}ms)`"
+              :title="`健康状态: ${classifierHealth.message || 'unknown'} (延迟 ${formatDuration(classifierHealth.latency_ms)})`"
               :type="classifierHealth.healthy ? 'success' : 'warning'"
               :closable="false"
               style="margin-bottom: 16px"
@@ -194,8 +194,8 @@
               <el-descriptions-item label="LLM成功">{{ classifierStats.llm_success }}</el-descriptions-item>
               <el-descriptions-item label="回退次数">{{ classifierStats.fallbacks }}</el-descriptions-item>
               <el-descriptions-item label="Shadow请求">{{ classifierStats.shadow_requests }}</el-descriptions-item>
-              <el-descriptions-item label="平均延迟">{{ classifierStats.avg_llm_latency_ms.toFixed(1) }}ms</el-descriptions-item>
-              <el-descriptions-item label="控制层延迟">{{ classifierStats.avg_control_latency_ms.toFixed(1) }}ms</el-descriptions-item>
+              <el-descriptions-item label="平均延迟">{{ formatDuration(classifierStats.avg_llm_latency_ms) }}</el-descriptions-item>
+              <el-descriptions-item label="控制层延迟">{{ formatDuration(classifierStats.avg_control_latency_ms) }}</el-descriptions-item>
               <el-descriptions-item label="解析错误">{{ classifierStats.parse_errors }}</el-descriptions-item>
               <el-descriptions-item label="控制字段缺失">{{ classifierStats.control_fields_missing }}</el-descriptions-item>
             </el-descriptions>
@@ -418,6 +418,7 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
+import { formatDuration } from '@/utils/format-duration'
 
 interface ModelScore {
   model: string

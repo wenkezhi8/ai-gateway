@@ -228,7 +228,7 @@
             </div>
             <div class="realtime-item">
               <el-icon><Timer /></el-icon>
-              <span class="value">{{ realtimeData.avg_latency_ms || 0 }}ms</span>
+              <span class="value">{{ formatDuration(realtimeData.avg_latency_ms) }}</span>
               <span class="label">平均延迟</span>
             </div>
             <div class="realtime-item" :class="{ 'has-error': realtimeData.error_rate > 1 }">
@@ -320,6 +320,7 @@ import {
   type RealtimeData,
   type DashboardAlert
 } from '@/api/metrics'
+import { formatDuration } from '@/utils/format-duration'
 
 const loading = ref(false)
 const loadError = ref(false)
@@ -361,7 +362,7 @@ const cacheHitRate = computed(() => overviewData.value?.cache_hit_rate?.toFixed(
 // 改动点: 仪表盘顶部指标
 const heroMetrics = computed(() => [
   { label: '缓存命中', value: `${cacheHitRate.value}%` },
-  { label: '平均延迟', value: `${overviewData.value?.avg_latency_ms || 0}ms` },
+  { label: '平均延迟', value: formatDuration(overviewData.value?.avg_latency_ms) },
   { label: '今日请求', value: formatNumber(overviewData.value?.requests_today || 0) },
   { label: '成功率', value: `${(overviewData.value?.success_rate || 0).toFixed(1)}%` }
 ])
@@ -385,7 +386,7 @@ const stats = computed(() => [
   },
   {
     title: '平均延迟',
-    value: `${overviewData.value?.avg_latency_ms || 0}ms`,
+    value: formatDuration(overviewData.value?.avg_latency_ms),
     change: '-8ms',
     trend: 'up',
     icon: 'Timer',

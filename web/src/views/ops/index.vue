@@ -126,12 +126,12 @@
             <el-button type="primary" link size="small">明细</el-button>
           </div>
           <div class="metric-content">
-            <div class="latency-main">{{ realtime.latency_p99 || '-' }} ms <span class="p-label">(P99)</span></div>
-            <div class="metric-row"><span>P95:</span><span>{{ realtime.latency_p95 || '-' }} ms</span></div>
-            <div class="metric-row"><span>P90:</span><span>{{ realtime.latency_p90 || '-' }} ms</span></div>
-            <div class="metric-row"><span>P50:</span><span>{{ realtime.latency_p50 || '-' }} ms</span></div>
-            <div class="metric-row"><span>Avg:</span><span>{{ realtime.latency_avg || '-' }} ms</span></div>
-            <div class="metric-row"><span>Max:</span><span>{{ realtime.latency_max || '-' }} ms</span></div>
+            <div class="latency-main">{{ formatDuration(realtime.latency_p99) }} <span class="p-label">(P99)</span></div>
+            <div class="metric-row"><span>P95:</span><span>{{ formatDuration(realtime.latency_p95) }}</span></div>
+            <div class="metric-row"><span>P90:</span><span>{{ formatDuration(realtime.latency_p90) }}</span></div>
+            <div class="metric-row"><span>P50:</span><span>{{ formatDuration(realtime.latency_p50) }}</span></div>
+            <div class="metric-row"><span>Avg:</span><span>{{ formatDuration(realtime.latency_avg) }}</span></div>
+            <div class="metric-row"><span>Max:</span><span>{{ formatDuration(realtime.latency_max) }}</span></div>
           </div>
         </div>
 
@@ -141,12 +141,12 @@
             <el-button type="primary" link size="small">明细</el-button>
           </div>
           <div class="metric-content">
-            <div class="latency-main">{{ realtime.ttft_p99 || '-' }} ms <span class="p-label">(P99)</span></div>
-            <div class="metric-row"><span>P95:</span><span>{{ realtime.ttft_p95 || '-' }} ms</span></div>
-            <div class="metric-row"><span>P90:</span><span>{{ realtime.ttft_p90 || '-' }} ms</span></div>
-            <div class="metric-row"><span>P50:</span><span>{{ realtime.ttft_p50 || '-' }} ms</span></div>
-            <div class="metric-row"><span>Avg:</span><span>{{ realtime.ttft_avg || '-' }} ms</span></div>
-            <div class="metric-row"><span>Max:</span><span>{{ realtime.ttft_max || '-' }} ms</span></div>
+            <div class="latency-main">{{ formatDuration(realtime.ttft_p99) }} <span class="p-label">(P99)</span></div>
+            <div class="metric-row"><span>P95:</span><span>{{ formatDuration(realtime.ttft_p95) }}</span></div>
+            <div class="metric-row"><span>P90:</span><span>{{ formatDuration(realtime.ttft_p90) }}</span></div>
+            <div class="metric-row"><span>P50:</span><span>{{ formatDuration(realtime.ttft_p50) }}</span></div>
+            <div class="metric-row"><span>Avg:</span><span>{{ formatDuration(realtime.ttft_avg) }}</span></div>
+            <div class="metric-row"><span>Max:</span><span>{{ formatDuration(realtime.ttft_max) }}</span></div>
           </div>
         </div>
 
@@ -253,7 +253,7 @@
               <span class="provider-name">{{ p.name }}</span>
               <div class="provider-info">
                 <el-tag :type="p.status === 'healthy' ? 'success' : 'danger'" size="small">{{ p.status === 'healthy' ? '正常' : '异常' }}</el-tag>
-                <span class="latency">{{ p.latency_ms }} ms</span>
+                <span class="latency">{{ formatDuration(p.latency_ms) }}</span>
               </div>
             </div>
           </div>
@@ -266,6 +266,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { request } from '@/api/request'
+import { formatDuration } from '@/utils/format-duration'
 
 const loading = ref(false)
 const timeRange = ref('1h')
