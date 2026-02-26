@@ -28,11 +28,17 @@ describe('cache-type-meta', () => {
       { id: 'response', hitRate: 75, entries: 12, size: '2 MB', enabled: false }
     ])
 
-    expect(cards[0].id).toBe('response')
-    expect(cards[0].hitRate).toBe(75)
-    expect(cards[0].entries).toBe(12)
-    expect(cards[0].enabled).toBe(false)
-    expect(cards[1].id).toBe('request')
-    expect(cards[1].hitRate).toBe(0)
+    expect(cards[0]).toBeTruthy()
+    expect(cards[1]).toBeTruthy()
+
+    const first = cards[0]!
+    const second = cards[1]!
+
+    expect(first.id).toBe('response')
+    expect(first.hitRate).toBe(75)
+    expect(first.entries).toBe(12)
+    expect(first.enabled).toBe(false)
+    expect(second.id).toBe('request')
+    expect(second.hitRate).toBe(0)
   })
 })

@@ -556,9 +556,7 @@
               </div>
             </el-tab-pane>
 
-          </el-tabs>
-          <!-- FIX: 修复多余闭合标签，恢复布局结构 -->
-        </div>
+      </el-tabs>
     </div>
 
     <!-- 缓存内容详情对话框 -->
@@ -1062,11 +1060,11 @@ const clearCacheType = async (type: CacheTypeCard) => {
 const viewCacheDetail = (type: CacheTypeCard) => {
   cacheDetail.value = {
     ...type,
-    memoryUsage: type.memoryUsage || 0,
-    totalHits: type.totalHits || 0,
-    totalMisses: type.totalMisses || 0,
-    avgResponse: type.avgResponse || '0ms',
-    lastCleared: type.lastCleared || '-'
+    memoryUsage: 0,
+    totalHits: 0,
+    totalMisses: 0,
+    avgResponse: '0ms',
+    lastCleared: '-'
   }
   detailDialogVisible.value = true
 
