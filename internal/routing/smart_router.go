@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -981,9 +982,34 @@ func (r *SmartRouter) getStrategyForAssessment(assessment *AssessmentResult) Str
 		case "balanced":
 			return StrategyAuto
 		}
+		if strategy, ok := r.getStrategyForControlSignals(assessment); ok {
+			return strategy
+		}
 		return r.getStrategyForDifficulty(assessment.Difficulty)
 	}
 	return StrategyAuto
+}
+
+func (r *SmartRouter) getStrategyForControlSignals(assessment *AssessmentResult) (StrategyType, bool) {
+	if assessment == nil || assessment.ControlSignals == nil {
+		return StrategyAuto, false
+	}
+	cfg := r.GetClassifierConfig()
+	if !cfg.Control.Enable || cfg.Control.ShadowOnly {
+		return StrategyAuto, false
+	}
+
+	contextLoad := strings.TrimSpace(strings.ToLower(assessment.ControlSignals.ContextLoad))
+	switch contextLoad {
+	case "high":
+		return StrategyQuality, true
+	case "low":
+		return StrategySpeed, true
+	case "medium":
+		return StrategyAuto, true
+	default:
+		return StrategyAuto, false
+	}
 }
 
 // AssessDifficulty assesses the difficulty of a prompt

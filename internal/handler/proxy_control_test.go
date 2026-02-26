@@ -87,6 +87,19 @@ func TestApplyControlToolGate(t *testing.T) {
 	if len(req3.Tools) == 0 {
 		t.Fatal("expected tools preserved in shadow mode")
 	}
+
+	req4 := &ChatCompletionRequest{DeepThink: true}
+	assessment4 := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{RAGNeeded: boolPtr(false)}}
+	applyControlToolGate(req4, cfg, assessment4)
+	if req4.DeepThink {
+		t.Fatal("expected deepThink disabled when rag_needed=false")
+	}
+
+	req5 := &ChatCompletionRequest{DeepThink: true}
+	applyControlToolGate(req5, shadowCfg, assessment4)
+	if !req5.DeepThink {
+		t.Fatal("expected deepThink preserved in shadow mode")
+	}
 }
 
 func TestBuildSemanticQueryCandidates(t *testing.T) {

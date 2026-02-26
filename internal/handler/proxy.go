@@ -2047,6 +2047,24 @@ func applyControlToolGate(req *ChatCompletionRequest, controlCfg routing.Control
 	if req == nil || !controlCfg.Enable || !controlCfg.ToolGateEnable || assessment == nil || assessment.ControlSignals == nil {
 		return
 	}
+	if assessment.ControlSignals.RAGNeeded != nil && !*assessment.ControlSignals.RAGNeeded && req.DeepThink {
+		if controlCfg.ShadowOnly {
+			logrus.WithFields(logrus.Fields{
+				"task_type":         assessment.TaskType,
+				"difficulty":        assessment.Difficulty,
+				"assessment_source": assessment.Source,
+				"deep_think":        req.DeepThink,
+			}).Info("Control RAG gate shadow decision (no mutation)")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"task_type":         assessment.TaskType,
+				"difficulty":        assessment.Difficulty,
+				"assessment_source": assessment.Source,
+				"deep_think":        req.DeepThink,
+			}).Info("Control RAG gate disabled deep think")
+			req.DeepThink = false
+		}
+	}
 	if assessment.ControlSignals.ToolNeeded == nil {
 		return
 	}

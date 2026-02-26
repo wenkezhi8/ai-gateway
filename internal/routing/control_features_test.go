@@ -76,3 +76,34 @@ func TestSelectModelByControlFit(t *testing.T) {
 		t.Fatalf("expected shadow mode to skip apply, got %s", selected)
 	}
 }
+
+func TestGetStrategyForAssessment_UsesContextLoadWhenControlEnabled(t *testing.T) {
+	r := NewSmartRouter()
+	r.config.Classifier.Control.Enable = true
+	r.config.Classifier.Control.ShadowOnly = false
+
+	assessment := &AssessmentResult{
+		Difficulty: DifficultyLow,
+		ControlSignals: &ControlSignals{
+			ContextLoad: "high",
+		},
+	}
+
+	strategy := r.getStrategyForAssessment(assessment)
+	if strategy != StrategyQuality {
+		t.Fatalf("expected quality strategy for high context load, got %s", strategy)
+	}
+
+	assessment.ControlSignals.ContextLoad = "low"
+	strategy = r.getStrategyForAssessment(assessment)
+	if strategy != StrategySpeed {
+		t.Fatalf("expected speed strategy for low context load, got %s", strategy)
+	}
+
+	r.config.Classifier.Control.ShadowOnly = true
+	assessment.ControlSignals.ContextLoad = "high"
+	strategy = r.getStrategyForAssessment(assessment)
+	if strategy != StrategySpeed {
+		t.Fatalf("expected fallback strategy by difficulty in shadow mode, got %s", strategy)
+	}
+}
