@@ -75,6 +75,26 @@ func TestApplyControlToolGate(t *testing.T) {
 	}
 }
 
+func TestBuildSemanticQueryCandidates(t *testing.T) {
+	candidates := buildSemanticQueryCandidates(true, "norm", "sig", "prompt")
+	if len(candidates) != 3 {
+		t.Fatalf("expected 3 candidates, got %d", len(candidates))
+	}
+	if candidates[0] != "norm" || candidates[1] != "sig" || candidates[2] != "prompt" {
+		t.Fatalf("unexpected candidate order: %#v", candidates)
+	}
+
+	candidates = buildSemanticQueryCandidates(false, "norm", "sig", "sig")
+	if len(candidates) != 1 || candidates[0] != "sig" {
+		t.Fatalf("expected deduped signature candidate, got %#v", candidates)
+	}
+
+	candidates = buildSemanticQueryCandidates(true, "", "", "")
+	if len(candidates) != 0 {
+		t.Fatalf("expected no candidates for empty input, got %#v", candidates)
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }
