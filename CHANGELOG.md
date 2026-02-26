@@ -14,6 +14,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.6.0] - 2026-02-27
+
+### Added
+- Control-layer fields for classifier output: `normalized_query`, `cacheable`, `ttl_band`, `risk_level`, `risk_tags`, `tool_needed`, `rag_needed`, `context_load`, and `model_fit`.
+- Routing UI controls for classifier control toggles and control metrics display on `/routing`.
+- Playwright coverage for control toggles save flow and control stats rendering (`web/tests/scenarios/routing.spec.ts`).
+
+### Changed
+- Semantic cache lookup now supports candidate query chain with optional normalized query path.
+- Stream and non-stream cache write paths now support control-gated behavior (`cacheable`) and control TTL band mapping.
+- Smart router auto selection supports model-fit routing signal when control feature flags are enabled.
+
+### Fixed
+- Fixed control-layer observability gap by adding parse error and control field coverage stats.
+- Fixed inconsistent workflow reporting by requiring version tag in Git status report guidelines.
+
 ## [1.5.1] - 2026-02-26
 
 ### Changed
@@ -64,6 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.6.0 | 2026-02-27 | Add 0.5B control signals, cache/tool gates, router fit selection, and routing control UI |
 | 1.5.1 | 2026-02-26 | Patch release to align version and tag |
 | 1.5.0 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
 | 1.0.0 | 2024-01-01 | Initial release |
