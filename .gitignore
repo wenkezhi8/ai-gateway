@@ -58,6 +58,7 @@ logs/
 # Temporary files
 tmp/
 temp/
+.worktrees/
 
 # Frontend
 web/node_modules/
