@@ -28,6 +28,12 @@ func TestApplyControlTTLBand(t *testing.T) {
 	if got := applyControlTTLBand(base, cfg, signals); got != time.Hour {
 		t.Fatalf("expected short ttl mapping, got %v", got)
 	}
+
+	ruleMatchedTTL := 2 * time.Hour
+	signals.TTLBand = "long"
+	if got := applyControlTTLBand(ruleMatchedTTL, cfg, signals); got != 7*24*time.Hour {
+		t.Fatalf("expected control ttl to override matched rule ttl, got %v", got)
+	}
 }
 
 func TestShouldAllowCacheWrite(t *testing.T) {

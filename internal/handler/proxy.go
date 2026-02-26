@@ -188,12 +188,12 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		logControlRoutingSignals(assessment)
 	}
 	applyControlToolGate(&req, controlCfg, assessment)
-	recommendedTTL = applyControlTTLBand(recommendedTTL, controlCfg, assessment.ControlSignals)
-	cacheWriteAllowed := shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
 	}
+	recommendedTTL = applyControlTTLBand(recommendedTTL, controlCfg, assessment.ControlSignals)
+	cacheWriteAllowed := shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
 
 	cacheSettings := cache.DefaultCacheSettings()
 	if h.cache != nil {
