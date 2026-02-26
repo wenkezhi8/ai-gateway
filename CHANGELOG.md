@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.6.5] - 2026-02-27
+
+### Added
+- Control-layer strategy support for `context_load` hints to influence auto strategy selection when enabled.
+- Control-layer RAG gate behavior that can disable deep-think path when `rag_needed=false`.
+- Operations runbook for control rollout and rollback: `docs/control-layer-operations.md`.
+
+### Fixed
+- Control TTL band now applies after rule-store TTL matching, ensuring control signal precedence is effective.
+
 ## [1.6.4] - 2026-02-27
 
 ### Changed
@@ -107,6 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.6.5 | 2026-02-27 | Add context-load and RAG gating controls, fix TTL precedence, and add control ops runbook |
 | 1.6.4 | 2026-02-27 | Add shadow-only observability for control tool gate and model-fit routing |
 | 1.6.3 | 2026-02-27 | Add parser and semantic-candidate coverage for control-layer safety |
 | 1.6.2 | 2026-02-27 | Add control-layer unit tests and update workflow card for direct final-result delivery |
