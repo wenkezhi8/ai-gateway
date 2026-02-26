@@ -1084,6 +1084,8 @@ func (h *ProxyHandler) handleStreamResponse(
 	var totalTokens int
 	var fullContent strings.Builder
 	receivedChunks := 0
+	hasReasoningOutput := false
+	fallbackNeeded := false
 
 	// Stream chunks to client
 	for chunk := range stream {
@@ -1095,8 +1097,16 @@ func (h *ProxyHandler) handleStreamResponse(
 			if ch.Delta != nil && ch.Delta.Content != "" {
 				fullContent.WriteString(ch.Delta.Content)
 			}
+			if ch.Delta != nil && (strings.TrimSpace(ch.Delta.ReasoningContent) != "" || strings.TrimSpace(ch.Delta.Reasoning) != "") {
+				hasReasoningOutput = true
+			}
 		}
 		if chunk.Done {
+			if strings.TrimSpace(fullContent.String()) == "" && !hasReasoningOutput {
+				fallbackNeeded = true
+				break
+			}
+
 			// Send the final chunk with usage (if present) before [DONE]
 			if chunk.Usage != nil || len(chunk.Choices) > 0 {
 				streamResp := StreamingResponse{
@@ -1260,7 +1270,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		c.Writer.Flush()
 	}
 
-	if receivedChunks == 0 {
+	if receivedChunks == 0 || fallbackNeeded {
 		// Some providers may return an empty stream even though non-stream works.
 		// Fallback to a non-stream request and convert it to SSE payload.
 		nonStreamReq := *req
