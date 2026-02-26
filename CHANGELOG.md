@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
+## [1.6.3] - 2026-02-27
+
+### Added
+- Unit tests for classifier control-signal parsing, clamp behavior, and parse-error wrapping.
+- Unit tests for semantic query candidate chain ordering and dedup behavior in proxy control flow.
+
 ## [1.6.2] - 2026-02-27
 
 ### Added
@@ -93,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 1.6.3 | 2026-02-27 | Add parser and semantic-candidate coverage for control-layer safety |
 | 1.6.2 | 2026-02-27 | Add control-layer unit tests and update workflow card for direct final-result delivery |
 | 1.6.1 | 2026-02-27 | Fix control config clamp to preserve sub-toggle values when control master switch is off |
 | 1.6.0 | 2026-02-27 | Add 0.5B control signals, cache/tool gates, router fit selection, and routing control UI |
