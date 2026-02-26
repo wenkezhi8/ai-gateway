@@ -840,7 +840,7 @@ const dedupConfig = reactive({
 const summaryStats = computed(() => [
   {
     title: '整体命中率',
-    value: `${overallStats.hitRate.toFixed(1)}%`,
+    value: `${overallStats.hitRate}%`,
     subtitle: '全量缓存',
     icon: 'CircleCheckFilled',
     color: '#2563eb'
