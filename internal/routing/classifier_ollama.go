@@ -179,6 +179,7 @@ func buildClassifierPrompt(prompt, contextText string) string {
 可选 difficulty: low, medium, high
 可选 route_hint: speed, balanced, quality, reasoning_first
 可选 ttl_band: short, medium, long
+可选 risk_level: none, low, medium, high
 
 输出 JSON 字段:
 {
@@ -192,7 +193,9 @@ func buildClassifierPrompt(prompt, contextText string) string {
   "query_stability_score":0.0,
   "cacheable":true,
   "cache_reason":"",
-  "ttl_band":"medium"
+  "ttl_band":"medium",
+  "risk_level":"none",
+  "risk_tags":[]
 }
 
 用户输入:
@@ -219,17 +222,19 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	raw = strings.TrimSpace(raw)
 
 	var data struct {
-		TaskType            string  `json:"task_type"`
-		Difficulty          string  `json:"difficulty"`
-		Confidence          float64 `json:"confidence"`
-		SemanticSignature   string  `json:"semantic_signature"`
-		RouteHint           string  `json:"route_hint"`
-		ControlVersion      string  `json:"control_version"`
-		NormalizedQuery     string  `json:"normalized_query"`
-		QueryStabilityScore float64 `json:"query_stability_score"`
-		Cacheable           *bool   `json:"cacheable"`
-		CacheReason         string  `json:"cache_reason"`
-		TTLBand             string  `json:"ttl_band"`
+		TaskType            string   `json:"task_type"`
+		Difficulty          string   `json:"difficulty"`
+		Confidence          float64  `json:"confidence"`
+		SemanticSignature   string   `json:"semantic_signature"`
+		RouteHint           string   `json:"route_hint"`
+		ControlVersion      string   `json:"control_version"`
+		NormalizedQuery     string   `json:"normalized_query"`
+		QueryStabilityScore float64  `json:"query_stability_score"`
+		Cacheable           *bool    `json:"cacheable"`
+		CacheReason         string   `json:"cache_reason"`
+		TTLBand             string   `json:"ttl_band"`
+		RiskLevel           string   `json:"risk_level"`
+		RiskTags            []string `json:"risk_tags"`
 	}
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
 		return nil, fmt.Errorf("%w: parse classifier json: %v", ErrClassifierParseOutput, err)
@@ -254,6 +259,8 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 		data.Cacheable,
 		data.CacheReason,
 		data.TTLBand,
+		data.RiskLevel,
+		data.RiskTags,
 	)
 
 	result := &AssessmentResult{
@@ -267,11 +274,12 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	return result, nil
 }
 
-func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand string) *ControlSignals {
+func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string) *ControlSignals {
 	controlVersion = strings.TrimSpace(controlVersion)
 	normalizedQuery = strings.TrimSpace(normalizedQuery)
 	cacheReason = strings.TrimSpace(cacheReason)
 	ttlBand = strings.TrimSpace(ttlBand)
+	riskLevel = strings.TrimSpace(strings.ToLower(riskLevel))
 
 	if queryStabilityScore < 0 || queryStabilityScore > 1 {
 		queryStabilityScore = 0
@@ -281,8 +289,27 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 	default:
 		ttlBand = ""
 	}
+	switch riskLevel {
+	case "none", "low", "medium", "high", "":
+	default:
+		riskLevel = ""
+	}
 
-	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" {
+	cleanRiskTags := make([]string, 0, len(riskTags))
+	seen := make(map[string]struct{}, len(riskTags))
+	for _, tag := range riskTags {
+		t := strings.TrimSpace(strings.ToLower(tag))
+		if t == "" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		cleanRiskTags = append(cleanRiskTags, t)
+	}
+
+	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 {
 		return nil
 	}
 
@@ -293,6 +320,8 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		Cacheable:           cacheable,
 		CacheReason:         cacheReason,
 		TTLBand:             ttlBand,
+		RiskLevel:           riskLevel,
+		RiskTags:            cleanRiskTags,
 	}
 }
 

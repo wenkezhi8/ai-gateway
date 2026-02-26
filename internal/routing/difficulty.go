@@ -387,12 +387,14 @@ type AssessmentResult struct {
 }
 
 type ControlSignals struct {
-	ControlVersion      string  `json:"control_version,omitempty"`
-	NormalizedQuery     string  `json:"normalized_query,omitempty"`
-	QueryStabilityScore float64 `json:"query_stability_score,omitempty"`
-	Cacheable           *bool   `json:"cacheable,omitempty"`
-	CacheReason         string  `json:"cache_reason,omitempty"`
-	TTLBand             string  `json:"ttl_band,omitempty"`
+	ControlVersion      string   `json:"control_version,omitempty"`
+	NormalizedQuery     string   `json:"normalized_query,omitempty"`
+	QueryStabilityScore float64  `json:"query_stability_score,omitempty"`
+	Cacheable           *bool    `json:"cacheable,omitempty"`
+	CacheReason         string   `json:"cache_reason,omitempty"`
+	TTLBand             string   `json:"ttl_band,omitempty"`
+	RiskLevel           string   `json:"risk_level,omitempty"`
+	RiskTags            []string `json:"risk_tags,omitempty"`
 }
 
 // AssessWithResult returns detailed assessment result

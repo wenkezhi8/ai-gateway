@@ -181,6 +181,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if assessment.ControlSignals != nil {
 		normalizedQuery = strings.TrimSpace(assessment.ControlSignals.NormalizedQuery)
 	}
+	if controlCfg.Enable && controlCfg.RiskTagEnable {
+		logControlRiskSignals(assessment)
+	}
+	recommendedTTL = applyControlTTLBand(recommendedTTL, controlCfg, assessment.ControlSignals)
+	cacheWriteAllowed := shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
@@ -426,7 +431,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
+		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
 		return
 	}
 
@@ -541,12 +546,13 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Cache the response if applicable
 	logrus.WithFields(logrus.Fields{
-		"cache_enabled":      cacheEnabled,
-		"response_cache_nil": h.cache == nil || h.cache.ResponseCache == nil,
-		"recommended_ttl":    recommendedTTL,
+		"cache_enabled":       cacheEnabled,
+		"cache_write_allowed": cacheWriteAllowed,
+		"response_cache_nil":  h.cache == nil || h.cache.ResponseCache == nil,
+		"recommended_ttl":     recommendedTTL,
 	}).Info("Cache check")
 
-	if cacheEnabled && h.cache.ResponseCache != nil && hasMeaningfulAssistantResponse(&response) {
+	if cacheEnabled && cacheWriteAllowed && h.cache.ResponseCache != nil && hasMeaningfulAssistantResponse(&response) {
 		responseBody, _ := json.Marshal(response)
 		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
 		cachedResp := &cache.CachedResponse{
@@ -581,6 +587,17 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			"task_type": assessment.TaskType,
 			"cache_key": cacheKey,
 		}).Info("Response cached")
+	} else if !cacheWriteAllowed {
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": assessment.TaskType,
+			"cache_reason": func() string {
+				if assessment.ControlSignals == nil {
+					return ""
+				}
+				return assessment.ControlSignals.CacheReason
+			}(),
+		}).Info("Response cache write skipped by control signal")
 	} else if recommendedTTL == 0 {
 		logrus.WithFields(logrus.Fields{
 			"model":     req.Model,
@@ -594,7 +611,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Store in semantic cache for similar query matching
 	// 改动点: 存储到语义缓存供相似请求复用
-	if allowSemantic && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
+	if allowSemantic && cacheWriteAllowed && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
 		responseBody, _ := json.Marshal(response)
 		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
 		h.semanticCache.Set(
@@ -1133,6 +1150,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	semanticQuery string,
 	allowSemantic bool,
 	cacheEnabled bool,
+	cacheWriteAllowed bool,
 	recommendedTTL time.Duration,
 	taskType string,
 	taskTypeSource string,
@@ -1245,7 +1263,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 			// Record stream response into cache for observability/management page
 			// Skip caching when provider returned no text content to avoid empty-cache pollution.
-			if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
+			if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
 				responsePayload := map[string]interface{}{
 					"id":               chunk.ID,
 					"object":           "chat.completion",
@@ -1483,7 +1501,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		c.Writer.Flush()
 
 		// Persist fallback response to response cache to avoid repeated upstream empty-stream misses.
-		if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+		if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
 			responsePayload := map[string]interface{}{
 				"id":      id,
 				"object":  "chat.completion",
@@ -1996,6 +2014,52 @@ func semanticThresholdForDifficulty(base float64, difficulty routing.DifficultyL
 	default:
 		return base
 	}
+}
+
+func applyControlTTLBand(baseTTL time.Duration, controlCfg routing.ControlConfig, signals *routing.ControlSignals) time.Duration {
+	if !controlCfg.Enable || controlCfg.ShadowOnly || !controlCfg.CacheWriteGateEnable || signals == nil {
+		return baseTTL
+	}
+	switch strings.ToLower(strings.TrimSpace(signals.TTLBand)) {
+	case "short":
+		return time.Hour
+	case "medium":
+		return 24 * time.Hour
+	case "long":
+		return 7 * 24 * time.Hour
+	default:
+		return baseTTL
+	}
+}
+
+func shouldAllowCacheWrite(controlCfg routing.ControlConfig, signals *routing.ControlSignals) bool {
+	if !controlCfg.Enable || controlCfg.ShadowOnly || !controlCfg.CacheWriteGateEnable || signals == nil || signals.Cacheable == nil {
+		return true
+	}
+	return *signals.Cacheable
+}
+
+func logControlRiskSignals(assessment *routing.AssessmentResult) {
+	if assessment == nil || assessment.ControlSignals == nil {
+		return
+	}
+	riskLevel := strings.TrimSpace(strings.ToLower(assessment.ControlSignals.RiskLevel))
+	if riskLevel == "" && len(assessment.ControlSignals.RiskTags) == 0 {
+		return
+	}
+	fields := logrus.Fields{
+		"task_type":         assessment.TaskType,
+		"difficulty":        assessment.Difficulty,
+		"risk_level":        riskLevel,
+		"risk_tags":         assessment.ControlSignals.RiskTags,
+		"fallback_reason":   assessment.FallbackReason,
+		"assessment_source": assessment.Source,
+	}
+	if riskLevel == "high" {
+		logrus.WithFields(fields).Warn("Control risk signal detected")
+		return
+	}
+	logrus.WithFields(fields).Info("Control risk signal observed")
 }
 
 func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, semanticSignature, prompt string) []string {
