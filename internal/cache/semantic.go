@@ -158,6 +158,7 @@ type SemanticCache struct {
 	backend         Cache          // 可选：Redis 缓存后端
 	qualityChecker  QualityChecker // 质量校验器
 	minQualityScore float64        // 最低质量分阈值
+	persistCh       chan semanticPersistJob
 }
 
 // SemanticCacheStats tracks semantic cache statistics
@@ -198,11 +199,13 @@ func NewSemanticCache(config SemanticCacheConfig, backend Cache) *SemanticCache 
 		backend:         backend,
 		qualityChecker:  NewDefaultQualityChecker(),
 		minQualityScore: 60.0, // 默认最低质量分
+		persistCh:       make(chan semanticPersistJob, 512),
 	}
 
 	// 如果有后端，从后端加载缓存
 	if backend != nil {
 		cache.loadFromBackend()
+		go cache.persistLoop()
 	}
 
 	return cache
@@ -349,12 +352,14 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 
 	// 如果有后端，存储到后端
 	if c.backend != nil {
-		go func() {
-			data, err := json.Marshal(entry)
-			if err == nil {
-				c.backend.Set(context.Background(), "semantic:"+id, data, ttl)
+		data, err := json.Marshal(entry)
+		if err == nil {
+			select {
+			case c.persistCh <- semanticPersistJob{key: "semantic:" + id, data: data, ttl: ttl}:
+			default:
+				semanticLogger.WithField("query_id", id).Warn("Semantic cache persist queue full, dropping entry")
 			}
-		}()
+		}
 	}
 
 	semanticLogger.WithFields(logrus.Fields{
@@ -609,6 +614,20 @@ func (c *SemanticCache) SetTTL(id string, ttl time.Duration) bool {
 		return true
 	}
 	return false
+}
+
+type semanticPersistJob struct {
+	key  string
+	data []byte
+	ttl  time.Duration
+}
+
+func (c *SemanticCache) persistLoop() {
+	for job := range c.persistCh {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = c.backend.Set(ctx, job.key, job.data, job.ttl)
+		cancel()
+	}
 }
 
 // FindSimilar finds entries similar to the given query vector
