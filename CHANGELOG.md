@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enterprise optimization: pre-commit hooks configuration
 - Enterprise optimization: Enhanced Makefile with CI commands
 
-## [1.4.9] - 2026-02-26
+## [1.5.0] - 2026-02-26
 
 ### Added
 - Admin router endpoint `GET /api/admin/router/classifier/models` to return classifier candidate models for manual switching.
@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
-| 1.4.9 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
+| 1.5.0 | 2026-02-26 | Fix classifier model list source, add routing classifier e2e coverage |
 | 1.0.0 | 2024-01-01 | Initial release |
 
 ---
