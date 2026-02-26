@@ -95,6 +95,8 @@
         <el-table-column prop="firstTokenLatency" label="首 Token 耗时" min-width="140" align="right" />
         <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
         <el-table-column prop="model" label="模型" min-width="170" />
+        <el-table-column prop="experimentTag" label="实验标签" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="domainTag" label="领域标签" min-width="120" show-overflow-tooltip />
         <el-table-column label="入 Token" min-width="120" align="right">
           <template #default="{ row }">
             {{ formatCompact(row.inputTokens) }}
@@ -157,6 +159,8 @@ interface UsageRow {
   firstTokenSeconds: number
   totalDurationSeconds: number
   model: string
+  experimentTag: string
+  domainTag: string
   inputTokens: number
   outputTokens: number
   totalTokens: number
@@ -329,6 +333,8 @@ const fetchUsageLogs = async () => {
         firstTokenSeconds: ttftMs / 1000,
         totalDurationSeconds: log.latency_ms / 1000,
         model: log.model || '-',
+        experimentTag: String(log.experiment_tag || '-'),
+        domainTag: String(log.domain_tag || '-'),
         inputTokens,
         outputTokens,
         totalTokens,
@@ -362,7 +368,7 @@ const resetFilters = async () => {
 }
 
 const exportCsv = () => {
-  const header = ['API Key账号', '服务商', '最近时间', '首Token耗时', '总耗时', '模型', '入Token', '出Token', '总Token', '缓存命中', '费用']
+  const header = ['API Key账号', '服务商', '最近时间', '首Token耗时', '总耗时', '模型', '实验标签', '领域标签', '入Token', '出Token', '总Token', '缓存命中', '费用']
   const lines = filteredRows.value.map(row => [
     row.accountName,
     row.provider,
@@ -370,6 +376,8 @@ const exportCsv = () => {
     row.firstTokenLatency,
     row.totalLatency,
     row.model,
+    row.experimentTag,
+    row.domainTag,
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,

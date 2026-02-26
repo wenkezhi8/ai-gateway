@@ -178,8 +178,12 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	classifierCfg := h.smartRouter.GetClassifierConfig()
 	controlCfg := classifierCfg.Control
 	normalizedQuery := ""
+	experimentTag := ""
+	domainTag := ""
 	if assessment.ControlSignals != nil {
 		normalizedQuery = strings.TrimSpace(assessment.ControlSignals.NormalizedQuery)
+		experimentTag = strings.TrimSpace(assessment.ControlSignals.ExperimentTag)
+		domainTag = strings.TrimSpace(assessment.ControlSignals.DomainTag)
 	}
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
@@ -293,7 +297,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
 			tokens := extractTotalTokensFromBody(semanticEntry.Response)
-			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
+			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
 			c.Header("X-Local-Cache-Hit", "1")
 			if req.Stream {
@@ -324,7 +328,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				}).Info("Response cache hit")
 
 				tokens := extractTotalTokensFromBody(cached.Body)
-				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
+				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
 				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 				c.Header("X-Local-Cache-Hit", "1")
@@ -443,7 +447,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID)
+		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
 		return
 	}
 
@@ -497,7 +501,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
@@ -517,7 +521,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "")
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
@@ -533,7 +537,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if providerName == "" && targetProvider != nil {
 		providerName = targetProvider.Name()
 	}
-	h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, string(assessment.TaskType), string(assessment.Difficulty), "")
+	h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
 	// Record successful model name mapping if different from original
@@ -1171,6 +1175,8 @@ func (h *ProxyHandler) handleStreamResponse(
 	cacheModelDimension string,
 	cacheKeyPayload interface{},
 	originalModelID string,
+	experimentTag string,
+	domainTag string,
 ) {
 	startTime := time.Now()
 
@@ -1187,7 +1193,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	stream, err := p.StreamChat(ctx, req)
 	if err != nil {
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
@@ -1265,7 +1271,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, 0, promptTokens, taskType, string(difficulty), "")
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, 0, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
 
 			// Record successful model name mapping if different from original
@@ -1435,7 +1441,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		if err != nil {
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty stream and fallback failed: " + err.Error()})
 			c.Writer.Flush()
@@ -1444,7 +1450,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		if resp == nil || len(resp.Choices) == 0 {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
@@ -1454,7 +1460,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		content := getTextContent(resp.Choices[0].Message.Content)
 		if strings.TrimSpace(content) == "" {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "")
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
@@ -1580,7 +1586,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		latency := time.Since(startTime)
 		// CHANGED: include provider/user/api info and prompt tokens in usage logs for fallback success.
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, taskType, string(difficulty), "")
+		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
 
 		// Record successful model name mapping if fallback used a different model
@@ -1919,10 +1925,10 @@ func (h *ProxyHandler) ListModels(c *gin.Context) {
 
 // recordMetrics records request metrics
 func (h *ProxyHandler) recordMetrics(userID, apiKey, model string, latency time.Duration, tokens int, success bool) {
-	h.recordMetricsExtended(userID, apiKey, model, "", latency, tokens, success, false, 0, 0, "", "", "")
+	h.recordMetricsExtended(userID, apiKey, model, "", latency, tokens, success, false, 0, 0, "", "", "", "", "")
 }
 
-func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType string) {
+func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType, experimentTag, domainTag string) {
 	// Update dashboard stats
 	if dh := admin.GetDashboardHandler(); dh != nil {
 		dh.UpdateStats(success, latency.Milliseconds(), int64(tokens), model)
@@ -1940,21 +1946,23 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 			}
 		}
 		storage.LogUsage(map[string]interface{}{
-			"timestamp":     time.Now().UnixMilli(),
-			"model":         model,
-			"provider":      provider,
-			"user_id":       userID,
-			"api_key":       apiKeyDisplay,
-			"tokens":        int64(tokens),
-			"input_tokens":  int64(inputTokens),
-			"output_tokens": int64(tokens - inputTokens),
-			"latency_ms":    latency.Milliseconds(),
-			"ttft_ms":       ttftMs,
-			"cache_hit":     cacheHit,
-			"success":       success,
-			"task_type":     taskType,
-			"difficulty":    difficulty,
-			"error_type":    errorType,
+			"timestamp":      time.Now().UnixMilli(),
+			"model":          model,
+			"provider":       provider,
+			"user_id":        userID,
+			"api_key":        apiKeyDisplay,
+			"tokens":         int64(tokens),
+			"input_tokens":   int64(inputTokens),
+			"output_tokens":  int64(tokens - inputTokens),
+			"latency_ms":     latency.Milliseconds(),
+			"ttft_ms":        ttftMs,
+			"cache_hit":      cacheHit,
+			"success":        success,
+			"task_type":      taskType,
+			"difficulty":     difficulty,
+			"error_type":     errorType,
+			"experiment_tag": experimentTag,
+			"domain_tag":     domainTag,
 		})
 	}
 
