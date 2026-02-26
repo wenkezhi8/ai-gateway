@@ -184,6 +184,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
 	}
+	for k, v := range buildControlHeaders(controlCfg, assessment) {
+		c.Header(k, v)
+	}
 	if shouldBlockByRisk(controlCfg, assessment) {
 		Error(c, http.StatusForbidden, "risk_blocked", "Request blocked by control risk policy")
 		return
@@ -1927,8 +1930,9 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 
 	// Log to storage for usage tracking
 	if storage := storage.GetSQLite(); storage != nil {
-		apiKeyDisplay := maskAPIKey(apiKey)
+		apiKeyDisplay := ""
 		if apiKey != "" {
+			apiKeyDisplay = maskAPIKey(apiKey)
 			if keyHandler := admin.GetApiKeyHandler(); keyHandler != nil {
 				if name := keyHandler.FindNameByKey(apiKey); name != "" {
 					apiKeyDisplay = name
@@ -2189,8 +2193,24 @@ func logControlRoutingSignals(assessment *routing.AssessmentResult) {
 		"difficulty":        assessment.Difficulty,
 		"context_load":      contextLoad,
 		"model_fit_count":   len(assessment.ControlSignals.ModelFit),
+		"experiment_tag":    assessment.ControlSignals.ExperimentTag,
+		"domain_tag":        assessment.ControlSignals.DomainTag,
 		"assessment_source": assessment.Source,
 	}).Info("Control routing signal observed")
+}
+
+func buildControlHeaders(controlCfg routing.ControlConfig, assessment *routing.AssessmentResult) map[string]string {
+	headers := map[string]string{}
+	if !controlCfg.Enable || assessment == nil || assessment.ControlSignals == nil {
+		return headers
+	}
+	if v := strings.TrimSpace(assessment.ControlSignals.ExperimentTag); v != "" {
+		headers["X-Control-Experiment"] = v
+	}
+	if v := strings.TrimSpace(assessment.ControlSignals.DomainTag); v != "" {
+		headers["X-Control-Domain"] = v
+	}
+	return headers
 }
 
 func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, semanticSignature, prompt string) []string {

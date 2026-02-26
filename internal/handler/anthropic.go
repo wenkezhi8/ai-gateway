@@ -108,6 +108,9 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
 	}
+	for k, v := range buildControlHeaders(controlCfg, assessment) {
+		c.Header(k, v)
+	}
 	if shouldBlockByRisk(controlCfg, assessment) {
 		h.writeAnthropicError(c, http.StatusForbidden, "permission_error", "Request blocked by control risk policy")
 		return

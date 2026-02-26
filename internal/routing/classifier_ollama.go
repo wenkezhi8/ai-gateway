@@ -203,7 +203,9 @@ func buildClassifierPrompt(prompt, contextText string) string {
   "model_fit":{"gpt-4o-mini":0.72},
   "recommended_temperature":0.2,
   "recommended_top_p":0.95,
-  "recommended_max_tokens":1024
+  "recommended_max_tokens":1024,
+  "experiment_tag":"ctrl-exp-a",
+  "domain_tag":"general"
 }
 
 用户输入:
@@ -250,6 +252,8 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 		RecommendedTemperature *float64           `json:"recommended_temperature"`
 		RecommendedTopP        *float64           `json:"recommended_top_p"`
 		RecommendedMaxTokens   *int               `json:"recommended_max_tokens"`
+		ExperimentTag          string             `json:"experiment_tag"`
+		DomainTag              string             `json:"domain_tag"`
 	}
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
 		return nil, fmt.Errorf("%w: parse classifier json: %v", ErrClassifierParseOutput, err)
@@ -283,6 +287,8 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 		data.RecommendedTemperature,
 		data.RecommendedTopP,
 		data.RecommendedMaxTokens,
+		data.ExperimentTag,
+		data.DomainTag,
 	)
 
 	result := &AssessmentResult{
@@ -296,13 +302,15 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	return result, nil
 }
 
-func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64, recommendedTemperature, recommendedTopP *float64, recommendedMaxTokens *int) *ControlSignals {
+func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64, recommendedTemperature, recommendedTopP *float64, recommendedMaxTokens *int, experimentTag, domainTag string) *ControlSignals {
 	controlVersion = strings.TrimSpace(controlVersion)
 	normalizedQuery = strings.TrimSpace(normalizedQuery)
 	cacheReason = strings.TrimSpace(cacheReason)
 	ttlBand = strings.TrimSpace(ttlBand)
 	riskLevel = strings.TrimSpace(strings.ToLower(riskLevel))
 	contextLoad = strings.TrimSpace(strings.ToLower(contextLoad))
+	experimentTag = normalizeSignalTag(experimentTag)
+	domainTag = normalizeSignalTag(domainTag)
 
 	if queryStabilityScore < 0 || queryStabilityScore > 1 {
 		queryStabilityScore = 0
@@ -365,7 +373,7 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		}
 	}
 
-	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 && toolNeeded == nil && ragNeeded == nil && contextLoad == "" && len(cleanModelFit) == 0 && recommendedTemperature == nil && recommendedTopP == nil && recommendedMaxTokens == nil {
+	if controlVersion == "" && normalizedQuery == "" && queryStabilityScore == 0 && cacheable == nil && cacheReason == "" && ttlBand == "" && riskLevel == "" && len(cleanRiskTags) == 0 && toolNeeded == nil && ragNeeded == nil && contextLoad == "" && len(cleanModelFit) == 0 && recommendedTemperature == nil && recommendedTopP == nil && recommendedMaxTokens == nil && experimentTag == "" && domainTag == "" {
 		return nil
 	}
 
@@ -385,7 +393,29 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		RecommendedTemperature: recommendedTemperature,
 		RecommendedTopP:        recommendedTopP,
 		RecommendedMaxTokens:   recommendedMaxTokens,
+		ExperimentTag:          experimentTag,
+		DomainTag:              domainTag,
 	}
+}
+
+func normalizeSignalTag(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+	buf := make([]rune, 0, len(raw))
+	for _, r := range raw {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			buf = append(buf, r)
+		}
+		if len(buf) >= 64 {
+			break
+		}
+	}
+	if len(buf) == 0 {
+		return ""
+	}
+	return string(buf)
 }
 
 func isSupportedTaskType(taskType TaskType) bool {

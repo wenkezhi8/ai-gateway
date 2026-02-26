@@ -174,6 +174,27 @@ func TestApplyControlGenerationHints(t *testing.T) {
 	}
 }
 
+func TestBuildControlHeaders(t *testing.T) {
+	cfg := routing.ControlConfig{Enable: true}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{
+		ExperimentTag: "exp-a",
+		DomainTag:     "coding",
+	}}
+
+	headers := buildControlHeaders(cfg, assessment)
+	if headers["X-Control-Experiment"] != "exp-a" {
+		t.Fatalf("unexpected experiment header: %#v", headers)
+	}
+	if headers["X-Control-Domain"] != "coding" {
+		t.Fatalf("unexpected domain header: %#v", headers)
+	}
+
+	headers = buildControlHeaders(routing.ControlConfig{Enable: false}, assessment)
+	if len(headers) != 0 {
+		t.Fatalf("expected no headers when control disabled, got %#v", headers)
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
 }

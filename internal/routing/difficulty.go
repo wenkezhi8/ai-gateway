@@ -402,6 +402,8 @@ type ControlSignals struct {
 	RecommendedTemperature *float64           `json:"recommended_temperature,omitempty"`
 	RecommendedTopP        *float64           `json:"recommended_top_p,omitempty"`
 	RecommendedMaxTokens   *int               `json:"recommended_max_tokens,omitempty"`
+	ExperimentTag          string             `json:"experiment_tag,omitempty"`
+	DomainTag              string             `json:"domain_tag,omitempty"`
 }
 
 // AssessWithResult returns detailed assessment result

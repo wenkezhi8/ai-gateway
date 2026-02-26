@@ -26,7 +26,9 @@ func TestParseClassifierOutput_WithControlSignals(t *testing.T) {
   "model_fit":{"gpt-4o-mini":0.72,"invalid":1.8},
   "recommended_temperature":0.2,
   "recommended_top_p":0.9,
-  "recommended_max_tokens":1024
+  "recommended_max_tokens":1024,
+  "experiment_tag":"ctrl-exp-a",
+  "domain_tag":"coding"
 }`
 
 	result, err := parseClassifierOutput(raw)
@@ -73,6 +75,12 @@ func TestParseClassifierOutput_WithControlSignals(t *testing.T) {
 	if result.ControlSignals.RecommendedMaxTokens == nil || *result.ControlSignals.RecommendedMaxTokens != 1024 {
 		t.Fatal("expected recommended max_tokens 1024")
 	}
+	if result.ControlSignals.ExperimentTag != "ctrl-exp-a" {
+		t.Fatalf("expected experiment tag ctrl-exp-a, got %s", result.ControlSignals.ExperimentTag)
+	}
+	if result.ControlSignals.DomainTag != "coding" {
+		t.Fatalf("expected domain tag coding, got %s", result.ControlSignals.DomainTag)
+	}
 }
 
 func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
@@ -90,7 +98,9 @@ func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
   "model_fit":{"x":-1},
   "recommended_temperature":3,
   "recommended_top_p":2,
-  "recommended_max_tokens":99999
+  "recommended_max_tokens":99999,
+  "experiment_tag":"@@@",
+  "domain_tag":"Domain*Tag"
 }`
 
 	result, err := parseClassifierOutput(raw)
@@ -124,6 +134,12 @@ func TestParseClassifierOutput_InvalidControlValuesAreClamped(t *testing.T) {
 	}
 	if result.ControlSignals.RecommendedMaxTokens != nil {
 		t.Fatal("expected invalid recommended_max_tokens dropped")
+	}
+	if result.ControlSignals.ExperimentTag != "" {
+		t.Fatal("expected invalid experiment tag dropped")
+	}
+	if result.ControlSignals.DomainTag != "domaintag" {
+		t.Fatalf("expected normalized domain tag domaintag, got %s", result.ControlSignals.DomainTag)
 	}
 }
 

@@ -60,6 +60,13 @@ No restart is required for config changes.
 - Tool invocation ratio (before/after `tool_gate_enable`)
 - Request latency (P95/P99)
 
+## Response Headers
+
+When control labels are provided by classifier output and control is enabled:
+
+- `X-Control-Experiment`: experiment tag
+- `X-Control-Domain`: domain tag
+
 ## Decision Semantics
 
 - `shadow_only=true`
