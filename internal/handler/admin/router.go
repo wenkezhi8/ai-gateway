@@ -23,6 +23,9 @@ type RouterHandler struct {
 	router          *routing.SmartRouter
 	mu              sync.RWMutex
 	switchTaskStore *classifierSwitchTaskStore
+	nowFn           func() time.Time
+	sleepFn         func(time.Duration)
+	probeSwitchFn   func(targetModel, originalModel string) error
 }
 
 // NewRouterHandler creates a new router handler
@@ -36,6 +39,9 @@ func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 		router:          router,
 		switchTaskStore: taskStore,
 	}
+	h.nowFn = time.Now
+	h.sleepFn = time.Sleep
+	h.probeSwitchFn = h.probeAndApplyClassifierSwitch
 	h.loadConfig()
 	return h
 }
@@ -972,6 +978,7 @@ func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
 	if h.router != nil {
 		originalModel = h.router.GetClassifierConfig().ActiveModel
 	}
+	deadline := h.nowFn().Add(constants.AdminClassifierSwitchAsyncMaxWait).UnixMilli()
 	task := &ClassifierSwitchTask{
 		TaskID:        taskID,
 		TargetModel:   req.Model,
@@ -979,13 +986,15 @@ func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
 		Status:        ClassifierSwitchTaskStatusPending,
 		StartedAt:     now,
 		UpdatedAt:     now,
-		DeadlineAt:    now,
+		DeadlineAt:    deadline,
 		Attempts:      0,
 	}
 	if err := h.switchTaskStore.Create(task); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "task_create_failed", "message": err.Error()}})
 		return
 	}
+
+	go h.executeSwitchTask(taskID)
 
 	c.JSON(202, gin.H{
 		"success": true,

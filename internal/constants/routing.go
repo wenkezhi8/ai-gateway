@@ -35,14 +35,17 @@ const (
 )
 
 const (
-	AdminResolveClassifierBaseTimeout = 2 * time.Second
-	AdminResolveClassifierMaxTimeout  = 5 * time.Second
-	AdminClassifierHealthTimeout      = 5 * time.Second
-	AdminOllamaCheckTimeout           = 3 * time.Second
-	AdminOllamaInstallTimeout         = 20 * time.Minute
-	AdminOllamaStartCommandTimeout    = 10 * time.Second
-	AdminOllamaStartReadyDeadline     = 12 * time.Second
-	AdminOllamaStartProbeTimeout      = 1500 * time.Millisecond
-	AdminOllamaStartProbeInterval     = 500 * time.Millisecond
-	AdminOllamaPullTimeout            = 30 * time.Minute
+	AdminResolveClassifierBaseTimeout  = 2 * time.Second
+	AdminResolveClassifierMaxTimeout   = 5 * time.Second
+	AdminClassifierHealthTimeout       = 5 * time.Second
+	AdminClassifierSwitchAsyncMaxWait  = 180 * time.Second
+	AdminClassifierSwitchProbeTimeout  = 5 * time.Second
+	AdminClassifierSwitchProbeInterval = 2 * time.Second
+	AdminOllamaCheckTimeout            = 3 * time.Second
+	AdminOllamaInstallTimeout          = 20 * time.Minute
+	AdminOllamaStartCommandTimeout     = 10 * time.Second
+	AdminOllamaStartReadyDeadline      = 12 * time.Second
+	AdminOllamaStartProbeTimeout       = 1500 * time.Millisecond
+	AdminOllamaStartProbeInterval      = 500 * time.Millisecond
+	AdminOllamaPullTimeout             = 30 * time.Minute
 )

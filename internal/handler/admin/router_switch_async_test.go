@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +22,9 @@ func TestSwitchClassifierModelAsync_CreateTask(t *testing.T) {
 	defer store.Close()
 
 	handler := &RouterHandler{switchTaskStore: store}
+	handler.nowFn = time.Now
+	handler.sleepFn = func(time.Duration) {}
+	handler.probeSwitchFn = func(targetModel, originalModel string) error { return nil }
 	router := gin.New()
 	router.POST("/api/admin/router/classifier/switch-async", handler.SwitchClassifierModelAsync)
 
