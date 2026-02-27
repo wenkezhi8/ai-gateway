@@ -156,7 +156,7 @@
             <el-row :gutter="24">
               <el-col :span="12">
                 <el-form-item label="超时(ms)">
-                  <el-input-number v-model="classifierConfig.timeout_ms" :min="50" :max="2000" :step="10" style="width: 180px" />
+                  <el-input-number v-model="classifierConfig.timeout_ms" :min="50" :max="10000" :step="10" style="width: 180px" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
@@ -914,7 +914,13 @@ async function switchClassifierModel() {
     handleSuccess('分类模型切换成功')
     await Promise.all([loadClassifierHealth(), loadClassifierStats()])
   } catch (e) {
-    handleApiError(e, '切换分类模型失败')
+    const err = e as any
+    const detailMessage = err?.response?.data?.error?.message || err?.response?.data?.message
+    if (typeof detailMessage === 'string' && detailMessage.trim()) {
+      handleApiError(new Error(detailMessage), '切换分类模型失败')
+    } else {
+      handleApiError(e, '切换分类模型失败')
+    }
   } finally {
     classifierSwitching.value = false
   }
