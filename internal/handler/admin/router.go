@@ -209,6 +209,17 @@ func runShellCommand(timeout time.Duration, command string) (string, error) {
 	return output, nil
 }
 
+func getOllamaStopCommand(goos string) (string, error) {
+	switch goos {
+	case "darwin":
+		return `osascript -e 'quit app "Ollama"' >/dev/null 2>&1 || true; pkill -f "ollama serve" >/dev/null 2>&1 || true`, nil
+	case "linux":
+		return `pkill -f "ollama serve" >/dev/null 2>&1 || true`, nil
+	default:
+		return "", fmt.Errorf("current OS is not supported for auto stop")
+	}
+}
+
 func checkOllamaRunning(ctx context.Context, cfg routing.ClassifierConfig) (bool, []string, string) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
 	if baseURL == "" {
@@ -1174,6 +1185,40 @@ func (h *RouterHandler) StartOllama(c *gin.Context) {
 	}
 
 	c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "start_timeout", "message": "ollama did not become ready in time"}, "data": gin.H{"output": output}})
+}
+
+func (h *RouterHandler) StopOllama(c *gin.Context) {
+	if !commandExists("ollama") {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "ollama_not_installed", "message": "ollama not installed"}})
+		return
+	}
+
+	command, err := getOllamaStopCommand(runtime.GOOS)
+	if err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": err.Error()}})
+		return
+	}
+
+	output, runErr := runShellCommand(constants.AdminOllamaStartCommandTimeout, command)
+	if runErr != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "stop_failed", "message": runErr.Error()}, "data": gin.H{"output": output}})
+		return
+	}
+
+	cfg := h.router.GetClassifierConfig()
+	deadline := time.Now().Add(constants.AdminOllamaStartReadyDeadline)
+	for time.Now().Before(deadline) {
+		checkCtx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaStartProbeTimeout)
+		running, _, _ := checkOllamaRunning(checkCtx, cfg)
+		cancel()
+		if !running {
+			c.JSON(200, gin.H{"success": true, "message": "ollama stopped", "data": gin.H{"output": output}})
+			return
+		}
+		time.Sleep(constants.AdminOllamaStartProbeInterval)
+	}
+
+	c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "stop_timeout", "message": "ollama did not stop in time"}, "data": gin.H{"output": output}})
 }
 
 func (h *RouterHandler) PullOllamaModel(c *gin.Context) {

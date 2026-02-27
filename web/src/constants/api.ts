@@ -74,6 +74,7 @@ export const API = {
     CLASSIFIER_SWITCH: '/api/admin/router/classifier/switch',
     CLASSIFIER_SWITCH_ASYNC: '/api/admin/router/classifier/switch-async',
     CLASSIFIER_SWITCH_TASKS: '/api/admin/router/classifier/switch-tasks',
+    OLLAMA_STOP: '/api/admin/router/ollama/stop',
   },
   
   FEEDBACK: {

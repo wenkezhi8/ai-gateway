@@ -209,6 +209,7 @@
               <el-col :span="12">
                 <el-button :loading="ollamaInstalling" @click="installOllama">安装 Ollama</el-button>
                 <el-button :loading="ollamaStarting" type="warning" @click="startOllama">启动 Ollama</el-button>
+                <el-button :loading="ollamaStopping" type="danger" @click="stopOllama">停止 Ollama</el-button>
                 <el-button :loading="ollamaPulling" type="primary" @click="pullOllamaModel">安装模型</el-button>
                 <el-button :loading="ollamaRefreshing" link @click="loadOllamaSetupStatus">刷新状态</el-button>
               </el-col>
@@ -492,6 +493,7 @@ const classifierSwitchModel = ref('')
 const switchPollingCancelled = ref(false)
 const ollamaInstalling = ref(false)
 const ollamaStarting = ref(false)
+const ollamaStopping = ref(false)
 const ollamaPulling = ref(false)
 const ollamaRefreshing = ref(false)
 const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
@@ -863,6 +865,20 @@ async function startOllama() {
     handleApiError(e, '启动 Ollama 失败')
   } finally {
     ollamaStarting.value = false
+    await loadOllamaSetupStatus()
+    await loadClassifierHealth()
+  }
+}
+
+async function stopOllama() {
+  ollamaStopping.value = true
+  try {
+    await request.post('/admin/router/ollama/stop')
+    handleSuccess('Ollama 已停止')
+  } catch (e) {
+    handleApiError(e, '停止 Ollama 失败')
+  } finally {
+    ollamaStopping.value = false
     await loadOllamaSetupStatus()
     await loadClassifierHealth()
   }
