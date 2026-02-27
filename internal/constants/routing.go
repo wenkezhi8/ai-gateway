@@ -10,7 +10,14 @@ const (
 )
 
 const (
-	RoutingDefaultModel = "deepseek-chat"
+	RoutingDefaultStrategy = "auto"
+	RoutingDefaultModel    = "deepseek-chat"
+
+	RoutingCascadeFallbackStartLevel             = "medium"
+	RoutingCascadeFallbackMaxLevel               = "large"
+	RoutingCascadeFallbackEnabled                = true
+	RoutingCascadeFallbackMaxRetries             = 2
+	RoutingCascadeFallbackTimeoutPerLevelSeconds = 20
 
 	RoutingAutoQualityWeight = 0.4
 	RoutingAutoSpeedWeight   = 0.35

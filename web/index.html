@@ -12,10 +12,12 @@
     <script>
       // 预检查登录状态，避免页面闪烁
       (function() {
-        var publicPaths = ['/login', '/p/chat', '/health'];
+        var publicPaths = ['/', '/home', '/login', '/p/chat', '/health'];
         var currentPath = window.location.pathname;
-        var isPublic = publicPaths.some(function(p) { return currentPath === p || currentPath.indexOf(p) === 0; });
-        
+        var isPublic = publicPaths.some(function(p) {
+          if (p === '/') return currentPath === '/' || currentPath === '/home';
+          return currentPath === p || currentPath.indexOf(p) === 0;
+        });
         if (!isPublic) {
           var token = localStorage.getItem('token');
           if (!token) {

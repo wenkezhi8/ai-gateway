@@ -337,7 +337,8 @@ import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
   MODEL_MANAGEMENT_DEFAULT_PROVIDERS,
   MODEL_MANAGEMENT_DEFAULT_SCORE,
-  MODEL_MANAGEMENT_FALLBACK_COLOR
+  MODEL_MANAGEMENT_FALLBACK_COLOR,
+  MODEL_MANAGEMENT_STORAGE_KEY
 } from '@/constants/pages/model-management'
 
 const { getModelLabel, fetchModelLabels } = useModelLabels()
@@ -409,7 +410,7 @@ const defaultProviders: ProviderSetting[] = MODEL_MANAGEMENT_DEFAULT_PROVIDERS.m
 
 const providerSettings = ref<ProviderSetting[]>([])
 
-const STORAGE_KEY = 'provider_settings'
+const STORAGE_KEY = MODEL_MANAGEMENT_STORAGE_KEY
 
 function loadFromLocalStorage() {
   providerSettings.value = defaultProviders.map(p => ({ ...p }))

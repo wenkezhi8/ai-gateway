@@ -2,7 +2,13 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import Layout from '@/components/Layout/index.vue'
 import { useUserStore } from '@/store/user'
 
-const routes: RouteRecordRaw[] = [
+  const routes: RouteRecordRaw[] = [
+  {
+    path: '/',
+    name: 'Home',
+    component: () => import('@/views/home/index.vue'),
+    meta: { title: 'AI Gateway', public: true }
+  },
   {
     path: '/',
     component: Layout,

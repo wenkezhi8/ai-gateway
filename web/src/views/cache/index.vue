@@ -168,15 +168,12 @@
                   <!-- FIX: 筛选条件变更时重置分页，避免空页 -->
                   <el-select v-model="entriesFilter.type" placeholder="任务类型" clearable style="width: 150px" @change="handleEntriesTypeChange">
                     <el-option label="全部" value="" />
-                    <el-option label="事实查询" value="fact" />
-                    <el-option label="代码生成" value="code" />
-                    <el-option label="数学计算" value="math" />
-                    <el-option label="日常对话" value="chat" />
-                    <el-option label="创意写作" value="creative" />
-                    <el-option label="逻辑推理" value="reasoning" />
-                    <el-option label="翻译" value="translate" />
-                    <el-option label="长文本" value="long_text" />
-                    <el-option label="其他" value="unknown" />
+                    <el-option
+                      v-for="taskType in CACHE_TASK_TYPE_OPTIONS"
+                      :key="taskType.value"
+                      :label="taskType.label"
+                      :value="taskType.value"
+                    />
                   </el-select>
                   <!-- FIX: 搜索条件变更时重置分页，避免空页 -->
                   <el-input v-model="entriesFilter.search" placeholder="搜索键名..." style="width: 250px" clearable @input="handleEntriesSearchInput">
@@ -605,15 +602,12 @@
       <el-form :model="warmupForm" :rules="warmupRules" ref="warmupFormRef" label-width="100px">
         <el-form-item label="任务类型" prop="task_type">
           <el-select v-model="warmupForm.task_type" placeholder="选择任务类型" style="width: 100%">
-            <el-option label="事实查询" value="fact" />
-            <el-option label="代码生成" value="code" />
-            <el-option label="数学计算" value="math" />
-            <el-option label="日常对话" value="chat" />
-            <el-option label="创意写作" value="creative" />
-            <el-option label="逻辑推理" value="reasoning" />
-            <el-option label="翻译" value="translate" />
-            <el-option label="长文本处理" value="long_text" />
-            <el-option label="其他" value="unknown" />
+            <el-option
+              v-for="taskType in CACHE_TASK_TYPE_OPTIONS"
+              :key="taskType.value"
+              :label="taskType.label"
+              :value="taskType.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="用户消息" prop="user_message">
@@ -738,6 +732,7 @@ import { API } from '@/constants/api'
 import {
   CACHE_DEFAULT_TASK_TTL,
   CACHE_RULE_MODEL_OPTIONS,
+  CACHE_TASK_TYPE_OPTIONS,
   CACHE_TASK_TTL_ITEMS,
   CACHE_WARMUP_DEFAULTS,
   type CacheTaskTTLItem

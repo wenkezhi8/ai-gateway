@@ -1199,13 +1199,13 @@ func (h *ProxyHandler) handleStreamResponse(
 		return
 	}
 
-	var totalTokens int
+    var totalTokens int
 	var promptTokens int
 	var fullContent strings.Builder
 	receivedChunks := 0
 	hasReasoningOutput := false
 	fallbackNeeded := false
-
+	var ttftMs int64 = 0  // Time to first token
 	// Stream chunks to client
 	for chunk := range stream {
 		receivedChunks++
@@ -1216,6 +1216,10 @@ func (h *ProxyHandler) handleStreamResponse(
 		for _, ch := range chunk.Choices {
 			if ch.Delta != nil && ch.Delta.Content != "" {
 				fullContent.WriteString(ch.Delta.Content)
+				// Record TTFT on first token
+				if ttftMs == 0 {
+					ttftMs = time.Since(startTime).Milliseconds()
+				}
 			}
 			if ch.Delta != nil && (strings.TrimSpace(ch.Delta.ReasoningContent) != "" || strings.TrimSpace(ch.Delta.Reasoning) != "") {
 				hasReasoningOutput = true
@@ -1271,8 +1275,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, 0, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
-			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), totalTokens)
+            h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, ttftMs, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
 
 			// Record successful model name mapping if different from original
 			if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {

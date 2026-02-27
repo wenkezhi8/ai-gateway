@@ -98,7 +98,7 @@ func normalizeAutoMode(value string) string {
 	case "auto", "default", "fixed", "latest":
 		return value
 	default:
-		return "auto"
+		return constants.RoutingDefaultStrategy
 	}
 }
 
@@ -116,7 +116,7 @@ func parseAutoModeJSON(raw json.RawMessage, fallback string) string {
 	var b bool
 	if err := json.Unmarshal(raw, &b); err == nil {
 		if b {
-			return "auto"
+			return constants.RoutingDefaultStrategy
 		}
 		return "fixed"
 	}
@@ -246,7 +246,7 @@ func (h *RouterHandler) migrateLegacyRouterConfig() {
 	if len(raw.UseAutoMode) == 0 || raw.UseAutoMode[0] != '"' {
 		return
 	}
-	mode := parseAutoModeJSON(raw.UseAutoMode, "auto")
+	mode := parseAutoModeJSON(raw.UseAutoMode, constants.RoutingDefaultStrategy)
 	if raw.DefaultStrategy != "" {
 		h.router.SetStrategy(routing.StrategyType(raw.DefaultStrategy))
 	}
@@ -270,7 +270,7 @@ func (h *RouterHandler) loadConfig() {
 	config := h.router.GetConfig()
 	mode := "fixed"
 	if config.UseAutoMode {
-		mode = "auto"
+		mode = constants.RoutingDefaultStrategy
 	}
 	cfg := PersistedRouterConfig{
 		UseAutoMode:     normalizeAutoMode(mode),
@@ -301,7 +301,7 @@ func (h *RouterHandler) loadConfig() {
 	}
 
 	if cfg.DefaultStrategy == "" {
-		cfg.DefaultStrategy = "auto"
+		cfg.DefaultStrategy = constants.RoutingDefaultStrategy
 	}
 	if cfg.DefaultModel == "" {
 		cfg.DefaultModel = constants.RoutingDefaultModel

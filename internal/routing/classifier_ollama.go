@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"ai-gateway/internal/constants"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -449,7 +450,7 @@ func buildFallbackSignature(taskType TaskType, prompt string) string {
 
 func ListOllamaModels(ctx context.Context, baseURL string, timeout time.Duration) ([]string, error) {
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL = "http://127.0.0.1:11434"
+		baseURL = constants.ClassifierDefaultBaseURL
 	}
 	if timeout <= 0 {
 		timeout = 2 * time.Second

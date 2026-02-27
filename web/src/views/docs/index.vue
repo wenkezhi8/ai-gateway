@@ -793,13 +793,117 @@ opencode run -f json '列出所有 TODO'</code></pre>
             </tbody>
           </table>
 
-          <h3>注意事项</h3>
-          <ul>
-            <li>确保 AI Gateway 服务正在运行 (<code>http://localhost:8566</code>)</li>
-            <li>如果使用远程服务器，将 <code>baseURL</code> 改为服务器地址</li>
-            <li><code>auto</code> 模型会根据请求自动选择最优模型</li>
-            <li>可通过 <code>-m</code> 参数指定具体模型</li>
-          </ul>
+
+          <h2>OpenClaw 配置</h2>
+          <p>
+            <a href="https://clawd.bot" target="_blank">OpenClaw</a> 
+            是一个强大的终端 AI 助手，可以直接配置使用 AI Gateway 作为后端。
+          </p>
+
+          <h3>一键配置脚本（推荐）</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('openclaw-setup')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-openclaw-setup"># 下载并执行配置脚本
+curl -fsSL http://localhost:8566/scripts/setup-openclaw.sh | bash
+
+# 或手动下载执行
+curl -o setup-openclaw.sh http://localhost:8566/scripts/setup-openclaw.sh
+chmod +x setup-openclaw.sh
+./setup-openclaw.sh</code></pre>
+          </div>
+
+          <h3>手动配置</h3>
+          <p>编辑 <code>~/.openclaw/openclaw.json</code>：</p>
+          <div class="code-block">
+            <div class="code-header">
+              <span>json</span>
+              <button @click="copyCode('openclaw-config')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-openclaw-config">{
+  "auth": {
+    "profiles": {
+      "ai-gateway:default": {
+        "provider": "ai-gateway",
+        "mode": "api_key"
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "ai-gateway": {
+        "baseUrl": "http://localhost:8566/api/v1",
+        "api": "openai-completions",
+        "apiKey": "YOUR_API_KEY",
+        "models": [
+          {
+            "id": "auto",
+            "name": "Auto (智能选择)",
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "models": {
+        "ai-gateway/auto": { "alias": "AI Gateway" }
+      }
+    }
+  }
+}</code></pre>
+          </div>
+
+          <h3>常用命令</h3>
+          <div class="code-block">
+            <div class="code-header">
+              <span>bash</span>
+              <button @click="copyCode('openclaw-usage')"><el-icon><CopyDocument /></el-icon> 复制</button>
+            </div>
+            <pre><code id="code-openclaw-usage"># 设置默认模型
+openclaw-cn models set ai-gateway/auto
+
+# 查看模型状态
+openclaw-cn models status
+
+# 启动 TUI
+openclaw-cn tui
+
+# 重启网关
+openclaw-cn gateway restart</code></pre>
+          </div>
+
+          <h3>可用模型</h3>
+          <table class="config-table">
+            <thead>
+              <tr>
+                <th>模型</th>
+                <th>说明</th>
+                <th>适用场景</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ai-gateway/auto</code></td>
+                <td>智能选择</td>
+                <td>推荐：自动选择最优模型</td>
+              </tr>
+              <tr>
+                <td><code>ai-gateway/gpt-4o</code></td>
+                <td>GPT-4o</td>
+                <td>复杂推理、代码生成</td>
+              </tr>
+              <tr>
+                <td><code>ai-gateway/claude-3-5-sonnet-20241022</code></td>
+                <td>Claude 3.5 Sonnet</td>
+                <td>长文本、代码分析</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </el-tab-pane>
 

@@ -22,6 +22,23 @@ export type CacheTaskTTLItem = {
   ttl: number
 }
 
+export type CacheTaskTypeOption = {
+  label: string
+  value: keyof typeof CACHE_DEFAULT_TASK_TTL
+}
+
+export const CACHE_TASK_TYPE_OPTIONS: CacheTaskTypeOption[] = [
+  { label: '事实查询', value: 'fact' },
+  { label: '代码生成', value: 'code' },
+  { label: '数学计算', value: 'math' },
+  { label: '日常对话', value: 'chat' },
+  { label: '创意写作', value: 'creative' },
+  { label: '逻辑推理', value: 'reasoning' },
+  { label: '翻译', value: 'translate' },
+  { label: '长文本处理', value: 'long_text' },
+  { label: '其他', value: 'unknown' }
+]
+
 export const CACHE_TASK_TTL_ITEMS: CacheTaskTTLItem[] = [
   { key: 'fact', name: '事实查询', description: '公共事实、政策、常识等，可能定期更新', ttl: CACHE_DEFAULT_TASK_TTL.fact },
   { key: 'code', name: '代码生成', description: '通用代码片段，更新频率低', ttl: CACHE_DEFAULT_TASK_TTL.code },

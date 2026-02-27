@@ -3,6 +3,7 @@
 package routing
 
 import (
+	"ai-gateway/internal/constants"
 	"context"
 	"sync"
 	"time"
@@ -63,109 +64,28 @@ var cascadeLogger = logrus.WithField("component", "cascade_router")
 
 // DefaultCascadeRules returns default cascade routing rules
 func DefaultCascadeRules() map[string]*CascadeRule {
-	return map[string]*CascadeRule{
-		"chat:low": {
-			TaskType:        TaskTypeChat,
-			Difficulty:      DifficultyLow,
-			StartLevel:      CascadeLevelSmall,
-			MaxLevel:        CascadeLevelMedium,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 10 * time.Second,
-		},
-		"chat:medium": {
-			TaskType:        TaskTypeChat,
-			Difficulty:      DifficultyMedium,
-			StartLevel:      CascadeLevelMedium,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 15 * time.Second,
-		},
-		"chat:high": {
-			TaskType:        TaskTypeChat,
-			Difficulty:      DifficultyHigh,
-			StartLevel:      CascadeLevelLarge,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: false,
-			MaxRetries:      1,
-			TimeoutPerLevel: 30 * time.Second,
-		},
-		"code:low": {
-			TaskType:        TaskTypeCode,
-			Difficulty:      DifficultyLow,
-			StartLevel:      CascadeLevelSmall,
-			MaxLevel:        CascadeLevelMedium,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 15 * time.Second,
-		},
-		"code:medium": {
-			TaskType:        TaskTypeCode,
-			Difficulty:      DifficultyMedium,
-			StartLevel:      CascadeLevelMedium,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 20 * time.Second,
-		},
-		"code:high": {
-			TaskType:        TaskTypeCode,
-			Difficulty:      DifficultyHigh,
-			StartLevel:      CascadeLevelLarge,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: false,
-			MaxRetries:      1,
-			TimeoutPerLevel: 60 * time.Second,
-		},
-		"reasoning:low": {
-			TaskType:        TaskTypeReasoning,
-			Difficulty:      DifficultyLow,
-			StartLevel:      CascadeLevelMedium,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 20 * time.Second,
-		},
-		"reasoning:medium": {
-			TaskType:        TaskTypeReasoning,
-			Difficulty:      DifficultyMedium,
-			StartLevel:      CascadeLevelMedium,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 30 * time.Second,
-		},
-		"reasoning:high": {
-			TaskType:        TaskTypeReasoning,
-			Difficulty:      DifficultyHigh,
-			StartLevel:      CascadeLevelLarge,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: false,
-			MaxRetries:      1,
-			TimeoutPerLevel: 120 * time.Second,
-		},
+	rules := make(map[string]*CascadeRule, len(constants.RoutingDefaultCascadeRules))
+	for key, preset := range constants.RoutingDefaultCascadeRules {
+		rules[key] = &CascadeRule{
+			TaskType:        TaskType(preset.TaskType),
+			Difficulty:      DifficultyLevel(preset.Difficulty),
+			StartLevel:      CascadeLevel(preset.StartLevel),
+			MaxLevel:        CascadeLevel(preset.MaxLevel),
+			FallbackEnabled: preset.FallbackEnabled,
+			MaxRetries:      preset.MaxRetries,
+			TimeoutPerLevel: time.Duration(preset.TimeoutPerLevelSeconds) * time.Second,
+		}
 	}
+	return rules
 }
 
 // DefaultModelLevels returns default model classifications by level
 func DefaultModelLevels() map[CascadeLevel][]string {
-	return map[CascadeLevel][]string{
-		CascadeLevelSmall: {
-			"gpt-4o-mini", "glm-4-flash", "qwen-turbo", "doubao-lite-32k",
-			"deepseek-chat", "abab5.5-chat", "Baichuan3-Turbo",
-		},
-		CascadeLevelMedium: {
-			"deepseek-coder", "gpt-4o", "claude-3-5-haiku-20241022",
-			"qwen-plus", "glm-4", "moonshot-v1-8k", "abab6.5s-chat",
-			"doubao-pro-128k", "gemini-2.0-flash",
-		},
-		CascadeLevelLarge: {
-			"deepseek-reasoner", "o1", "o1-mini", "claude-3-5-sonnet-20241022",
-			"claude-3-opus-20240229", "qwen-max", "glm-4-plus", "Baichuan4",
-			"gemini-1.5-pro", "gpt-4-turbo",
-		},
+	levels := make(map[CascadeLevel][]string, len(constants.RoutingDefaultModelLevels))
+	for level, models := range constants.RoutingDefaultModelLevels {
+		levels[CascadeLevel(level)] = append([]string{}, models...)
 	}
+	return levels
 }
 
 // NewCascadeRouter creates a new cascade router
@@ -195,11 +115,11 @@ func (c *CascadeRouter) SelectCascadeModel(ctx context.Context, prompt string, c
 		rule = &CascadeRule{
 			TaskType:        taskType,
 			Difficulty:      difficulty,
-			StartLevel:      CascadeLevelMedium,
-			MaxLevel:        CascadeLevelLarge,
-			FallbackEnabled: true,
-			MaxRetries:      2,
-			TimeoutPerLevel: 20 * time.Second,
+			StartLevel:      CascadeLevel(constants.RoutingCascadeFallbackStartLevel),
+			MaxLevel:        CascadeLevel(constants.RoutingCascadeFallbackMaxLevel),
+			FallbackEnabled: constants.RoutingCascadeFallbackEnabled,
+			MaxRetries:      constants.RoutingCascadeFallbackMaxRetries,
+			TimeoutPerLevel: time.Duration(constants.RoutingCascadeFallbackTimeoutPerLevelSeconds) * time.Second,
 		}
 	}
 	c.mu.RUnlock()
@@ -295,45 +215,15 @@ func (c *CascadeRouter) selectBestModelForLevel(level CascadeLevel, availableSet
 
 // getModelsForTaskType returns preferred models for a task type at a given level
 func (c *CascadeRouter) getModelsForTaskType(taskType TaskType, level CascadeLevel) []string {
-	switch taskType {
-	case TaskTypeCode:
-		switch level {
-		case CascadeLevelSmall:
-			return []string{"deepseek-chat", "gpt-4o-mini"}
-		case CascadeLevelMedium:
-			return []string{"deepseek-coder", "claude-3-5-haiku-20241022"}
-		case CascadeLevelLarge:
-			return []string{"claude-3-5-sonnet-20241022", "gpt-4o", "o1-mini"}
-		}
-	case TaskTypeReasoning:
-		switch level {
-		case CascadeLevelSmall:
-			return []string{"gpt-4o-mini", "glm-4-flash"}
-		case CascadeLevelMedium:
-			return []string{"gpt-4o", "qwen-plus"}
-		case CascadeLevelLarge:
-			return []string{"deepseek-reasoner", "o1", "claude-3-opus-20240229"}
-		}
-	case TaskTypeMath:
-		switch level {
-		case CascadeLevelSmall:
-			return []string{"gpt-4o-mini", "deepseek-chat"}
-		case CascadeLevelMedium:
-			return []string{"gpt-4o", "qwen-plus"}
-		case CascadeLevelLarge:
-			return []string{"deepseek-reasoner", "o1"}
-		}
-	case TaskTypeCreative:
-		switch level {
-		case CascadeLevelSmall:
-			return []string{"gpt-4o-mini", "qwen-turbo"}
-		case CascadeLevelMedium:
-			return []string{"gpt-4o", "claude-3-5-haiku-20241022"}
-		case CascadeLevelLarge:
-			return []string{"claude-3-5-sonnet-20241022", "claude-3-opus-20240229"}
-		}
+	byTask, ok := constants.RoutingTaskTypeLevelModelPrefs[string(taskType)]
+	if !ok {
+		return nil
 	}
-	return nil
+	models, ok := byTask[string(level)]
+	if !ok {
+		return nil
+	}
+	return append([]string{}, models...)
 }
 
 // RecordResult records the result of a cascade routing for statistics

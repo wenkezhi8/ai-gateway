@@ -44,4 +44,12 @@ describe('pages static config extraction', () => {
     expect(modelsStoreFile).not.toContain('const defaultModels: Model[] = [')
     expect(chatStoreFile).not.toContain('const DEFAULT_PROVIDERS: ProviderConfig[] = [')
   })
+
+  it('should remove duplicated task type option blocks from cache view', () => {
+    const cacheViewFile = readFileSync(join(process.cwd(), 'src/views/cache/index.vue'), 'utf-8')
+
+    expect(cacheViewFile).not.toContain('<el-option label="事实查询" value="fact" />')
+    expect(cacheViewFile).not.toContain('<el-option label="代码生成" value="code" />')
+    expect(cacheViewFile).not.toContain('<el-option label="逻辑推理" value="reasoning" />')
+  })
 })

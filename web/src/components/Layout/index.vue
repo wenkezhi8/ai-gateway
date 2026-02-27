@@ -50,7 +50,7 @@
       <el-header class="header glass-header">
         <div class="header-left">
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/dashboard' }">首页</el-breadcrumb-item>
+            <el-breadcrumb-item :to="{ path: '/dashboard' }">控制台</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>

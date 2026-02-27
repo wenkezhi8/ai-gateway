@@ -83,96 +83,38 @@ func normalizeTaskMappingKey(taskType string) string {
 
 // DefaultModelScores returns default scoring for common models
 func DefaultModelScores() map[string]*ModelScore {
-	return map[string]*ModelScore{
-		// DeepSeek
-		"deepseek-chat":     {Model: "deepseek-chat", Provider: "deepseek", QualityScore: 85, SpeedScore: 90, CostScore: 95, Enabled: true},
-		"deepseek-reasoner": {Model: "deepseek-reasoner", Provider: "deepseek", QualityScore: 95, SpeedScore: 60, CostScore: 90, Enabled: true},
-		"deepseek-coder":    {Model: "deepseek-coder", Provider: "deepseek", QualityScore: 90, SpeedScore: 85, CostScore: 95, Enabled: true},
-
-		// OpenAI
-		"gpt-4o":      {Model: "gpt-4o", Provider: "openai", QualityScore: 95, SpeedScore: 75, CostScore: 60, Enabled: true},
-		"gpt-4o-mini": {Model: "gpt-4o-mini", Provider: "openai", QualityScore: 80, SpeedScore: 95, CostScore: 85, Enabled: true},
-		"gpt-4-turbo": {Model: "gpt-4-turbo", Provider: "openai", QualityScore: 92, SpeedScore: 70, CostScore: 55, Enabled: true},
-		"o1":          {Model: "o1", Provider: "openai", QualityScore: 98, SpeedScore: 40, CostScore: 30, Enabled: true},
-		"o1-mini":     {Model: "o1-mini", Provider: "openai", QualityScore: 90, SpeedScore: 60, CostScore: 50, Enabled: true},
-
-		// Anthropic
-		"claude-3-5-sonnet-20241022": {Model: "claude-3-5-sonnet-20241022", Provider: "anthropic", QualityScore: 96, SpeedScore: 70, CostScore: 55, Enabled: true},
-		"claude-3-5-haiku-20241022":  {Model: "claude-3-5-haiku-20241022", Provider: "anthropic", QualityScore: 82, SpeedScore: 95, CostScore: 80, Enabled: true},
-		"claude-3-opus-20240229":     {Model: "claude-3-opus-20240229", Provider: "anthropic", QualityScore: 97, SpeedScore: 50, CostScore: 40, Enabled: true},
-
-		// Qwen
-		"qwen-max":   {Model: "qwen-max", Provider: "qwen", QualityScore: 90, SpeedScore: 80, CostScore: 75, Enabled: true},
-		"qwen-plus":  {Model: "qwen-plus", Provider: "qwen", QualityScore: 85, SpeedScore: 85, CostScore: 85, Enabled: true},
-		"qwen-turbo": {Model: "qwen-turbo", Provider: "qwen", QualityScore: 75, SpeedScore: 95, CostScore: 95, Enabled: true},
-		"qwen-long":  {Model: "qwen-long", Provider: "qwen", QualityScore: 80, SpeedScore: 70, CostScore: 70, Enabled: true},
-
-		// Zhipu
-		"glm-4-plus":  {Model: "glm-4-plus", Provider: "zhipu", QualityScore: 88, SpeedScore: 80, CostScore: 80, Enabled: true},
-		"glm-4":       {Model: "glm-4", Provider: "zhipu", QualityScore: 85, SpeedScore: 85, CostScore: 85, Enabled: true},
-		"glm-4-flash": {Model: "glm-4-flash", Provider: "zhipu", QualityScore: 70, SpeedScore: 98, CostScore: 98, Enabled: true},
-		"glm-4-long":  {Model: "glm-4-long", Provider: "zhipu", QualityScore: 80, SpeedScore: 70, CostScore: 75, Enabled: true},
-
-		// Moonshot
-		"moonshot-v1-8k":   {Model: "moonshot-v1-8k", Provider: "moonshot", QualityScore: 85, SpeedScore: 85, CostScore: 85, Enabled: true},
-		"moonshot-v1-32k":  {Model: "moonshot-v1-32k", Provider: "moonshot", QualityScore: 85, SpeedScore: 80, CostScore: 80, Enabled: true},
-		"moonshot-v1-128k": {Model: "moonshot-v1-128k", Provider: "moonshot", QualityScore: 85, SpeedScore: 75, CostScore: 75, Enabled: true},
-
-		// MiniMax
-		"abab6.5s-chat": {Model: "abab6.5s-chat", Provider: "minimax", QualityScore: 85, SpeedScore: 90, CostScore: 85, Enabled: true},
-		"abab6.5g-chat": {Model: "abab6.5g-chat", Provider: "minimax", QualityScore: 88, SpeedScore: 80, CostScore: 80, Enabled: true},
-		"abab5.5-chat":  {Model: "abab5.5-chat", Provider: "minimax", QualityScore: 80, SpeedScore: 90, CostScore: 90, Enabled: true},
-
-		// Baichuan
-		"Baichuan4":       {Model: "Baichuan4", Provider: "baichuan", QualityScore: 88, SpeedScore: 80, CostScore: 80, Enabled: true},
-		"Baichuan3-Turbo": {Model: "Baichuan3-Turbo", Provider: "baichuan", QualityScore: 82, SpeedScore: 90, CostScore: 90, Enabled: true},
-
-		// Volcengine
-		"doubao-pro-128k": {Model: "doubao-pro-128k", Provider: "volcengine", QualityScore: 85, SpeedScore: 85, CostScore: 85, Enabled: true},
-		"doubao-lite-32k": {Model: "doubao-lite-32k", Provider: "volcengine", QualityScore: 75, SpeedScore: 95, CostScore: 95, Enabled: true},
-
-		// Google
-		"gemini-2.0-flash": {Model: "gemini-2.0-flash", Provider: "google", QualityScore: 88, SpeedScore: 90, CostScore: 80, Enabled: true},
-		"gemini-1.5-pro":   {Model: "gemini-1.5-pro", Provider: "google", QualityScore: 92, SpeedScore: 75, CostScore: 70, Enabled: true},
+	defaults := make(map[string]*ModelScore, len(constants.RoutingDefaultModelScores))
+	for key, preset := range constants.RoutingDefaultModelScores {
+		defaults[key] = &ModelScore{
+			Model:        preset.Model,
+			Provider:     preset.Provider,
+			QualityScore: preset.QualityScore,
+			SpeedScore:   preset.SpeedScore,
+			CostScore:    preset.CostScore,
+			Enabled:      preset.Enabled,
+		}
 	}
+	return defaults
 }
 
 // DefaultTaskRules returns default task-based routing rules
 func DefaultTaskRules() []TaskRule {
-	return []TaskRule{
-		{
-			TaskType:        "code",
-			Keywords:        []string{"代码", "code", "编程", "bug", "debug", "function", "class", "实现"},
-			PreferredModels: []string{"deepseek-coder", "claude-3-5-sonnet-20241022", "gpt-4o"},
-		},
-		{
-			TaskType:        "reasoning",
-			Keywords:        []string{"推理", "reasoning", "分析", "逻辑", "证明", "数学", "math"},
-			PreferredModels: []string{"deepseek-reasoner", "o1", "o1-mini", "claude-3-opus-20240229"},
-		},
-		{
-			TaskType:        "long_context",
-			Keywords:        []string{"长文本", "总结", "摘要", "文档", "分析报告"},
-			PreferredModels: []string{"qwen-long", "glm-4-long", "moonshot-v1-128k", "claude-3-5-sonnet-20241022"},
-		},
-		{
-			TaskType:        "creative",
-			Keywords:        []string{"写作", "创意", "故事", "文案", "创作"},
-			PreferredModels: []string{"claude-3-5-sonnet-20241022", "gpt-4o", "qwen-max"},
-		},
-		{
-			TaskType:        "chat",
-			Keywords:        []string{},
-			PreferredModels: []string{"deepseek-chat", "gpt-4o-mini", "glm-4-flash", "qwen-turbo"},
-		},
+	rules := make([]TaskRule, 0, len(constants.RoutingDefaultTaskRules))
+	for _, preset := range constants.RoutingDefaultTaskRules {
+		rules = append(rules, TaskRule{
+			TaskType:        preset.TaskType,
+			Keywords:        append([]string{}, preset.Keywords...),
+			PreferredModels: append([]string{}, preset.PreferredModels...),
+		})
 	}
+	return rules
 }
 
 // NewSmartRouter creates a new smart router with default config
 func NewSmartRouter() *SmartRouter {
 	router := &SmartRouter{
 		config: &RouterConfig{
-			DefaultStrategy:  StrategyAuto,
+			DefaultStrategy:  StrategyType(constants.RoutingDefaultStrategy),
 			DefaultModel:     constants.RoutingDefaultModel,
 			UseAutoMode:      true,
 			Classifier:       DefaultClassifierConfig(),
@@ -336,18 +278,11 @@ func (r *SmartRouter) loadFromFile() {
 
 // DefaultProviderDefaults returns default models for each provider
 func DefaultProviderDefaults() map[string]string {
-	return map[string]string{
-		"deepseek":   "deepseek-chat",
-		"openai":     "gpt-4o",
-		"anthropic":  "claude-3-5-sonnet-20241022",
-		"qwen":       "qwen-max",
-		"zhipu":      "glm-4-plus",
-		"moonshot":   "moonshot-v1-8k",
-		"minimax":    "abab6.5s-chat",
-		"baichuan":   "Baichuan4",
-		"volcengine": "doubao-pro-128k",
-		"google":     "gemini-2.0-flash",
+	defaults := make(map[string]string, len(constants.RoutingDefaultProviderDefaults))
+	for provider, model := range constants.RoutingDefaultProviderDefaults {
+		defaults[provider] = model
 	}
+	return defaults
 }
 
 // GetConfig returns current router configuration

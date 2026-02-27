@@ -11,6 +11,7 @@ export type ModelManagementProvider = {
 export const MODEL_MANAGEMENT_DEFAULT_COLOR = '#409EFF'
 export const MODEL_MANAGEMENT_FALLBACK_COLOR = '#909399'
 export const MODEL_MANAGEMENT_DEFAULT_SCORE = 80
+export const MODEL_MANAGEMENT_STORAGE_KEY = 'provider_settings'
 
 export const MODEL_MANAGEMENT_DEFAULT_PROVIDERS: ModelManagementProvider[] = [
   { id: 'deepseek', label: 'DeepSeek', color: '#4D6BFE', logo: '/logos/deepseek.svg', defaultModel: 'deepseek-chat', models: ['deepseek-chat', 'deepseek-reasoner', 'deepseek-coder'], custom: false },
