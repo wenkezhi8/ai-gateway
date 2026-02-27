@@ -31,6 +31,12 @@
           </template>
 
           <el-form label-width="120px" class="settings-form">
+            <el-form-item label="主题风格">
+              <el-radio-group v-model="settings.themeVariant" @change="handleThemeVariantChange">
+                <el-radio-button value="apple">Apple</el-radio-button>
+                <el-radio-button value="dashboard">仪表盘</el-radio-button>
+              </el-radio-group>
+            </el-form-item>
             <el-form-item label="主题模式">
               <el-radio-group v-model="settings.theme" @change="handleThemeChange">
                 <el-radio-button value="light">亮色</el-radio-button>
@@ -304,8 +310,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useTheme } from '@/composables/useTheme'
+import type { ThemeMode, ThemeVariant } from '@/composables/useTheme'
 
-const { setTheme, currentTheme } = useTheme()
+const { setTheme, setVariant, currentTheme } = useTheme()
 
 const activeSection = ref('appearance')
 
@@ -331,6 +338,7 @@ const themeColors = [
 
 const settings = reactive({
   theme: 'auto',
+  themeVariant: 'apple',
   primaryColor: '#007AFF',
   borderRadius: 16,
   enableAnimation: true,
@@ -375,7 +383,11 @@ const settings = reactive({
 })
 
 const handleThemeChange = (theme: string) => {
-  setTheme(theme as 'light' | 'dark' | 'auto')
+  setTheme(theme as ThemeMode)
+}
+
+const handleThemeVariantChange = (variant: string) => {
+  setVariant(variant as ThemeVariant)
 }
 
 // 应用主题色到 CSS 变量
@@ -399,7 +411,8 @@ const handleColorChange = (color: string) => {
 // 页面加载时从 localStorage 加载设置
 onMounted(() => {
   // 同步主题设置
-  settings.theme = currentTheme.value
+  settings.theme = currentTheme.value.mode
+  settings.themeVariant = currentTheme.value.variant
 
   // 加载保存的主题色
   const savedPrimaryColor = localStorage.getItem('ai-gateway-primary-color')
@@ -429,6 +442,7 @@ onMounted(() => {
 // 获取默认设置
 const getDefaultSettings = () => ({
   theme: 'auto',
+  themeVariant: 'apple',
   primaryColor: '#007AFF',
   borderRadius: 16,
   enableAnimation: true,
@@ -490,6 +504,8 @@ loadSettings()
 
 const resetSettings = () => {
   Object.assign(settings, getDefaultSettings())
+  setTheme(settings.theme as ThemeMode)
+  setVariant(settings.themeVariant as ThemeVariant)
   localStorage.removeItem('ai-gateway-settings')
   ElMessage.success('设置已重置为默认值')
 }

@@ -24,7 +24,7 @@ function getStoredTheme(): ThemeSetting {
   try {
     const parsed = JSON.parse(stored) as Partial<ThemeSetting>
     const variant = parsed.variant === 'dashboard' ? 'dashboard' : 'apple'
-    const mode = parsed.mode === 'light' || parsed.mode === 'dark' || parsed.mode === 'auto' ? parsed.mode : 'auto'
+    const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' || parsed.mode === 'auto' ? parsed.mode : 'auto'
     return { variant, mode }
   } catch {
     return DEFAULT_THEME
@@ -75,7 +75,8 @@ const toggleTheme = () => {
   const modes: ThemeMode[] = ['light', 'dark', 'auto']
   const currentIndex = modes.indexOf(currentTheme.value.mode)
   const nextIndex = (currentIndex + 1) % modes.length
-  currentTheme.value = { ...currentTheme.value, mode: modes[nextIndex] }
+  const nextMode = modes[nextIndex] ?? 'auto'
+  currentTheme.value = { ...currentTheme.value, mode: nextMode }
 }
 
 const isDark = () => {

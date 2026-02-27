@@ -180,12 +180,16 @@ const currentTitle = computed(() => route.meta.title as string || '')
 const isDarkMode = computed(() => isDark())
 
 const themeTooltip = computed(() => {
-  const themeMap: Record<string, string> = {
-    light: '当前：亮色模式',
-    dark: '当前：暗色模式',
-    auto: '当前：跟随系统'
+  const modeMap: Record<string, string> = {
+    light: '亮色',
+    dark: '暗色',
+    auto: '跟随系统'
   }
-  return themeMap[currentTheme.value] + ' (点击切换)'
+  const variantMap: Record<string, string> = {
+    apple: 'Apple',
+    dashboard: '仪表盘'
+  }
+  return `当前：${variantMap[currentTheme.value.variant]} · ${modeMap[currentTheme.value.mode]}`
 })
 
 const isActive = (path: string) => {
