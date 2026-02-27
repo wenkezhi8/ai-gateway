@@ -84,7 +84,7 @@
           </el-tooltip>
 
           <!-- 微信群 -->
-          <el-popover placement="bottom" trigger="click" width="320" popper-class="wechat-popover">
+          <el-popover placement="bottom" trigger="click" width="260" popper-class="wechat-popover">
             <template #reference>
               <button class="wechat-btn" type="button">
                 <el-icon :size="18"><ChatDotRound /></el-icon>
@@ -713,7 +713,7 @@ const handleUserCommand = (command: string) => {
   }
 
   .wechat-qr {
-    width: 280px;
+    width: 220px;
     max-width: 100%;
     border-radius: var(--border-radius-md);
     border: 1px solid var(--border-primary);
@@ -721,7 +721,7 @@ const handleUserCommand = (command: string) => {
   }
 
   .wechat-qr-fallback {
-    width: 280px;
+    width: 220px;
     max-width: 100%;
     padding: var(--spacing-md);
     border-radius: var(--border-radius-md);
