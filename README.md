@@ -11,7 +11,7 @@ A unified API gateway for multiple AI service providers with intelligent rate li
 - **RESTful API**: OpenAI-compatible API for easy integration
 - **Web Dashboard**: Built-in management console for monitoring and configuration
 - **Docker Ready**: One-click deployment with Docker Compose
-
+- **Intelligent Routing**: Smart model selection based on task type and difficulty (requires local Ollama + qwen2.5:0.5b-instruct)
 ## Quick Start
 
 ### Prerequisites
