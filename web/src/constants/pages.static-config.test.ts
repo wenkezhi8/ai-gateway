@@ -52,4 +52,12 @@ describe('pages static config extraction', () => {
     expect(cacheViewFile).not.toContain('<el-option label="代码生成" value="code" />')
     expect(cacheViewFile).not.toContain('<el-option label="逻辑推理" value="reasoning" />')
   })
+
+  it('should move docs and api-management inline strategy/provider lists into constants', () => {
+    const docsViewFile = readFileSync(join(process.cwd(), 'src/views/docs/index.vue'), 'utf-8')
+    const apiManagementViewFile = readFileSync(join(process.cwd(), 'src/views/api-management/index.vue'), 'utf-8')
+
+    expect(docsViewFile).not.toContain('const providers = ref([')
+    expect(apiManagementViewFile).not.toContain('const strategies = ref([')
+  })
 })
