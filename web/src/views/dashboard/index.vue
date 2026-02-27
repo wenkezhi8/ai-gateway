@@ -129,7 +129,7 @@
                   {{ stat.change }}
                 </div>
               </div>
-              <div class="stat-icon" :style="{ background: stat.color + '15' }">
+              <div class="stat-icon" :style="{ background: stat.softColor }">
                 <el-icon :size="28" :color="stat.color"><component :is="stat.icon" /></el-icon>
               </div>
             </div>
@@ -295,7 +295,7 @@
             </el-table-column>
           </el-table>
           <div v-else class="no-errors">
-            <el-icon :size="48" color="#34C759"><CircleCheckFilled /></el-icon>
+            <el-icon :size="48" :color="'var(--color-success)'"><CircleCheckFilled /></el-icon>
             <p>当前暂无告警事件</p>
           </div>
         </el-card>
@@ -374,7 +374,8 @@ const stats = computed(() => [
     change: '+12.5%',
     trend: 'up',
     icon: 'TrendCharts',
-    color: '#007AFF'
+    color: 'var(--color-primary)',
+    softColor: 'var(--accent-soft, rgba(0, 122, 255, 0.12))'
   },
   {
     title: '成功率',
@@ -382,7 +383,8 @@ const stats = computed(() => [
     change: '+0.2%',
     trend: 'up',
     icon: 'CircleCheck',
-    color: '#34C759'
+    color: 'var(--color-success)',
+    softColor: 'var(--success-soft, rgba(52, 199, 89, 0.12))'
   },
   {
     title: '平均延迟',
@@ -390,7 +392,8 @@ const stats = computed(() => [
     change: '-8ms',
     trend: 'up',
     icon: 'Timer',
-    color: '#FF9500'
+    color: 'var(--color-warning)',
+    softColor: 'var(--warning-soft, rgba(255, 149, 0, 0.12))'
   },
   {
     title: '活跃账号',
@@ -398,7 +401,8 @@ const stats = computed(() => [
     change: `+${overviewData.value?.active_providers || 0}服务商`,
     trend: 'up',
     icon: 'User',
-    color: '#AF52DE'
+    color: 'var(--color-info)',
+    softColor: 'var(--info-soft, rgba(90, 200, 250, 0.12))'
   }
 ])
 
@@ -483,11 +487,15 @@ let alertTimer: ReturnType<typeof setInterval> | null = null
 let themeObserver: MutationObserver | null = null
 
 const getChartTheme = () => {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark'
+  const styles = getComputedStyle(document.documentElement)
+  const readVar = (name: string, fallback: string) => styles.getPropertyValue(name).trim() || fallback
   return {
-    textColor: isDark ? '#AEAEB2' : '#6E6E73',
-    axisLineColor: isDark ? '#3A3A3C' : '#E8E8ED',
-    splitLineColor: isDark ? '#2C2C2E' : '#F5F5F7'
+    textColor: readVar('--text-secondary', '#6E6E73'),
+    axisLineColor: readVar('--border-primary', '#E8E8ED'),
+    splitLineColor: readVar('--bg-tertiary', '#F5F5F7'),
+    primary: readVar('--color-primary', '#007AFF'),
+    primarySoft: readVar('--accent-soft', 'rgba(0, 122, 255, 0.12)'),
+    success: readVar('--color-success', '#34C759')
   }
 }
 
@@ -565,12 +573,12 @@ const initLineChart = (data: any[] = []) => {
         smooth: true,
         symbol: 'circle',
         symbolSize: 6,
-        lineStyle: { width: 3, color: '#007AFF' },
-        itemStyle: { color: '#007AFF' },
+        lineStyle: { width: 3, color: theme.primary },
+        itemStyle: { color: theme.primary },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(0, 122, 255, 0.3)' },
-            { offset: 1, color: 'rgba(0, 122, 255, 0.05)' }
+            { offset: 0, color: theme.primarySoft },
+            { offset: 1, color: 'rgba(0, 0, 0, 0)' }
           ])
         },
         data: requests.length > 0 ? requests : defaultRequests
@@ -582,8 +590,8 @@ const initLineChart = (data: any[] = []) => {
         symbol: 'circle',
         symbolSize: 4,
         yAxisIndex: 1,
-        lineStyle: { width: 2, color: '#34C759' },
-        itemStyle: { color: '#34C759' },
+        lineStyle: { width: 2, color: theme.success },
+        itemStyle: { color: theme.success },
         data: successRates.length > 0 ? successRates : defaultSuccessRates
       }
     ]
@@ -1032,8 +1040,8 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
     padding: var(--spacing-2xl);
     margin-bottom: var(--spacing-xl);
     border-radius: var(--border-radius-xl);
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.12), rgba(52, 199, 89, 0.08), rgba(175, 82, 222, 0.12));
-    border: 1px solid rgba(0, 122, 255, 0.1);
+    background: var(--hero-bg, var(--bg-tertiary));
+    border: 1px solid var(--hero-border, var(--border-primary));
 
     .hero-main {
       flex: 1;
@@ -1060,7 +1068,7 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
     }
 
     .hero-metric {
-      background: rgba(255, 255, 255, 0.6);
+      background: var(--hero-metric-bg, rgba(255, 255, 255, 0.6));
       backdrop-filter: blur(12px);
       border-radius: var(--border-radius-lg);
       padding: var(--spacing-md);
@@ -1117,7 +1125,7 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
 
       .error-icon {
         margin-bottom: var(--spacing-xl);
-        color: #FF3B30;
+        color: var(--color-danger);
         animation: shake 0.5s ease-in-out;
       }
 
@@ -1176,7 +1184,7 @@ const acknowledgeAlert = async (alert: DashboardAlert) => {
       }
 
       .empty-tips {
-        background: rgba(255, 255, 255, 0.72);
+        background: var(--bg-glass);
         backdrop-filter: blur(20px);
         border-radius: var(--border-radius-lg);
         padding: var(--spacing-lg);
