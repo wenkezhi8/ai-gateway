@@ -279,7 +279,7 @@ const handleUserCommand = (command: string) => {
       break
     case 'logout':
       userStore.logout()
-      router.push('/login')
+      router.push('/')
       break
   }
 }

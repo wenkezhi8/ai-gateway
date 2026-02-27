@@ -74,4 +74,11 @@ describe('pages static config extraction', () => {
     expect(providersAccountsViewFile).toContain('v1beta（原生）')
     expect(providersAccountsViewFile).toContain('v1beta/openai（兼容）')
   })
+
+  it('should redirect to home page after logout', () => {
+    const layoutFile = readFileSync(join(process.cwd(), 'src/components/Layout/index.vue'), 'utf-8')
+
+    expect(layoutFile).toContain("router.push('/')")
+    expect(layoutFile).not.toContain("router.push('/login')")
+  })
 })
