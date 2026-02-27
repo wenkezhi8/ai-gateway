@@ -3,8 +3,11 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -169,6 +172,61 @@ func resolveClassifierModels(ctx context.Context, cfg routing.ClassifierConfig) 
 	}
 
 	return mergeClassifierCandidateModels(cfg.ActiveModel, models, cfg.CandidateModels)
+}
+
+func commandExists(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func runShellCommand(timeout time.Duration, command string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if err != nil {
+		if output == "" {
+			return "", err
+		}
+		return output, fmt.Errorf("%w: %s", err, output)
+	}
+	return output, nil
+}
+
+func checkOllamaRunning(ctx context.Context, cfg routing.ClassifierConfig) (bool, []string, string) {
+	baseURL := strings.TrimSpace(cfg.BaseURL)
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:11434"
+	}
+
+	timeout := 2 * time.Second
+	if cfg.TimeoutMs > 0 {
+		candidate := time.Duration(cfg.TimeoutMs) * time.Millisecond
+		if candidate < timeout {
+			timeout = candidate
+		}
+	}
+
+	models, err := routing.ListOllamaModels(ctx, baseURL, timeout)
+	if err != nil {
+		return false, nil, err.Error()
+	}
+	return true, models, "ok"
+}
+
+func containsModel(models []string, model string) bool {
+	target := strings.TrimSpace(model)
+	if target == "" {
+		return false
+	}
+	for _, m := range models {
+		if strings.TrimSpace(m) == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *RouterHandler) migrateLegacyRouterConfig() {
@@ -898,4 +956,166 @@ func (h *RouterHandler) GetClassifierHealth(c *gin.Context) {
 func (h *RouterHandler) GetClassifierStats(c *gin.Context) {
 	stats := h.router.GetClassifierStats()
 	c.JSON(200, gin.H{"success": true, "data": stats})
+}
+
+type ollamaSetupRequest struct {
+	Model string `json:"model"`
+}
+
+func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
+	cfg := h.router.GetClassifierConfig()
+	model := strings.TrimSpace(c.Query("model"))
+	if model == "" {
+		model = cfg.ActiveModel
+	}
+	if model == "" {
+		model = "qwen2.5:0.5b-instruct"
+	}
+
+	installed := commandExists("ollama")
+	running := false
+	modelInstalled := false
+	models := make([]string, 0)
+	message := "ollama not installed"
+
+	if installed {
+		runCtx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		defer cancel()
+		var detail string
+		running, models, detail = checkOllamaRunning(runCtx, cfg)
+		if running {
+			modelInstalled = containsModel(models, model)
+			message = "ok"
+		} else {
+			message = detail
+		}
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"data": gin.H{
+			"installed":       installed,
+			"running":         running,
+			"model":           model,
+			"model_installed": modelInstalled,
+			"models":          models,
+			"message":         message,
+			"os":              runtime.GOOS,
+		},
+	})
+}
+
+func (h *RouterHandler) InstallOllama(c *gin.Context) {
+	if commandExists("ollama") {
+		c.JSON(200, gin.H{"success": true, "message": "ollama already installed"})
+		return
+	}
+
+	var command string
+	switch runtime.GOOS {
+	case "darwin":
+		if !commandExists("brew") {
+			c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "brew_not_found", "message": "Homebrew not found, please install Homebrew first"}})
+			return
+		}
+		command = "brew install ollama"
+	case "linux":
+		command = "curl -fsSL https://ollama.com/install.sh | sh"
+	default:
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": "current OS is not supported for auto install, please install Ollama manually"}})
+		return
+	}
+
+	output, err := runShellCommand(20*time.Minute, command)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "install_failed", "message": err.Error()}, "data": gin.H{"output": output}})
+		return
+	}
+
+	c.JSON(200, gin.H{"success": true, "message": "ollama installed", "data": gin.H{"output": output}})
+}
+
+func (h *RouterHandler) StartOllama(c *gin.Context) {
+	cfg := h.router.GetClassifierConfig()
+	runCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+	running, _, _ := checkOllamaRunning(runCtx, cfg)
+	cancel()
+	if running {
+		c.JSON(200, gin.H{"success": true, "message": "ollama already running"})
+		return
+	}
+
+	if !commandExists("ollama") {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "ollama_not_installed", "message": "ollama not installed"}})
+		return
+	}
+
+	var command string
+	switch runtime.GOOS {
+	case "darwin":
+		command = "open -a Ollama"
+	case "linux":
+		command = "nohup ollama serve >/tmp/ollama.log 2>&1 &"
+	default:
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": "current OS is not supported for auto start"}})
+		return
+	}
+
+	output, err := runShellCommand(10*time.Second, command)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "start_failed", "message": err.Error()}, "data": gin.H{"output": output}})
+		return
+	}
+
+	deadline := time.Now().Add(12 * time.Second)
+	for time.Now().Before(deadline) {
+		checkCtx, stop := context.WithTimeout(c.Request.Context(), 1500*time.Millisecond)
+		alive, _, _ := checkOllamaRunning(checkCtx, cfg)
+		stop()
+		if alive {
+			c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": output}})
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "start_timeout", "message": "ollama did not become ready in time"}, "data": gin.H{"output": output}})
+}
+
+func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
+	var req ollamaSetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+
+	cfg := h.router.GetClassifierConfig()
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = cfg.ActiveModel
+	}
+	if model == "" {
+		model = "qwen2.5:0.5b-instruct"
+	}
+
+	if !commandExists("ollama") {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "ollama_not_installed", "message": "ollama not installed"}})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	running, _, msg := checkOllamaRunning(ctx, cfg)
+	cancel()
+	if !running {
+		c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "ollama_not_running", "message": msg}})
+		return
+	}
+
+	output, err := runShellCommand(30*time.Minute, fmt.Sprintf("ollama pull %s", model))
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "pull_failed", "message": err.Error()}, "data": gin.H{"output": output}})
+		return
+	}
+
+	c.JSON(200, gin.H{"success": true, "message": "model installed", "data": gin.H{"model": model, "output": output}})
 }

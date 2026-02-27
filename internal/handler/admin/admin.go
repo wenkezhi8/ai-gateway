@@ -148,6 +148,10 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.GET("/classifier/stats", handlers.SmartRouter.GetClassifierStats)
 		routerGroup.GET("/classifier/models", handlers.SmartRouter.GetClassifierModels)
 		routerGroup.POST("/classifier/switch", handlers.SmartRouter.SwitchClassifierModel)
+		routerGroup.GET("/ollama/status", handlers.SmartRouter.GetOllamaSetupStatus)
+		routerGroup.POST("/ollama/install", handlers.SmartRouter.InstallOllama)
+		routerGroup.POST("/ollama/start", handlers.SmartRouter.StartOllama)
+		routerGroup.POST("/ollama/pull", handlers.SmartRouter.PullOllamaModel)
 	}
 
 	// Cache management routes

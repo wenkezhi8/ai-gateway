@@ -188,6 +188,38 @@
               :closable="false"
               style="margin-bottom: 16px"
             />
+            <el-divider content-position="left">Ollama 一键安装与模型安装</el-divider>
+            <el-row :gutter="12" style="margin-bottom: 12px">
+              <el-col :span="24">
+                <el-tag :type="ollamaSetup.installed ? 'success' : 'warning'" style="margin-right: 8px">
+                  Ollama安装: {{ ollamaSetup.installed ? '已安装' : '未安装' }}
+                </el-tag>
+                <el-tag :type="ollamaSetup.running ? 'success' : 'danger'" style="margin-right: 8px">
+                  服务状态: {{ ollamaSetup.running ? '运行中' : '未运行' }}
+                </el-tag>
+                <el-tag :type="ollamaSetup.model_installed ? 'success' : 'info'">
+                  模型({{ ollamaSetup.model }}): {{ ollamaSetup.model_installed ? '已安装' : '未安装' }}
+                </el-tag>
+              </el-col>
+            </el-row>
+            <el-row :gutter="12" style="margin-bottom: 12px">
+              <el-col :span="12">
+                <el-input v-model="ollamaModelInput" placeholder="模型名，如 qwen2.5:0.5b-instruct" />
+              </el-col>
+              <el-col :span="12">
+                <el-button :loading="ollamaInstalling" @click="installOllama">安装 Ollama</el-button>
+                <el-button :loading="ollamaStarting" type="warning" @click="startOllama">启动 Ollama</el-button>
+                <el-button :loading="ollamaPulling" type="primary" @click="pullOllamaModel">安装模型</el-button>
+                <el-button :loading="ollamaRefreshing" link @click="loadOllamaSetupStatus">刷新状态</el-button>
+              </el-col>
+            </el-row>
+            <el-alert
+              v-if="ollamaSetup.message"
+              :title="`Ollama状态: ${ollamaSetup.message}`"
+              :type="ollamaSetup.running ? 'success' : 'warning'"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
             <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
               <el-descriptions-item label="总请求">{{ classifierStats.total_requests }}</el-descriptions-item>
               <el-descriptions-item label="LLM尝试">{{ classifierStats.llm_attempts }}</el-descriptions-item>
@@ -419,6 +451,11 @@ import { ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { formatDuration } from '@/utils/format-duration'
+import {
+  DEFAULT_CLASSIFIER_CONFIG,
+  createDefaultTaskModelMapping,
+  createDefaultTaskTypes,
+} from '@/constants/routing'
 
 interface ModelScore {
   model: string
@@ -427,6 +464,13 @@ interface ModelScore {
   speed_score: number
   cost_score: number
   enabled: boolean
+}
+
+interface CascadeRule {
+  task_type: string
+  difficulty: string
+  start_level: string
+  max_level: string
 }
 
 const saving = ref(false)
@@ -444,30 +488,13 @@ const classifierSaving = ref(false)
 const classifierSwitching = ref(false)
 const classifierModelsLoading = ref(false)
 const classifierSwitchModel = ref('')
+const ollamaInstalling = ref(false)
+const ollamaStarting = ref(false)
+const ollamaPulling = ref(false)
+const ollamaRefreshing = ref(false)
+const ollamaModelInput = ref('qwen2.5:0.5b-instruct')
 
-const classifierConfig = reactive({
-  enabled: true,
-  shadow_mode: false,
-  provider: 'ollama',
-  base_url: 'http://127.0.0.1:11434',
-  active_model: 'qwen2.5:0.5b-instruct',
-  candidate_models: ['qwen2.5:0.5b-instruct'],
-  timeout_ms: 120,
-  confidence_threshold: 0.65,
-  fail_open: true,
-  max_input_chars: 4000,
-  control: {
-    enable: false,
-    shadow_only: true,
-    normalized_query_read_enable: false,
-    cache_write_gate_enable: false,
-    risk_tag_enable: false,
-    risk_block_enable: false,
-    tool_gate_enable: false,
-    model_fit_enable: false,
-    parameter_hint_enable: false
-  }
-})
+const classifierConfig = reactive(JSON.parse(JSON.stringify(DEFAULT_CLASSIFIER_CONFIG)))
 
 const classifierHealth = reactive({
   healthy: false,
@@ -485,6 +512,14 @@ const classifierStats = reactive({
   avg_control_latency_ms: 0,
   parse_errors: 0,
   control_fields_missing: 0
+})
+
+const ollamaSetup = reactive({
+  installed: false,
+  running: false,
+  model: 'qwen2.5:0.5b-instruct',
+  model_installed: false,
+  message: ''
 })
 
 function ensureControlConfig() {
@@ -522,22 +557,10 @@ const config = reactive({
 
 // 任务类型模型映射
 const taskModelMapping = reactive<Record<string, { enabled: boolean, model: string }>>({
-  code: { enabled: false, model: 'deepseek-coder' },
-  chat: { enabled: false, model: 'gpt-4o-mini' },
-  reasoning: { enabled: false, model: 'deepseek-reasoner' },
-  math: { enabled: false, model: 'deepseek-reasoner' },
-  fact: { enabled: false, model: 'gpt-4o' },
-  creative: { enabled: false, model: 'claude-3-5-sonnet' },
-  translate: { enabled: false, model: 'gpt-4o' },
-  other: { enabled: false, model: 'gpt-4o-mini' }
+  ...createDefaultTaskModelMapping()
 })
 
-const strategies = ref([
-  { value: 'auto', label: '智能平衡', description: '综合效果 + 速度 + 成本' },
-  { value: 'quality', label: '效果优先', description: '选择效果最好的模型' },
-  { value: 'speed', label: '速度优先', description: '选择响应最快的模型' },
-  { value: 'cost', label: '成本优先', description: '选择成本最低的模型' }
-])
+const strategies = ref<Array<{ value: string; label: string; description: string }>>([])
 
 const feedbackStats = reactive({
   total: 0,
@@ -547,22 +570,24 @@ const feedbackStats = reactive({
   modelsTracked: 0
 })
 
-const cascadeLevels = [
-  { key: 'small', label: '小型', type: 'success', desc: '快速响应，低成本', models: ['gpt-4o-mini', 'deepseek-chat', 'glm-4-flash', 'qwen-turbo'] },
-  { key: 'medium', label: '中型', type: 'warning', desc: '平衡质量与速度', models: ['gpt-4o', 'deepseek-coder', 'claude-3-5-haiku', 'qwen-plus'] },
-  { key: 'large', label: '大型', type: 'danger', desc: '最高质量，复杂任务', models: ['deepseek-reasoner', 'o1', 'claude-3-5-sonnet', 'gpt-4-turbo'] }
-]
+const cascadeRules = ref<CascadeRule[]>([])
 
-const taskTypes = ref([
-  { type: 'code', name: '代码生成', count: 0, percentage: 0, color: '#007AFF' },
-  { type: 'chat', name: '日常对话', count: 0, percentage: 0, color: '#34C759' },
-  { type: 'reasoning', name: '逻辑推理', count: 0, percentage: 0, color: '#FF9500' },
-  { type: 'math', name: '数学计算', count: 0, percentage: 0, color: '#FF3B30' },
-  { type: 'fact', name: '事实查询', count: 0, percentage: 0, color: '#34C759' },
-  { type: 'creative', name: '创意写作', count: 0, percentage: 0, color: '#AF52DE' },
-  { type: 'translate', name: '翻译', count: 0, percentage: 0, color: '#5856D6' },
-  { type: 'other', name: '其他', count: 0, percentage: 0, color: '#8E8E93' }
-])
+const cascadeLevels = computed(() => {
+  const groups: Record<string, string[]> = { small: [], medium: [], large: [] }
+  cascadeRules.value.forEach(rule => {
+    const level = rule.start_level || 'medium'
+    if (!groups[level]) return
+    const item = `${rule.task_type}/${rule.difficulty}`
+    if (!groups[level].includes(item)) groups[level].push(item)
+  })
+  return [
+    { key: 'small', label: '小型', type: 'success', desc: '快速响应，低成本', models: groups.small },
+    { key: 'medium', label: '中型', type: 'warning', desc: '平衡质量与速度', models: groups.medium },
+    { key: 'large', label: '大型', type: 'danger', desc: '最高质量，复杂任务', models: groups.large },
+  ]
+})
+
+const taskTypes = ref(createDefaultTaskTypes())
 
 const statsCards = computed(() => [
   { title: '总反馈数', value: feedbackStats.total.toString(), icon: 'ChatDotRound', color: '#007AFF' },
@@ -710,6 +735,15 @@ async function loadAvailableModels() {
   }
 }
 
+async function loadCascadeRules() {
+  try {
+    const data: any = await request.get('/admin/router/cascade-rules')
+    cascadeRules.value = Array.isArray(data?.data) ? data.data : []
+  } catch (e) {
+    console.warn('Failed to load cascade rules:', e)
+  }
+}
+
 async function loadFeedbackStats() {
   try {
     const data: any = await request.get('/admin/feedback/stats')
@@ -780,6 +814,70 @@ async function loadClassifierStats() {
     classifierStats.control_fields_missing = Number(stats.control_fields_missing || 0)
   } catch (e) {
     console.warn('Failed to load classifier stats:', e)
+  }
+}
+
+async function loadOllamaSetupStatus() {
+  ollamaRefreshing.value = true
+  try {
+    const model = (ollamaModelInput.value || classifierConfig.active_model || 'qwen2.5:0.5b-instruct').trim()
+    const data: any = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
+    const payload = data?.data || data || {}
+    ollamaSetup.installed = Boolean(payload.installed)
+    ollamaSetup.running = Boolean(payload.running)
+    ollamaSetup.model = payload.model || model
+    ollamaSetup.model_installed = Boolean(payload.model_installed)
+    ollamaSetup.message = payload.message || ''
+  } catch (e) {
+    console.warn('Failed to load ollama setup status:', e)
+  } finally {
+    ollamaRefreshing.value = false
+  }
+}
+
+async function installOllama() {
+  ollamaInstalling.value = true
+  try {
+    await request.post('/admin/router/ollama/install')
+    handleSuccess('Ollama 安装完成')
+  } catch (e) {
+    handleApiError(e, '安装 Ollama 失败')
+  } finally {
+    ollamaInstalling.value = false
+    await loadOllamaSetupStatus()
+  }
+}
+
+async function startOllama() {
+  ollamaStarting.value = true
+  try {
+    await request.post('/admin/router/ollama/start')
+    handleSuccess('Ollama 启动成功')
+  } catch (e) {
+    handleApiError(e, '启动 Ollama 失败')
+  } finally {
+    ollamaStarting.value = false
+    await loadOllamaSetupStatus()
+    await loadClassifierHealth()
+  }
+}
+
+async function pullOllamaModel() {
+  const model = (ollamaModelInput.value || classifierConfig.active_model || 'qwen2.5:0.5b-instruct').trim()
+  if (!model) {
+    handleApiError(new Error('模型名不能为空'), '安装模型失败')
+    return
+  }
+  ollamaPulling.value = true
+  try {
+    await request.post('/admin/router/ollama/pull', { model })
+    handleSuccess(`模型安装成功: ${model}`)
+    await loadClassifierModels()
+  } catch (e) {
+    handleApiError(e, '安装模型失败')
+  } finally {
+    ollamaPulling.value = false
+    await loadOllamaSetupStatus()
   }
 }
 
@@ -905,11 +1003,13 @@ onMounted(() => {
   loadConfig()
   loadModelScores()
   loadAvailableModels()
+  loadCascadeRules()
   loadFeedbackStats()
   loadTaskTypeDistribution()
   loadClassifierHealth()
   loadClassifierStats()
   loadClassifierModels()
+  loadOllamaSetupStatus()
 })
 
 let autoSaveTimer: number | null = null
