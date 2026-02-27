@@ -5,7 +5,7 @@
       <el-col :span="6" v-for="stat in statsCards" :key="stat.title">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" :style="{ background: stat.color + '15' }">
+            <div class="stat-icon" :style="{ background: stat.softColor }">
               <el-icon :size="28" :color="stat.color"><component :is="stat.icon" /></el-icon>
             </div>
             <div class="stat-info">
@@ -554,21 +554,21 @@ const cascadeLevels = [
 ]
 
 const taskTypes = ref([
-  { type: 'code', name: '代码生成', count: 0, percentage: 0, color: '#007AFF' },
-  { type: 'chat', name: '日常对话', count: 0, percentage: 0, color: '#34C759' },
-  { type: 'reasoning', name: '逻辑推理', count: 0, percentage: 0, color: '#FF9500' },
-  { type: 'math', name: '数学计算', count: 0, percentage: 0, color: '#FF3B30' },
-  { type: 'fact', name: '事实查询', count: 0, percentage: 0, color: '#34C759' },
-  { type: 'creative', name: '创意写作', count: 0, percentage: 0, color: '#AF52DE' },
-  { type: 'translate', name: '翻译', count: 0, percentage: 0, color: '#5856D6' },
-  { type: 'other', name: '其他', count: 0, percentage: 0, color: '#8E8E93' }
+  { type: 'code', name: '代码生成', count: 0, percentage: 0, color: 'var(--color-primary)' },
+  { type: 'chat', name: '日常对话', count: 0, percentage: 0, color: 'var(--success)' },
+  { type: 'reasoning', name: '逻辑推理', count: 0, percentage: 0, color: 'var(--warning)' },
+  { type: 'math', name: '数学计算', count: 0, percentage: 0, color: 'var(--danger)' },
+  { type: 'fact', name: '事实查询', count: 0, percentage: 0, color: 'var(--info)' },
+  { type: 'creative', name: '创意写作', count: 0, percentage: 0, color: 'var(--accent-strong, var(--color-primary))' },
+  { type: 'translate', name: '翻译', count: 0, percentage: 0, color: 'var(--color-primary-light, var(--color-primary))' },
+  { type: 'other', name: '其他', count: 0, percentage: 0, color: 'var(--text-tertiary)' }
 ])
 
 const statsCards = computed(() => [
-  { title: '总反馈数', value: feedbackStats.total.toString(), icon: 'ChatDotRound', color: '#007AFF' },
-  { title: '好评率', value: `${feedbackStats.positiveRate}%`, icon: 'CircleCheckFilled', color: '#34C759' },
-  { title: '追踪模型', value: feedbackStats.modelsTracked.toString(), icon: 'DataAnalysis', color: '#FF9500' },
-  { title: '平均评分', value: feedbackStats.avgRating.toFixed(1), icon: 'StarFilled', color: '#5856D6' }
+  { title: '总反馈数', value: feedbackStats.total.toString(), icon: 'ChatDotRound', color: 'var(--color-primary)', softColor: 'var(--accent-soft)' },
+  { title: '好评率', value: `${feedbackStats.positiveRate}%`, icon: 'CircleCheckFilled', color: 'var(--success)', softColor: 'var(--success-soft)' },
+  { title: '追踪模型', value: feedbackStats.modelsTracked.toString(), icon: 'DataAnalysis', color: 'var(--warning)', softColor: 'var(--warning-soft)' },
+  { title: '平均评分', value: feedbackStats.avgRating.toFixed(1), icon: 'StarFilled', color: 'var(--info)', softColor: 'var(--info-soft)' }
 ])
 
 const filteredModels = computed(() => {
@@ -614,9 +614,9 @@ function calculateCompositeScore(row: ModelScore): number {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 80) return '#67c23a'
-  if (score >= 60) return '#e6a23c'
-  return '#f56c6c'
+  if (score >= 80) return 'var(--success)'
+  if (score >= 60) return 'var(--warning)'
+  return 'var(--danger)'
 }
 
 function getScoreTagType(score: number): string {
@@ -1097,7 +1097,7 @@ watch(autoSaveEnabled, (value) => {
         color: var(--el-text-color-primary);
 
         &.positive {
-          color: #67c23a;
+          color: var(--success);
         }
       }
     }

@@ -11,7 +11,7 @@ const THEME_KEY = 'ai-gateway-theme'
 const DEFAULT_THEME: ThemeSetting = { variant: 'apple', mode: 'auto' }
 
 // 全局主题状态
-const currentTheme = ref<ThemeSetting>(getStoredTheme())
+const currentTheme = ref<ThemeSetting>(DEFAULT_THEME)
 
 function getStoredTheme(): ThemeSetting {
   const stored = localStorage.getItem(THEME_KEY)
@@ -24,7 +24,7 @@ function getStoredTheme(): ThemeSetting {
   try {
     const parsed = JSON.parse(stored) as Partial<ThemeSetting>
     const variant = parsed.variant === 'dashboard' ? 'dashboard' : 'apple'
-    const mode = parsed.mode === 'light' || parsed.mode === 'dark' || parsed.mode === 'auto' ? parsed.mode : 'auto'
+    const mode: ThemeMode = parsed.mode === 'light' || parsed.mode === 'dark' || parsed.mode === 'auto' ? parsed.mode : 'auto'
     return { variant, mode }
   } catch {
     return DEFAULT_THEME
@@ -50,45 +50,46 @@ function applyTheme(setting: ThemeSetting) {
   }
 }
 
-// 监听系统主题变化
-if (window.matchMedia) {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (currentTheme.value.mode === 'auto') {
-      applyTheme(currentTheme.value)
-    }
-  })
-}
-
-export function useTheme() {
-  // 初始化应用主题
+const initTheme = () => {
+  currentTheme.value = getStoredTheme()
   applyTheme(currentTheme.value)
 
-  // 监听主题变化
-  watch(currentTheme, (newTheme) => {
-    localStorage.setItem(THEME_KEY, JSON.stringify(newTheme))
-    applyTheme(newTheme)
-  }, { deep: true })
-
-  const setTheme = (mode: ThemeMode) => {
-    currentTheme.value = { ...currentTheme.value, mode }
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (currentTheme.value.mode === 'auto') {
+        applyTheme(currentTheme.value)
+      }
+    })
   }
+}
 
-  const setVariant = (variant: ThemeVariant) => {
-    currentTheme.value = { ...currentTheme.value, variant }
-  }
+const setTheme = (mode: ThemeMode) => {
+  currentTheme.value = { ...currentTheme.value, mode }
+}
 
-  const toggleTheme = () => {
-    const modes: ThemeMode[] = ['light', 'dark', 'auto']
-    const currentIndex = modes.indexOf(currentTheme.value.mode)
-    const nextIndex = (currentIndex + 1) % modes.length
-    currentTheme.value = { ...currentTheme.value, mode: modes[nextIndex] }
-  }
+const setVariant = (variant: ThemeVariant) => {
+  currentTheme.value = { ...currentTheme.value, variant }
+}
 
-  const isDark = () => {
-    const effectiveMode = currentTheme.value.mode === 'auto' ? getSystemMode() : currentTheme.value.mode
-    return effectiveMode === 'dark'
-  }
+const toggleTheme = () => {
+  const modes: ThemeMode[] = ['light', 'dark', 'auto']
+  const currentIndex = modes.indexOf(currentTheme.value.mode)
+  const nextIndex = (currentIndex + 1) % modes.length
+  const nextMode = modes[nextIndex] ?? 'auto'
+  currentTheme.value = { ...currentTheme.value, mode: nextMode }
+}
 
+const isDark = () => {
+  const effectiveMode = currentTheme.value.mode === 'auto' ? getSystemMode() : currentTheme.value.mode
+  return effectiveMode === 'dark'
+}
+
+watch(currentTheme, (newTheme) => {
+  localStorage.setItem(THEME_KEY, JSON.stringify(newTheme))
+  applyTheme(newTheme)
+}, { deep: true })
+
+export function useTheme() {
   return {
     currentTheme,
     setTheme,
@@ -97,3 +98,5 @@ export function useTheme() {
     isDark
   }
 }
+
+export { initTheme, setTheme, setVariant, toggleTheme, isDark }
