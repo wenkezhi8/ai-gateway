@@ -28,7 +28,7 @@ const (
 	ClassifierDefaultProvider            = "ollama"
 	ClassifierDefaultBaseURL             = "http://127.0.0.1:11434"
 	ClassifierDefaultModel               = "qwen2.5:0.5b-instruct"
-	ClassifierDefaultTimeoutMs           = 120
+	ClassifierDefaultTimeoutMs           = 5000
 	ClassifierDefaultConfidenceThreshold = 0.65
 	ClassifierDefaultMaxInputChars       = 4000
 )

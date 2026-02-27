@@ -6,6 +6,7 @@
 
 - [快速参考](#快速参考)
 - [TDD 工作流程](#tdd-工作流程)
+- [前端开发规范](#前端开发规范)
 - [会话执行规范](#会话执行规范)
 - [Git 工作流](#git-工作流)
 - [代码风格规范](#代码风格规范)
@@ -15,7 +16,6 @@
 - [部署规范](#部署规范)
 - [历史教训](#历史教训)
 - [开发规划](#开发规划)
-
 ---
 
 ## 快速参考
@@ -79,6 +79,119 @@ cd web && npm run build      # 构建前端
 - [ ] 使用表格驱动测试覆盖边界情况
 - [ ] Mock 外部依赖（数据库、API 等）
 - [ ] 测试命名清晰：`Test<函数>_<场景>_<预期结果>`
+
+---
+
+## 前端开发规范
+
+### 架构原则：全 API 调用
+
+> **核心原则**：前端所有数据、所有渲染，全部走 API 调用。
+> 这是标准的 SPA（前后端分离）架构，99% 现代项目都这样做。
+
+| 层级 | 职责 |
+|------|------|
+| **前端** | 页面、交互、渲染、请求 API |
+| **后端** | 接口、数据、业务逻辑、数据库 |
+
+### 前端开发流程（TDD）
+
+| 步骤 | 流程 | 具体工作 |
+|------|------|------|
+| **1** | **定义 API** | 确认接口路径、参数、响应格式 |
+| **2** | **写请求函数** | 在 `api/` 下封装请求，带类型定义 |
+| **3** | **写组件骨架** | loading 状态 + 空状态 + 错误状态 |
+| **4** | **对接数据** | onMounted 调用 API，渲染数据 |
+| **5** | **验证** | 类型检查 + 构建 + 页面测试 |
+
+### 必须避开的 4 个坑
+
+#### 1. 分页、筛选、排序必须后端做
+
+```typescript
+// ✅ 正确：后端分页
+const params = { page: 1, pageSize: 20, sort: 'createdAt' }
+const res = await request.get('/api/admin/accounts', { params })
+
+// ❌ 错误：前端拉全量再分页（巨卡、巨慢）
+const all = await request.get('/api/admin/accounts')  // 拉了 10000 条！
+const page = all.slice(0, 20)  // 前端分页
+```
+
+#### 2. 防抖、节流、缓存
+
+```typescript
+// ✅ 正确：防抖搜索
+import { debounce } from 'lodash-es'
+const handleSearch = debounce(async (keyword) => {
+  const res = await request.get('/api/search', { params: { q: keyword } })
+}, 300)
+
+// ✅ 正确：列表缓存到 store
+const cacheStore = useCacheStore()
+if (!cacheStore.accounts.length) {
+  cacheStore.accounts = await request.get('/api/admin/accounts')
+}
+```
+
+#### 3. Loading + 错误 + 空状态必须做
+
+```vue
+<template>
+  <!-- Loading -->
+  <div v-if="loading" class="loading">加载中...</div>
+  
+  <!-- 错误 -->
+  <div v-else-if="error" class="error">
+    {{ error }}
+    <el-button @click="fetchData">重试</el-button>
+  </div>
+  
+  <!-- 空状态 -->
+  <div v-else-if="list.length === 0" class="empty">暂无数据</div>
+  
+  <!-- 正常 -->
+  <div v-else>
+    <div v-for="item in list" :key="item.id">{{ item.name }}</div>
+  </div>
+</template>
+
+<script setup>
+const loading = ref(true)
+const error = ref('')
+const list = ref([])
+
+async function fetchData() {
+  loading.value = true
+  error.value = ''
+  try {
+    list.value = await request.get('/api/list')
+  } catch (e) {
+    error.value = e.message || '请求失败'
+  } finally {
+    loading.value = false
+  }
+}
+</script>
+```
+
+#### 4. 权限校验后端做
+
+```typescript
+// ✅ 正确：后端校验权限
+// 前端只是隐藏按钮（UI 优化），不做权限判断
+<el-button v-if="canDelete" @click="handleDelete">删除</el-button>
+
+// 后端必须再次校验
+func (h *Handler) Delete(c *gin.Context) {
+    user := GetUser(c)
+    if !user.HasPermission("delete") {
+        c.JSON(403, gin.H{"error": "无权限"})
+        return
+    }
+    // 执行删除...
+}
+```
 
 ### 前端变更必做流程
 
