@@ -58,7 +58,7 @@ export const PROVIDERS_ENDPOINT_MAP: Record<string, string> = {
   openai: 'https://api.openai.com/v1',
   azure: 'https://your-resource.openai.azure.com',
   anthropic: 'https://api.anthropic.com/v1',
-  google: 'https://generativelanguage.googleapis.com/v1',
+  google: 'https://generativelanguage.googleapis.com/v1beta',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
   qwen: 'https://dashscope.aliyuncs.com/api/v1',
   ernie: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1',

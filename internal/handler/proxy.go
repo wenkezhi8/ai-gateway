@@ -1211,6 +1211,19 @@ func (h *ProxyHandler) handleStreamResponse(
 	var ttftMs int64 = 0 // Time to first token
 	// Stream chunks to client
 	for chunk := range stream {
+		if chunk.Error != nil {
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			c.SSEvent("error", gin.H{
+				"error": gin.H{
+					"code":    chunk.Error.Code,
+					"message": chunk.Error.Message,
+				},
+			})
+			c.Writer.Flush()
+			return
+		}
+
 		receivedChunks++
 		if chunk.Usage != nil {
 			totalTokens = chunk.Usage.TotalTokens
@@ -1733,6 +1746,18 @@ func (h *ProxyHandler) handleCompletionStreamResponse(c *gin.Context, p provider
 	}
 
 	for chunk := range stream {
+		if chunk.Error != nil {
+			h.recordMetrics("", "", model, time.Since(startTime), 0, false)
+			c.SSEvent("error", gin.H{
+				"error": gin.H{
+					"code":    chunk.Error.Code,
+					"message": chunk.Error.Message,
+				},
+			})
+			c.Writer.Flush()
+			return
+		}
+
 		if chunk.Done {
 			c.SSEvent("message", map[string]interface{}{
 				"id":      chunk.ID,

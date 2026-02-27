@@ -15,6 +15,7 @@ import (
 	"ai-gateway/internal/provider/claude"
 	"ai-gateway/internal/provider/deepseek"
 	"ai-gateway/internal/provider/ernie"
+	"ai-gateway/internal/provider/google"
 	"ai-gateway/internal/provider/openai"
 	"ai-gateway/internal/provider/qwen"
 	"ai-gateway/internal/provider/volcengine"
@@ -60,7 +61,7 @@ func InitProviderRegistry(cfg *config.Config, logger *logrus.Logger) *provider.R
 	registry.RegisterFactory("zhipu", func(cfg *provider.ProviderConfig) provider.Provider { return zhipu.NewAdapter(cfg) })
 	registry.RegisterFactory("qwen", func(cfg *provider.ProviderConfig) provider.Provider { return qwen.NewAdapter(cfg) })
 	registry.RegisterFactory("ernie", func(cfg *provider.ProviderConfig) provider.Provider { return ernie.NewAdapter(cfg) })
-	registry.RegisterFactory("google", func(cfg *provider.ProviderConfig) provider.Provider { return openai.NewAdapter(cfg) })
+	registry.RegisterFactory("google", func(cfg *provider.ProviderConfig) provider.Provider { return google.NewAdapter(cfg) })
 
 	defaultModels := map[string][]string{
 		"openai":     {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "o1", "o1-mini", "o1-preview"},
@@ -70,6 +71,7 @@ func InitProviderRegistry(cfg *config.Config, logger *logrus.Logger) *provider.R
 		"qwen":       {"qwen-max", "qwen-max-longcontext", "qwen-plus", "qwen-turbo", "qwen-long"},
 		"ernie":      {"ernie-4.0-8k", "ernie-4.0", "ernie-3.5-8k", "ernie-3.5", "ernie-speed-8k", "ernie-speed"},
 		"volcengine": {"doubao-pro-32k", "doubao-pro-128k", "doubao-pro-256k", "doubao-lite-32k", "doubao-lite-128k"},
+		"google":     {"gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"},
 	}
 
 	for _, p := range cfg.Providers {

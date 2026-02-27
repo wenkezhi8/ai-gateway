@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,13 +18,14 @@ func TestInitProviderRegistry_RegistersGoogleFactory(t *testing.T) {
 	logger := logrus.New()
 
 	registry := InitProviderRegistry(cfg, logger)
-	_, err := registry.CreateProvider(&provider.ProviderConfig{
+	p, err := registry.CreateProvider(&provider.ProviderConfig{
 		Name:    "google",
 		APIKey:  "test-key",
-		BaseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
+		BaseURL: "https://generativelanguage.googleapis.com/v1beta",
 		Models:  []string{"gemini-3.1-pro-preview"},
 		Enabled: true,
 	})
 
 	require.NoError(t, err)
+	assert.Equal(t, "google", p.Name())
 }

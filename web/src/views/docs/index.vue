@@ -1,5 +1,5 @@
 <template>
-  <div class="docs-wizard-page">
+  <div class="docs-layout-page">
     <div class="ambient-grid"></div>
     <div class="ambient-orb orb-left"></div>
     <div class="ambient-orb orb-right"></div>
@@ -10,10 +10,10 @@
         <span class="brand-text">AI Gateway Docs</span>
       </router-link>
 
-      <nav class="top-nav">
-        <a href="#wizard">接入向导</a>
-        <a href="#reference">接口示例</a>
-        <a href="#release">上线检查</a>
+      <nav class="top-nav" aria-label="文档导航">
+        <router-link to="/docs/getting-started">入门指南</router-link>
+        <router-link to="/docs/api">API 参考</router-link>
+        <router-link to="/docs/sdk">SDK 示例</router-link>
       </nav>
 
       <div class="top-actions">
@@ -21,302 +21,89 @@
       </div>
     </header>
 
-    <main class="docs-main">
-      <section class="docs-hero">
-        <p class="hero-badge">Start Wizard</p>
-        <h1>文档中心 · 独立向导页</h1>
-        <p class="hero-subtitle">
-          参考 Clawd 向导页的信息组织方式，重构为「步骤导航 + 分步执行 + 可复制示例」，
-          同时保持 AI Gateway 当前浅色科技风视觉语言。
-        </p>
-
-        <div class="hero-chips">
-          <span>OpenAI Compatible</span>
-          <span>Anthropic Compatible</span>
-          <span>Provider Routing</span>
-          <span>Usage & Alerts</span>
-        </div>
-      </section>
-
-      <section id="wizard" class="wizard-layout">
-        <aside class="step-nav">
-          <div class="step-nav-head">
-            <h2>接入步骤</h2>
-            <p>{{ Math.round(progress) }}% 完成路径</p>
-          </div>
-
-          <button
-            v-for="(step, index) in steps"
-            :key="step.id"
-            type="button"
-            class="step-nav-item"
-            :class="{ active: currentStep === step.id }"
-            @click="scrollToStep(step.id)"
+    <main class="docs-layout-shell">
+      <aside class="docs-sidebar" aria-label="文档侧边栏">
+        <section v-for="group in navGroups" :key="group.title" class="sidebar-group">
+          <h2>{{ group.title }}</h2>
+          <router-link
+            v-for="item in group.items"
+            :key="item.to"
+            :to="item.to"
+            class="sidebar-link"
+            :class="{ active: isActive(item.to) }"
           >
-            <span class="step-no">{{ index + 1 }}</span>
-            <span class="step-meta">
-              <strong>{{ step.title }}</strong>
-              <small>{{ step.summary }}</small>
-            </span>
-          </button>
+            {{ item.label }}
+          </router-link>
+        </section>
+      </aside>
 
-          <div class="progress-track" aria-hidden="true">
-            <span class="progress-fill" :style="{ width: `${progress}%` }"></span>
-          </div>
-        </aside>
-
-        <div class="step-content">
-          <article id="step-setup" class="step-panel">
-            <header class="panel-head">
-              <span class="panel-index">步骤 1</span>
-              <h3>部署网关服务</h3>
-              <p>先确认基础服务端口和运行环境，保证 API 网关可用。</p>
-            </header>
-
-            <div class="panel-grid two-cols">
-              <div class="info-card">
-                <h4>推荐启动方式</h4>
-                <p>开发环境优先使用统一脚本，避免前端缓存与后端进程不一致。</p>
-                <ul>
-                  <li>前后端统一端口：<code>8566</code></li>
-                  <li>Metrics：<code>9090</code></li>
-                  <li>Redis：<code>6379</code></li>
-                </ul>
-              </div>
-
-              <div class="code-card">
-                <div class="code-head">
-                  <span>bash</span>
-                  <button type="button" @click="copyCode(bootstrapCommand, '部署命令')">复制</button>
-                </div>
-                <pre><code>{{ bootstrapCommand }}</code></pre>
-              </div>
-            </div>
-          </article>
-
-          <article id="step-provider" class="step-panel">
-            <header class="panel-head">
-              <span class="panel-index">步骤 2</span>
-              <h3>配置服务商与模型池</h3>
-              <p>配置 API Key、端点与模型集，路由层才能进行稳定调度。</p>
-            </header>
-
-            <div class="panel-grid">
-              <div class="info-card">
-                <h4>服务商建议</h4>
-                <p>至少准备 2 家上游，确保失败切换与成本弹性。</p>
-              </div>
-            </div>
-
-            <div class="provider-table-wrap">
-              <table class="provider-table">
-                <thead>
-                  <tr>
-                    <th>服务商</th>
-                    <th>端点</th>
-                    <th>示例模型</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="provider in providers" :key="provider.name">
-                    <td>{{ provider.name }}</td>
-                    <td><code>{{ provider.endpoint }}</code></td>
-                    <td>{{ provider.models.slice(0, 2).join(' / ') }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </article>
-
-          <article id="step-call" class="step-panel">
-            <header class="panel-head">
-              <span class="panel-index">步骤 3</span>
-              <h3>切换业务调用到统一入口</h3>
-              <p>客户端只需调用一个标准接口，后端完成模型路由与账号切换。</p>
-            </header>
-
-            <div id="reference" class="panel-grid two-cols">
-              <div class="code-card">
-                <div class="code-head">
-                  <span>OpenAI Curl</span>
-                  <button type="button" @click="copyCode(openaiCurl, 'OpenAI 示例')">复制</button>
-                </div>
-                <pre><code>{{ openaiCurl }}</code></pre>
-              </div>
-
-              <div class="code-card">
-                <div class="code-head">
-                  <span>Anthropic Curl</span>
-                  <button type="button" @click="copyCode(anthropicCurl, 'Anthropic 示例')">复制</button>
-                </div>
-                <pre><code>{{ anthropicCurl }}</code></pre>
-              </div>
-            </div>
-          </article>
-
-          <article id="step-validate" class="step-panel">
-            <header class="panel-head">
-              <span class="panel-index">步骤 4</span>
-              <h3>验证与回归检查</h3>
-              <p>接入完成后先验证接口可用，再观察缓存命中与成功率。</p>
-            </header>
-
-            <div class="panel-grid two-cols">
-              <div class="code-card">
-                <div class="code-head">
-                  <span>健康检查</span>
-                  <button type="button" @click="copyCode(checkCommands, '检查命令')">复制</button>
-                </div>
-                <pre><code>{{ checkCommands }}</code></pre>
-              </div>
-
-              <div class="checklist-card">
-                <h4>上线前检查清单</h4>
-                <ul>
-                  <li>JWT 秘钥已替换生产值</li>
-                  <li>至少 2 个可用服务商账号</li>
-                  <li>告警渠道已启用并测试通过</li>
-                  <li>日志中无明文 API Key</li>
-                </ul>
-              </div>
-            </div>
-          </article>
-
-          <article id="step-release" class="step-panel">
-            <header class="panel-head">
-              <span id="release" class="panel-index">步骤 5</span>
-              <h3>进入控制台持续优化</h3>
-              <p>上线后在控制台根据流量与成本实时调优路由和缓存策略。</p>
-            </header>
-
-            <div class="panel-grid three-cols">
-              <router-link to="/dashboard" class="jump-card">
-                <h4>监控仪表盘</h4>
-                <p>看请求量、成功率、TTFT 趋势。</p>
-              </router-link>
-
-              <router-link to="/api-management" class="jump-card">
-                <h4>API 管理</h4>
-                <p>调整网关参数与访问策略。</p>
-              </router-link>
-
-              <router-link to="/routing" class="jump-card">
-                <h4>路由策略</h4>
-                <p>按任务类型设置模型偏好。</p>
-              </router-link>
-            </div>
-          </article>
+      <section class="docs-content">
+        <div class="mobile-nav" aria-label="移动端文档导航">
+          <router-link
+            v-for="item in flatNavItems"
+            :key="item.to"
+            :to="item.to"
+            class="mobile-nav-item"
+            :class="{ active: isActive(item.to) }"
+          >
+            {{ item.label }}
+          </router-link>
         </div>
+
+        <router-view />
       </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { DOCS_PROVIDERS } from '@/constants/pages/docs'
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 
-interface WizardStep {
-  id: string
-  title: string
-  summary: string
+interface NavItem {
+  label: string
+  to: string
 }
 
-const steps: WizardStep[] = [
-  { id: 'step-setup', title: '部署服务', summary: '启动网关进程' },
-  { id: 'step-provider', title: '配置服务商', summary: '录入密钥与模型' },
-  { id: 'step-call', title: '切换调用', summary: '统一 API 入口' },
-  { id: 'step-validate', title: '运行验证', summary: '健康检查与回归' },
-  { id: 'step-release', title: '持续优化', summary: '运营闭环调优' }
+interface NavGroup {
+  title: string
+  items: NavItem[]
+}
+
+const route = useRoute()
+
+const navGroups: NavGroup[] = [
+  {
+    title: '快速开始',
+    items: [
+      { label: '入门指南', to: '/docs/getting-started' },
+      { label: '安装向导', to: '/docs/wizard' }
+    ]
+  },
+  {
+    title: '开发参考',
+    items: [
+      { label: 'API 参考', to: '/docs/api' },
+      { label: 'SDK 示例', to: '/docs/sdk' },
+      { label: '服务商', to: '/docs/providers' }
+    ]
+  },
+  {
+    title: '运维管理',
+    items: [
+      { label: '管理 API', to: '/docs/admin' },
+      { label: '错误码', to: '/docs/errors' }
+    ]
+  }
 ]
 
-const providers = DOCS_PROVIDERS.slice(0, 6)
-const currentStep = ref<string>(steps[0]?.id ?? 'step-setup')
+const flatNavItems = computed(() => navGroups.flatMap((group) => group.items))
 
-const bootstrapCommand = `# 1) 启动依赖与网关
-make build
-./scripts/dev-restart.sh
-
-# 2) 健康检查
-curl http://localhost:8566/health`
-
-const openaiCurl = `curl -X POST http://localhost:8566/api/v1/chat/completions \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -d '{
-    "model": "auto",
-    "messages": [{"role": "user", "content": "介绍一下 AI Gateway"}],
-    "stream": false
-  }'`
-
-const anthropicCurl = `curl -X POST http://localhost:8566/api/anthropic/v1/messages \\
-  -H "Content-Type: application/json" \\
-  -H "x-api-key: YOUR_API_KEY" \\
-  -H "anthropic-version: 2023-06-01" \\
-  -d '{
-    "model": "claude-3-5-sonnet-20241022",
-    "max_tokens": 512,
-    "messages": [{"role": "user", "content": "帮我生成发布说明"}]
-  }'`
-
-const checkCommands = `# 健康探针
-curl http://localhost:8566/health
-
-# 实时看板
-curl http://localhost:8566/api/admin/dashboard/realtime
-
-# 缓存统计
-curl http://localhost:8566/api/admin/cache/stats`
-
-const copyCode = async (value: string, label: string) => {
-  try {
-    await navigator.clipboard.writeText(value)
-    ElMessage.success(`${label}已复制`) 
-  } catch (error) {
-    ElMessage.error('复制失败，请手动复制')
-  }
-}
-
-const scrollToStep = (id: string) => {
-  const element = document.getElementById(id)
-  if (!element) return
-  element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-const updateCurrentStep = () => {
-  const checkpoint = window.scrollY + 180
-  let activeId = steps[0]?.id ?? ''
-
-  for (const step of steps) {
-    const element = document.getElementById(step.id)
-    if (!element) continue
-    if (element.offsetTop <= checkpoint) {
-      activeId = step.id
-    }
-  }
-
-  currentStep.value = activeId
-}
-
-const progress = computed(() => {
-  const index = steps.findIndex((step) => step.id === currentStep.value)
-  if (index < 0) return 0
-  return ((index + 1) / steps.length) * 100
-})
-
-onMounted(() => {
-  updateCurrentStep()
-  window.addEventListener('scroll', updateCurrentStep, { passive: true })
-})
-
-onUnmounted(() => {
-  window.removeEventListener('scroll', updateCurrentStep)
-})
+const isActive = (targetPath: string) => route.path === targetPath
 </script>
 
 <style scoped>
-.docs-wizard-page {
+.docs-layout-page {
   --bg-0: #f7fbff;
   --bg-1: #eef6ff;
   --bg-2: #e4f0ff;
@@ -371,10 +158,10 @@ onUnmounted(() => {
 }
 
 .docs-topbar,
-.docs-main {
+.docs-layout-shell {
   position: relative;
   z-index: 2;
-  max-width: 1220px;
+  max-width: 1240px;
   margin: 0 auto;
 }
 
@@ -425,313 +212,87 @@ onUnmounted(() => {
   transition: color 0.2s ease;
 }
 
-.top-nav a:hover {
+.top-nav a:hover,
+.top-nav a.router-link-active {
   color: var(--text-primary);
 }
 
-.docs-main {
+.docs-layout-shell {
   margin-top: 1rem;
-}
-
-.docs-hero,
-.wizard-layout {
   border: 1px solid var(--line);
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(8px);
-}
-
-.docs-hero {
-  padding: 1.35rem;
-}
-
-.hero-badge {
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  padding: 0.24rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  color: #0f766e;
-  background: rgba(14, 165, 160, 0.12);
-}
-
-.docs-hero h1 {
-  margin: 0.7rem 0 0;
-  font-size: clamp(1.7rem, 3.6vw, 2.7rem);
-}
-
-.hero-subtitle {
-  margin: 0.75rem 0 0;
-  max-width: 68ch;
-  color: var(--text-secondary);
-  line-height: 1.65;
-}
-
-.hero-chips {
-  margin-top: 0.9rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.hero-chips span {
-  padding: 0.3rem 0.6rem;
-  border-radius: 999px;
-  border: 1px solid rgba(14, 165, 160, 0.24);
-  background: rgba(255, 255, 255, 0.8);
-  color: #3f6079;
-  font-size: 0.78rem;
-}
-
-.wizard-layout {
-  margin-top: 1rem;
   padding: 1rem;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 1rem;
 }
 
-.step-nav {
+.docs-sidebar {
   position: sticky;
   top: 1rem;
   align-self: start;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.84);
-  padding: 0.9rem;
-}
-
-.step-nav-head h2 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.step-nav-head p {
-  margin: 0.3rem 0 0.6rem;
-  color: var(--text-secondary);
-  font-size: 0.86rem;
-}
-
-.step-nav-item {
-  width: 100%;
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.82);
-  border-radius: 12px;
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  text-align: left;
-  padding: 0.6rem;
-  cursor: pointer;
-  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.step-nav-item + .step-nav-item {
-  margin-top: 0.55rem;
-}
-
-.step-nav-item:hover {
-  transform: translateY(-1px);
-}
-
-.step-nav-item.active {
-  border-color: rgba(14, 165, 160, 0.55);
-  box-shadow: 0 8px 22px rgba(19, 136, 201, 0.16);
-}
-
-.step-no {
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  width: 1.55rem;
-  height: 1.55rem;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent), #46b7e5);
-  color: #f7feff;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.step-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.step-meta strong {
-  font-size: 0.92rem;
-}
-
-.step-meta small {
-  color: var(--text-secondary);
-}
-
-.progress-track {
-  margin-top: 0.8rem;
-  width: 100%;
-  height: 0.46rem;
-  border-radius: 999px;
-  background: rgba(98, 136, 164, 0.2);
-  overflow: hidden;
-}
-
-.progress-fill {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
-  border-radius: inherit;
-  transition: width 0.25s ease;
-}
-
-.step-content {
-  min-width: 0;
-}
-
-.step-panel {
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.86);
-  padding: 1rem;
-}
-
-.step-panel + .step-panel {
-  margin-top: 0.9rem;
-}
-
-.panel-head h3 {
-  margin: 0.25rem 0 0;
-  font-size: 1.25rem;
-}
-
-.panel-head p {
-  margin: 0.45rem 0 0;
-  color: var(--text-secondary);
-}
-
-.panel-index {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.22rem 0.58rem;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  color: #0f766e;
-  background: rgba(14, 165, 160, 0.12);
-}
-
-.panel-grid {
-  margin-top: 0.85rem;
-  display: grid;
-  gap: 0.8rem;
-}
-
-.two-cols {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.three-cols {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.info-card,
-.checklist-card,
-.code-card,
-.jump-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: linear-gradient(165deg, rgba(251, 254, 255, 0.94), rgba(236, 246, 255, 0.88));
   padding: 0.85rem;
 }
 
-.info-card h4,
-.checklist-card h4,
-.jump-card h4 {
+.sidebar-group + .sidebar-group {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(98, 136, 164, 0.2);
+}
+
+.sidebar-group h2 {
   margin: 0;
-}
-
-.info-card p,
-.jump-card p {
-  margin: 0.45rem 0 0;
-  color: var(--text-secondary);
-  line-height: 1.6;
-}
-
-.info-card ul,
-.checklist-card ul {
-  margin: 0.5rem 0 0;
-  padding-left: 1rem;
-  color: var(--text-secondary);
-  line-height: 1.7;
-}
-
-.code-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   color: var(--text-secondary);
 }
 
-.code-head button {
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--text-secondary);
-  border-radius: 9px;
-  padding: 0.28rem 0.58rem;
-  cursor: pointer;
-}
-
-.code-card pre {
-  margin: 0.65rem 0 0;
-  overflow-x: auto;
-  white-space: pre;
-  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.82rem;
-  line-height: 1.55;
-  color: #1a3850;
-}
-
-.provider-table-wrap {
-  margin-top: 0.8rem;
-  overflow-x: auto;
-}
-
-.provider-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.provider-table th,
-.provider-table td {
-  padding: 0.62rem 0.68rem;
-  border-bottom: 1px solid rgba(98, 136, 164, 0.2);
-  text-align: left;
-}
-
-.provider-table th {
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.provider-table code,
-.info-card code {
-  background: rgba(255, 255, 255, 0.88);
+.sidebar-link {
+  margin-top: 0.45rem;
+  display: block;
   border: 1px solid rgba(98, 136, 164, 0.24);
-  padding: 0.14rem 0.34rem;
-  border-radius: 6px;
-}
-
-.jump-card {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.82);
+  padding: 0.5rem 0.58rem;
+  color: var(--text-secondary);
   text-decoration: none;
-  color: inherit;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  font-size: 0.9rem;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.jump-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(19, 136, 201, 0.14);
+.sidebar-link.active {
+  border-color: rgba(14, 165, 160, 0.62);
+  color: var(--text-primary);
+  box-shadow: 0 8px 18px rgba(19, 136, 201, 0.14);
+}
+
+.docs-content {
+  min-width: 0;
+}
+
+.mobile-nav {
+  display: none;
+}
+
+.mobile-nav-item {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(98, 136, 164, 0.24);
+  border-radius: 999px;
+  padding: 0.34rem 0.66rem;
+  background: rgba(255, 255, 255, 0.86);
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+}
+
+.mobile-nav-item.active {
+  border-color: rgba(14, 165, 160, 0.62);
+  color: var(--text-primary);
 }
 
 .btn {
@@ -751,32 +312,30 @@ onUnmounted(() => {
   color: #0f5f66;
 }
 
-@media (max-width: 1120px) {
-  .wizard-layout {
+@media (max-width: 1080px) {
+  .docs-layout-shell {
     grid-template-columns: 1fr;
   }
 
-  .step-nav {
-    position: static;
+  .docs-sidebar {
+    display: none;
   }
 
-  .three-cols {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .mobile-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-bottom: 0.85rem;
   }
 }
 
 @media (max-width: 820px) {
-  .docs-wizard-page {
+  .docs-layout-page {
     padding: 0.8rem 0.8rem 1.5rem;
   }
 
   .top-nav {
     display: none;
-  }
-
-  .two-cols,
-  .three-cols {
-    grid-template-columns: 1fr;
   }
 
   .brand-text {

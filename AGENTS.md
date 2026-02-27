@@ -105,7 +105,8 @@ Git权限：<可否 commit / push / tag>
 <type>(<scope>): <description>
 ```
 常用 type：`feat` `fix` `refactor` `test` `docs` `chore`
-3. `push/tag` 需明确指令后执行。
+3. 每次任务完成后，必须本地提交一次，确保 `git status --short` 结果为空（工作区保持干净）。
+4. `push/tag` 需明确指令后执行。
 ---
 ## 8. 变更完成检查清单（交付前）
 - [ ] 改动范围与需求一致

@@ -7,7 +7,8 @@ import { OPS_TIME_TABS } from './pages/ops'
 import { DASHBOARD_FALLBACK_SERIES } from './pages/dashboard'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from './pages/settings'
 import { USAGE_CSV_HEADER } from './pages/usage'
-import { PROVIDERS_ACCOUNTS_BASE_TYPES } from './pages/providers-accounts'
+import { PROVIDERS_ACCOUNTS_BASE_TYPES, PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS } from './pages/providers-accounts'
+import { PROVIDERS_ENDPOINT_MAP } from './pages/providers'
 
 describe('pages static config extraction', () => {
   it('should expose accounts provider options', () => {
@@ -37,6 +38,11 @@ describe('pages static config extraction', () => {
     expect(PROVIDERS_ACCOUNTS_BASE_TYPES.length).toBeGreaterThan(0)
   })
 
+  it('should use google native default endpoint', () => {
+    expect(PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS.google).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(PROVIDERS_ENDPOINT_MAP.google).toBe('https://generativelanguage.googleapis.com/v1beta')
+  })
+
   it('should remove hardcoded model defaults from stores', () => {
     const modelsStoreFile = readFileSync(join(process.cwd(), 'src/store/models.ts'), 'utf-8')
     const chatStoreFile = readFileSync(join(process.cwd(), 'src/store/chat.ts'), 'utf-8')
@@ -59,5 +65,13 @@ describe('pages static config extraction', () => {
 
     expect(docsViewFile).not.toContain('const providers = ref([')
     expect(apiManagementViewFile).not.toContain('const strategies = ref([')
+  })
+
+  it('should show google endpoint mode hint in providers accounts view', () => {
+    const providersAccountsViewFile = readFileSync(join(process.cwd(), 'src/views/providers-accounts/index.vue'), 'utf-8')
+
+    expect(providersAccountsViewFile).toContain('Google 端点模式')
+    expect(providersAccountsViewFile).toContain('v1beta（原生）')
+    expect(providersAccountsViewFile).toContain('v1beta/openai（兼容）')
   })
 })

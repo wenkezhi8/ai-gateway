@@ -276,6 +276,13 @@
             </template>
           </el-input>
         </el-form-item>
+        <el-form-item v-if="showGoogleEndpointHint" class="google-endpoint-hint-wrap">
+          <el-alert type="info" :closable="false" show-icon class="google-endpoint-hint">
+            <template #title>Google 端点模式</template>
+            <div class="hint-line">推荐：`https://generativelanguage.googleapis.com/v1beta（原生）`</div>
+            <div class="hint-line">兼容：`https://generativelanguage.googleapis.com/v1beta/openai（兼容）`</div>
+          </el-alert>
+        </el-form-item>
         <el-form-item label="启用状态">
           <el-switch v-model="accountForm.enabled" active-text="启用" inactive-text="禁用" />
         </el-form-item>
@@ -383,6 +390,8 @@ const accountFormRef = ref<FormInstance>()
 const accountForm = reactive({
   id: '', name: '', provider: '', api_key: '', base_url: '', enabled: true
 })
+
+const showGoogleEndpointHint = computed(() => accountForm.provider === 'google')
 
 const accountRules: FormRules = {
   name: [{ required: true, message: '请输入账号名称', trigger: 'blur' }],
@@ -885,6 +894,21 @@ onMounted(() => {
 
   .account-form {
     padding: 10px 20px 0;
+  }
+
+  .google-endpoint-hint-wrap {
+    margin-top: -6px;
+  }
+
+  .google-endpoint-hint {
+    width: 100%;
+
+    .hint-line {
+      font-size: 12px;
+      line-height: 1.6;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+      word-break: break-all;
+    }
   }
 }
 

@@ -11,9 +11,56 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/docs',
-    name: 'Docs',
     component: () => import('@/views/docs/index.vue'),
-    meta: { title: '文档中心', public: true }
+    meta: { title: '文档中心', public: true },
+    children: [
+      {
+        path: '',
+        redirect: '/docs/getting-started'
+      },
+      {
+        path: 'getting-started',
+        name: 'DocsGettingStarted',
+        component: () => import('@/views/docs/pages/getting-started.vue'),
+        meta: { title: '入门指南', public: true }
+      },
+      {
+        path: 'wizard',
+        name: 'DocsWizard',
+        component: () => import('@/views/docs/pages/wizard.vue'),
+        meta: { title: '安装向导', public: true }
+      },
+      {
+        path: 'api',
+        name: 'DocsApi',
+        component: () => import('@/views/docs/pages/api.vue'),
+        meta: { title: 'API 参考', public: true }
+      },
+      {
+        path: 'sdk',
+        name: 'DocsSdk',
+        component: () => import('@/views/docs/pages/sdk.vue'),
+        meta: { title: 'SDK 示例', public: true }
+      },
+      {
+        path: 'providers',
+        name: 'DocsProviders',
+        component: () => import('@/views/docs/pages/providers.vue'),
+        meta: { title: '服务商文档', public: true }
+      },
+      {
+        path: 'admin',
+        name: 'DocsAdmin',
+        component: () => import('@/views/docs/pages/admin.vue'),
+        meta: { title: '管理 API 文档', public: true }
+      },
+      {
+        path: 'errors',
+        name: 'DocsErrors',
+        component: () => import('@/views/docs/pages/errors.vue'),
+        meta: { title: '错误码文档', public: true }
+      }
+    ]
   },
   {
     path: '/console',

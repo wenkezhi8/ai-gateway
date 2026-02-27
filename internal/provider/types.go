@@ -182,6 +182,7 @@ type StreamChunk struct {
 	Model   string         `json:"model"`
 	Choices []StreamChoice `json:"choices"`
 	Usage   *Usage         `json:"usage,omitempty"`
+	Error   *ProviderError `json:"error,omitempty"`
 	Done    bool           `json:"-"`
 }
 
