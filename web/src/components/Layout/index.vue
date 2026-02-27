@@ -83,6 +83,30 @@
             </a>
           </el-tooltip>
 
+          <!-- 微信群 -->
+          <el-popover placement="bottom" trigger="click" width="320" popper-class="wechat-popover">
+            <template #reference>
+              <button class="wechat-btn" type="button">
+                <el-icon :size="18"><ChatDotRound /></el-icon>
+                <span class="wechat-text">微信群</span>
+              </button>
+            </template>
+            <div class="wechat-content">
+              <img
+                v-if="!wechatQrLoadError"
+                :src="wechatQrSrc"
+                alt="微信群二维码"
+                class="wechat-qr"
+                @error="handleWechatQrError"
+              />
+              <div v-else class="wechat-qr-fallback">
+                暂未找到二维码图片，请放置到
+                <code>/web/public/logos/wechat-group-qr.png</code>
+              </div>
+              <div class="wechat-tip">扫码加入微信群</div>
+            </div>
+          </el-popover>
+
           <div class="header-divider"></div>
 
           <!-- 主题切换 -->
@@ -170,6 +194,8 @@ const userStore = useUserStore()
 
 const isCollapse = ref(false)
 const notificationCount = ref(3)
+const wechatQrLoadError = ref(false)
+const wechatQrSrc = '/logos/wechat-group-qr.png'
 
 const menuItems = [
   { path: '/dashboard', title: '监控仪表盘', icon: 'Monitor' },
@@ -221,6 +247,10 @@ const isActive = (path: string) => {
 
 const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value
+}
+
+const handleWechatQrError = () => {
+  wechatQrLoadError.value = true
 }
 
 const handleThemeCommand = (command: string) => {
@@ -607,6 +637,35 @@ const handleUserCommand = (command: string) => {
   }
 }
 
+.wechat-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--border-radius-lg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-decoration: none;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+
+  &:hover {
+    background: linear-gradient(135deg, rgba(7, 193, 96, 0.12), rgba(0, 122, 255, 0.08));
+    color: var(--text-primary);
+    border-color: rgba(7, 193, 96, 0.45);
+    transform: translateY(-1px);
+  }
+
+  .wechat-text {
+    @media (max-width: 768px) {
+      display: none;
+    }
+  }
+}
+
 .header-divider {
   width: 1px;
   height: 24px;
@@ -637,6 +696,50 @@ const handleUserCommand = (command: string) => {
 .notification-badge {
   :deep(.el-badge__content) {
     background-color: var(--color-danger);
+  }
+}
+
+:deep(.wechat-popover) {
+  border-radius: var(--border-radius-lg) !important;
+  border: 1px solid var(--border-primary) !important;
+  padding: var(--spacing-md) !important;
+  background: var(--bg-elevated) !important;
+
+  .wechat-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+  }
+
+  .wechat-qr {
+    width: 280px;
+    max-width: 100%;
+    border-radius: var(--border-radius-md);
+    border: 1px solid var(--border-primary);
+    object-fit: contain;
+  }
+
+  .wechat-qr-fallback {
+    width: 280px;
+    max-width: 100%;
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius-md);
+    border: 1px dashed var(--border-primary);
+    color: var(--text-secondary);
+    background: var(--bg-tertiary);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+
+    code {
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+  }
+
+  .wechat-tip {
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
   }
 }
 
