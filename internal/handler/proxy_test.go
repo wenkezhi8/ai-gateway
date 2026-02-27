@@ -4,6 +4,7 @@ import (
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/provider"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -209,7 +210,7 @@ func (m *mockProvider) ValidateKey(ctx context.Context) bool {
 }
 
 func (m *mockProvider) Models() []string {
-	return []string{"gpt-4"}
+	return m.BaseProvider.Models()
 }
 
 func (m *mockProvider) IsEnabled() bool {
@@ -222,6 +223,28 @@ func (m *mockProvider) SetEnabled(enabled bool) {
 
 func (m *mockProvider) Name() string {
 	return m.BaseProvider.Name()
+}
+
+type failingProvider struct {
+	*provider.BaseProvider
+	chatErr error
+}
+
+func (f *failingProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	if f.chatErr != nil {
+		return nil, f.chatErr
+	}
+	return nil, nil
+}
+
+func (f *failingProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	ch := make(chan *provider.StreamChunk)
+	close(ch)
+	return ch, nil
+}
+
+func (f *failingProvider) ValidateKey(ctx context.Context) bool {
+	return true
 }
 
 func TestGetBaseURLForProvider(t *testing.T) {
@@ -322,4 +345,70 @@ func TestProxyHandler_ListConfiguredProviders_Empty(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "providers")
+}
+
+func TestProxyHandler_GetProviderForRequest_UsesInferredProviderWhenModelNotMapped(t *testing.T) {
+	// Clear global registry before test
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+
+	// Register a Google provider that does not explicitly include gemini-3.1-pro-preview in model list
+	googleProvider := &mockProvider{
+		BaseProvider: provider.NewBaseProvider(
+			"google",
+			"test-key",
+			"https://generativelanguage.googleapis.com/v1beta",
+			[]string{"gemini-1.5-pro"},
+			true,
+		),
+	}
+	provider.RegisterProvider("google", googleProvider)
+
+	selected, err := h.getProviderForRequest("gemini-3.1-pro-preview", "")
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, "google", selected.Name())
+}
+
+func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+
+	googleProvider := &failingProvider{
+		BaseProvider: provider.NewBaseProvider(
+			"google",
+			"test-key",
+			"https://generativelanguage.googleapis.com/v1beta",
+			[]string{"gemini-2.0-flash"},
+			true,
+		),
+		chatErr: &provider.ProviderError{
+			Code:      http.StatusBadRequest,
+			Message:   "models/gemini-3.1-pro-preview is not found",
+			Provider:  "google",
+			Retryable: false,
+		},
+	}
+	provider.RegisterProvider("google", googleProvider)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"model":"gemini-3.1-pro-preview","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, ErrCodeProviderError, resp.Error.Code)
+	assert.Equal(t, "models/gemini-3.1-pro-preview is not found", resp.Error.Message)
 }

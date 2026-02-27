@@ -508,7 +508,16 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			logMsg = fmt.Sprintf("Provider request failed [%s]: %s (code: %d, retryable: %v)",
 				providerErr.Provider, providerErr.Message, providerErr.Code, providerErr.Retryable)
 		}
-		ProviderError(c, "Provider request failed", logMsg)
+		logrus.WithField("provider_error", logMsg).Warn("Upstream provider request failed")
+		if providerErr, ok := err.(*provider.ProviderError); ok {
+			statusCode := providerErr.Code
+			if statusCode < http.StatusBadRequest || statusCode >= 600 {
+				statusCode = http.StatusBadGateway
+			}
+			Error(c, statusCode, ErrCodeProviderError, providerErr.Message)
+			return
+		}
+		ProviderError(c, err.Error(), "")
 		return
 	}
 
@@ -659,6 +668,7 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 	if providerName == "" {
 		providerName = inferProviderFromModel(model)
 	}
+	var lastCreateErr error
 
 	// Try route cache first
 	if h.cache != nil && h.cache.RouteCache != nil && providerName != "" {
@@ -708,6 +718,7 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 				}
 				return p, nil
 			}
+			lastCreateErr = err
 			logrus.WithError(err).Warn("Failed to create provider from account")
 		} else {
 			logrus.WithField("provider", providerName).Info("No account found by provider name")
@@ -736,6 +747,7 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 					if err == nil {
 						return p, nil
 					}
+					lastCreateErr = err
 				}
 			}
 
@@ -753,6 +765,7 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 				if err == nil {
 					return p, nil
 				}
+				lastCreateErr = err
 			}
 		}
 	}
@@ -794,6 +807,8 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 			}
 			if p, err := h.registry.CreateProvider(provConfig); err == nil {
 				return p, nil
+			} else {
+				lastCreateErr = err
 			}
 		}
 	}
@@ -801,6 +816,33 @@ func (h *ProxyHandler) getProviderForRequest(model string, providerName string) 
 	// Fallback to registry lookup by model (only when no dynamic accounts configured)
 	targetProvider, ok := h.registry.GetByModel(model)
 	if !ok {
+		// Last resort: when model is newer than local model list, route by inferred provider name
+		// and let upstream return the canonical error message.
+		candidates := []string{
+			normalizeProviderName(providerName),
+			normalizeProviderName(mapProviderName(providerName)),
+		}
+		seen := make(map[string]struct{}, len(candidates))
+		for _, candidate := range candidates {
+			if candidate == "" {
+				continue
+			}
+			if _, exists := seen[candidate]; exists {
+				continue
+			}
+			seen[candidate] = struct{}{}
+			if p, ok := h.registry.Get(candidate); ok && p.IsEnabled() {
+				return p, nil
+			}
+		}
+
+		if lastCreateErr != nil {
+			return nil, &provider.ProviderError{
+				Message:   lastCreateErr.Error(),
+				Code:      http.StatusBadGateway,
+				Retryable: false,
+			}
+		}
 		return nil, &provider.ProviderError{
 			Message:   "No available provider for model: " + model,
 			Code:      http.StatusServiceUnavailable,
@@ -1462,7 +1504,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
 			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			c.SSEvent("error", gin.H{"error": "Provider returned empty stream and fallback failed: " + err.Error()})
+			c.SSEvent("error", gin.H{"error": err.Error()})
 			c.Writer.Flush()
 			return
 		}
@@ -1680,7 +1722,15 @@ func (h *ProxyHandler) Completions(c *gin.Context) {
 	resp, err := targetProvider.Chat(ctx, providerReq)
 	if err != nil {
 		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
-		ProviderError(c, "Provider request failed", err.Error())
+		if providerErr, ok := err.(*provider.ProviderError); ok {
+			statusCode := providerErr.Code
+			if statusCode < http.StatusBadRequest || statusCode >= 600 {
+				statusCode = http.StatusBadGateway
+			}
+			Error(c, statusCode, ErrCodeProviderError, providerErr.Message)
+			return
+		}
+		ProviderError(c, err.Error(), "")
 		return
 	}
 
