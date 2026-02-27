@@ -390,6 +390,10 @@ const handleThemeVariantChange = (variant: string) => {
   setVariant(variant as ThemeVariant)
 }
 
+const handleThemeVariantChange = (variant: string) => {
+  setVariant(variant as 'apple' | 'dashboard')
+}
+
 // 应用主题色到 CSS 变量
 const applyPrimaryColor = (color: string) => {
   document.documentElement.style.setProperty('--color-primary', color)
