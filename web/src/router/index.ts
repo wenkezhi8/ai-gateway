@@ -10,16 +10,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: 'AI Gateway 首页', public: true }
   },
   {
+    path: '/docs',
+    name: 'Docs',
+    component: () => import('@/views/docs/index.vue'),
+    meta: { title: '文档中心', public: true }
+  },
+  {
     path: '/console',
     component: Layout,
     redirect: '/dashboard',
     children: [
-      {
-        path: '/docs',
-        name: 'Docs',
-        component: () => import('@/views/docs/index.vue'),
-        meta: { title: '文档中心', icon: 'Document', public: true }
-      },
       {
         path: '/dashboard',
         name: 'Dashboard',

@@ -10,5 +10,6 @@ describe('index.html auth precheck', () => {
 
     expect(publicPathsMatch).not.toBeNull()
     expect(publicPathsMatch?.[1]).toContain("'/'")
+    expect(publicPathsMatch?.[1]).toContain("'/docs'")
   })
 })
