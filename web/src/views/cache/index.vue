@@ -574,6 +574,16 @@
         </el-descriptions>
 
         <div class="detail-value">
+          <h4>用户消息</h4>
+          <el-input
+            type="textarea"
+            :model-value="getUserMessageFull(entryDetail)"
+            :rows="6"
+            readonly
+          />
+        </div>
+
+        <div class="detail-value">
           <h4>AI 回复</h4>
           <el-input
             type="textarea"
@@ -1671,6 +1681,52 @@ function getCacheId(key: string): string {
   return tail.slice(0, 12)
 }
 
+function extractUserMessageFromPayload(payload: any): string {
+  if (!payload || typeof payload !== 'object') return ''
+  if (!Array.isArray(payload.messages)) return ''
+
+  const userMsg = payload.messages.find((m: any) => m?.role === 'user')
+  if (!userMsg?.content) return ''
+
+  if (typeof userMsg.content === 'string') {
+    return userMsg.content.trim()
+  }
+
+  try {
+    return JSON.stringify(userMsg.content)
+  } catch {
+    return ''
+  }
+}
+
+function getUserMessageFull(row: any): string {
+  if (typeof row?.user_message === 'string' && row.user_message.trim()) {
+    return row.user_message
+  }
+  if (!row?.value) return '-'
+
+  const tryParseJsonString = (raw: string): any => {
+    try {
+      return JSON.parse(raw)
+    } catch {
+      return null
+    }
+  }
+
+  const value = typeof row.value === 'string' ? tryParseJsonString(row.value) : row.value
+  if (!value) return '-'
+
+  const direct = extractUserMessageFromPayload(value)
+  if (direct) return direct
+
+  const nested = value.body ?? value.Body ?? value.request ?? value.Request
+  if (!nested) return '-'
+
+  const nestedValue = typeof nested === 'string' ? tryParseJsonString(nested) : nested
+  const nestedMsg = extractUserMessageFromPayload(nestedValue)
+  return nestedMsg || '-'
+}
+
 function getAIResponseFull(row: any): string {
   const value = row?.value
   if (!value) return '-'
@@ -1800,22 +1856,9 @@ function getTaskTypeSourceName(source: string): string {
 
 // 从缓存内容中提取用户消息
 function getUserMessage(row: any): string {
-  if (row.user_message) return row.user_message
-  if (!row.value) return '-'
-  try {
-    const value = typeof row.value === 'string' ? JSON.parse(row.value) : row.value
-    if (value.messages && Array.isArray(value.messages)) {
-      const userMsg = value.messages.find((m: any) => m.role === 'user')
-      if (userMsg?.content) {
-        const content = typeof userMsg.content === 'string' ? userMsg.content : JSON.stringify(userMsg.content)
-        return content.length > 100 ? content.slice(0, 100) + '...' : content
-      }
-    }
-  } catch (_error) {
-    // CHANGE: invalid JSON fallback
-    return '-'
-  }
-  return '-'
+  const full = getUserMessageFull(row)
+  if (full === '-') return full
+  return full.length > 100 ? full.slice(0, 100) + '...' : full
 }
 
 // 从缓存内容中提取AI回复
