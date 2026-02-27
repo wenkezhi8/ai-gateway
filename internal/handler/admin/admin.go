@@ -148,6 +148,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		routerGroup.GET("/classifier/stats", handlers.SmartRouter.GetClassifierStats)
 		routerGroup.GET("/classifier/models", handlers.SmartRouter.GetClassifierModels)
 		routerGroup.POST("/classifier/switch", handlers.SmartRouter.SwitchClassifierModel)
+		routerGroup.POST("/classifier/switch-async", handlers.SmartRouter.SwitchClassifierModelAsync)
+		routerGroup.GET("/classifier/switch-tasks/:taskId", handlers.SmartRouter.GetSwitchClassifierTask)
 		routerGroup.GET("/ollama/status", handlers.SmartRouter.GetOllamaSetupStatus)
 		routerGroup.POST("/ollama/install", handlers.SmartRouter.InstallOllama)
 		routerGroup.POST("/ollama/start", handlers.SmartRouter.StartOllama)

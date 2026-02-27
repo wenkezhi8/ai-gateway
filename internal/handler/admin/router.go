@@ -22,6 +22,15 @@ import (
 type RouterHandler struct {
 	router *routing.SmartRouter
 	mu     sync.RWMutex
+	taskMu sync.RWMutex
+	tasks  map[string]*classifierSwitchTask
+}
+
+type classifierSwitchTask struct {
+	TaskID      string `json:"task_id"`
+	TargetModel string `json:"target_model"`
+	Status      string `json:"status"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
 // NewRouterHandler creates a new router handler
@@ -874,6 +883,10 @@ type SwitchClassifierModelRequest struct {
 	Model string `json:"model"`
 }
 
+type switchClassifierTaskResponse struct {
+	TaskID string `json:"task_id"`
+}
+
 // UpdateTaskModelMapping updates task type to model mapping
 // PUT /api/admin/router/task-model-mapping
 func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
@@ -936,6 +949,62 @@ func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
 	_ = h.saveConfig()
 
 	c.JSON(200, gin.H{"success": true, "message": "Classifier model switched", "data": health})
+}
+
+// SwitchClassifierModelAsync creates async switch task
+// POST /api/admin/router/classifier/switch-async
+func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
+	var req SwitchClassifierModelRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+	if req.Model == "" {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_model", "message": "model is required"}})
+		return
+	}
+
+	taskID := generateID()
+	task := &classifierSwitchTask{
+		TaskID:      taskID,
+		TargetModel: req.Model,
+		Status:      "pending",
+		CreatedAt:   time.Now().UnixMilli(),
+	}
+
+	h.taskMu.Lock()
+	if h.tasks == nil {
+		h.tasks = make(map[string]*classifierSwitchTask)
+	}
+	h.tasks[taskID] = task
+	h.taskMu.Unlock()
+
+	c.JSON(202, gin.H{
+		"success": true,
+		"data": switchClassifierTaskResponse{
+			TaskID: taskID,
+		},
+	})
+}
+
+// GetSwitchClassifierTask returns async switch task status
+// GET /api/admin/router/classifier/switch-tasks/:taskId
+func (h *RouterHandler) GetSwitchClassifierTask(c *gin.Context) {
+	taskID := c.Param("taskId")
+	if strings.TrimSpace(taskID) == "" {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_task", "message": "task id is required"}})
+		return
+	}
+
+	h.taskMu.RLock()
+	task, ok := h.tasks[taskID]
+	h.taskMu.RUnlock()
+	if !ok {
+		c.JSON(404, gin.H{"success": false, "error": gin.H{"code": "task_not_found", "message": "switch task not found"}})
+		return
+	}
+
+	c.JSON(200, gin.H{"success": true, "data": task})
 }
 
 // GetClassifierHealth returns classifier health
