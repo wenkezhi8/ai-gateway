@@ -186,6 +186,7 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useUserStore } from '@/store/user'
+import { POST_LOGOUT_REDIRECT } from '@/constants/navigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -279,7 +280,7 @@ const handleUserCommand = (command: string) => {
       break
     case 'logout':
       userStore.logout()
-      router.push('/')
+      router.push(POST_LOGOUT_REDIRECT)
       break
   }
 }

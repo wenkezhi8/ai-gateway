@@ -77,8 +77,10 @@ describe('pages static config extraction', () => {
 
   it('should redirect to home page after logout', () => {
     const layoutFile = readFileSync(join(process.cwd(), 'src/components/Layout/index.vue'), 'utf-8')
+    const navigationConstantsFile = readFileSync(join(process.cwd(), 'src/constants/navigation.ts'), 'utf-8')
 
-    expect(layoutFile).toContain("router.push('/')")
+    expect(layoutFile).toContain('POST_LOGOUT_REDIRECT')
     expect(layoutFile).not.toContain("router.push('/login')")
+    expect(navigationConstantsFile).toContain("export const POST_LOGOUT_REDIRECT = '/'")
   })
 })
