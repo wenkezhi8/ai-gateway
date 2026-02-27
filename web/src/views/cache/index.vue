@@ -647,35 +647,17 @@
         <el-form-item label="模型过滤">
           <el-select v-model="ruleForm.modelFilter" placeholder="选择模型（可选）" clearable style="width: 100%">
             <el-option label="所有模型" value="" />
-            <el-option-group label="OpenAI">
-              <el-option label="gpt-4o" value="gpt-4o" />
-              <el-option label="gpt-4-turbo" value="gpt-4-turbo" />
-              <el-option label="gpt-3.5-turbo" value="gpt-3.5-turbo" />
-            </el-option-group>
-            <el-option-group label="Anthropic">
-              <el-option label="claude-3-5-sonnet" value="claude-3-5-sonnet" />
-              <el-option label="claude-3-opus" value="claude-3-opus" />
-            </el-option-group>
-            <el-option-group label="阿里云通义千问">
-              <el-option label="qwen-max" value="qwen-max" />
-              <el-option label="qwen-plus" value="qwen-plus" />
-              <el-option label="qwen-turbo" value="qwen-turbo" />
-            </el-option-group>
-            <el-option-group label="百度文心一言">
-              <el-option label="ernie-4.0" value="ernie-4.0" />
-              <el-option label="ernie-3.5" value="ernie-3.5" />
-            </el-option-group>
-            <el-option-group label="智谱AI">
-              <el-option label="glm-4-plus" value="glm-4-plus" />
-              <el-option label="glm-4-flash" value="glm-4-flash" />
-            </el-option-group>
-            <el-option-group label="月之暗面">
-              <el-option label="moonshot-v1-8k" value="moonshot-v1-8k" />
-              <el-option label="moonshot-v1-128k" value="moonshot-v1-128k" />
-            </el-option-group>
-            <el-option-group label="DeepSeek">
-              <el-option label="deepseek-chat" value="deepseek-chat" />
-              <el-option label="deepseek-reasoner" value="deepseek-reasoner" />
+            <el-option-group
+              v-for="group in CACHE_RULE_MODEL_OPTIONS"
+              :key="group.label"
+              :label="group.label"
+            >
+              <el-option
+                v-for="option in group.options"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
             </el-option-group>
           </el-select>
         </el-form-item>
@@ -753,6 +735,13 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
+import {
+  CACHE_DEFAULT_TASK_TTL,
+  CACHE_RULE_MODEL_OPTIONS,
+  CACHE_TASK_TTL_ITEMS,
+  CACHE_WARMUP_DEFAULTS,
+  type CacheTaskTTLItem
+} from '@/constants/pages/cache'
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
 import * as echarts from 'echarts'
 
@@ -780,13 +769,6 @@ interface HotCache {
   size: string
   lastHit: string
   createdAt: string
-}
-
-interface TaskTTLItem {
-  key: string
-  name: string
-  description: string
-  ttl: number
 }
 
 const loading = ref(false)
@@ -822,29 +804,9 @@ const cacheConfig = reactive({
   evictionPolicy: 'lru'
 })
 
-const defaultTaskTTL: Record<string, number> = {
-  fact: 24,
-  code: 168,
-  math: 720,
-  chat: 1,
-  creative: 0,
-  reasoning: 168,
-  translate: 72,
-  long_text: 360,
-  unknown: 24
-}
-
-const ttlTaskTypeList = ref<TaskTTLItem[]>([
-  { key: 'fact', name: '事实查询', description: '公共事实、政策、常识等，可能定期更新', ttl: defaultTaskTTL.fact ?? 24 },
-  { key: 'code', name: '代码生成', description: '通用代码片段，更新频率低', ttl: defaultTaskTTL.code ?? 168 },
-  { key: 'math', name: '数学计算', description: '数学题结果，几乎不会变化', ttl: defaultTaskTTL.math ?? 720 },
-  { key: 'chat', name: '日常对话', description: '个性化对话，上下文相关性强', ttl: defaultTaskTTL.chat ?? 1 },
-  { key: 'creative', name: '创意写作', description: '个性化创意内容，默认不缓存', ttl: defaultTaskTTL.creative ?? 0 },
-  { key: 'reasoning', name: '逻辑推理', description: '推理结果，稳定性高', ttl: defaultTaskTTL.reasoning ?? 168 },
-  { key: 'translate', name: '翻译', description: '标准翻译结果，仅术语更新时变化', ttl: defaultTaskTTL.translate ?? 72 },
-  { key: 'long_text', name: '长文本处理', description: '文档摘要、PDF解析等，同一文本结果固定', ttl: defaultTaskTTL.long_text ?? 360 },
-  { key: 'unknown', name: '其他类型', description: '未分类任务', ttl: defaultTaskTTL.unknown ?? 24 }
-])
+const ttlTaskTypeList = ref<CacheTaskTTLItem[]>(
+  CACHE_TASK_TTL_ITEMS.map(item => ({ ...item }))
+)
 
 const redisHealth = reactive({
   status: 'unknown',
@@ -957,9 +919,9 @@ const warmupForm = reactive({
   task_type: 'fact',
   user_message: '',
   ai_response: '',
-  model: 'gpt-4o',
-  provider: 'openai',
-  ttl: 24
+  model: CACHE_WARMUP_DEFAULTS.model,
+  provider: CACHE_WARMUP_DEFAULTS.provider,
+  ttl: CACHE_DEFAULT_TASK_TTL.fact
 })
 const warmupRules = {
   task_type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
@@ -1384,7 +1346,7 @@ async function loadTTLConfig() {
       const defaults = data.data.task_type_defaults as Record<string, number>
       ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
         ...item,
-        ttl: defaults[item.key] ?? defaultTaskTTL[item.key] ?? 24
+        ttl: defaults[item.key] ?? CACHE_DEFAULT_TASK_TTL[item.key] ?? 24
       }))
     }
   } catch (e) {
@@ -1413,7 +1375,7 @@ async function saveTTLConfig() {
 function resetTTLConfig() {
   ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
     ...item,
-    ttl: defaultTaskTTL[item.key] ?? 24
+    ttl: CACHE_DEFAULT_TASK_TTL[item.key] ?? 24
   }))
   handleSuccess('已恢复默认配置')
 }

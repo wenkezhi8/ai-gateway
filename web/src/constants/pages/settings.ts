@@ -17,3 +17,49 @@ export const THEME_COLOR_OPTIONS = [
   '#5856D6',
   '#00C7BE'
 ] as const
+
+export const SETTINGS_DEFAULT_VALUES = {
+  theme: 'auto',
+  themeVariant: 'apple',
+  primaryColor: '#007AFF',
+  borderRadius: 16,
+  enableAnimation: true,
+  gateway: {
+    host: '0.0.0.0',
+    port: 8080,
+    timeout: 30,
+    maxConnections: 1000,
+    enableCors: true,
+    corsOrigins: '*'
+  },
+  cache: {
+    enabled: true,
+    type: 'memory',
+    defaultTTL: 3600,
+    maxSize: 1024,
+    redis: {
+      host: 'localhost:6379',
+      password: '',
+      db: 0
+    }
+  },
+  logging: {
+    level: 'info',
+    format: 'json',
+    outputs: ['console'],
+    filePath: '/var/log/ai-gateway',
+    maxFileSize: 100,
+    maxBackups: 7
+  },
+  security: {
+    enabled: true,
+    type: 'apikey',
+    rateLimit: true,
+    rateLimitRPM: 100,
+    ipWhitelist: ''
+  }
+} as const
+
+export function createSettingsDefaults() {
+  return JSON.parse(JSON.stringify(SETTINGS_DEFAULT_VALUES))
+}

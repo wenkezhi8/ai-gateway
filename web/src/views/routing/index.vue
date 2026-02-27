@@ -453,6 +453,7 @@ import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { formatDuration } from '@/utils/format-duration'
 import {
   DEFAULT_CLASSIFIER_CONFIG,
+  ROUTING_OLLAMA_DEFAULT_MODEL,
   createDefaultTaskModelMapping,
   createDefaultTaskTypes,
 } from '@/constants/routing'
@@ -492,7 +493,7 @@ const ollamaInstalling = ref(false)
 const ollamaStarting = ref(false)
 const ollamaPulling = ref(false)
 const ollamaRefreshing = ref(false)
-const ollamaModelInput = ref('qwen2.5:0.5b-instruct')
+const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
 
 const classifierConfig = reactive(JSON.parse(JSON.stringify(DEFAULT_CLASSIFIER_CONFIG)))
 
@@ -517,7 +518,7 @@ const classifierStats = reactive({
 const ollamaSetup = reactive({
   installed: false,
   running: false,
-  model: 'qwen2.5:0.5b-instruct',
+  model: ROUTING_OLLAMA_DEFAULT_MODEL,
   model_installed: false,
   message: ''
 })
@@ -820,7 +821,7 @@ async function loadClassifierStats() {
 async function loadOllamaSetupStatus() {
   ollamaRefreshing.value = true
   try {
-    const model = (ollamaModelInput.value || classifierConfig.active_model || 'qwen2.5:0.5b-instruct').trim()
+    const model = (ollamaModelInput.value || classifierConfig.active_model || ROUTING_OLLAMA_DEFAULT_MODEL).trim()
     const data: any = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
     const payload = data?.data || data || {}
     ollamaSetup.installed = Boolean(payload.installed)
@@ -863,7 +864,7 @@ async function startOllama() {
 }
 
 async function pullOllamaModel() {
-  const model = (ollamaModelInput.value || classifierConfig.active_model || 'qwen2.5:0.5b-instruct').trim()
+  const model = (ollamaModelInput.value || classifierConfig.active_model || ROUTING_OLLAMA_DEFAULT_MODEL).trim()
   if (!model) {
     handleApiError(new Error('模型名不能为空'), '安装模型失败')
     return

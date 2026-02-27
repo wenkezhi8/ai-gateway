@@ -35,6 +35,8 @@ export const DEFAULT_CLASSIFIER_CONFIG = {
   }
 }
 
+export const ROUTING_OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b-instruct'
+
 export const DEFAULT_TASK_MODEL_MAPPING: Record<string, TaskModelMappingItem> = {
   code: { enabled: false, model: '' },
   chat: { enabled: false, model: '' },

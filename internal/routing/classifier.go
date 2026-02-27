@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"ai-gateway/internal/constants"
 	"context"
 	"errors"
 	"time"
@@ -43,14 +44,14 @@ type ControlConfig struct {
 func DefaultClassifierConfig() ClassifierConfig {
 	return ClassifierConfig{
 		Enabled:             true,
-		Provider:            "ollama",
-		BaseURL:             "http://127.0.0.1:11434",
-		ActiveModel:         "qwen2.5:0.5b-instruct",
-		CandidateModels:     []string{"qwen2.5:0.5b-instruct"},
-		TimeoutMs:           120,
-		ConfidenceThreshold: 0.65,
+		Provider:            constants.ClassifierDefaultProvider,
+		BaseURL:             constants.ClassifierDefaultBaseURL,
+		ActiveModel:         constants.ClassifierDefaultModel,
+		CandidateModels:     []string{constants.ClassifierDefaultModel},
+		TimeoutMs:           constants.ClassifierDefaultTimeoutMs,
+		ConfidenceThreshold: constants.ClassifierDefaultConfidenceThreshold,
 		FailOpen:            true,
-		MaxInputChars:       4000,
+		MaxInputChars:       constants.ClassifierDefaultMaxInputChars,
 		Control: ControlConfig{
 			Enable:                    false,
 			ShadowOnly:                true,

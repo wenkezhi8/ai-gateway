@@ -310,7 +310,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useTheme } from '@/composables/useTheme'
-import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from '@/constants/pages/settings'
+import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS, createSettingsDefaults } from '@/constants/pages/settings'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
 
@@ -320,51 +320,7 @@ const settingsMenu = [...SETTINGS_MENU_ITEMS]
 
 const themeColors = [...THEME_COLOR_OPTIONS]
 
-const settings = reactive({
-  theme: 'auto',
-  themeVariant: 'apple',
-  primaryColor: '#007AFF',
-  borderRadius: 16,
-  enableAnimation: true,
-
-  gateway: {
-    host: '0.0.0.0',
-    port: 8080,
-    timeout: 30,
-    maxConnections: 1000,
-    enableCors: true,
-    corsOrigins: '*'
-  },
-
-  cache: {
-    enabled: true,
-    type: 'memory',
-    defaultTTL: 3600,
-    maxSize: 1024,
-    redis: {
-      host: 'localhost:6379',
-      password: '',
-      db: 0
-    }
-  },
-
-  logging: {
-    level: 'info',
-    format: 'json',
-    outputs: ['console'],
-    filePath: '/var/log/ai-gateway',
-    maxFileSize: 100,
-    maxBackups: 7
-  },
-
-  security: {
-    enabled: true,
-    type: 'apikey',
-    rateLimit: true,
-    rateLimitRPM: 100,
-    ipWhitelist: ''
-  }
-})
+const settings = reactive(createSettingsDefaults())
 
 const handleThemeChange = (theme: string) => {
   setTheme(theme as 'light' | 'dark' | 'auto')
@@ -423,70 +379,8 @@ onMounted(() => {
   }
 })
 
-// 获取默认设置
-const getDefaultSettings = () => ({
-  theme: 'auto',
-  primaryColor: '#007AFF',
-  borderRadius: 16,
-  enableAnimation: true,
-
-  gateway: {
-    host: '0.0.0.0',
-    port: 8080,
-    timeout: 30,
-    maxConnections: 1000,
-    enableCors: true,
-    corsOrigins: '*'
-  },
-
-  cache: {
-    enabled: true,
-    type: 'memory',
-    defaultTTL: 3600,
-    maxSize: 1024,
-    redis: {
-      host: 'localhost:6379',
-      password: '',
-      db: 0
-    }
-  },
-
-  logging: {
-    level: 'info',
-    format: 'json',
-    outputs: ['console'],
-    filePath: '/var/log/ai-gateway',
-    maxFileSize: 100,
-    maxBackups: 7
-  },
-
-  security: {
-    enabled: true,
-    type: 'apikey',
-    rateLimit: true,
-    rateLimitRPM: 100,
-    ipWhitelist: ''
-  }
-})
-
-// 从localStorage加载设置
-const loadSettings = () => {
-  const saved = localStorage.getItem('ai-gateway-settings')
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved)
-      Object.assign(settings, parsed)
-    } catch (error) {
-      console.warn('Failed to load settings:', error)
-    }
-  }
-}
-
-// 初始化时加载设置
-loadSettings()
-
 const resetSettings = () => {
-  Object.assign(settings, getDefaultSettings())
+  Object.assign(settings, createSettingsDefaults())
   localStorage.removeItem('ai-gateway-settings')
   ElMessage.success('设置已重置为默认值')
 }

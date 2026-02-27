@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"ai-gateway/internal/constants"
 	"ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
@@ -15,9 +16,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const modelScoresFile = "data/model_scores.json"
-const providerDefaultsFile = "data/provider_defaults.json"
-const routerConfigFile = "data/router_config.json"
+const modelScoresFile = constants.ModelScoresFilePath
+const providerDefaultsFile = constants.ProviderDefaultsFilePath
+const routerConfigFile = constants.RouterConfigFilePath
 
 var routerLogger = logger.WithField("component", "routing")
 
@@ -172,7 +173,7 @@ func NewSmartRouter() *SmartRouter {
 	router := &SmartRouter{
 		config: &RouterConfig{
 			DefaultStrategy:  StrategyAuto,
-			DefaultModel:     "deepseek-chat",
+			DefaultModel:     constants.RoutingDefaultModel,
 			UseAutoMode:      true,
 			Classifier:       DefaultClassifierConfig(),
 			ModelScores:      DefaultModelScores(),
@@ -527,7 +528,7 @@ func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy St
 		if defaultModel != "" {
 			return defaultModel
 		}
-		return "deepseek-chat"
+		return constants.RoutingDefaultModel
 	}
 
 	// Custom strategy: try to detect task type from prompt
@@ -705,10 +706,13 @@ func (r *SmartRouter) calculateScore(score *ModelScore, strategy StrategyType) f
 	case StrategyCost:
 		return float64(score.CostScore)
 	case StrategyAuto, StrategyCustom:
-		// Balanced: 40% quality, 35% speed, 25% cost
-		return float64(score.QualityScore)*0.4 + float64(score.SpeedScore)*0.35 + float64(score.CostScore)*0.25
+		return float64(score.QualityScore)*constants.RoutingAutoQualityWeight +
+			float64(score.SpeedScore)*constants.RoutingAutoSpeedWeight +
+			float64(score.CostScore)*constants.RoutingAutoCostWeight
 	default:
-		return float64(score.QualityScore)*0.4 + float64(score.SpeedScore)*0.35 + float64(score.CostScore)*0.25
+		return float64(score.QualityScore)*constants.RoutingAutoQualityWeight +
+			float64(score.SpeedScore)*constants.RoutingAutoSpeedWeight +
+			float64(score.CostScore)*constants.RoutingAutoCostWeight
 	}
 }
 

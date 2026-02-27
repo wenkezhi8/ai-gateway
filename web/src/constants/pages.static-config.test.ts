@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { ACCOUNT_PROVIDER_OPTIONS } from './pages/accounts'
 import { OPS_TIME_TABS } from './pages/ops'
@@ -33,5 +35,13 @@ describe('pages static config extraction', () => {
 
   it('should expose providers-accounts base types', () => {
     expect(PROVIDERS_ACCOUNTS_BASE_TYPES.length).toBeGreaterThan(0)
+  })
+
+  it('should remove hardcoded model defaults from stores', () => {
+    const modelsStoreFile = readFileSync(join(process.cwd(), 'src/store/models.ts'), 'utf-8')
+    const chatStoreFile = readFileSync(join(process.cwd(), 'src/store/chat.ts'), 'utf-8')
+
+    expect(modelsStoreFile).not.toContain('const defaultModels: Model[] = [')
+    expect(chatStoreFile).not.toContain('const DEFAULT_PROVIDERS: ProviderConfig[] = [')
   })
 })

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/constants"
 	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
@@ -87,8 +88,8 @@ type PersistedRouterConfig struct {
 	Classifier      routing.ClassifierConfig `json:"classifier"`
 }
 
-const routerUIConfigFile = "data/router_ui_config.json"
-const routerConfigFile = "data/router_config.json"
+const routerUIConfigFile = constants.RouterUIConfigFilePath
+const routerConfigFile = constants.RouterConfigFilePath
 
 var persistedConfig *PersistedRouterConfig
 
@@ -152,15 +153,15 @@ func mergeClassifierCandidateModels(activeModel string, groups ...[]string) []st
 }
 
 func resolveClassifierModels(ctx context.Context, cfg routing.ClassifierConfig) []string {
-	timeout := 2 * time.Second
+	timeout := constants.AdminResolveClassifierBaseTimeout
 	if cfg.TimeoutMs > 0 {
 		candidate := time.Duration(cfg.TimeoutMs) * time.Millisecond
 		if candidate > timeout {
 			timeout = candidate
 		}
 	}
-	if timeout > 5*time.Second {
-		timeout = 5 * time.Second
+	if timeout > constants.AdminResolveClassifierMaxTimeout {
+		timeout = constants.AdminResolveClassifierMaxTimeout
 	}
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, timeout)
@@ -198,7 +199,7 @@ func runShellCommand(timeout time.Duration, command string) (string, error) {
 func checkOllamaRunning(ctx context.Context, cfg routing.ClassifierConfig) (bool, []string, string) {
 	baseURL := strings.TrimSpace(cfg.BaseURL)
 	if baseURL == "" {
-		baseURL = "http://127.0.0.1:11434"
+		baseURL = constants.ClassifierDefaultBaseURL
 	}
 
 	timeout := 2 * time.Second
@@ -303,7 +304,7 @@ func (h *RouterHandler) loadConfig() {
 		cfg.DefaultStrategy = "auto"
 	}
 	if cfg.DefaultModel == "" {
-		cfg.DefaultModel = "deepseek-chat"
+		cfg.DefaultModel = constants.RoutingDefaultModel
 	}
 	cfg.Classifier = routing.ClampClassifierConfig(cfg.Classifier)
 
@@ -914,7 +915,7 @@ func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
 	cfg.ActiveModel = req.Model
 	h.router.SetClassifierConfig(cfg)
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminClassifierHealthTimeout)
 	defer cancel()
 	health := h.router.GetClassifierHealth(ctx)
 	if health == nil || !health.Healthy {
@@ -940,7 +941,7 @@ func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
 // GetClassifierHealth returns classifier health
 // GET /api/admin/router/classifier/health
 func (h *RouterHandler) GetClassifierHealth(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminClassifierHealthTimeout)
 	defer cancel()
 	health := h.router.GetClassifierHealth(ctx)
 	if health == nil {
@@ -969,7 +970,7 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 		model = cfg.ActiveModel
 	}
 	if model == "" {
-		model = "qwen2.5:0.5b-instruct"
+		model = constants.ClassifierDefaultModel
 	}
 
 	installed := commandExists("ollama")
@@ -979,7 +980,7 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	message := "ollama not installed"
 
 	if installed {
-		runCtx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		runCtx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
 		defer cancel()
 		var detail string
 		running, models, detail = checkOllamaRunning(runCtx, cfg)
@@ -1026,7 +1027,7 @@ func (h *RouterHandler) InstallOllama(c *gin.Context) {
 		return
 	}
 
-	output, err := runShellCommand(20*time.Minute, command)
+	output, err := runShellCommand(constants.AdminOllamaInstallTimeout, command)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "install_failed", "message": err.Error()}, "data": gin.H{"output": output}})
 		return
@@ -1061,22 +1062,22 @@ func (h *RouterHandler) StartOllama(c *gin.Context) {
 		return
 	}
 
-	output, err := runShellCommand(10*time.Second, command)
+	output, err := runShellCommand(constants.AdminOllamaStartCommandTimeout, command)
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "start_failed", "message": err.Error()}, "data": gin.H{"output": output}})
 		return
 	}
 
-	deadline := time.Now().Add(12 * time.Second)
+	deadline := time.Now().Add(constants.AdminOllamaStartReadyDeadline)
 	for time.Now().Before(deadline) {
-		checkCtx, stop := context.WithTimeout(c.Request.Context(), 1500*time.Millisecond)
+		checkCtx, stop := context.WithTimeout(c.Request.Context(), constants.AdminOllamaStartProbeTimeout)
 		alive, _, _ := checkOllamaRunning(checkCtx, cfg)
 		stop()
 		if alive {
 			c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": output}})
 			return
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(constants.AdminOllamaStartProbeInterval)
 	}
 
 	c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "start_timeout", "message": "ollama did not become ready in time"}, "data": gin.H{"output": output}})
@@ -1095,7 +1096,7 @@ func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
 		model = cfg.ActiveModel
 	}
 	if model == "" {
-		model = "qwen2.5:0.5b-instruct"
+		model = constants.ClassifierDefaultModel
 	}
 
 	if !commandExists("ollama") {
@@ -1103,7 +1104,7 @@ func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
 	running, _, msg := checkOllamaRunning(ctx, cfg)
 	cancel()
 	if !running {
@@ -1111,7 +1112,7 @@ func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
 		return
 	}
 
-	output, err := runShellCommand(30*time.Minute, fmt.Sprintf("ollama pull %s", model))
+	output, err := runShellCommand(constants.AdminOllamaPullTimeout, fmt.Sprintf("ollama pull %s", model))
 	if err != nil {
 		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "pull_failed", "message": err.Error()}, "data": gin.H{"output": output}})
 		return
