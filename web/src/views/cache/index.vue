@@ -58,94 +58,110 @@
       </el-button>
     </div>
 
-    <div class="cache-layout">
-      <!-- 改动点: 缓存类型卡片列表 -->
-      <div class="panel types-panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">缓存类型</div>
-            <div class="panel-subtitle">管理请求、上下文、路由等核心缓存</div>
-          </div>
+    <div class="panel types-section">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">缓存类型</div>
+          <div class="panel-subtitle">按类型管理内容、请求、路由与语义缓存</div>
         </div>
+        <div class="panel-hint">指标展示：命中率 / 条目数</div>
+      </div>
 
-        <div class="type-scroll">
-          <div class="type-list">
-            <div v-for="cacheType in cacheTypes" :key="cacheType.id" class="type-card">
-              <div class="type-head">
+      <div class="type-grid">
+        <div v-for="cacheType in cacheTypes" :key="cacheType.id" class="type-card" :data-tone="cacheType.tone">
+          <div class="type-card-head">
+            <div class="type-title">
+              <div class="type-icon">
+                <el-icon><component :is="cacheType.icon" /></el-icon>
+              </div>
+              <div>
                 <div class="type-name">{{ cacheType.name }}</div>
-                <div class="type-right">
-                  <el-tag size="small" :type="cacheType.enabled ? 'success' : 'info'">
-                    {{ cacheType.enabled ? '已启用' : '已禁用' }}
-                  </el-tag>
-                  <el-switch v-model="cacheType.enabled" size="small" @change="handleTypeChange(cacheType)" />
-                </div>
-              </div>
-              <div class="type-progress">
-                <div class="progress-meta">
-                  <span>命中率</span>
-                  <span>{{ cacheType.hitRate }}%</span>
-                </div>
-                <el-progress
-                  :percentage="cacheType.hitRate"
-                  :color="getProgressColor(cacheType.hitRate)"
-                  :stroke-width="6"
-                  :show-text="false"
-                />
-              </div>
-              <div class="type-meta">
-                <span><el-icon><Files /></el-icon> {{ cacheType.entries }} 条</span>
-                <span><el-icon><Coin /></el-icon> {{ cacheType.size }}</span>
-              </div>
-              <div class="type-actions">
-                <el-button type="primary" link size="small" @click="clearCacheType(cacheType)">
-                  <el-icon><Delete /></el-icon> 清空
-                </el-button>
-                <el-button type="primary" link size="small" @click="viewCacheDetail(cacheType)">
-                  <el-icon><View /></el-icon> 详情
-                </el-button>
+                <div class="type-alias">{{ cacheType.alias }}</div>
               </div>
             </div>
+            <div class="type-right">
+              <el-tag size="small" :type="cacheType.enabled ? 'success' : 'info'">
+                {{ cacheType.enabled ? '已启用' : '已禁用' }}
+              </el-tag>
+              <el-switch v-model="cacheType.enabled" size="small" @change="handleTypeChange(cacheType)" />
+            </div>
+          </div>
+          <div class="type-desc">{{ cacheType.description }}</div>
+          <div class="type-prefix">
+            <span class="prefix-label">Key</span>
+            <span class="prefix-value">{{ cacheType.prefix }}</span>
+          </div>
+          <div class="type-metrics">
+            <div class="metric">
+              <div class="metric-label">命中率</div>
+              <div class="metric-value">{{ cacheType.hitRate }}%</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">条目数</div>
+              <div class="metric-value">{{ cacheType.entries }}</div>
+              <div class="metric-sub">大小 {{ cacheType.size }}</div>
+            </div>
+          </div>
+          <div class="type-progress">
+            <div class="progress-meta">
+              <span>命中率趋势</span>
+              <span>{{ cacheType.hitRate }}%</span>
+            </div>
+            <el-progress
+              :percentage="cacheType.hitRate"
+              :color="getProgressColor(cacheType.hitRate)"
+              :stroke-width="6"
+              :show-text="false"
+            />
+          </div>
+          <div class="type-actions">
+            <el-button type="primary" link size="small" @click="clearCacheType(cacheType)">
+              <el-icon><Delete /></el-icon> 清空
+            </el-button>
+            <el-button type="primary" link size="small" @click="viewCacheDetail(cacheType)">
+              <el-icon><View /></el-icon> 详情
+            </el-button>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 改动点: 缓存策略面板 -->
-      <div class="panel config-panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">缓存策略面板</div>
-            <div class="panel-subtitle">缓存内容优先，集中管理策略与规则</div>
-          </div>
+    <div class="panel signature-section">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">语义签名命中观察</div>
+          <div class="panel-subtitle">展示 0.5B 生成的高频语义签名，用于审计缓存命中原因</div>
         </div>
+        <el-button link type="primary" @click="loadSemanticSignatures">刷新</el-button>
+      </div>
+      <el-table :data="semanticSignatures" size="small" max-height="240" empty-text="暂无语义签名数据">
+        <el-table-column prop="signature" label="语义签名" min-width="220" show-overflow-tooltip />
+        <el-table-column prop="task_type" label="任务类型" width="100" />
+        <el-table-column prop="hit_count" label="命中" width="80" />
+        <el-table-column prop="quality_score" label="质量" width="90">
+          <template #default="{ row }">{{ Number(row.quality_score || 0).toFixed(1) }}</template>
+        </el-table-column>
+        <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
+      </el-table>
+    </div>
 
-        <div class="summary-grid">
-          <div v-for="item in strategySummary" :key="item.title" class="summary-card">
-            <div class="summary-title">{{ item.title }}</div>
-            <div class="summary-value">{{ item.value }}</div>
-            <div class="summary-sub">{{ item.subtitle }}</div>
-          </div>
+    <div class="panel config-panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">缓存策略面板</div>
+          <div class="panel-subtitle">缓存内容优先，集中管理策略与规则</div>
         </div>
+      </div>
 
-        <div class="signature-panel">
-          <div class="panel-header">
-            <div>
-              <div class="panel-title">语义签名命中观察</div>
-              <div class="panel-subtitle">展示 0.5B 生成的高频语义签名，用于审计缓存命中原因</div>
-            </div>
-            <el-button link type="primary" @click="loadSemanticSignatures">刷新</el-button>
-          </div>
-          <el-table :data="semanticSignatures" size="small" max-height="240" empty-text="暂无语义签名数据">
-            <el-table-column prop="signature" label="语义签名" min-width="220" show-overflow-tooltip />
-            <el-table-column prop="task_type" label="任务类型" width="100" />
-            <el-table-column prop="hit_count" label="命中" width="80" />
-            <el-table-column prop="quality_score" label="质量" width="90">
-              <template #default="{ row }">{{ Number(row.quality_score || 0).toFixed(1) }}</template>
-            </el-table-column>
-            <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
-          </el-table>
+      <div class="summary-grid">
+        <div v-for="item in strategySummary" :key="item.title" class="summary-card">
+          <div class="summary-title">{{ item.title }}</div>
+          <div class="summary-value">{{ item.value }}</div>
+          <div class="summary-sub">{{ item.subtitle }}</div>
         </div>
+      </div>
 
-        <el-tabs v-model="activeTab" class="cache-tabs">
+      <el-tabs v-model="activeTab" class="cache-tabs">
             <el-tab-pane label="缓存内容" name="entries">
               <div class="entries-toolbar">
                 <div class="entries-toolbar-left">
@@ -540,9 +556,7 @@
               </div>
             </el-tab-pane>
 
-          </el-tabs>
-          <!-- FIX: 修复多余闭合标签，恢复布局结构 -->
-        </div>
+      </el-tabs>
     </div>
 
     <!-- 缓存内容详情对话框 -->
@@ -739,15 +753,10 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
+import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
 import * as echarts from 'echarts'
 
-interface CacheType {
-  id: string
-  name: string
-  enabled: boolean
-  hitRate: number
-  entries: number
-  size: string
+interface CacheTypeDetail extends CacheTypeCard {
   memoryUsage?: number
   totalHits?: number
   totalMisses?: number
@@ -791,7 +800,7 @@ const detailChartRef = ref<HTMLElement>()
 const hotCachePage = ref(1)
 const hotCachePageSize = ref(10)
 const hotCacheTotal = ref(100)
-const cacheDetail = ref<CacheType | null>(null)
+const cacheDetail = ref<CacheTypeDetail | null>(null)
 let detailChart: echarts.ECharts | null = null
 
 const overallStats = reactive({
@@ -802,13 +811,7 @@ const overallStats = reactive({
   tokenSavings: 0
 })
 
-const cacheTypes = ref<CacheType[]>([
-  { id: 'request', name: '请求缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
-  { id: 'context', name: '上下文缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
-  { id: 'route', name: '路由缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
-  { id: 'usage', name: '用量统计缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' },
-  { id: 'response', name: '响应缓存', enabled: true, hitRate: 0, entries: 0, size: '0 MB' }
-])
+const cacheTypes = ref<CacheTypeCard[]>(buildCacheTypeCards())
 
 const cacheConfig = reactive({
   enabled: true,
@@ -1027,7 +1030,7 @@ const getPriorityText = (priority: string) => {
   return texts[priority] || priority
 }
 
-const handleTypeChange = async (type: CacheType) => {
+const handleTypeChange = async (type: CacheTypeCard) => {
   try {
     await request.put('/admin/cache/config', {
       [type.id]: { enabled: type.enabled }
@@ -1039,7 +1042,7 @@ const handleTypeChange = async (type: CacheType) => {
   }
 }
 
-const clearCacheType = async (type: CacheType) => {
+const clearCacheType = async (type: CacheTypeCard) => {
   try {
     await ElMessageBox.confirm(`确定清空 ${type.name} 的所有缓存吗？`, '警告', { type: 'warning' })
     await request.delete(`/admin/cache?type=${type.id}`)
@@ -1054,14 +1057,14 @@ const clearCacheType = async (type: CacheType) => {
   }
 }
 
-const viewCacheDetail = (type: CacheType) => {
+const viewCacheDetail = (type: CacheTypeCard) => {
   cacheDetail.value = {
     ...type,
-    memoryUsage: type.memoryUsage || 0,
-    totalHits: type.totalHits || 0,
-    totalMisses: type.totalMisses || 0,
-    avgResponse: type.avgResponse || '0ms',
-    lastCleared: type.lastCleared || '-'
+    memoryUsage: 0,
+    totalHits: 0,
+    totalMisses: 0,
+    avgResponse: '0ms',
+    lastCleared: '-'
   }
   detailDialogVisible.value = true
 
@@ -1309,21 +1312,29 @@ async function loadCacheStats() {
       overallStats.avgResponse = totalOps > 0 ? `${Math.round(totalLatencyMs / totalOps)}ms` : '0ms'
       overallStats.tokenSavings = stats.token_savings ?? stats.tokenSavings ?? 0
       
-      cacheTypes.value = cacheTypes.value.map(type => {
+      const nextStates: CacheTypeState[] = cacheTypes.value.map(type => {
         const stat = typeStats[type.id]
         if (stat) {
           const hits = stat.hits || 0
           const misses = stat.misses || 0
           const ops = hits + misses
           return {
-            ...type,
+            id: type.id,
+            enabled: type.enabled,
             hitRate: ops > 0 ? Math.round((hits / ops) * 100) : 0,
             entries: stat.entries || 0,
             size: formatSize(stat.size_bytes || 0)
           }
         }
-        return type
+        return {
+          id: type.id,
+          enabled: type.enabled,
+          hitRate: type.hitRate ?? 0,
+          entries: type.entries ?? 0,
+          size: type.size ?? '0 MB'
+        }
       })
+      cacheTypes.value = buildCacheTypeCards(nextStates)
     }
   } catch (e) {
     console.warn('Failed to load cache stats:', e)
@@ -1953,23 +1964,35 @@ onUnmounted(() => {
 <style scoped lang="scss">
 /* 改动点: 新版缓存管理视觉布局 */
 .cache-page {
-  padding: 14px;
+  --cache-ink: #0f172a;
+  --cache-muted: #64748b;
+  --cache-border: rgba(148, 163, 184, 0.2);
+  --cache-panel: #ffffff;
+  --cache-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  --cache-accent: #0ea5e9;
+  --cache-accent-strong: #2563eb;
+  --cache-mono: 'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
+  padding: 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  background: radial-gradient(circle at top, rgba(37, 99, 235, 0.06), transparent 45%);
+  gap: 20px;
+  font-family: 'PingFang SC', 'SF Pro Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  color: var(--cache-ink);
+  background:
+    radial-gradient(circle at 15% 0%, rgba(14, 165, 233, 0.14), transparent 45%),
+    radial-gradient(circle at 85% 10%, rgba(59, 130, 246, 0.12), transparent 40%);
 }
 
 .cache-hero {
-  background: linear-gradient(125deg, #0f172a 0%, #1e293b 55%, #334155 100%);
+  background: linear-gradient(130deg, #0b1220 0%, #1e293b 55%, #0f172a 100%);
   color: #fff;
-  border-radius: 20px;
-  padding: 20px 24px;
+  border-radius: 22px;
+  padding: 22px 26px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.2);
 
   .hero-main {
     display: flex;
@@ -1977,9 +2000,9 @@ onUnmounted(() => {
   }
 
   .hero-title {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 600;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.6px;
   }
 
   .hero-subtitle {
@@ -2044,11 +2067,11 @@ onUnmounted(() => {
 }
 
 .stat-card {
-  background: #fff;
+  background: var(--cache-panel);
   border-radius: 16px;
   padding: 14px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
-  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: var(--cache-shadow);
+  border: 1px solid var(--cache-border);
   display: flex;
   gap: 12px;
 
@@ -2075,6 +2098,7 @@ onUnmounted(() => {
   .stat-value {
     font-size: 20px;
     font-weight: 600;
+    font-family: var(--cache-mono);
   }
 
   .stat-sub {
@@ -2104,19 +2128,19 @@ onUnmounted(() => {
   }
 }
 
-.cache-layout {
-  display: grid;
-  /* 改动点: 缓存类型区域改为全宽，支持横向卡片布局 */
-  grid-template-columns: 1fr;
+.types-section {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 
 .panel {
-  background: #fff;
-  border-radius: 16px;
-  padding: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+  background: var(--cache-panel);
+  border-radius: 18px;
+  padding: 18px;
+  border: 1px solid var(--cache-border);
+  box-shadow: var(--cache-shadow);
+  animation: fadeUp 0.4s ease both;
 }
 
 .panel-header {
@@ -2137,36 +2161,109 @@ onUnmounted(() => {
   }
 }
 
-.type-scroll {
-  overflow-x: auto;
-  padding-bottom: 4px;
+.panel-hint {
+  font-size: 12px;
+  color: var(--cache-muted);
+  background: rgba(148, 163, 184, 0.18);
+  padding: 6px 10px;
+  border-radius: 999px;
 }
 
-.type-list {
-  /* 改动点: 缓存类型卡片横向排布 + 极窄窗口横向滚动兜底 */
+.type-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
-  gap: 12px;
-  min-width: 980px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .type-card {
-  border-radius: 14px;
-  padding: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: #f8fafc;
+  position: relative;
+  border-radius: 16px;
+  padding: 16px;
+  border: 1px solid var(--cache-border);
+  background: linear-gradient(160deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 
-  .type-head {
+  &[data-tone='ocean'] {
+    --tone-color: #38bdf8;
+    --tone-soft: rgba(56, 189, 248, 0.16);
+  }
+
+  &[data-tone='sunset'] {
+    --tone-color: #fb923c;
+    --tone-soft: rgba(251, 146, 60, 0.18);
+  }
+
+  &[data-tone='violet'] {
+    --tone-color: #a78bfa;
+    --tone-soft: rgba(167, 139, 250, 0.18);
+  }
+
+  &[data-tone='forest'] {
+    --tone-color: #22c55e;
+    --tone-soft: rgba(34, 197, 94, 0.16);
+  }
+
+  &[data-tone='ember'] {
+    --tone-color: #f97316;
+    --tone-soft: rgba(249, 115, 22, 0.18);
+  }
+
+  &[data-tone='neon'] {
+    --tone-color: #22d3ee;
+    --tone-soft: rgba(34, 211, 238, 0.18);
+  }
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    border: 1px solid transparent;
+    background: linear-gradient(135deg, var(--tone-soft), transparent);
+    pointer-events: none;
+  }
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+  }
+
+  .type-card-head {
     display: flex;
     justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .type-title {
+    display: flex;
     align-items: center;
+    gap: 10px;
+  }
+
+  .type-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tone-soft, rgba(148, 163, 184, 0.18));
+    color: var(--tone-color, var(--cache-accent));
   }
 
   .type-name {
     font-weight: 600;
+    font-size: 15px;
+  }
+
+  .type-alias {
+    font-size: 12px;
+    color: var(--cache-muted);
   }
 
   .type-right {
@@ -2175,27 +2272,73 @@ onUnmounted(() => {
     gap: 8px;
   }
 
+  .type-desc {
+    font-size: 12px;
+    color: var(--cache-muted);
+    line-height: 1.5;
+  }
+
+  .type-prefix {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--cache-mono);
+    font-size: 11px;
+    color: #0f172a;
+    background: rgba(148, 163, 184, 0.16);
+    padding: 6px 8px;
+    border-radius: 10px;
+    word-break: break-all;
+
+    .prefix-label {
+      color: var(--cache-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+  }
+
+  .type-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+
+    .metric {
+      background: rgba(148, 163, 184, 0.12);
+      border-radius: 12px;
+      padding: 10px;
+    }
+
+    .metric-label {
+      font-size: 12px;
+      color: var(--cache-muted);
+    }
+
+    .metric-value {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    .metric-sub {
+      font-size: 11px;
+      color: var(--cache-muted);
+      margin-top: 4px;
+    }
+  }
+
   .type-progress {
     .progress-meta {
       display: flex;
       justify-content: space-between;
       font-size: 12px;
-      color: var(--el-text-color-secondary);
+      color: var(--cache-muted);
       margin-bottom: 6px;
     }
   }
 
-  .type-meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--el-text-color-secondary);
-    gap: 8px;
-  }
-
   .type-actions {
     display: flex;
-    gap: 8px;
+    gap: 12px;
   }
 }
 
@@ -2206,19 +2349,28 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 
-.signature-panel {
-  margin-bottom: 12px;
-  padding: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 12px;
-  background: #f8fafc;
+.signature-section {
+  background: linear-gradient(120deg, rgba(14, 165, 233, 0.08), rgba(248, 250, 252, 0.95));
+
+  :deep(.el-table) {
+    background: transparent;
+  }
+
+  :deep(.el-table th.el-table__cell) {
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--cache-muted);
+  }
+
+  :deep(.el-table__row) {
+    background: transparent;
+  }
 }
 
 .summary-card {
   border-radius: 12px;
   padding: 12px;
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  background: #f8fafc;
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+  background: linear-gradient(140deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2264,7 +2416,7 @@ onUnmounted(() => {
   }
 
   :deep(.el-tabs__item.is-active) {
-    background: #2563eb;
+    background: var(--cache-accent-strong);
     color: #fff;
   }
 
@@ -2408,7 +2560,7 @@ onUnmounted(() => {
     .key-text {
       font-family: var(--font-family-mono, monospace);
       font-size: 12px;
-      background: #f1f5f9;
+      background: rgba(148, 163, 184, 0.18);
       padding: 2px 6px;
       border-radius: 4px;
       word-break: break-all;
@@ -2422,10 +2574,10 @@ onUnmounted(() => {
 }
 
 .entries-skeleton {
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--cache-border);
   border-radius: 10px;
   padding: 12px;
-  background: #fff;
+  background: var(--cache-panel);
 
   .skeleton-row {
     display: flex;
@@ -2554,6 +2706,17 @@ onUnmounted(() => {
   color: var(--el-text-color-secondary);
 }
 
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 1200px) {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2563,7 +2726,9 @@ onUnmounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .type-list { min-width: 900px; }
+  .type-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 900px) {
@@ -2572,6 +2737,8 @@ onUnmounted(() => {
     align-items: flex-start;
   }
 
-  .type-list { min-width: 860px; }
+  .type-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

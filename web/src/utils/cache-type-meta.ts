@@ -16,6 +16,21 @@ export interface CacheTypeMeta {
   icon: string
 }
 
+export interface CacheTypeState {
+  id: CacheTypeId
+  enabled?: boolean
+  hitRate?: number
+  entries?: number
+  size?: string
+}
+
+export interface CacheTypeCard extends CacheTypeMeta {
+  enabled: boolean
+  hitRate: number
+  entries: number
+  size: string
+}
+
 export const CACHE_TYPE_META: Record<CacheTypeId, CacheTypeMeta> = {
   response: {
     id: 'response',
@@ -84,6 +99,21 @@ export const CACHE_TYPE_ORDER: CacheTypeId[] = [
 
 export const listCacheTypeMeta = (): CacheTypeMeta[] =>
   CACHE_TYPE_ORDER.map(id => CACHE_TYPE_META[id])
+
+export const buildCacheTypeCards = (states: CacheTypeState[] = []): CacheTypeCard[] => {
+  const byId = new Map(states.map(state => [state.id, state]))
+  return CACHE_TYPE_ORDER.map(id => {
+    const meta = CACHE_TYPE_META[id]
+    const state = byId.get(id)
+    return {
+      ...meta,
+      enabled: state?.enabled ?? true,
+      hitRate: state?.hitRate ?? 0,
+      entries: state?.entries ?? 0,
+      size: state?.size ?? '0 MB'
+    }
+  })
+}
 
 export const getCacheTypeMeta = (id: string): CacheTypeMeta | undefined =>
   CACHE_TYPE_META[id as CacheTypeId]
