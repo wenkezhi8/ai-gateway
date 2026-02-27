@@ -321,6 +321,7 @@ import {
   type DashboardAlert
 } from '@/api/metrics'
 import { formatDuration } from '@/utils/format-duration'
+import { DASHBOARD_FALLBACK_SERIES, DASHBOARD_PROVIDER_COLORS } from '@/constants/pages/dashboard'
 
 const loading = ref(false)
 const loadError = ref(false)
@@ -510,9 +511,9 @@ const initLineChart = (data: any[] = []) => {
     return rate.toFixed(1)
   }) : []
 
-  const defaultTimestamps = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
-  const defaultRequests = [0, 0, 0, 0, 0, 0]
-  const defaultSuccessRates = [0, 0, 0, 0, 0, 0]
+  const defaultTimestamps = [...DASHBOARD_FALLBACK_SERIES.timestamps]
+  const defaultRequests = [...DASHBOARD_FALLBACK_SERIES.requests]
+  const defaultSuccessRates = [...DASHBOARD_FALLBACK_SERIES.successRates]
 
   const option = {
     tooltip: {
@@ -601,22 +602,7 @@ const initPieChart = (distribution: Record<string, number> = {}) => {
   }
 
   const theme = getChartTheme()
-  const colors: Record<string, string> = {
-    openai: '#007AFF',
-    anthropic: '#AF52DE',
-    azure: '#00C7BE',
-    google: '#FF9500',
-    volcengine: '#FF3B30',
-    qwen: '#FF6A00',
-    ernie: '#2932E1',
-    zhipu: '#3657ED',
-    hunyuan: '#00A3FF',
-    moonshot: '#1A1A1A',
-    minimax: '#615CED',
-    baichuan: '#0066FF',
-    spark: '#E60012',
-    deepseek: '#4D6BFE'
-  }
+  const colors = DASHBOARD_PROVIDER_COLORS
 
   const hasData = distribution && Object.keys(distribution).length > 0
   const pieData = hasData

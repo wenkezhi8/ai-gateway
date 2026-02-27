@@ -267,10 +267,11 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { request } from '@/api/request'
 import { formatDuration } from '@/utils/format-duration'
+import { OPS_TIME_TABS } from '@/constants/pages/ops'
 
 const loading = ref(false)
 const timeRange = ref('1h')
-const timeTabs = ['1min', '5min', '30min', '1h']
+const timeTabs = [...OPS_TIME_TABS]
 
 const system = ref<any>({})
 const realtime = ref<any>({})

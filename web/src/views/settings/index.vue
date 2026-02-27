@@ -310,30 +310,15 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useTheme } from '@/composables/useTheme'
+import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from '@/constants/pages/settings'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
 
 const activeSection = ref('appearance')
 
-const settingsMenu = [
-  { key: 'appearance', label: '外观设置', icon: 'Brush' },
-  { key: 'gateway', label: '网关配置', icon: 'Connection' },
-  { key: 'cache', label: '缓存配置', icon: 'Box' },
-  { key: 'logging', label: '日志配置', icon: 'Document' },
-  { key: 'security', label: '安全配置', icon: 'Lock' },
-  { key: 'about', label: '关于', icon: 'InfoFilled' }
-]
+const settingsMenu = [...SETTINGS_MENU_ITEMS]
 
-const themeColors = [
-  '#007AFF', // Apple Blue
-  '#34C759', // Green
-  '#FF9500', // Orange
-  '#FF3B30', // Red
-  '#AF52DE', // Purple
-  '#FF2D55', // Pink
-  '#5856D6', // Indigo
-  '#00C7BE'  // Teal
-]
+const themeColors = [...THEME_COLOR_OPTIONS]
 
 const settings = reactive({
   theme: 'auto',

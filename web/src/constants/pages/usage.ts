@@ -1,0 +1,14 @@
+export const USAGE_CSV_HEADER = [
+  '账号',
+  '服务商',
+  '最近时间',
+  '首Token耗时',
+  '总耗时',
+  '模型',
+  '任务类型',
+  '入Token',
+  '出Token',
+  '总Token',
+  '缓存命中',
+  '费用'
+] as const

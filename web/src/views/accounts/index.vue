@@ -189,6 +189,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { accountApi } from '@/api/account'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
+import { ACCOUNT_PROVIDER_OPTIONS } from '@/constants/pages/accounts'
 
 interface Account {
   id: number
@@ -209,7 +210,7 @@ const pageSize = ref(10)
 const total = ref(100)
 const loading = ref(false)
 
-const providers = ['OpenAI', 'Azure', 'Anthropic', 'Google', '火山方舟', '阿里云通义千问', '百度文心一言', '智谱AI', '腾讯混元', '月之暗面', 'MiniMax', '百川智能', '讯飞星火', 'DeepSeek']
+const providers = [...ACCOUNT_PROVIDER_OPTIONS]
 
 const accounts = ref<Account[]>([])
 

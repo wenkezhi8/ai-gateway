@@ -68,10 +68,7 @@
               <span>告警历史</span>
               <div class="filter-group">
                 <el-select v-model="selectedLevel" placeholder="告警级别" clearable size="small">
-                  <el-option label="全部" value="" />
-                  <el-option label="严重" value="critical" />
-                  <el-option label="警告" value="warning" />
-                  <el-option label="信息" value="info" />
+                  <el-option v-for="opt in alertLevelOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </el-select>
                 <el-date-picker
                   v-model="dateRange"
@@ -145,31 +142,21 @@
         </el-form-item>
         <el-form-item label="监控指标" prop="conditionType">
           <el-select v-model="ruleForm.conditionType" placeholder="选择监控指标" style="width: 100%">
-            <el-option label="API延迟" value="latency" />
-            <el-option label="错误率" value="error_rate" />
-            <el-option label="额度使用率" value="quota" />
-            <el-option label="服务可用性" value="availability" />
-            <el-option label="缓存命中率" value="cache_hit_rate" />
+            <el-option v-for="opt in alertMetricOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="触发条件">
           <el-row :gutter="10">
             <el-col :span="8">
               <el-select v-model="ruleForm.operator" placeholder="操作符">
-                <el-option label="大于" value=">" />
-                <el-option label="小于" value="<" />
-                <el-option label="等于" value="=" />
-                <el-option label="大于等于" value=">=" />
-                <el-option label="小于等于" value="<=" />
+                <el-option v-for="opt in alertOperatorOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
               </el-select>
             </el-col>
             <el-col :span="16">
               <el-input v-model="ruleForm.threshold" placeholder="阈值">
                 <template #append>
                   <el-select v-model="ruleForm.unit" style="width: 80px">
-                    <el-option label="ms" value="ms" />
-                    <el-option label="%" value="%" />
-                    <el-option label="次" value="count" />
+                    <el-option v-for="opt in alertUnitOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
                   </el-select>
                 </template>
               </el-input>
@@ -178,17 +165,12 @@
         </el-form-item>
         <el-form-item label="告警级别" prop="level">
           <el-radio-group v-model="ruleForm.level">
-            <el-radio value="critical">严重</el-radio>
-            <el-radio value="warning">警告</el-radio>
-            <el-radio value="info">信息</el-radio>
+            <el-radio v-for="opt in alertRuleLevelRadios" :key="opt.value" :value="opt.value">{{ opt.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="通知渠道">
           <el-checkbox-group v-model="ruleForm.channels">
-            <el-checkbox value="email">邮件</el-checkbox>
-            <el-checkbox value="dingtalk">钉钉</el-checkbox>
-            <el-checkbox value="wechat">企业微信</el-checkbox>
-            <el-checkbox value="webhook">Webhook</el-checkbox>
+            <el-checkbox v-for="opt in alertNotifyChannelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
         <el-form-item label="钉钉Webhook" v-if="ruleForm.channels.includes('dingtalk')">
@@ -242,6 +224,21 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { alertApi } from '@/api/alert'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
+import {
+  ALERT_LEVEL_OPTIONS,
+  ALERT_METRIC_OPTIONS,
+  ALERT_OPERATOR_OPTIONS,
+  ALERT_UNIT_OPTIONS,
+  ALERT_NOTIFY_CHANNEL_OPTIONS,
+  ALERT_RULE_LEVEL_RADIOS
+} from '@/constants/pages/alerts'
+
+const alertLevelOptions = [...ALERT_LEVEL_OPTIONS]
+const alertMetricOptions = [...ALERT_METRIC_OPTIONS]
+const alertOperatorOptions = [...ALERT_OPERATOR_OPTIONS]
+const alertUnitOptions = [...ALERT_UNIT_OPTIONS]
+const alertNotifyChannelOptions = [...ALERT_NOTIFY_CHANNEL_OPTIONS]
+const alertRuleLevelRadios = [...ALERT_RULE_LEVEL_RADIOS]
 
 interface AlertRule {
   id: string
