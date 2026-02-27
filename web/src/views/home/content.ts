@@ -7,7 +7,6 @@ export interface HeroAction {
 }
 
 export interface WorkflowStep {
-  phase: 'DIAGNOSE' | 'DESIGN' | 'FIX' | 'VERIFY' | 'AUDIT' | 'RETRO'
   title: string
   detail: string
   deliverable: string
@@ -42,37 +41,31 @@ export const HERO_ACTIONS: HeroAction[] = [
 
 export const WORKFLOW_STEPS: WorkflowStep[] = [
   {
-    phase: 'DIAGNOSE',
     title: '问题排查测试',
     detail: '读取现有代码并执行相关测试，完整列出缺陷与影响范围。',
     deliverable: '问题清单'
   },
   {
-    phase: 'DESIGN',
     title: '修复方案讨论',
     detail: '确定修复边界、技术方案、排期节点与验收标准。',
     deliverable: '修复方案'
   },
   {
-    phase: 'FIX',
     title: '代码修复',
     detail: '只修改需求相关逻辑，避免无关变更引入新风险。',
     deliverable: '变更补丁'
   },
   {
-    phase: 'VERIFY',
     title: '回归验证',
     detail: '执行类型检查、单测与构建验证，确认修复有效。',
     deliverable: '验证结果'
   },
   {
-    phase: 'AUDIT',
     title: '合规审计',
     detail: '检查编码规范、安全规范与接口一致性。',
     deliverable: '审计结论'
   },
   {
-    phase: 'RETRO',
     title: '复盘归档',
     detail: '输出根因分析与规避方案，形成团队可复用经验。',
     deliverable: '复盘报告'
@@ -139,8 +132,7 @@ cd ai-gateway
 
 make build
 cd web && npm install && npm run build
-./bin/ai-gateway
-curl http://localhost:8566/health`,
+./bin/ai-gateway`,
   api: `curl http://localhost:8566/api/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
