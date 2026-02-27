@@ -87,12 +87,14 @@
 
           <!-- 主题切换 -->
           <el-dropdown trigger="click" @command="handleThemeCommand">
-            <button class="theme-btn" :title="themeTooltip" type="button">
-              <el-icon :size="18">
-                <Sunny v-if="isDarkMode" />
-                <Moon v-else />
-              </el-icon>
-            </button>
+            <el-tooltip :content="themeTooltip" placement="bottom">
+              <button class="theme-btn">
+                <el-icon :size="18">
+                  <Sunny v-if="isDarkMode" />
+                  <Moon v-else />
+                </el-icon>
+              </button>
+            </el-tooltip>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item disabled>主题风格</el-dropdown-item>
