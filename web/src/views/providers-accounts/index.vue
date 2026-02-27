@@ -798,6 +798,7 @@ onMounted(() => {
         font-size: 13px;
         font-weight: 500;
         color: var(--provider-color);
+        white-space: nowrap;
       }
     }
 
@@ -875,6 +876,7 @@ onMounted(() => {
     align-items: center;
     gap: 8px;
     min-width: 0;
+    white-space: nowrap;
 
     .provider-logo {
       width: 14px;
@@ -947,6 +949,7 @@ onMounted(() => {
       align-items: center;
       gap: 10px;
       width: 100%;
+      white-space: nowrap;
       
       .provider-logo {
         height: 22px;
