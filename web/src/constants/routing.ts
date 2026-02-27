@@ -18,7 +18,7 @@ export const DEFAULT_CLASSIFIER_CONFIG = {
   base_url: 'http://127.0.0.1:11434',
   active_model: 'qwen2.5:0.5b-instruct',
   candidate_models: ['qwen2.5:0.5b-instruct'],
-  timeout_ms: 120,
+  timeout_ms: 5000,
   confidence_threshold: 0.65,
   fail_open: true,
   max_input_chars: 4000,
