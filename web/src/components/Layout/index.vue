@@ -84,7 +84,7 @@
           </el-tooltip>
 
           <!-- 微信群 -->
-          <el-popover placement="bottom" trigger="click" width="260" popper-class="wechat-popover">
+          <el-popover placement="bottom" trigger="click" width="320" popper-class="wechat-popover">
             <template #reference>
               <button class="wechat-btn" type="button">
                 <el-icon :size="18"><ChatDotRound /></el-icon>
@@ -713,7 +713,8 @@ const handleUserCommand = (command: string) => {
   }
 
   .wechat-qr {
-    width: 220px;
+    width: 280px !important;
+    height: 280px !important;
     max-width: 100%;
     border-radius: var(--border-radius-md);
     border: 1px solid var(--border-primary);
@@ -893,6 +894,17 @@ const handleUserCommand = (command: string) => {
   
   .main-container {
     margin-left: 0 !important;
+  }
+}
+</style>
+
+<style lang="scss">
+/* 全局样式 - Element Plus popover 渲染在 body 下，scoped 不生效 */
+.wechat-popover {
+  .wechat-qr {
+    width: 280px !important;
+    height: 280px !important;
+    object-fit: contain;
   }
 }
 </style>

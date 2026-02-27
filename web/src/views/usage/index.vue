@@ -72,26 +72,14 @@
             </el-select>
           </div>
           <div class="filter-item">
-            <div class="filter-label">实验标签</div>
-            <el-select v-model="selectedExperimentTag" style="width: 180px" placeholder="全部实验" clearable>
-              <el-option label="全部实验" value="" />
+            <div class="filter-label">任务类型</div>
+            <el-select v-model="selectedTaskType" style="width: 180px" placeholder="全部类型" clearable>
+              <el-option label="全部类型" value="" />
               <el-option
-                v-for="tag in experimentTagOptions"
-                :key="tag"
-                :label="tag"
-                :value="tag"
-              />
-            </el-select>
-          </div>
-          <div class="filter-item">
-            <div class="filter-label">领域标签</div>
-            <el-select v-model="selectedDomainTag" style="width: 180px" placeholder="全部领域" clearable>
-              <el-option label="全部领域" value="" />
-              <el-option
-                v-for="tag in domainTagOptions"
-                :key="tag"
-                :label="tag"
-                :value="tag"
+                v-for="tt in taskTypeOptions"
+                :key="tt"
+                :label="tt"
+                :value="tt"
               />
             </el-select>
           </div>
@@ -113,14 +101,13 @@
 
     <el-card shadow="never" class="table-card">
       <el-table :data="pagedRows" stripe class="usage-table" v-loading="loading" table-layout="auto">
-        <el-table-column prop="accountName" label="API Key账号" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="accountName" label="账号" min-width="160" show-overflow-tooltip />
         <el-table-column prop="provider" label="服务商" min-width="120" />
         <el-table-column prop="time" label="最近时间" min-width="180" />
         <el-table-column prop="firstTokenLatency" label="首 Token 耗时" min-width="140" align="right" />
         <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
         <el-table-column prop="model" label="模型" min-width="170" />
-        <el-table-column prop="experimentTag" label="实验标签" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="domainTag" label="领域标签" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="taskType" label="任务类型" min-width="120" />
         <el-table-column label="入 Token" min-width="120" align="right">
           <template #default="{ row }">
             {{ formatCompact(row.inputTokens) }}
@@ -169,7 +156,8 @@ import { computed, onMounted, ref } from 'vue'
 import { getCacheStats } from '@/api/metrics'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
-import { filterUsageRows, getTagOptions } from '@/utils/usage-filters'
+import { filterUsageRows } from '@/utils/usage-filters'
+import { accountApi, type Account } from '@/api/account'
 
 type RangeType = '24h' | '7d' | '30d'
 
@@ -184,8 +172,7 @@ interface UsageRow {
   firstTokenSeconds: number
   totalDurationSeconds: number
   model: string
-  experimentTag: string
-  domainTag: string
+  taskType: string
   inputTokens: number
   outputTokens: number
   totalTokens: number
@@ -198,12 +185,21 @@ const range = ref<RangeType>('7d')
 const page = ref(1)
 const pageSize = ref(20)
 const selectedModel = ref('')
-const selectedExperimentTag = ref('')
-const selectedDomainTag = ref('')
+const selectedTaskType = ref('')
 
 const usageRows = ref<UsageRow[]>([])
 const cacheStats = ref({ hits: 0, misses: 0, hit_rate: 0 })
+const accounts = ref<Account[]>([])
 
+const accountNameMap = computed(() => {
+  const map = new Map<string, string>()
+  accounts.value.forEach(acc => {
+    if (acc.provider && acc.name) {
+      map.set(acc.provider, acc.name)
+    }
+  })
+  return map
+})
 const rangeStart = computed(() => {
   const now = Date.now()
   if (range.value === '24h') return now - 24 * 60 * 60 * 1000
@@ -219,19 +215,16 @@ const modelOptions = computed(() => {
   return Array.from(set)
 })
 
-const experimentTagOptions = computed(() => {
-  return getTagOptions(rangeRows.value.map(row => row.experimentTag))
-})
-
-const domainTagOptions = computed(() => {
-  return getTagOptions(rangeRows.value.map(row => row.domainTag))
+const taskTypeOptions = computed(() => {
+  const set = new Set<string>()
+  rangeRows.value.forEach(row => set.add(row.taskType))
+  return Array.from(set)
 })
 
 const filteredRows = computed(() => {
   return filterUsageRows(rangeRows.value, {
     model: selectedModel.value,
-    experimentTag: selectedExperimentTag.value,
-    domainTag: selectedDomainTag.value
+    taskType: selectedTaskType.value
   })
 })
 
@@ -343,8 +336,6 @@ const fetchUsageLogs = async () => {
         range: rangeParam,
         limit: 1000,
         model: selectedModel.value || undefined,
-        experiment_tag: selectedExperimentTag.value || undefined,
-        domain_tag: selectedDomainTag.value || undefined
       }
     })
     const data = (res as any)?.data || []
@@ -355,13 +346,10 @@ const fetchUsageLogs = async () => {
       const outputTokens = log.output_tokens ?? Math.max(0, totalTokens - inputTokens)
       // Backward compatibility: legacy rows had cache_hit incorrectly persisted as false.
       const inferredCacheHit = Boolean(log.cache_hit) || (log.success === true && Number(log.latency_ms || 0) === 0 && totalTokens > 0)
-      const apiKeyValue = String(log.api_key || '').trim()
-      let accountName = '-'
-      if (apiKeyValue && !apiKeyValue.includes('****')) {
-        accountName = apiKeyValue
-      }
+      const providerValue = log.provider || ''
       const ttftMs = Number(log.ttft_ms || 0)
-      
+      // 只使用账号自定义名称
+      const accountName = (providerValue && accountNameMap.value.get(providerValue)) || '-'
       rows.push({
         id: String(log.id || log.timestamp),
         accountName,
@@ -373,8 +361,7 @@ const fetchUsageLogs = async () => {
         firstTokenSeconds: ttftMs / 1000,
         totalDurationSeconds: log.latency_ms / 1000,
         model: log.model || '-',
-        experimentTag: String(log.experiment_tag || '-'),
-        domainTag: String(log.domain_tag || '-'),
+        taskType: log.task_type || '-',
         inputTokens,
         outputTokens,
         totalTokens,
@@ -390,9 +377,20 @@ const fetchUsageLogs = async () => {
   }
 }
 
+const fetchAccounts = async () => {
+  try {
+    const res = await accountApi.getList()
+    accounts.value = (res as any)?.data || []
+  } catch (e) {
+    console.warn('Failed to fetch accounts:', e)
+    accounts.value = []
+  }
+}
+
 const refreshAll = async () => {
   loading.value = true
   try {
+    await fetchAccounts()
     await fetchCacheStats()
     await fetchUsageLogs()
     page.value = 1
@@ -403,14 +401,13 @@ const refreshAll = async () => {
 
 const resetFilters = async () => {
   selectedModel.value = ''
-  selectedExperimentTag.value = ''
-  selectedDomainTag.value = ''
+  selectedTaskType.value = ''
   range.value = '7d'
   await refreshAll()
 }
 
 const exportCsv = () => {
-  const header = ['API Key账号', '服务商', '最近时间', '首Token耗时', '总耗时', '模型', '实验标签', '领域标签', '入Token', '出Token', '总Token', '缓存命中', '费用']
+  const header = ['账号', '服务商', '最近时间', '首Token耗时', '总耗时', '模型', '任务类型', '入Token', '出Token', '总Token', '缓存命中', '费用']
   const lines = filteredRows.value.map(row => [
     row.accountName,
     row.provider,
@@ -418,8 +415,7 @@ const exportCsv = () => {
     row.firstTokenLatency,
     row.totalLatency,
     row.model,
-    row.experimentTag,
-    row.domainTag,
+    row.taskType,
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,

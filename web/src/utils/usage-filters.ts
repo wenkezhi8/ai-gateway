@@ -1,13 +1,11 @@
 type UsageFilterInput = {
   model?: string
-  experimentTag?: string
-  domainTag?: string
+  taskType?: string
 }
 
 type UsageRowLike = {
   model: string
-  experimentTag: string
-  domainTag: string
+  taskType: string
 }
 
 export function getTagOptions(values: Array<string | null | undefined>): string[] {
@@ -25,10 +23,7 @@ export function filterUsageRows<T extends UsageRowLike>(rows: T[], filter: Usage
     if (filter.model && row.model !== filter.model) {
       return false
     }
-    if (filter.experimentTag && row.experimentTag !== filter.experimentTag) {
-      return false
-    }
-    if (filter.domainTag && row.domainTag !== filter.domainTag) {
+    if (filter.taskType && row.taskType !== filter.taskType) {
       return false
     }
     return true
