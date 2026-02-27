@@ -446,7 +446,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
@@ -489,6 +489,7 @@ const classifierSaving = ref(false)
 const classifierSwitching = ref(false)
 const classifierModelsLoading = ref(false)
 const classifierSwitchModel = ref('')
+const switchPollingCancelled = ref(false)
 const ollamaInstalling = ref(false)
 const ollamaStarting = ref(false)
 const ollamaPulling = ref(false)
@@ -522,6 +523,10 @@ const ollamaSetup = reactive({
   model_installed: false,
   message: ''
 })
+
+const classifierSwitchPollIntervalMs = 2000
+const classifierSwitchLoadingMessage = '正在加载模型，首次可能较慢（最多180秒）'
+const classifierSwitchTimeoutMessage = '模型加载超时，请继续等待Ollama完成加载后重试'
 
 function ensureControlConfig() {
   if (!classifierConfig.control) {
@@ -907,9 +912,15 @@ async function switchClassifierModel() {
   }
   classifierSwitching.value = true
   try {
-    await request.post('/admin/router/classifier/switch', {
+    const switchResp: any = await request.post('/admin/router/classifier/switch-async', {
       model: classifierSwitchModel.value
     })
+    const taskId = switchResp?.data?.task_id || switchResp?.task_id
+    if (!taskId) {
+      throw new Error('切换任务创建失败')
+    }
+    await pollClassifierSwitchTask(taskId)
+
     classifierConfig.active_model = classifierSwitchModel.value
     handleSuccess('分类模型切换成功')
     await Promise.all([loadClassifierHealth(), loadClassifierStats()])
@@ -924,6 +935,30 @@ async function switchClassifierModel() {
   } finally {
     classifierSwitching.value = false
   }
+}
+
+async function pollClassifierSwitchTask(taskId: string) {
+  const taskPath = `/admin/router/classifier/switch-tasks/${encodeURIComponent(taskId)}`
+
+  while (!switchPollingCancelled.value) {
+    const taskResp: any = await request.get(taskPath)
+    const taskData = taskResp?.data || taskResp
+    const status = String(taskData?.status || '').toLowerCase()
+
+    if (status === 'success') {
+      return
+    }
+    if (status === 'timeout') {
+      throw new Error(taskData?.last_error || classifierSwitchTimeoutMessage)
+    }
+    if (status === 'failed') {
+      throw new Error(taskData?.last_error || '切换分类模型失败')
+    }
+
+    await new Promise(resolve => window.setTimeout(resolve, classifierSwitchPollIntervalMs))
+  }
+
+  throw new Error(classifierSwitchLoadingMessage)
 }
 
 async function saveTaskMapping(isAuto = false) {
@@ -1004,6 +1039,7 @@ async function loadTaskTypeDistribution() {
 }
 
 onMounted(() => {
+  switchPollingCancelled.value = false
   const storedAutoSave = localStorage.getItem('routing_task_mapping_auto_save')
   autoSaveEnabled.value = storedAutoSave === '1'
   lastSavedAt.value = localStorage.getItem('routing_task_mapping_last_saved')
@@ -1017,6 +1053,13 @@ onMounted(() => {
   loadClassifierStats()
   loadClassifierModels()
   loadOllamaSetupStatus()
+})
+
+onUnmounted(() => {
+  switchPollingCancelled.value = true
+  if (autoSaveTimer) {
+    window.clearTimeout(autoSaveTimer)
+  }
 })
 
 let autoSaveTimer: number | null = null

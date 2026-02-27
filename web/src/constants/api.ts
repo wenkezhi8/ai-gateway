@@ -72,6 +72,8 @@ export const API = {
     CLASSIFIER_HEALTH: '/api/admin/router/classifier/health',
     CLASSIFIER_STATS: '/api/admin/router/classifier/stats',
     CLASSIFIER_SWITCH: '/api/admin/router/classifier/switch',
+    CLASSIFIER_SWITCH_ASYNC: '/api/admin/router/classifier/switch-async',
+    CLASSIFIER_SWITCH_TASKS: '/api/admin/router/classifier/switch-tasks',
   },
   
   FEEDBACK: {
