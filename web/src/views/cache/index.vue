@@ -748,6 +748,7 @@ import {
   type CacheTaskTTLItem
 } from '@/constants/pages/cache'
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
+import { extractAIResponseFull, extractUserMessageFull } from './cache-content-parser'
 import * as echarts from 'echarts'
 
 interface CacheTypeDetail extends CacheTypeCard {
@@ -1664,15 +1665,6 @@ function formatTime(timestamp: string): string {
   return date.toLocaleString('zh-CN')
 }
 
-function formatValue(value: any): string {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
 function getCacheId(key: string): string {
   if (!key) return '-'
   const parts = key.split(':')
@@ -1681,117 +1673,12 @@ function getCacheId(key: string): string {
   return tail.slice(0, 12)
 }
 
-function extractUserMessageFromPayload(payload: any): string {
-  if (!payload || typeof payload !== 'object') return ''
-  if (!Array.isArray(payload.messages)) return ''
-
-  const userMsg = payload.messages.find((m: any) => m?.role === 'user')
-  if (!userMsg?.content) return ''
-
-  if (typeof userMsg.content === 'string') {
-    return userMsg.content.trim()
-  }
-
-  try {
-    return JSON.stringify(userMsg.content)
-  } catch {
-    return ''
-  }
-}
-
 function getUserMessageFull(row: any): string {
-  if (typeof row?.user_message === 'string' && row.user_message.trim()) {
-    return row.user_message
-  }
-  if (!row?.value) return '-'
-
-  const tryParseJsonString = (raw: string): any => {
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return null
-    }
-  }
-
-  const value = typeof row.value === 'string' ? tryParseJsonString(row.value) : row.value
-  if (!value) return '-'
-
-  const direct = extractUserMessageFromPayload(value)
-  if (direct) return direct
-
-  const nested = value.body ?? value.Body ?? value.request ?? value.Request
-  if (!nested) return '-'
-
-  const nestedValue = typeof nested === 'string' ? tryParseJsonString(nested) : nested
-  const nestedMsg = extractUserMessageFromPayload(nestedValue)
-  return nestedMsg || '-'
+  return extractUserMessageFull(row)
 }
 
 function getAIResponseFull(row: any): string {
-  const value = row?.value
-  if (!value) return '-'
-
-  const extractFromPayload = (payload: any): string => {
-    if (!payload || typeof payload !== 'object') return ''
-    if (Array.isArray(payload.choices) && payload.choices[0]) {
-      const content = payload.choices[0]?.message?.content
-      if (typeof content === 'string' && content.trim()) return content
-    }
-    return ''
-  }
-
-  const tryParseJsonString = (raw: string): any => {
-    try {
-      return JSON.parse(raw)
-    } catch {
-      return null
-    }
-  }
-
-  const decodeBase64ToJson = (raw: string): any => {
-    try {
-      const binary = atob(raw)
-      const bytes = Uint8Array.from(binary, ch => ch.charCodeAt(0))
-      const text = new TextDecoder().decode(bytes)
-      return JSON.parse(text)
-    } catch {
-      return null
-    }
-  }
-
-  if (typeof value === 'object') {
-    const direct = extractFromPayload(value)
-    if (direct) return direct
-
-    const body = (value as any).body ?? (value as any).Body
-    if (body) {
-      let payload = typeof body === 'string' ? tryParseJsonString(body) : body
-      if (!payload && typeof body === 'string') {
-        payload = decodeBase64ToJson(body)
-      }
-      const fromBody = extractFromPayload(payload)
-      if (fromBody) return fromBody
-    }
-
-    const response = (value as any).response ?? (value as any).Response
-    if (response) {
-      let payload = typeof response === 'string' ? tryParseJsonString(response) : response
-      if (!payload && typeof response === 'string') {
-        payload = decodeBase64ToJson(response)
-      }
-      const fromResponse = extractFromPayload(payload)
-      if (fromResponse) return fromResponse
-    }
-  }
-
-  if (typeof value === 'string') {
-    const parsed = tryParseJsonString(value)
-    const fromParsed = extractFromPayload(parsed)
-    if (fromParsed) return fromParsed
-    return value
-  }
-
-  return formatValue(value)
+  return extractAIResponseFull(row)
 }
 
 // 获取任务类型标签颜色
