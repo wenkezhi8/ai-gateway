@@ -14,8 +14,8 @@ import './styles/variables.scss'
 import './styles/index.scss'
 import './styles/apple.scss'
 
-import { initTheme } from './composables/useTheme'
-initTheme()
+import { useTheme } from './composables/useTheme'
+useTheme()
 
 const app = createApp(App)
 

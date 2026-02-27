@@ -310,7 +310,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useTheme } from '@/composables/useTheme'
-import type { ThemeMode, ThemeVariant } from '@/composables/useTheme'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
 
@@ -383,11 +382,7 @@ const settings = reactive({
 })
 
 const handleThemeChange = (theme: string) => {
-  setTheme(theme as ThemeMode)
-}
-
-const handleThemeVariantChange = (variant: string) => {
-  setVariant(variant as ThemeVariant)
+  setTheme(theme as 'light' | 'dark' | 'auto')
 }
 
 const handleThemeVariantChange = (variant: string) => {
@@ -446,7 +441,6 @@ onMounted(() => {
 // 获取默认设置
 const getDefaultSettings = () => ({
   theme: 'auto',
-  themeVariant: 'apple',
   primaryColor: '#007AFF',
   borderRadius: 16,
   enableAnimation: true,
@@ -508,8 +502,6 @@ loadSettings()
 
 const resetSettings = () => {
   Object.assign(settings, getDefaultSettings())
-  setTheme(settings.theme as ThemeMode)
-  setVariant(settings.themeVariant as ThemeVariant)
   localStorage.removeItem('ai-gateway-settings')
   ElMessage.success('设置已重置为默认值')
 }

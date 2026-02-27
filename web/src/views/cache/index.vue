@@ -30,7 +30,7 @@
     <!-- 改动点: 统计概览卡片 -->
     <div class="stats-grid">
       <div v-for="stat in summaryStats" :key="stat.title" class="stat-card">
-        <div class="stat-icon" :style="{ background: stat.softColor, color: stat.color }">
+        <div class="stat-icon" :style="{ background: stat.color + '1A', color: stat.color }">
           <el-icon :size="22"><component :is="stat.icon" /></el-icon>
         </div>
         <div class="stat-body">
@@ -724,7 +724,7 @@
           <el-col :span="12">
             <div class="detail-item">
               <span class="label">内存使用</span>
-              <el-progress :percentage="cacheDetail.memoryUsage" :color="'var(--accent)'" :stroke-width="10" />
+              <el-progress :percentage="cacheDetail.memoryUsage" color="#409eff" :stroke-width="10" />
             </div>
           </el-col>
         </el-row>
@@ -872,40 +872,35 @@ const summaryStats = computed(() => [
     value: `${overallStats.hitRate}%`,
     subtitle: '全量缓存',
     icon: 'CircleCheckFilled',
-    color: 'var(--accent)',
-    softColor: 'var(--accent-soft)'
+    color: '#2563eb'
   },
   {
     title: '缓存条目',
     value: formatCompactNumber(overallStats.totalEntries),
     subtitle: '当前存量',
     icon: 'Files',
-    color: 'var(--info)',
-    softColor: 'var(--info-soft)'
+    color: '#0ea5e9'
   },
   {
     title: '缓存体积',
     value: overallStats.totalSize,
     subtitle: cacheBackend.persistent ? 'Redis' : 'Memory',
     icon: 'Coin',
-    color: 'var(--warning)',
-    softColor: 'var(--warning-soft)'
+    color: '#f97316'
   },
   {
     title: '节省 Token',
     value: formatCompactNumber(overallStats.tokenSavings),
     subtitle: '请求/上下文',
     icon: 'TrendCharts',
-    color: 'var(--success)',
-    softColor: 'var(--success-soft)'
+    color: '#16a34a'
   },
   {
     title: '平均命中耗时',
     value: overallStats.avgResponse,
     subtitle: '缓存读写',
     icon: 'Timer',
-    color: 'var(--color-primary)',
-    softColor: 'var(--accent-soft)'
+    color: '#8b5cf6'
   }
 ])
 
@@ -1010,23 +1005,11 @@ const strategyLabel = (strategy: string): string => {
   return strategy
 }
 
-const readCssVar = (name: string, fallback: string) => {
-  if (typeof window === 'undefined') return fallback
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
-}
-
-const getThemeColors = () => ({
-  accent: readCssVar('--accent', '#007AFF'),
-  accentSoft: readCssVar('--accent-soft', 'rgba(0, 122, 255, 0.2)'),
-  border: readCssVar('--border-primary', '#E8E8ED'),
-  text: readCssVar('--text-secondary', '#6E6E73')
-})
-
 const getProgressColor = (percentage: number) => {
-  if (percentage >= 80) return 'var(--success)'
-  if (percentage >= 60) return 'var(--accent)'
-  if (percentage >= 40) return 'var(--warning)'
-  return 'var(--danger)'
+  if (percentage >= 80) return '#34C759'
+  if (percentage >= 60) return '#007AFF'
+  if (percentage >= 40) return '#FF9500'
+  return '#FF3B30'
 }
 
 const getPriorityType = (priority: string) => {
@@ -1097,7 +1080,6 @@ const initDetailChart = () => {
     detailChart.dispose()
   }
   detailChart = echarts.init(detailChartRef.value)
-  const theme = getThemeColors()
   const hours = Array.from({ length: 24 }, (_, i) => `${23 - i}h ago`).reverse()
   const hitRate = cacheDetail.value?.hitRate || 0
   const data = Array.from({ length: 24 }, () => hitRate)
@@ -1115,15 +1097,13 @@ const initDetailChart = () => {
     xAxis: {
       type: 'category',
       data: hours,
-      axisLabel: { fontSize: 10, color: theme.text },
-      axisLine: { lineStyle: { color: theme.border } }
+      axisLabel: { fontSize: 10 }
     },
     yAxis: {
       type: 'value',
       min: 0,
       max: 100,
-      axisLabel: { formatter: '{value}%', color: theme.text },
-      splitLine: { lineStyle: { color: theme.border } }
+      axisLabel: { formatter: '{value}%' }
     },
     series: [{
       data: data,
@@ -1131,12 +1111,12 @@ const initDetailChart = () => {
       smooth: true,
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: theme.accentSoft },
-          { offset: 1, color: 'rgba(0, 0, 0, 0)' }
+          { offset: 0, color: 'rgba(0, 122, 255, 0.3)' },
+          { offset: 1, color: 'rgba(0, 122, 255, 0.05)' }
         ])
       },
-      lineStyle: { color: theme.accent },
-      itemStyle: { color: theme.accent }
+      lineStyle: { color: '#007AFF' },
+      itemStyle: { color: '#007AFF' }
     }]
   })
 }
@@ -1984,29 +1964,13 @@ onUnmounted(() => {
 <style scoped lang="scss">
 /* 改动点: 新版缓存管理视觉布局 */
 .cache-page {
-  --cache-ink: var(--text-primary);
-  --cache-muted: var(--text-secondary);
-  --cache-border: var(--border-primary);
-  --cache-panel: var(--bg-card);
-  --cache-shadow: var(--card-shadow);
-  --cache-accent: var(--accent);
-  --cache-accent-strong: var(--accent-strong);
-  --cache-accent-soft: var(--accent-soft);
-  --cache-success: var(--success);
-  --cache-warning: var(--warning);
-  --cache-danger: var(--danger);
-  --cache-info: var(--info);
-  --cache-info-soft: var(--info-soft);
-  --cache-success-soft: var(--success-soft);
-  --cache-warning-soft: var(--warning-soft);
-  --cache-surface: var(--bg-app);
-  --cache-hero-bg: var(--hero-bg);
-  --cache-hero-border: var(--hero-border);
-  --cache-hero-text: var(--text-primary);
-  --cache-hero-muted: var(--text-secondary);
-  --cache-chip-bg: var(--bg-glass);
-  --cache-chip-border: var(--border-secondary);
-  --cache-panel-tint: var(--panel-tint);
+  --cache-ink: #0f172a;
+  --cache-muted: #64748b;
+  --cache-border: rgba(148, 163, 184, 0.2);
+  --cache-panel: #ffffff;
+  --cache-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  --cache-accent: #0ea5e9;
+  --cache-accent-strong: #2563eb;
   --cache-mono: 'SF Mono', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
   padding: 18px;
   display: flex;
@@ -2015,22 +1979,20 @@ onUnmounted(() => {
   font-family: 'PingFang SC', 'SF Pro Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
   color: var(--cache-ink);
   background:
-    radial-gradient(circle at 15% 0%, var(--cache-panel-tint), transparent 45%),
-    radial-gradient(circle at 85% 10%, var(--cache-info-soft), transparent 40%),
-    var(--cache-surface);
+    radial-gradient(circle at 15% 0%, rgba(14, 165, 233, 0.14), transparent 45%),
+    radial-gradient(circle at 85% 10%, rgba(59, 130, 246, 0.12), transparent 40%);
 }
 
 .cache-hero {
-  background: var(--cache-hero-bg);
-  color: var(--cache-hero-text);
+  background: linear-gradient(130deg, #0b1220 0%, #1e293b 55%, #0f172a 100%);
+  color: #fff;
   border-radius: 22px;
   padding: 22px 26px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  border: 1px solid var(--cache-hero-border);
-  box-shadow: var(--cache-shadow);
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.2);
 
   .hero-main {
     display: flex;
@@ -2046,7 +2008,7 @@ onUnmounted(() => {
   .hero-subtitle {
     margin-top: 6px;
     font-size: 13px;
-    color: var(--cache-hero-muted);
+    color: rgba(255, 255, 255, 0.7);
   }
 
   .hero-actions {
@@ -2054,9 +2016,9 @@ onUnmounted(() => {
     gap: 10px;
 
     .ghost-btn {
-      background: var(--cache-chip-bg);
-      border: 1px solid var(--cache-chip-border);
-      color: var(--cache-hero-text);
+      background: rgba(255, 255, 255, 0.16);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
     }
   }
 
@@ -2070,31 +2032,31 @@ onUnmounted(() => {
     border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
-    border: 1px solid var(--cache-chip-border);
-    background: var(--cache-chip-bg);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.12);
   }
 
   .backend-badge.backend-redis {
-    background: var(--cache-success-soft);
-    border-color: var(--cache-success);
+    background: rgba(22, 163, 74, 0.2);
+    border-color: rgba(22, 163, 74, 0.4);
   }
 
   .backend-badge.backend-memory {
-    background: var(--cache-warning-soft);
-    border-color: var(--cache-warning);
+    background: rgba(245, 158, 11, 0.2);
+    border-color: rgba(245, 158, 11, 0.4);
   }
 
   .badge-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background: var(--cache-success);
-    box-shadow: 0 0 0 4px var(--cache-success-soft);
+    background: #22c55e;
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.2);
   }
 
   .backend-badge.backend-memory .badge-dot {
-    background: var(--cache-warning);
-    box-shadow: 0 0 0 4px var(--cache-warning-soft);
+    background: #f59e0b;
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
   }
 }
 
@@ -2146,8 +2108,8 @@ onUnmounted(() => {
 }
 
 .backend-alert {
-  background: linear-gradient(120deg, var(--cache-danger, rgba(217, 102, 91, 0.16)), var(--cache-warning-soft));
-  border: 1px solid var(--cache-danger);
+  background: linear-gradient(120deg, rgba(239, 68, 68, 0.1), rgba(251, 191, 36, 0.1));
+  border: 1px solid rgba(239, 68, 68, 0.3);
   padding: 14px 18px;
   border-radius: 14px;
   display: flex;
@@ -2155,7 +2117,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  color: var(--cache-danger);
+  color: #b91c1c;
 
   .backend-title {
     font-weight: 600;
@@ -2202,7 +2164,7 @@ onUnmounted(() => {
 .panel-hint {
   font-size: 12px;
   color: var(--cache-muted);
-  background: var(--cache-panel-tint);
+  background: rgba(148, 163, 184, 0.18);
   padding: 6px 10px;
   border-radius: 999px;
 }
@@ -2218,11 +2180,11 @@ onUnmounted(() => {
   border-radius: 16px;
   padding: 16px;
   border: 1px solid var(--cache-border);
-  background: linear-gradient(160deg, var(--bg-soft), var(--bg-card));
+  background: linear-gradient(160deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--cache-shadow);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 
   &[data-tone='ocean'] {
@@ -2267,7 +2229,7 @@ onUnmounted(() => {
 
   &:hover {
     transform: translateY(-4px);
-    box-shadow: var(--card-hover-shadow);
+    box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
   }
 
   .type-card-head {
@@ -2322,8 +2284,8 @@ onUnmounted(() => {
     gap: 8px;
     font-family: var(--cache-mono);
     font-size: 11px;
-    color: var(--cache-ink);
-    background: var(--cache-panel-tint);
+    color: #0f172a;
+    background: rgba(148, 163, 184, 0.16);
     padding: 6px 8px;
     border-radius: 10px;
     word-break: break-all;
@@ -2341,7 +2303,7 @@ onUnmounted(() => {
     gap: 10px;
 
     .metric {
-      background: var(--cache-panel-tint);
+      background: rgba(148, 163, 184, 0.12);
       border-radius: 12px;
       padding: 10px;
     }
@@ -2388,14 +2350,14 @@ onUnmounted(() => {
 }
 
 .signature-section {
-  background: linear-gradient(120deg, var(--cache-panel-tint), var(--bg-card));
+  background: linear-gradient(120deg, rgba(14, 165, 233, 0.08), rgba(248, 250, 252, 0.95));
 
   :deep(.el-table) {
     background: transparent;
   }
 
   :deep(.el-table th.el-table__cell) {
-    background: var(--cache-panel-tint);
+    background: rgba(148, 163, 184, 0.14);
     color: var(--cache-muted);
   }
 
@@ -2407,8 +2369,8 @@ onUnmounted(() => {
 .summary-card {
   border-radius: 12px;
   padding: 12px;
-  border: 1px dashed var(--cache-border);
-  background: linear-gradient(140deg, var(--bg-soft), var(--bg-card));
+  border: 1px dashed rgba(148, 163, 184, 0.45);
+  background: linear-gradient(140deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2439,7 +2401,7 @@ onUnmounted(() => {
   }
 
   :deep(.el-tabs__nav) {
-    background: var(--bg-muted);
+    background: #f1f5f9;
     border-radius: 999px;
     padding: 4px;
     border: none;
@@ -2455,7 +2417,7 @@ onUnmounted(() => {
 
   :deep(.el-tabs__item.is-active) {
     background: var(--cache-accent-strong);
-    color: var(--text-inverse, #fff);
+    color: #fff;
   }
 
   :deep(.el-tabs__active-bar) {
@@ -2528,7 +2490,7 @@ onUnmounted(() => {
 
 .rules-table {
   .pattern-code {
-    background: var(--bg-muted);
+    background: #f1f5f9;
     padding: 2px 8px;
     border-radius: 6px;
     font-family: var(--font-family-mono);
@@ -2549,7 +2511,7 @@ onUnmounted(() => {
     .hash-code {
       font-family: var(--font-family-mono);
       font-size: 12px;
-      background: var(--bg-muted);
+      background: #f1f5f9;
       padding: 2px 6px;
       border-radius: 6px;
     }
@@ -2598,7 +2560,7 @@ onUnmounted(() => {
     .key-text {
       font-family: var(--font-family-mono, monospace);
       font-size: 12px;
-      background: var(--cache-panel-tint);
+      background: rgba(148, 163, 184, 0.18);
       padding: 2px 6px;
       border-radius: 4px;
       word-break: break-all;
@@ -2607,7 +2569,7 @@ onUnmounted(() => {
 
   .hits-count {
     font-weight: 600;
-    color: var(--color-primary);
+    color: var(--color-primary, #409eff);
   }
 }
 
@@ -2710,7 +2672,7 @@ onUnmounted(() => {
   .detail-key {
     font-family: var(--font-family-mono, monospace);
     font-size: 12px;
-    background: var(--bg-muted);
+    background: #f1f5f9;
     padding: 4px 8px;
     border-radius: 4px;
     word-break: break-all;

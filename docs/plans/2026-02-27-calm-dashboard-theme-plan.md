@@ -4,7 +4,7 @@
 
 **Goal:** Add a switchable “calm dashboard” theme (variant + mode), keep Apple theme, and redraw Dashboard/Cache/Routing pages with unified console styling.
 
-**Architecture:** Theme state managed by `useTheme` (variant + mode), persisted to localStorage, applied via `data-theme`/`data-mode` attributes. UI uses CSS variables as tokens to style Element Plus and page layouts. Pages consume tokens to ensure consistent visual language. Dashboard theme defaults to a calm, low-saturation light mode with an optional dark override.
+**Architecture:** Theme state managed by `useTheme` (variant + mode), persisted to localStorage, applied via `data-theme`/`data-mode` attributes. UI uses CSS variables as tokens to style Element Plus and page layouts. Pages consume tokens to ensure consistent visual language.
 
 **Tech Stack:** Vue 3 + Element Plus + SCSS + Vite + Vitest
 
@@ -224,7 +224,4 @@ git commit -m "chore(theme): verify dashboard theme"
 ## Execution Options
 1. **Subagent-Driven (this session)** — dispatch fresh subagent per task, review between tasks.
 2. **Parallel Session (separate)** — new session uses executing-plans with checkpoints.
-<<<<<<< HEAD
 
-=======
->>>>>>> codex/dashboard-theme
