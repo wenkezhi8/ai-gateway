@@ -5,7 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-02-27
+
+### Performance
+- **数据存储异步写入**: 性能提升 94.4% (2.4ms → 0.14ms/op)
+- **Smart Router 锁优化**: 短临界区策略, 性能提升 1.9%
+- **Redis 连接池配置**: 新增 PoolSize/MinIdleConns/MaxRetries/Timeout 参数
+- **ProviderPool 优雅关闭**: 添加 stopWg + stopOnce 实现幂等关闭
+- **LRU 缓存淘汰**: MemoryCache 支持最大条目数限制
+- **统一 Logger**: 清理 13+ 文件的独立 logrus.New()
+
+### Added
+- 新增测试用例提升覆盖率:
+  - `internal/datastore`: 覆盖率提升至 84.5%
+  - `internal/provider`: 新增 Stop 相关测试
+  - `internal/cache`: 新增 LRU 淘汰测试
+  - `pkg/logger`: 新增统一 Logger 测试
+
+### Changed
+- 数据存储从同步写入改为异步批量写入
+- 所有独立 Logger 实例改为使用 pkg/logger
+- MemoryCache 新增 LRU 淘汰机制
+- SmartRouter 优化锁粒度减少锁竞争
+
 ## [Unreleased]
+
 
 ### Added
 - Enterprise optimization: golangci-lint configuration
