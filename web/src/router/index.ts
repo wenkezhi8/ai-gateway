@@ -6,6 +6,7 @@ import {
   DOCS_ROUTE,
   HOME_ROUTE,
   LOGIN_ROUTE,
+  PUBLIC_CHAT_ROUTE,
   UNAUTHORIZED_REDIRECT
 } from '@/constants/navigation'
 
@@ -167,7 +168,7 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录' }
   },
   {
-    path: '/p/chat',
+    path: PUBLIC_CHAT_ROUTE,
     name: 'PublicChat',
     component: () => import('@/views/chat/index.vue'),
     meta: { title: 'AI 智能助手', public: true }

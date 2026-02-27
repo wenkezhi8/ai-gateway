@@ -4,6 +4,17 @@ import { defineConfig, devices } from '@playwright/test';
 const useExistingServer = process.env.E2E_USE_EXISTING_SERVER !== '0';
 // 改动点: 允许通过环境变量覆盖 baseURL
 const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:8566';
+const reporters = process.env.CI
+  ? [
+      ['html', { outputFolder: 'tests/results/html-report' }],
+      ['json', { outputFile: 'tests/results/test-results.json' }],
+      ['list'],
+      ['./tests/utils/custom-reporter.ts']
+    ]
+  : [
+      ['list'],
+      ['./tests/utils/custom-reporter.ts']
+    ];
 
 export default defineConfig({
   testDir: './tests',
@@ -11,12 +22,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: [
-    ['html', { outputFolder: 'tests/results/html-report' }],
-    ['json', { outputFile: 'tests/results/test-results.json' }],
-    ['list'],
-    ['./tests/utils/custom-reporter.ts']
-  ],
+  reporter: reporters,
   // 改动点: 避免 outputDir 与 HTML 报告目录冲突
   outputDir: 'tests/results/artifacts',
   timeout: 30000,

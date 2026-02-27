@@ -114,4 +114,15 @@ describe('pages static config extraction', () => {
     expect(loginViewFile).toContain('LOGIN_SUCCESS_REDIRECT')
     expect(loginViewFile).not.toContain("router.push('/dashboard')")
   })
+
+  it('should keep e2e report artifacts out of default local git changes', () => {
+    const gitignoreFile = readFileSync(join(process.cwd(), '.gitignore'), 'utf-8')
+    const playwrightConfigFile = readFileSync(join(process.cwd(), 'playwright.config.ts'), 'utf-8')
+
+    expect(gitignoreFile).toContain('tests/results/html-report/')
+    expect(gitignoreFile).toContain('tests/results/artifacts/')
+    expect(gitignoreFile).toContain('tests/results/*.json')
+    expect(playwrightConfigFile).toContain('process.env.CI')
+    expect(playwrightConfigFile).toContain('const reporters =')
+  })
 })

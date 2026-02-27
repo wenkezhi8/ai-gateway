@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+tests/results/artifacts/
+tests/results/html-report/
+tests/results/*.json
+tests/results/*.html
+!tests/results/.gitkeep
 
 # Editor directories and files
 .vscode/*

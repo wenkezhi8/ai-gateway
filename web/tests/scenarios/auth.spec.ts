@@ -93,6 +93,33 @@ test.describe('Authentication Tests', () => {
     expect([UNAUTHORIZED_REDIRECT, POST_LOGOUT_REDIRECT]).toContain(pathAfterBack);
   });
 
+  test('should keep unauthorized route on browser back and forward after 401 redirect', async ({ page, helper }) => {
+    await helper.login('admin', 'admin123');
+    await page.goto('/providers');
+    await page.waitForLoadState('networkidle');
+
+    await page.route('**/api/**', route => {
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ message: 'unauthorized' })
+      });
+    });
+
+    await page.goto('/providers');
+    await page.waitForURL(`**${UNAUTHORIZED_REDIRECT}`, { timeout: 10000 });
+
+    await page.goBack();
+    await page.waitForLoadState('networkidle');
+    expect(new URL(page.url()).pathname).toBe(UNAUTHORIZED_REDIRECT);
+
+    await page.goForward();
+    await page.waitForLoadState('networkidle');
+    expect(new URL(page.url()).pathname).toBe(UNAUTHORIZED_REDIRECT);
+
+    await page.unroute('**/api/**');
+  });
+
   test('should redirect to login when accessing protected routes without authentication', async ({ page, helper }) => {
     const protectedRoutes = [DASHBOARD_ROUTE, '/providers', '/accounts', '/routing', '/cache', '/alerts', '/settings'];
 
