@@ -19,29 +19,14 @@ import (
 	"ai-gateway/internal/provider/qwen"
 	"ai-gateway/internal/provider/volcengine"
 	"ai-gateway/internal/provider/zhipu"
+	pkglogger "ai-gateway/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
 func NewLogger() *logrus.Logger {
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{
-		FieldMap: logrus.FieldMap{
-			logrus.FieldKeyTime:  "timestamp",
-			logrus.FieldKeyLevel: "level",
-			logrus.FieldKeyMsg:   "message",
-		},
-	})
-	logger.SetOutput(os.Stdout)
-
-	if level := os.Getenv("LOG_LEVEL"); level != "" {
-		if logLevel, err := logrus.ParseLevel(level); err == nil {
-			logger.SetLevel(logLevel)
-		}
-	}
-
-	return logger
+	return pkglogger.Log
 }
 
 func SetupConfigWatcher(cfg *config.Config, logger *logrus.Logger) *config.ConfigWatcher {

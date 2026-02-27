@@ -1,6 +1,7 @@
 package security
 
 import (
+	"ai-gateway/pkg/logger"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -10,11 +11,9 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var securityLogger = logrus.New()
+var securityLogger = logger.WithField("component", "security")
 
 type SecurityConfig struct {
 	mu sync.RWMutex

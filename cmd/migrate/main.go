@@ -3,17 +3,16 @@ package main
 import (
 	"ai-gateway/internal/models"
 	"ai-gateway/internal/storage"
+	gatewaylogger "ai-gateway/pkg/logger"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var logger = logrus.New()
+var logger = gatewaylogger.WithField("component", "migrate")
 
 func main() {
 	sourceDir := flag.String("source", "data", "Source directory containing JSON files")
@@ -21,10 +20,6 @@ func main() {
 	verify := flag.Bool("verify", false, "Verify migration without writing")
 	backup := flag.Bool("backup", true, "Create backup of existing database")
 	flag.Parse()
-
-	logger.SetFormatter(&logrus.TextFormatter{
-		FullTimestamp: true,
-	})
 
 	logger.Info("Starting JSON to SQLite migration...")
 	logger.Infof("Source directory: %s", *sourceDir)

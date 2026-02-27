@@ -182,3 +182,82 @@ func TestMemoryCache_DifferentTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestMemoryCache_LRUEviction(t *testing.T) {
+	cache := NewMemoryCacheWithMaxEntries(2)
+	ctx := context.Background()
+
+	require.NoError(t, cache.Set(ctx, "k1", "v1", time.Hour))
+	require.NoError(t, cache.Set(ctx, "k2", "v2", time.Hour))
+	require.NoError(t, cache.Set(ctx, "k3", "v3", time.Hour))
+
+	var v string
+	err := cache.Get(ctx, "k1", &v)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	err = cache.Get(ctx, "k2", &v)
+	require.NoError(t, err)
+	assert.Equal(t, "v2", v)
+
+	err = cache.Get(ctx, "k3", &v)
+	require.NoError(t, err)
+	assert.Equal(t, "v3", v)
+}
+
+func TestMemoryCache_MaxEntries(t *testing.T) {
+	cache := NewMemoryCacheWithMaxEntries(3)
+	ctx := context.Background()
+
+	for i := 0; i < 10; i++ {
+		require.NoError(t, cache.Set(ctx, string(rune('a'+i)), i, time.Hour))
+	}
+
+	assert.Len(t, cache.items, 3)
+}
+
+func TestMemoryCache_AccessUpdatesLRU(t *testing.T) {
+	cache := NewMemoryCacheWithMaxEntries(2)
+	ctx := context.Background()
+
+	require.NoError(t, cache.Set(ctx, "k1", "v1", time.Hour))
+	require.NoError(t, cache.Set(ctx, "k2", "v2", time.Hour))
+
+	var v string
+	require.NoError(t, cache.Get(ctx, "k1", &v))
+
+	require.NoError(t, cache.Set(ctx, "k3", "v3", time.Hour))
+
+	err := cache.Get(ctx, "k2", &v)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, cache.Get(ctx, "k1", &v))
+	assert.Equal(t, "v1", v)
+	require.NoError(t, cache.Get(ctx, "k3", &v))
+	assert.Equal(t, "v3", v)
+}
+
+func TestMemoryCache_EvictionOrder(t *testing.T) {
+	cache := NewMemoryCacheWithMaxEntries(3)
+	ctx := context.Background()
+
+	require.NoError(t, cache.Set(ctx, "k1", "v1", time.Hour))
+	require.NoError(t, cache.Set(ctx, "k2", "v2", time.Hour))
+	require.NoError(t, cache.Set(ctx, "k3", "v3", time.Hour))
+
+	var v string
+	require.NoError(t, cache.Get(ctx, "k1", &v))
+	require.NoError(t, cache.Set(ctx, "k4", "v4", time.Hour))
+
+	err := cache.Get(ctx, "k2", &v)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, cache.Get(ctx, "k3", &v))
+	require.NoError(t, cache.Set(ctx, "k5", "v5", time.Hour))
+
+	err = cache.Get(ctx, "k1", &v)
+	assert.ErrorIs(t, err, ErrNotFound)
+
+	require.NoError(t, cache.Get(ctx, "k3", &v))
+	require.NoError(t, cache.Get(ctx, "k4", &v))
+	require.NoError(t, cache.Get(ctx, "k5", &v))
+}

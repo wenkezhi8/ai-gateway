@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"ai-gateway/pkg/logger"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -13,12 +14,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/sirupsen/logrus"
 )
 
 const usersDataFile = "data/users.json"
 
-var authLogger = logrus.New()
+var authLogger = logger.WithField("component", "auth")
 
 type AuthHandler struct {
 	jwtConfig middleware.JWTConfig

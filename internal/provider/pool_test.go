@@ -141,3 +141,38 @@ func TestPooledProvider(t *testing.T) {
 	assert.Equal(t, int64(0), pooled.useCount)
 	assert.Equal(t, int64(0), pooled.errorCount)
 }
+
+func TestProviderPool_Stop_StopsGoroutines(t *testing.T) {
+	config := ProviderPoolConfig{
+		MaxIdleTime:         1 * time.Second,
+		MaxUseCount:         100,
+		HealthCheckInterval: 100 * time.Millisecond,
+		MaxErrorCount:       5,
+	}
+	pool := NewProviderPool(config)
+	// Ensure Stop waits for background goroutines and returns
+	done := make(chan struct{})
+	go func() {
+		pool.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// stopped gracefully
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Stop() did not return in time; background goroutines may not have stopped")
+	}
+}
+
+func TestProviderPool_Stop_Idempotent(t *testing.T) {
+	config := ProviderPoolConfig{
+		MaxIdleTime:         1 * time.Second,
+		MaxUseCount:         100,
+		HealthCheckInterval: 100 * time.Millisecond,
+		MaxErrorCount:       5,
+	}
+	pool := NewProviderPool(config)
+	pool.Stop()
+	// Second stop should not panic
+	assert.NotPanics(t, func() { pool.Stop() })
+}

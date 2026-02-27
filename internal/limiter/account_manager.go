@@ -1,6 +1,7 @@
 package limiter
 
 import (
+	logpkg "ai-gateway/pkg/logger"
 	"context"
 	"fmt"
 	"sort"
@@ -34,7 +35,7 @@ type AccountLimiter interface {
 // NewAccountManager creates a new account manager
 func NewAccountManager(store *RedisStore, logger *logrus.Logger) *AccountManager {
 	if logger == nil {
-		logger = logrus.New()
+		logger = logpkg.WithField("component", "limiter").Logger
 	}
 	return &AccountManager{
 		accounts:       make(map[string]*AccountConfig),

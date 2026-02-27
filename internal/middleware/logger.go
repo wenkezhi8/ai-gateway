@@ -1,13 +1,14 @@
 package middleware
 
 import (
+	"ai-gateway/pkg/logger"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
-var log = logrus.New()
+var log = logger.WithField("component", "middleware")
 
 // Logger returns a gin middleware for logging
 func Logger() gin.HandlerFunc {

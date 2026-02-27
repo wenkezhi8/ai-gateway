@@ -86,14 +86,28 @@
           <div class="header-divider"></div>
 
           <!-- 主题切换 -->
-          <el-tooltip :content="themeTooltip" placement="bottom">
-            <button class="theme-btn" @click="toggleTheme">
-              <el-icon :size="18">
-                <Sunny v-if="isDarkMode" />
-                <Moon v-else />
-              </el-icon>
-            </button>
-          </el-tooltip>
+          <el-dropdown trigger="click" @command="handleThemeCommand">
+            <el-tooltip :content="themeTooltip" placement="bottom">
+              <button class="theme-btn">
+                <el-icon :size="18">
+                  <Sunny v-if="isDarkMode" />
+                  <Moon v-else />
+                </el-icon>
+              </button>
+            </el-tooltip>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item disabled>主题风格</el-dropdown-item>
+                <el-dropdown-item command="variant:apple">Apple</el-dropdown-item>
+                <el-dropdown-item command="variant:dashboard">仪表盘</el-dropdown-item>
+                <el-dropdown-item divided disabled>模式</el-dropdown-item>
+                <el-dropdown-item command="mode:light">亮色</el-dropdown-item>
+                <el-dropdown-item command="mode:dark">暗色</el-dropdown-item>
+                <el-dropdown-item command="mode:auto">跟随系统</el-dropdown-item>
+                <el-dropdown-item divided command="mode:toggle">快速切换模式</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
 
           <!-- 通知 -->
           <el-badge :value="notificationCount" :hidden="notificationCount === 0" class="notification-badge">
@@ -151,7 +165,7 @@ import { useUserStore } from '@/store/user'
 
 const route = useRoute()
 const router = useRouter()
-const { currentTheme, toggleTheme, isDark } = useTheme()
+const { currentTheme, setTheme, setVariant, toggleTheme, isDark } = useTheme()
 const userStore = useUserStore()
 
 const isCollapse = ref(false)
@@ -180,12 +194,16 @@ const currentTitle = computed(() => route.meta.title as string || '')
 const isDarkMode = computed(() => isDark())
 
 const themeTooltip = computed(() => {
-  const themeMap: Record<string, string> = {
-    light: '当前：亮色模式',
-    dark: '当前：暗色模式',
-    auto: '当前：跟随系统'
+  const modeMap: Record<string, string> = {
+    light: '亮色',
+    dark: '暗色',
+    auto: '跟随系统'
   }
-  return themeMap[currentTheme.value] + ' (点击切换)'
+  const variantMap: Record<string, string> = {
+    apple: 'Apple',
+    dashboard: '仪表盘'
+  }
+  return `当前：${variantMap[currentTheme.value.variant]} · ${modeMap[currentTheme.value.mode]}`
 })
 
 const isActive = (path: string) => {
@@ -203,6 +221,22 @@ const isActive = (path: string) => {
 
 const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value
+}
+
+const handleThemeCommand = (command: string) => {
+  if (command.startsWith('variant:')) {
+    const variant = command.split(':')[1] as 'apple' | 'dashboard'
+    setVariant(variant)
+    return
+  }
+  if (command.startsWith('mode:')) {
+    const mode = command.split(':')[1]
+    if (mode === 'toggle') {
+      toggleTheme()
+      return
+    }
+    setTheme(mode as 'light' | 'dark' | 'auto')
+  }
 }
 
 const handleUserCommand = (command: string) => {

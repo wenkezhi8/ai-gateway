@@ -2,14 +2,34 @@ package datastore
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func waitStoreFile(t *testing.T, storePath string) UnifiedStore {
+	t.Helper()
+
+	var loaded UnifiedStore
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(storePath)
+		if err != nil {
+			return false
+		}
+		if err := json.Unmarshal(data, &loaded); err != nil {
+			return false
+		}
+		return true
+	}, 2*time.Second, 20*time.Millisecond)
+
+	return loaded
+}
 
 func TestNewUnifiedStore(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -256,6 +276,7 @@ func TestUnifiedStore_Save(t *testing.T) {
 	require.NoError(t, err)
 
 	store.SetAccount("acc-1", &AccountRecord{ID: "acc-1"})
+	require.NoError(t, store.Flush())
 
 	data, err := os.ReadFile(storePath)
 	require.NoError(t, err)
@@ -323,4 +344,142 @@ func TestUnifiedStore_LoadExistingFile(t *testing.T) {
 
 	config := store.GetRouterConfig()
 	assert.Equal(t, "weighted", config.DefaultStrategy)
+}
+
+func TestUnifiedStore_AsyncWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "async_store.json")
+
+	store, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	err = store.SetProviderDefault("openai", "gpt-4o")
+	require.NoError(t, err)
+
+	assert.Equal(t, "gpt-4o", store.GetProviderDefault("openai"))
+
+	require.Eventually(t, func() bool {
+		loaded := waitStoreFile(t, storePath)
+		return loaded.ProviderDefaults["openai"] == "gpt-4o"
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
+func TestUnifiedStore_BatchWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "batch_store.json")
+
+	store, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	for i := 0; i < 30; i++ {
+		key := fmt.Sprintf("acc-%d", i)
+		err = store.SetAccount(key, &AccountRecord{ID: key, Provider: "openai", Enabled: true})
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool {
+		store.mu.RLock()
+		defer store.mu.RUnlock()
+		return len(store.pendingOps) >= 2
+	}, time.Second, 10*time.Millisecond)
+
+	err = store.Flush()
+	require.NoError(t, err)
+
+	loaded := waitStoreFile(t, storePath)
+	assert.Len(t, loaded.Accounts, 30)
+}
+
+func TestUnifiedStore_GracefulShutdown(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "shutdown_store.json")
+
+	store, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+
+	for i := 0; i < 50; i++ {
+		key := fmt.Sprintf("model-%d", i)
+		err = store.SetModelScore(key, &ModelScoreRecord{Model: key, Enabled: true})
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, store.Close())
+
+	reloaded, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reloaded.Close() })
+
+	assert.Len(t, reloaded.GetAllModelScores(), 50)
+}
+
+func TestUnifiedStore_WriteBuffer(t *testing.T) {
+	tmpDir := t.TempDir()
+	storePath := filepath.Join(tmpDir, "buffer_store.json")
+
+	store, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+
+	const total = 400
+	var wg sync.WaitGroup
+	wg.Add(total)
+
+	start := time.Now()
+	for i := 0; i < total; i++ {
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("provider-%d", i)
+			_ = store.SetProviderDefault(key, "gpt-4o")
+		}(i)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		wg.Wait()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("write buffer blocked SetProviderDefault calls")
+	}
+
+	assert.Less(t, time.Since(start), 2*time.Second)
+	require.NoError(t, store.Close())
+
+	reloaded, err := NewUnifiedStore(storePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = reloaded.Close() })
+
+	assert.Len(t, reloaded.GetAllProviderDefaults(), total)
+}
+
+func BenchmarkUnifiedStore_SyncWrite(b *testing.B) {
+	tmpDir := b.TempDir()
+	store, err := NewUnifiedStore(filepath.Join(tmpDir, "sync_store.json"))
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = store.Close() })
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("provider-%d", i)
+		require.NoError(b, store.SetProviderDefault(key, "gpt-4o"))
+		require.NoError(b, store.Flush())
+	}
+}
+
+func BenchmarkUnifiedStore_AsyncWrite(b *testing.B) {
+	tmpDir := b.TempDir()
+	store, err := NewUnifiedStore(filepath.Join(tmpDir, "async_bench_store.json"))
+	require.NoError(b, err)
+	b.Cleanup(func() { _ = store.Close() })
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := fmt.Sprintf("provider-%d", i)
+		require.NoError(b, store.SetProviderDefault(key, "gpt-4o"))
+	}
+	require.NoError(b, store.Close())
 }

@@ -1,19 +1,25 @@
 package datastore
 
 import (
+	"ai-gateway/pkg/logger"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var storeLogger = logrus.New()
+var storeLogger = logger.WithField("component", "datastore")
 
 const dataDir = "data"
 const unifiedStoreFile = "data/store.json"
+
+const (
+	defaultWriteBufferSize = 256
+	defaultBatchSize       = 32
+	defaultFlushInterval   = 100 * time.Millisecond
+)
 
 type UnifiedStore struct {
 	mu sync.RWMutex
@@ -28,6 +34,20 @@ type UnifiedStore struct {
 
 	lastSaved time.Time
 	filePath  string
+
+	writeChan   chan writeRequest
+	stopChan    chan struct{}
+	workerDone  chan struct{}
+	flushTicker *time.Ticker
+	pendingOps  []writeRequest
+	batchSize   int
+	closed      bool
+}
+
+type writeRequest struct {
+	opType string
+	key    string
+	value  interface{}
 }
 
 type AccountRecord struct {
@@ -107,11 +127,18 @@ func NewUnifiedStore(filePath string) (*UnifiedStore, error) {
 		APIKeys:          make(map[string]*APIKeyRecord),
 		DeletedModels:    make(map[string]bool),
 		Users:            make(map[string]*UserRecord),
+		writeChan:        make(chan writeRequest, defaultWriteBufferSize),
+		stopChan:         make(chan struct{}),
+		workerDone:       make(chan struct{}),
+		flushTicker:      time.NewTicker(defaultFlushInterval),
+		batchSize:        defaultBatchSize,
 	}
 
 	if err := s.load(); err != nil {
 		storeLogger.WithError(err).Warn("Failed to load store, starting fresh")
 	}
+
+	go s.writeLoop()
 
 	storeLogger.Info("Unified store initialized")
 	return s, nil
@@ -221,6 +248,100 @@ func (s *UnifiedStore) Save() error {
 	return s.save()
 }
 
+func (s *UnifiedStore) enqueueWrite(req writeRequest) error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return errors.New("store is closed")
+	}
+	s.mu.Unlock()
+
+	select {
+	case s.writeChan <- req:
+		return nil
+	default:
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return errors.New("store is closed")
+		}
+		s.pendingOps = append(s.pendingOps, req)
+		s.mu.Unlock()
+		return nil
+	}
+}
+
+func (s *UnifiedStore) flushPending() error {
+	s.mu.Lock()
+	if len(s.pendingOps) == 0 {
+		s.mu.Unlock()
+		return nil
+	}
+	s.pendingOps = nil
+	s.mu.Unlock()
+
+	return s.Save()
+}
+
+func (s *UnifiedStore) writeLoop() {
+	defer close(s.workerDone)
+
+	for {
+		select {
+		case req := <-s.writeChan:
+			s.mu.Lock()
+			s.pendingOps = append(s.pendingOps, req)
+			needFlush := len(s.pendingOps) >= s.batchSize
+			s.mu.Unlock()
+			if needFlush {
+				if err := s.flushPending(); err != nil {
+					storeLogger.WithError(err).Error("Failed to flush pending writes")
+				}
+			}
+		case <-s.flushTicker.C:
+			if err := s.flushPending(); err != nil {
+				storeLogger.WithError(err).Error("Failed to flush pending writes")
+			}
+		case <-s.stopChan:
+			s.flushTicker.Stop()
+			for {
+				select {
+				case req := <-s.writeChan:
+					s.mu.Lock()
+					s.pendingOps = append(s.pendingOps, req)
+					s.mu.Unlock()
+				default:
+					if err := s.flushPending(); err != nil {
+						storeLogger.WithError(err).Error("Failed to flush pending writes on close")
+					}
+					return
+				}
+			}
+		}
+	}
+}
+
+func (s *UnifiedStore) Flush() error {
+	if err := s.flushPending(); err != nil {
+		return err
+	}
+	return s.Save()
+}
+
+func (s *UnifiedStore) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	s.mu.Unlock()
+
+	close(s.stopChan)
+	<-s.workerDone
+	return s.Save()
+}
+
 func (s *UnifiedStore) GetModelScore(model string) *ModelScoreRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -251,7 +372,6 @@ func (s *UnifiedStore) GetEnabledModelScores() map[string]*ModelScoreRecord {
 
 func (s *UnifiedStore) SetModelScore(model string, score *ModelScoreRecord) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
 	score.UpdatedAt = now
@@ -262,18 +382,19 @@ func (s *UnifiedStore) SetModelScore(model string, score *ModelScoreRecord) erro
 
 	s.ModelScores[model] = score
 	delete(s.DeletedModels, model)
+	s.mu.Unlock()
 
-	return s.save()
+	return s.enqueueWrite(writeRequest{opType: "set_model_score", key: model, value: score})
 }
 
 func (s *UnifiedStore) DeleteModelScore(model string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	delete(s.ModelScores, model)
 	s.DeletedModels[model] = true
+	s.mu.Unlock()
 
-	return s.save()
+	return s.enqueueWrite(writeRequest{opType: "delete_model_score", key: model})
 }
 
 func (s *UnifiedStore) IsModelDeleted(model string) bool {
@@ -284,10 +405,10 @@ func (s *UnifiedStore) IsModelDeleted(model string) bool {
 
 func (s *UnifiedStore) RestoreModel(model string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	delete(s.DeletedModels, model)
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "restore_model", key: model})
 }
 
 func (s *UnifiedStore) GetProviderDefault(provider string) string {
@@ -308,16 +429,16 @@ func (s *UnifiedStore) GetAllProviderDefaults() map[string]string {
 
 func (s *UnifiedStore) SetProviderDefault(provider, model string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.ProviderDefaults[provider] = model
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_provider_default", key: provider, value: model})
 }
 
 func (s *UnifiedStore) SetAllProviderDefaults(defaults map[string]string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.ProviderDefaults = defaults
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_all_provider_defaults", value: defaults})
 }
 
 func (s *UnifiedStore) GetRouterConfig() *RouterConfigRecord {
@@ -328,9 +449,9 @@ func (s *UnifiedStore) GetRouterConfig() *RouterConfigRecord {
 
 func (s *UnifiedStore) SetRouterConfig(config *RouterConfigRecord) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.RouterConfig = config
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_router_config", value: config})
 }
 
 func (s *UnifiedStore) GetAccount(id string) *AccountRecord {
@@ -351,7 +472,6 @@ func (s *UnifiedStore) GetAllAccounts() map[string]*AccountRecord {
 
 func (s *UnifiedStore) SetAccount(id string, account *AccountRecord) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
 	account.UpdatedAt = now
@@ -360,14 +480,15 @@ func (s *UnifiedStore) SetAccount(id string, account *AccountRecord) error {
 	}
 
 	s.Accounts[id] = account
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_account", key: id, value: account})
 }
 
 func (s *UnifiedStore) DeleteAccount(id string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Accounts, id)
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "delete_account", key: id})
 }
 
 func (s *UnifiedStore) GetUser(username string) *UserRecord {
@@ -388,7 +509,6 @@ func (s *UnifiedStore) GetAllUsers() map[string]*UserRecord {
 
 func (s *UnifiedStore) SetUser(username string, user *UserRecord) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
 	user.UpdatedAt = now
@@ -397,14 +517,15 @@ func (s *UnifiedStore) SetUser(username string, user *UserRecord) error {
 	}
 
 	s.Users[username] = user
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_user", key: username, value: user})
 }
 
 func (s *UnifiedStore) DeleteUser(username string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Users, username)
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "delete_user", key: username})
 }
 
 func (s *UnifiedStore) GetAPIKey(id string) *APIKeyRecord {
@@ -425,7 +546,6 @@ func (s *UnifiedStore) GetAllAPIKeys() map[string]*APIKeyRecord {
 
 func (s *UnifiedStore) SetAPIKey(id string, key *APIKeyRecord) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	now := time.Now().Format(time.RFC3339)
 	if _, exists := s.APIKeys[id]; !exists {
@@ -433,14 +553,15 @@ func (s *UnifiedStore) SetAPIKey(id string, key *APIKeyRecord) error {
 	}
 
 	s.APIKeys[id] = key
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "set_api_key", key: id, value: key})
 }
 
 func (s *UnifiedStore) DeleteAPIKey(id string) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.APIKeys, id)
-	return s.save()
+	s.mu.Unlock()
+	return s.enqueueWrite(writeRequest{opType: "delete_api_key", key: id})
 }
 
 func (s *UnifiedStore) GetStats() map[string]interface{} {

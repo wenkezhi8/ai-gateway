@@ -1,6 +1,7 @@
 package limiter
 
 import (
+	logpkg "ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -24,35 +25,35 @@ type UsageTracker struct {
 
 // UsageReport represents a comprehensive usage report
 type UsageReport struct {
-	Timestamp      time.Time            `json:"timestamp"`
+	Timestamp      time.Time                      `json:"timestamp"`
 	AccountReports map[string]*AccountUsageReport `json:"accounts"`
-	Summary        *UsageSummary        `json:"summary"`
+	Summary        *UsageSummary                  `json:"summary"`
 }
 
 // AccountUsageReport represents usage for a single account
 type AccountUsageReport struct {
-	AccountID   string                `json:"account_id"`
-	Provider    string                `json:"provider"`
-	IsActive    bool                  `json:"is_active"`
-	UsageByType map[LimitType]*Usage  `json:"usage_by_type"`
-	Status      string                `json:"status"` // healthy, warning, exceeded
+	AccountID   string               `json:"account_id"`
+	Provider    string               `json:"provider"`
+	IsActive    bool                 `json:"is_active"`
+	UsageByType map[LimitType]*Usage `json:"usage_by_type"`
+	Status      string               `json:"status"` // healthy, warning, exceeded
 }
 
 // UsageSummary represents aggregate usage statistics
 type UsageSummary struct {
-	TotalAccounts     int     `json:"total_accounts"`
-	ActiveAccounts    int     `json:"active_accounts"`
-	WarningAccounts   int     `json:"warning_accounts"`
-	ExceededAccounts  int     `json:"exceeded_accounts"`
-	TotalTokensUsed   int64   `json:"total_tokens_used"`
-	TotalRequests     int64   `json:"total_requests"`
-	AvgUsagePercent   float64 `json:"avg_usage_percent"`
+	TotalAccounts    int     `json:"total_accounts"`
+	ActiveAccounts   int     `json:"active_accounts"`
+	WarningAccounts  int     `json:"warning_accounts"`
+	ExceededAccounts int     `json:"exceeded_accounts"`
+	TotalTokensUsed  int64   `json:"total_tokens_used"`
+	TotalRequests    int64   `json:"total_requests"`
+	AvgUsagePercent  float64 `json:"avg_usage_percent"`
 }
 
 // NewUsageTracker creates a new usage tracker
 func NewUsageTracker(store *RedisStore, manager *AccountManager, logger *logrus.Logger) *UsageTracker {
 	if logger == nil {
-		logger = logrus.New()
+		logger = logpkg.WithField("component", "limiter").Logger
 	}
 	return &UsageTracker{
 		store:       store,
@@ -316,11 +317,11 @@ func (t *UsageTracker) forwardAlerts() {
 
 		// Log the alert
 		t.logger.WithFields(logrus.Fields{
-			"type":        alert.Type,
-			"account_id":  alert.AccountID,
-			"limit_type":  alert.LimitType,
-			"percent":     alert.PercentUsed,
-			"message":     alert.Message,
+			"type":       alert.Type,
+			"account_id": alert.AccountID,
+			"limit_type": alert.LimitType,
+			"percent":    alert.PercentUsed,
+			"message":    alert.Message,
 		}).Info("Usage alert")
 	}
 }

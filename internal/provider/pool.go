@@ -1,14 +1,13 @@
 package provider
 
 import (
+	"ai-gateway/pkg/logger"
 	"context"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var poolLogger = logrus.New()
+var poolLogger = logger.WithField("component", "provider")
 
 type PooledProvider struct {
 	provider   Provider
@@ -29,6 +28,10 @@ type ProviderPool struct {
 	providers map[string]*PooledProvider
 	config    ProviderPoolConfig
 	stopChan  chan struct{}
+	// Synchronizes background goroutines for graceful shutdown testing
+	stopWg sync.WaitGroup
+	// Ensure Stop() is idempotent
+	stopOnce sync.Once
 }
 
 var (
@@ -54,10 +57,10 @@ func NewProviderPool(config ProviderPoolConfig) *ProviderPool {
 		config:    config,
 		stopChan:  make(chan struct{}),
 	}
-
+	// Prepare to wait for two background goroutines
+	p.stopWg.Add(2)
 	go p.backgroundCleanup()
 	go p.healthCheck()
-
 	return p
 }
 
@@ -79,13 +82,11 @@ func (p *ProviderPool) Get(name string) Provider {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	p.providers[name] = &PooledProvider{
 		provider: prov,
 		lastUsed: time.Now(),
 		useCount: 1,
 	}
-
 	return prov
 }
 
@@ -95,31 +96,25 @@ func (p *ProviderPool) GetByModel(model string) Provider {
 	if !ok || prov == nil {
 		return nil
 	}
-
 	name := prov.Name()
-
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	if pooled, ok := p.providers[name]; ok {
 		pooled.lastUsed = time.Now()
 		pooled.useCount++
 		return pooled.provider
 	}
-
 	p.providers[name] = &PooledProvider{
 		provider: prov,
 		lastUsed: time.Now(),
 		useCount: 1,
 	}
-
 	return prov
 }
 
 func (p *ProviderPool) RecordError(name string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	if pooled, ok := p.providers[name]; ok {
 		pooled.errorCount++
 		if pooled.errorCount >= p.config.MaxErrorCount {
@@ -131,7 +126,6 @@ func (p *ProviderPool) RecordError(name string) {
 func (p *ProviderPool) RecordSuccess(name string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	if pooled, ok := p.providers[name]; ok {
 		pooled.errorCount = 0
 	}
@@ -140,7 +134,6 @@ func (p *ProviderPool) RecordSuccess(name string) {
 func (p *ProviderPool) Stats() map[string]interface{} {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
 	stats := make(map[string]interface{})
 	for name, pooled := range p.providers {
 		stats[name] = map[string]interface{}{
@@ -153,9 +146,9 @@ func (p *ProviderPool) Stats() map[string]interface{} {
 }
 
 func (p *ProviderPool) backgroundCleanup() {
+	defer p.stopWg.Done()
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
@@ -169,7 +162,6 @@ func (p *ProviderPool) backgroundCleanup() {
 func (p *ProviderPool) cleanup() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
 	now := time.Now()
 	for name, pooled := range p.providers {
 		if now.Sub(pooled.lastUsed) > p.config.MaxIdleTime {
@@ -180,9 +172,9 @@ func (p *ProviderPool) cleanup() {
 }
 
 func (p *ProviderPool) healthCheck() {
+	defer p.stopWg.Done()
 	ticker := time.NewTicker(p.config.HealthCheckInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ticker.C:
@@ -200,10 +192,8 @@ func (p *ProviderPool) checkHealth() {
 		providers = append(providers, pooled)
 	}
 	p.mu.RUnlock()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
 	for _, pooled := range providers {
 		if pooled.provider.IsEnabled() {
 			if !pooled.provider.ValidateKey(ctx) {
@@ -214,7 +204,10 @@ func (p *ProviderPool) checkHealth() {
 }
 
 func (p *ProviderPool) Stop() {
-	close(p.stopChan)
+	p.stopOnce.Do(func() {
+		close(p.stopChan)
+		p.stopWg.Wait()
+	})
 }
 
 func (p *ProviderPool) Size() int {

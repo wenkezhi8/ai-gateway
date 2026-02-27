@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,14 +41,32 @@ type CacheMeta struct {
 
 // MemoryCache is an in-memory cache implementation
 type MemoryCache struct {
-	items map[string]*cacheItem
-	mu    sync.RWMutex
+	mu       sync.RWMutex
+	items    map[string]*cacheItem
+	maxItems int
+	lruList  *list.List
+	lruMap   map[string]*list.Element
 }
 
 // NewMemoryCache creates a new in-memory cache
 func NewMemoryCache() *MemoryCache {
+	return NewMemoryCacheWithMaxEntries(0)
+}
+
+// NewMemoryCacheWithMaxEntries creates a new in-memory cache with max entries.
+// maxEntries <= 0 means unlimited.
+func NewMemoryCacheWithMaxEntries(maxEntries int) *MemoryCache {
+	if maxEntries < 0 {
+		maxEntries = 0
+	}
+
 	cache := &MemoryCache{
-		items: make(map[string]*cacheItem),
+		items:    make(map[string]*cacheItem),
+		maxItems: maxEntries,
+	}
+	if maxEntries > 0 {
+		cache.lruList = list.New()
+		cache.lruMap = make(map[string]*list.Element)
 	}
 
 	go cache.cleanup()
@@ -59,21 +78,23 @@ func NewMemoryCache() *MemoryCache {
 func (c *MemoryCache) Get(ctx context.Context, key string, dest interface{}) error {
 	c.mu.Lock()
 	item, ok := c.items[key]
-	if ok {
-		item.hits++
-	}
-	c.mu.Unlock()
-
 	if !ok {
+		c.mu.Unlock()
 		return ErrNotFound
 	}
 
 	if time.Now().After(item.expiresAt) && !item.expiresAt.IsZero() {
-		c.Delete(ctx, key)
+		c.deleteItemLocked(key)
+		c.mu.Unlock()
 		return ErrNotFound
 	}
 
-	return json.Unmarshal(item.value, dest)
+	item.hits++
+	c.touchLRULocked(key)
+	data := append([]byte(nil), item.value...)
+	c.mu.Unlock()
+
+	return json.Unmarshal(data, dest)
 }
 
 // Set stores a value in the cache
@@ -98,13 +119,13 @@ func (c *MemoryCache) Set(ctx context.Context, key string, value interface{}, tt
 		preview = string(data)
 	}
 
-	c.items[key] = &cacheItem{
+	c.setItemLocked(key, &cacheItem{
 		value:     data,
 		expiresAt: expiresAt,
 		createdAt: time.Now(),
 		ttl:       int(ttl.Seconds()),
 		preview:   preview,
-	}
+	})
 
 	return nil
 }
@@ -131,7 +152,7 @@ func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interfa
 		preview = string(data)
 	}
 
-	c.items[key] = &cacheItem{
+	c.setItemLocked(key, &cacheItem{
 		value:     data,
 		expiresAt: expiresAt,
 		createdAt: time.Now(),
@@ -140,7 +161,7 @@ func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interfa
 		model:     model,
 		provider:  provider,
 		taskType:  "",
-	}
+	})
 
 	return nil
 }
@@ -167,7 +188,7 @@ func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value int
 		preview = string(data)
 	}
 
-	c.items[key] = &cacheItem{
+	c.setItemLocked(key, &cacheItem{
 		value:          data,
 		expiresAt:      expiresAt,
 		createdAt:      time.Now(),
@@ -177,7 +198,7 @@ func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value int
 		provider:       provider,
 		taskType:       taskType,
 		taskTypeSource: taskTypeSource,
-	}
+	})
 
 	return nil
 }
@@ -187,7 +208,7 @@ func (c *MemoryCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	delete(c.items, key)
+	c.deleteItemLocked(key)
 	return nil
 }
 
@@ -218,7 +239,7 @@ func (c *MemoryCache) DeleteByPattern(ctx context.Context, pattern string) error
 
 	for key := range c.items {
 		if strings.HasPrefix(key, prefix) {
-			delete(c.items, key)
+			c.deleteItemLocked(key)
 		}
 	}
 
@@ -280,9 +301,71 @@ func (c *MemoryCache) cleanup() {
 		now := time.Now()
 		for key, item := range c.items {
 			if !item.expiresAt.IsZero() && now.After(item.expiresAt) {
-				delete(c.items, key)
+				c.deleteItemLocked(key)
 			}
 		}
 		c.mu.Unlock()
+	}
+}
+
+func (c *MemoryCache) setItemLocked(key string, item *cacheItem) {
+	c.items[key] = item
+
+	if c.maxItems <= 0 {
+		return
+	}
+
+	if elem, ok := c.lruMap[key]; ok {
+		c.lruList.MoveToFront(elem)
+	} else {
+		c.lruMap[key] = c.lruList.PushFront(key)
+	}
+
+	for len(c.items) > c.maxItems {
+		c.evictOldestLocked()
+	}
+}
+
+func (c *MemoryCache) touchLRULocked(key string) {
+	if c.maxItems <= 0 {
+		return
+	}
+
+	if elem, ok := c.lruMap[key]; ok {
+		c.lruList.MoveToFront(elem)
+	}
+}
+
+func (c *MemoryCache) evictOldestLocked() {
+	if c.maxItems <= 0 {
+		return
+	}
+
+	oldest := c.lruList.Back()
+	if oldest == nil {
+		return
+	}
+
+	key, ok := oldest.Value.(string)
+	if !ok {
+		c.lruList.Remove(oldest)
+		return
+	}
+
+	c.lruList.Remove(oldest)
+	delete(c.lruMap, key)
+	delete(c.items, key)
+}
+
+func (c *MemoryCache) deleteItemLocked(key string) {
+	delete(c.items, key)
+
+	if c.maxItems <= 0 {
+		return
+	}
+
+	if elem, ok := c.lruMap[key]; ok {
+		c.lruList.Remove(elem)
+		delete(c.lruMap, key)
 	}
 }

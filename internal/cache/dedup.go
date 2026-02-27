@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"ai-gateway/pkg/logger"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,11 +9,9 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var dedupLogger = logrus.New()
+var dedupLogger = logger.WithField("component", "cache")
 
 type PendingRequest struct {
 	Key       string

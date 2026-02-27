@@ -6,13 +6,12 @@ import (
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
 	"ai-gateway/internal/storage"
+	"ai-gateway/pkg/logger"
 	"ai-gateway/pkg/security"
 	"sync"
-
-	"github.com/sirupsen/logrus"
 )
 
-var containerLogger = logrus.New()
+var containerLogger = logger.WithField("component", "container")
 
 type ServiceContainer struct {
 	mu sync.RWMutex

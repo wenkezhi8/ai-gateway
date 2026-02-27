@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"math"
@@ -18,7 +19,7 @@ const modelScoresFile = "data/model_scores.json"
 const providerDefaultsFile = "data/provider_defaults.json"
 const routerConfigFile = "data/router_config.json"
 
-var routerLogger = logrus.New()
+var routerLogger = logger.WithField("component", "routing")
 
 // StrategyType defines the routing strategy
 type StrategyType string
@@ -478,22 +479,18 @@ func (r *SmartRouter) DeleteModelScore(model string) {
 // SelectModel selects the best model based on strategy and context
 // Returns the selected model name
 func (r *SmartRouter) SelectModel(requestedModel string, prompt string, availableModels []string) string {
-	return r.SelectModelWithStrategy(requestedModel, r.config.DefaultStrategy, prompt, availableModels)
+	r.mu.RLock()
+	strategy := r.config.DefaultStrategy
+	r.mu.RUnlock()
+
+	return r.SelectModelWithStrategy(requestedModel, strategy, prompt, availableModels)
 }
 
 // SelectModelWithStrategy selects the best model using specified strategy
 func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy StrategyType, prompt string, availableModels []string) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	// If specific model requested and not "auto"/"latest", use it
 	if requestedModel != "" && requestedModel != "auto" && requestedModel != "latest" {
 		return requestedModel
-	}
-
-	// If auto mode is disabled and using auto request, use default model
-	if !r.config.UseAutoMode && r.config.DefaultModel != "" && requestedModel == "auto" {
-		return r.config.DefaultModel
 	}
 
 	// Filter to only available models
@@ -502,24 +499,40 @@ func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy St
 		availableSet[m] = true
 	}
 
+	r.mu.RLock()
+	defaultModel := r.config.DefaultModel
+	useAutoMode := r.config.UseAutoMode
+
+	// If auto mode is disabled and using auto request, use default model
+	if !useAutoMode && defaultModel != "" && requestedModel == "auto" {
+		r.mu.RUnlock()
+		return defaultModel
+	}
+
 	// Get candidates (enabled and available)
 	var candidates []*ModelScore
 	for model, score := range r.config.ModelScores {
-		if score.Enabled && (len(availableSet) == 0 || availableSet[model]) {
+		if score != nil && score.Enabled && (len(availableSet) == 0 || availableSet[model]) {
 			candidates = append(candidates, score)
 		}
 	}
 
+	var taskRules []TaskRule
+	if strategy == StrategyCustom {
+		taskRules = append(taskRules, r.config.TaskRules...)
+	}
+	r.mu.RUnlock()
+
 	if len(candidates) == 0 {
-		if r.config.DefaultModel != "" {
-			return r.config.DefaultModel
+		if defaultModel != "" {
+			return defaultModel
 		}
 		return "deepseek-chat"
 	}
 
 	// Custom strategy: try to detect task type from prompt
 	if strategy == StrategyCustom {
-		detectedModel := r.detectTaskAndSelect(prompt, candidates)
+		detectedModel := detectTaskAndSelect(prompt, candidates, taskRules)
 		if detectedModel != "" {
 			return detectedModel
 		}
@@ -700,10 +713,10 @@ func (r *SmartRouter) calculateScore(score *ModelScore, strategy StrategyType) f
 }
 
 // detectTaskAndSelect detects task type from prompt and selects appropriate model
-func (r *SmartRouter) detectTaskAndSelect(prompt string, candidates []*ModelScore) string {
+func detectTaskAndSelect(prompt string, candidates []*ModelScore, taskRules []TaskRule) string {
 	promptLower := prompt
 
-	for _, rule := range r.config.TaskRules {
+	for _, rule := range taskRules {
 		for _, keyword := range rule.Keywords {
 			if contains(promptLower, keyword) {
 				// Find best model from preferred list that is available

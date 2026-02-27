@@ -365,3 +365,12 @@ func TestCascadeRouter_ShouldCascadeUp(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkSmartRouter_SelectModel_Concurrent(b *testing.B) {
+	router := NewSmartRouter()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			router.SelectModelWithStrategy("auto", StrategyAuto, "test", nil)
+		}
+	})
+}

@@ -3,6 +3,7 @@ package admin
 import (
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/routing"
+	"ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sirupsen/logrus"
 )
 
 const accountsFile = "data/accounts.json"
@@ -23,7 +23,7 @@ const switchHistoryFile = "data/switch_history.json"
 
 var (
 	accountsMu     sync.Mutex
-	accountsLogger = logrus.New()
+	accountsLogger = logger.WithField("component", "admin_account")
 	globalRouter   *routing.SmartRouter
 )
 
