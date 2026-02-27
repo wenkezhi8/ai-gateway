@@ -5,95 +5,101 @@ import { useUserStore } from '@/store/user'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
+    name: 'Home',
+    component: () => import('@/views/home/index.vue'),
+    meta: { title: 'AI Gateway 首页', public: true }
+  },
+  {
+    path: '/console',
     component: Layout,
     redirect: '/dashboard',
     children: [
       {
-        path: 'docs',
+        path: '/docs',
         name: 'Docs',
         component: () => import('@/views/docs/index.vue'),
         meta: { title: '文档中心', icon: 'Document' }
       },
       {
-        path: 'dashboard',
+        path: '/dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '监控仪表盘', icon: 'Monitor' }
       },
       {
-        path: 'ops',
+        path: '/ops',
         name: 'Ops',
         component: () => import('@/views/ops/index.vue'),
         meta: { title: '运维监控', icon: 'Operation' }
       },
       {
-        path: 'routing',
+        path: '/routing',
         name: 'Routing',
         component: () => import('@/views/routing/index.vue'),
         meta: { title: '路由策略', icon: 'Guide' }
       },
       {
-        path: 'cache',
+        path: '/cache',
         name: 'Cache',
         component: () => import('@/views/cache/index.vue'),
         meta: { title: '缓存管理', icon: 'Box' }
       },
       {
-        path: 'alerts',
+        path: '/alerts',
         name: 'Alerts',
         component: () => import('@/views/alerts/index.vue'),
         meta: { title: '告警管理', icon: 'Bell' }
       },
       {
-        path: 'api-management',
+        path: '/api-management',
         name: 'ApiManagement',
         component: () => import('@/views/api-management/index.vue'),
         meta: { title: 'API 管理', icon: 'Connection' }
       },
       {
-        path: 'model-management',
+        path: '/model-management',
         name: 'ModelManagement',
         component: () => import('@/views/model-management/index.vue'),
         meta: { title: '模型管理', icon: 'Collection' }
       },
       {
-        path: 'providers-accounts',
+        path: '/providers-accounts',
         name: 'ProvidersAccounts',
         component: () => import('@/views/accounts-limit/index.vue'),
         meta: { title: '账号与限额', icon: 'Key' }
       },
       {
-        path: 'providers',
+        path: '/providers',
         name: 'Providers',
         component: () => import('@/views/providers/index.vue'),
         meta: { title: '服务商管理', icon: 'Collection' }
       },
       {
-        path: 'accounts',
+        path: '/accounts',
         name: 'Accounts',
         component: () => import('@/views/accounts/index.vue'),
         meta: { title: '账号管理', icon: 'Key' }
       },
       {
-        path: 'limit-management',
+        path: '/limit-management',
         name: 'LimitManagement',
         component: () => import('@/views/limit-management/index.vue'),
         meta: { title: '限额管理', icon: 'DataLine' }
       },
       {
-        path: 'usage',
+        path: '/usage',
         name: 'Usage',
         component: () => import('@/views/usage/index.vue'),
         meta: { title: 'API 使用统计', icon: 'DataLine' }
       },
       {
-        path: 'chat',
+        path: '/chat',
         name: 'Chat',
         component: () => import('@/views/chat/index.vue'),
         meta: { title: 'AI 对话', icon: 'ChatDotRound' }
       },
       {
-        path: 'settings',
+        path: '/settings',
         name: 'Settings',
         component: () => import('@/views/settings/index.vue'),
         meta: { title: '系统设置', icon: 'Setting' }

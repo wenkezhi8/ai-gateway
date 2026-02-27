@@ -12,7 +12,7 @@
     <script>
       // 预检查登录状态，避免页面闪烁
       (function() {
-        var publicPaths = ['/login', '/p/chat', '/health'];
+        var publicPaths = ['/', '/login', '/p/chat', '/health'];
         var currentPath = window.location.pathname;
         var isPublic = publicPaths.some(function(p) {
           return currentPath === p || currentPath.indexOf(p) === 0;
