@@ -66,8 +66,8 @@ describe('theme', () => {
   it('applies stored theme and mode to dataset on init', async () => {
     setSystemTheme(false)
     localStorage.setItem('ai-gateway-theme', JSON.stringify({ variant: 'dashboard', mode: 'dark' }))
-    const { useTheme } = await import('../composables/useTheme')
-    useTheme()
+    const { initTheme } = await import('../composables/useTheme')
+    initTheme()
 
     expect(document.documentElement.dataset.theme).toBe('dashboard')
     expect(document.documentElement.dataset.mode).toBe('dark')
@@ -76,8 +76,8 @@ describe('theme', () => {
   it('setVariant updates dataset and localStorage', async () => {
     setSystemTheme(false)
     localStorage.setItem('ai-gateway-theme', JSON.stringify({ variant: 'apple', mode: 'light' }))
-    const { useTheme } = await import('../composables/useTheme')
-    const { setVariant } = useTheme()
+    const { initTheme, setVariant } = await import('../composables/useTheme')
+    initTheme()
     setVariant('dashboard')
     await nextTick()
 
@@ -100,8 +100,8 @@ describe('theme', () => {
 
     localStorage.setItem('ai-gateway-theme', JSON.stringify({ variant: 'dashboard', mode: 'auto' }))
 
-    const { useTheme } = await import('../composables/useTheme')
-    useTheme()
+    const { initTheme } = await import('../composables/useTheme')
+    initTheme()
     expect(document.documentElement.dataset.mode).toBe('light')
 
     isDark = true
