@@ -1081,6 +1081,8 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	running := false
 	modelInstalled := false
 	models := make([]string, 0)
+	runningModels := make([]string, 0)
+	runningModel := ""
 	message := "ollama not installed"
 
 	if installed {
@@ -1090,6 +1092,14 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 		running, models, detail = checkOllamaRunning(runCtx, cfg)
 		if running {
 			modelInstalled = containsModel(models, model)
+			psCtx, psCancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
+			runningModels, _ = routing.ListOllamaRunningModels(psCtx, cfg.BaseURL, constants.AdminOllamaCheckTimeout)
+			psCancel()
+			if containsModel(runningModels, model) {
+				runningModel = model
+			} else if len(runningModels) > 0 {
+				runningModel = runningModels[0]
+			}
 			message = "ok"
 		} else {
 			message = detail
@@ -1099,13 +1109,16 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"data": gin.H{
-			"installed":       installed,
-			"running":         running,
-			"model":           model,
-			"model_installed": modelInstalled,
-			"models":          models,
-			"message":         message,
-			"os":              runtime.GOOS,
+			"installed":           installed,
+			"running":             running,
+			"model":               model,
+			"model_installed":     modelInstalled,
+			"models":              models,
+			"running_models":      runningModels,
+			"running_model":       runningModel,
+			"keep_alive_disabled": true,
+			"message":             message,
+			"os":                  runtime.GOOS,
 		},
 	})
 }

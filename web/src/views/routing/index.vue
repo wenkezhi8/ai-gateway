@@ -200,6 +200,9 @@
                 <el-tag :type="ollamaSetup.model_installed ? 'success' : 'info'">
                   模型({{ ollamaSetup.model }}): {{ ollamaSetup.model_installed ? '已安装' : '未安装' }}
                 </el-tag>
+                <el-tag :type="ollamaSetup.running_model ? 'success' : 'warning'" style="margin-left: 8px">
+                  当前运行模型: {{ ollamaSetup.running_model || '无' }}
+                </el-tag>
               </el-col>
             </el-row>
             <el-row :gutter="12" style="margin-bottom: 12px">
@@ -218,6 +221,13 @@
               v-if="ollamaSetup.message"
               :title="`Ollama状态: ${ollamaSetup.message}`"
               :type="ollamaSetup.running ? 'success' : 'warning'"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
+            <el-alert
+              v-if="ollamaSetup.keep_alive_disabled"
+              title="已禁用模型自动休眠（keep_alive=-1）"
+              type="success"
               :closable="false"
               style="margin-bottom: 16px"
             />
@@ -523,6 +533,9 @@ const ollamaSetup = reactive({
   running: false,
   model: ROUTING_OLLAMA_DEFAULT_MODEL,
   model_installed: false,
+  running_model: '',
+  running_models: [] as string[],
+  keep_alive_disabled: false,
   message: ''
 })
 
@@ -835,6 +848,9 @@ async function loadOllamaSetupStatus() {
     ollamaSetup.running = Boolean(payload.running)
     ollamaSetup.model = payload.model || model
     ollamaSetup.model_installed = Boolean(payload.model_installed)
+    ollamaSetup.running_models = Array.isArray(payload.running_models) ? payload.running_models : []
+    ollamaSetup.running_model = String(payload.running_model || '')
+    ollamaSetup.keep_alive_disabled = Boolean(payload.keep_alive_disabled)
     ollamaSetup.message = payload.message || ''
   } catch (e) {
     console.warn('Failed to load ollama setup status:', e)

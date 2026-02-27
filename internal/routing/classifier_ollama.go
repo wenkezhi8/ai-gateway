@@ -19,11 +19,19 @@ type ollamaTagsResponse struct {
 	} `json:"models"`
 }
 
+type ollamaPSResponse struct {
+	Models []struct {
+		Name  string `json:"name"`
+		Model string `json:"model"`
+	} `json:"models"`
+}
+
 type ollamaChatRequest struct {
-	Model    string              `json:"model"`
-	Messages []ollamaChatMessage `json:"messages"`
-	Stream   bool                `json:"stream"`
-	Format   string              `json:"format,omitempty"`
+	Model     string              `json:"model"`
+	Messages  []ollamaChatMessage `json:"messages"`
+	Stream    bool                `json:"stream"`
+	Format    string              `json:"format,omitempty"`
+	KeepAlive string              `json:"keep_alive,omitempty"`
 }
 
 type ollamaChatMessage struct {
@@ -126,8 +134,9 @@ func (o *OllamaTaskClassifier) chat(ctx context.Context, model, content string) 
 			{Role: "system", Content: "你是任务分类器。仅返回 JSON，不要任何额外文本。"},
 			{Role: "user", Content: content},
 		},
-		Stream: false,
-		Format: "json",
+		Stream:    false,
+		Format:    "json",
+		KeepAlive: "-1",
 	}
 
 	payload, err := json.Marshal(reqBody)
@@ -482,6 +491,57 @@ func ListOllamaModels(ctx context.Context, baseURL string, timeout time.Duration
 	seen := make(map[string]struct{}, len(tagsResp.Models))
 	for _, model := range tagsResp.Models {
 		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		models = append(models, name)
+	}
+	sort.Strings(models)
+
+	return models, nil
+}
+
+func ListOllamaRunningModels(ctx context.Context, baseURL string, timeout time.Duration) ([]string, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = constants.ClassifierDefaultBaseURL
+	}
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/") + "/api/ps"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create ollama ps request: %w", err)
+	}
+
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request ollama ps failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("ollama ps http error: %d", resp.StatusCode)
+	}
+
+	var psResp ollamaPSResponse
+	if err := json.NewDecoder(resp.Body).Decode(&psResp); err != nil {
+		return nil, fmt.Errorf("decode ollama ps response: %w", err)
+	}
+
+	models := make([]string, 0, len(psResp.Models))
+	seen := make(map[string]struct{}, len(psResp.Models))
+	for _, item := range psResp.Models {
+		name := strings.TrimSpace(item.Name)
+		if name == "" {
+			name = strings.TrimSpace(item.Model)
+		}
 		if name == "" {
 			continue
 		}
