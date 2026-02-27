@@ -171,10 +171,6 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Assess difficulty and get recommended TTL
 	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
 	recommendedTTL := assessment.SuggestedTTL
-	semanticQuery := strings.TrimSpace(assessment.SemanticSignature)
-	if semanticQuery == "" {
-		semanticQuery = prompt
-	}
 	classifierCfg := h.smartRouter.GetClassifierConfig()
 	controlCfg := classifierCfg.Control
 	normalizedQuery := ""
@@ -185,6 +181,12 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		experimentTag = strings.TrimSpace(assessment.ControlSignals.ExperimentTag)
 		domainTag = strings.TrimSpace(assessment.ControlSignals.DomainTag)
 	}
+	semanticQuery := buildSemanticCacheWriteQuery(
+		prompt,
+		normalizedQuery,
+		assessment.SemanticSignature,
+		controlCfg.Enable && controlCfg.NormalizedQueryReadEnable,
+	)
 	if controlCfg.Enable && controlCfg.RiskTagEnable {
 		logControlRiskSignals(assessment)
 	}
@@ -212,7 +214,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		cacheSettings = h.cache.GetSettings()
 	}
 	cacheEnabled := h.cache != nil && cacheSettings.Enabled && recommendedTTL > 0
-	allowSemantic := cacheEnabled && cacheSettings.Strategy == cache.CacheStrategySemantic
+	allowSemantic := cacheEnabled &&
+		cacheSettings.Strategy == cache.CacheStrategySemantic &&
+		shouldAllowSemanticCache(assessment.TaskType)
 	cacheKeyPayload := buildResponseCacheKeyPayload(&req, assessment.TaskType, prompt)
 	cacheModelDimension := responseCacheModelDimension(assessment.TaskType, req.Model)
 
@@ -2352,13 +2356,36 @@ func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, seman
 	if normalizedEnabled {
 		appendUnique(normalizedQuery)
 	}
-	appendUnique(semanticSignature)
-
 	if len(candidates) == 0 {
-		appendUnique(prompt)
+		appendUnique(semanticSignature)
 	}
 
 	return candidates
+}
+
+func buildSemanticCacheWriteQuery(prompt, normalizedQuery, semanticSignature string, normalizedEnabled bool) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt != "" {
+		return prompt
+	}
+
+	if normalizedEnabled {
+		normalizedQuery = strings.TrimSpace(normalizedQuery)
+		if normalizedQuery != "" {
+			return normalizedQuery
+		}
+	}
+
+	return strings.TrimSpace(semanticSignature)
+}
+
+func shouldAllowSemanticCache(taskType routing.TaskType) bool {
+	switch taskType {
+	case routing.TaskTypeChat, routing.TaskTypeCreative, routing.TaskTypeUnknown:
+		return false
+	default:
+		return true
+	}
 }
 
 func shouldUsePromptOnlyCache(taskType routing.TaskType) bool {

@@ -104,26 +104,55 @@ func TestApplyControlToolGate(t *testing.T) {
 
 func TestBuildSemanticQueryCandidates(t *testing.T) {
 	candidates := buildSemanticQueryCandidates(true, "norm", "sig", "prompt")
-	if len(candidates) != 3 {
-		t.Fatalf("expected 3 candidates, got %d", len(candidates))
+	if len(candidates) != 2 {
+		t.Fatalf("expected 2 candidates, got %d", len(candidates))
 	}
-	if candidates[0] != "prompt" || candidates[1] != "norm" || candidates[2] != "sig" {
+	if candidates[0] != "prompt" || candidates[1] != "norm" {
 		t.Fatalf("unexpected candidate order: %#v", candidates)
 	}
 
 	candidates = buildSemanticQueryCandidates(false, "norm", "sig", "sig")
 	if len(candidates) != 1 || candidates[0] != "sig" {
-		t.Fatalf("expected deduped signature candidate, got %#v", candidates)
+		t.Fatalf("expected prompt fallback when prompt missing, got %#v", candidates)
 	}
 
 	candidates = buildSemanticQueryCandidates(false, "norm", "sig", "prompt")
-	if len(candidates) != 2 || candidates[0] != "prompt" || candidates[1] != "sig" {
-		t.Fatalf("expected prompt-first candidates, got %#v", candidates)
+	if len(candidates) != 1 || candidates[0] != "prompt" {
+		t.Fatalf("expected prompt-only candidates, got %#v", candidates)
 	}
 
 	candidates = buildSemanticQueryCandidates(true, "", "", "")
 	if len(candidates) != 0 {
 		t.Fatalf("expected no candidates for empty input, got %#v", candidates)
+	}
+}
+
+func TestBuildSemanticCacheWriteQuery(t *testing.T) {
+	if got := buildSemanticCacheWriteQuery(" prompt ", "norm", "sig", true); got != "prompt" {
+		t.Fatalf("expected prompt-first write query, got %q", got)
+	}
+
+	if got := buildSemanticCacheWriteQuery("", " norm ", "sig", true); got != "norm" {
+		t.Fatalf("expected normalized query fallback, got %q", got)
+	}
+
+	if got := buildSemanticCacheWriteQuery("", " norm ", "sig", false); got != "sig" {
+		t.Fatalf("expected semantic signature fallback, got %q", got)
+	}
+}
+
+func TestShouldAllowSemanticCache(t *testing.T) {
+	if shouldAllowSemanticCache(routing.TaskTypeChat) {
+		t.Fatal("expected chat task to skip semantic cache")
+	}
+	if shouldAllowSemanticCache(routing.TaskTypeCreative) {
+		t.Fatal("expected creative task to skip semantic cache")
+	}
+	if shouldAllowSemanticCache(routing.TaskTypeUnknown) {
+		t.Fatal("expected unknown task to skip semantic cache")
+	}
+	if !shouldAllowSemanticCache(routing.TaskTypeFact) {
+		t.Fatal("expected fact task to allow semantic cache")
 	}
 }
 
