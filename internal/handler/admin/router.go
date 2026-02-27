@@ -20,23 +20,21 @@ import (
 
 // RouterHandler handles smart router configuration requests
 type RouterHandler struct {
-	router *routing.SmartRouter
-	mu     sync.RWMutex
-	taskMu sync.RWMutex
-	tasks  map[string]*classifierSwitchTask
-}
-
-type classifierSwitchTask struct {
-	TaskID      string `json:"task_id"`
-	TargetModel string `json:"target_model"`
-	Status      string `json:"status"`
-	CreatedAt   int64  `json:"created_at"`
+	router          *routing.SmartRouter
+	mu              sync.RWMutex
+	switchTaskStore *classifierSwitchTaskStore
 }
 
 // NewRouterHandler creates a new router handler
 func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
+	taskStore, err := newClassifierSwitchTaskStore(constants.ClassifierSwitchTaskDBPath)
+	if err != nil {
+		panic(fmt.Sprintf("failed to initialize classifier switch task store: %v", err))
+	}
+
 	h := &RouterHandler{
-		router: router,
+		router:          router,
+		switchTaskStore: taskStore,
 	}
 	h.loadConfig()
 	return h
@@ -963,21 +961,31 @@ func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
 		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_model", "message": "model is required"}})
 		return
 	}
+	if h.switchTaskStore == nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "task_store_unavailable", "message": "switch task store unavailable"}})
+		return
+	}
 
 	taskID := generateID()
-	task := &classifierSwitchTask{
-		TaskID:      taskID,
-		TargetModel: req.Model,
-		Status:      "pending",
-		CreatedAt:   time.Now().UnixMilli(),
+	now := time.Now().UnixMilli()
+	originalModel := ""
+	if h.router != nil {
+		originalModel = h.router.GetClassifierConfig().ActiveModel
 	}
-
-	h.taskMu.Lock()
-	if h.tasks == nil {
-		h.tasks = make(map[string]*classifierSwitchTask)
+	task := &ClassifierSwitchTask{
+		TaskID:        taskID,
+		TargetModel:   req.Model,
+		OriginalModel: originalModel,
+		Status:        ClassifierSwitchTaskStatusPending,
+		StartedAt:     now,
+		UpdatedAt:     now,
+		DeadlineAt:    now,
+		Attempts:      0,
 	}
-	h.tasks[taskID] = task
-	h.taskMu.Unlock()
+	if err := h.switchTaskStore.Create(task); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "task_create_failed", "message": err.Error()}})
+		return
+	}
 
 	c.JSON(202, gin.H{
 		"success": true,
@@ -996,10 +1004,17 @@ func (h *RouterHandler) GetSwitchClassifierTask(c *gin.Context) {
 		return
 	}
 
-	h.taskMu.RLock()
-	task, ok := h.tasks[taskID]
-	h.taskMu.RUnlock()
-	if !ok {
+	if h.switchTaskStore == nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "task_store_unavailable", "message": "switch task store unavailable"}})
+		return
+	}
+
+	task, err := h.switchTaskStore.Get(taskID)
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "task_query_failed", "message": err.Error()}})
+		return
+	}
+	if task == nil {
 		c.JSON(404, gin.H{"success": false, "error": gin.H{"code": "task_not_found", "message": "switch task not found"}})
 		return
 	}

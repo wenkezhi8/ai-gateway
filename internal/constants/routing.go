@@ -3,10 +3,11 @@ package constants
 import "time"
 
 const (
-	ModelScoresFilePath      = "data/model_scores.json"
-	ProviderDefaultsFilePath = "data/provider_defaults.json"
-	RouterConfigFilePath     = "data/router_config.json"
-	RouterUIConfigFilePath   = "data/router_ui_config.json"
+	ModelScoresFilePath        = "data/model_scores.json"
+	ProviderDefaultsFilePath   = "data/provider_defaults.json"
+	RouterConfigFilePath       = "data/router_config.json"
+	RouterUIConfigFilePath     = "data/router_ui_config.json"
+	ClassifierSwitchTaskDBPath = "data/classifier_switch_tasks.db"
 )
 
 const (

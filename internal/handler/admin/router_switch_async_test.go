@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +14,13 @@ import (
 func TestSwitchClassifierModelAsync_CreateTask(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	handler := &RouterHandler{}
+	store, err := newClassifierSwitchTaskStore(filepath.Join(t.TempDir(), "switch-task.db"))
+	if err != nil {
+		t.Fatalf("create switch task store failed: %v", err)
+	}
+	defer store.Close()
+
+	handler := &RouterHandler{switchTaskStore: store}
 	router := gin.New()
 	router.POST("/api/admin/router/classifier/switch-async", handler.SwitchClassifierModelAsync)
 
