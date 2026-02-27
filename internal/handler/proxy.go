@@ -2347,11 +2347,12 @@ func buildSemanticQueryCandidates(normalizedEnabled bool, normalizedQuery, seman
 		candidates = append(candidates, v)
 	}
 
+	// Prefer raw prompt first to reduce over-broad hits from generic signatures.
+	appendUnique(prompt)
 	if normalizedEnabled {
 		appendUnique(normalizedQuery)
 	}
 	appendUnique(semanticSignature)
-	appendUnique(prompt)
 
 	if len(candidates) == 0 {
 		appendUnique(prompt)

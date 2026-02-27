@@ -107,13 +107,18 @@ func TestBuildSemanticQueryCandidates(t *testing.T) {
 	if len(candidates) != 3 {
 		t.Fatalf("expected 3 candidates, got %d", len(candidates))
 	}
-	if candidates[0] != "norm" || candidates[1] != "sig" || candidates[2] != "prompt" {
+	if candidates[0] != "prompt" || candidates[1] != "norm" || candidates[2] != "sig" {
 		t.Fatalf("unexpected candidate order: %#v", candidates)
 	}
 
 	candidates = buildSemanticQueryCandidates(false, "norm", "sig", "sig")
 	if len(candidates) != 1 || candidates[0] != "sig" {
 		t.Fatalf("expected deduped signature candidate, got %#v", candidates)
+	}
+
+	candidates = buildSemanticQueryCandidates(false, "norm", "sig", "prompt")
+	if len(candidates) != 2 || candidates[0] != "prompt" || candidates[1] != "sig" {
+		t.Fatalf("expected prompt-first candidates, got %#v", candidates)
 	}
 
 	candidates = buildSemanticQueryCandidates(true, "", "", "")
