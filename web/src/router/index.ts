@@ -18,7 +18,7 @@ const routes: RouteRecordRaw[] = [
         path: '/docs',
         name: 'Docs',
         component: () => import('@/views/docs/index.vue'),
-        meta: { title: '文档中心', icon: 'Document' }
+        meta: { title: '文档中心', icon: 'Document', public: true }
       },
       {
         path: '/dashboard',
