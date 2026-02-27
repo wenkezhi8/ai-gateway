@@ -30,6 +30,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- 新增开发指南文档: `DEVELOPMENT-GUIDE.md` 提供详细的开发指导
+- 智能路由管理: 新增路由配置页面和管理功能
+- 模型管理: 新增模型配置和管理页面
+- 缓存管理: 新增缓存监控和管理页面
+- 路由常量定义: `internal/constants/routing.go`
+- 前端常量重构: 分离页面常量到独立文件
+
+### Changed
+- 路由分类器优化: `internal/routing/classifier.go` 性能优化
+- 智能路由优化: `internal/routing/smart_router.go` 逻辑优化
+- 前端状态管理优化: `web/src/store/chat.ts` 和 `web/src/store/models.ts`
+- 前端视图优化: 多个页面视图组件优化
+
+## [1.6.7] - 2026-02-28
+
+### Added
+- Enterprise optimization: golangci-lint configuration
+- Enterprise optimization: ESLint 9 + Prettier configuration for frontend
+- Enterprise optimization: .editorconfig for unified editor settings
+- Enterprise optimization: pre-commit hooks configuration
+- Enterprise optimization: Enhanced Makefile with CI commands
 
 ### Added
 - Enterprise optimization: golangci-lint configuration
