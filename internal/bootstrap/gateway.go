@@ -60,6 +60,7 @@ func InitProviderRegistry(cfg *config.Config, logger *logrus.Logger) *provider.R
 	registry.RegisterFactory("zhipu", func(cfg *provider.ProviderConfig) provider.Provider { return zhipu.NewAdapter(cfg) })
 	registry.RegisterFactory("qwen", func(cfg *provider.ProviderConfig) provider.Provider { return qwen.NewAdapter(cfg) })
 	registry.RegisterFactory("ernie", func(cfg *provider.ProviderConfig) provider.Provider { return ernie.NewAdapter(cfg) })
+	registry.RegisterFactory("google", func(cfg *provider.ProviderConfig) provider.Provider { return openai.NewAdapter(cfg) })
 
 	defaultModels := map[string][]string{
 		"openai":     {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "o1", "o1-mini", "o1-preview"},

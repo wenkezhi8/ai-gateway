@@ -296,6 +296,7 @@ func TestGetModelsForProvider(t *testing.T) {
 		{"deepseek", []string{"deepseek-chat", "deepseek-coder"}, false},
 		{"qwen", []string{"qwen-max", "qwen-plus", "qwen-turbo"}, false},
 		{"zhipu", []string{"glm-4-plus", "glm-4"}, false},
+		{"google", []string{"gemini-3.1-pro-preview", "gemini-2.0-flash"}, false},
 	}
 
 	for _, tt := range tests {

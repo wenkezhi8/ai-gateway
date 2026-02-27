@@ -914,6 +914,9 @@ func getModelsForProvider(providerName string) []string {
 		"spark": {
 			"spark-4.0-ultra", "spark-3.5-max", "spark-3.0", "spark-2.0", "spark-lite",
 		},
+		"google": {
+			"gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash",
+		},
 	}
 
 	if m, ok := models[providerName]; ok {
@@ -1199,13 +1202,13 @@ func (h *ProxyHandler) handleStreamResponse(
 		return
 	}
 
-    var totalTokens int
+	var totalTokens int
 	var promptTokens int
 	var fullContent strings.Builder
 	receivedChunks := 0
 	hasReasoningOutput := false
 	fallbackNeeded := false
-	var ttftMs int64 = 0  // Time to first token
+	var ttftMs int64 = 0 // Time to first token
 	// Stream chunks to client
 	for chunk := range stream {
 		receivedChunks++
@@ -1275,7 +1278,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
-            h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, ttftMs, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, totalTokens, true, false, ttftMs, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
 
 			// Record successful model name mapping if different from original
 			if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
