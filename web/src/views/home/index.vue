@@ -1,30 +1,30 @@
 <template>
-  <main class="home-v4">
-    <header class="top-nav">
+  <main class="home-v3">
+    <header class="topbar">
       <div class="brand">
-        <span class="brand-logo">AG</span>
-        <div class="brand-copy">
+        <span class="brand-mark">AG</span>
+        <div class="brand-text">
           <strong>AI Gateway</strong>
-          <small>Engineering Delivery System</small>
+          <small>Superpowers + TDD</small>
         </div>
       </div>
-      <nav class="nav-links">
+      <div class="top-links">
         <a href="/docs">文档</a>
         <a href="/api-management">API 管理</a>
         <a href="https://github.com/wenkezhi8/ai-gateway" target="_blank" rel="noreferrer">GitHub</a>
-      </nav>
+      </div>
     </header>
 
-    <section class="hero shell-card">
-      <div class="hero-main">
-        <p class="hero-tag">v1.6.5 · 企业级 AI Gateway</p>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="badge">v1.6.5 · 企业级 AI Gateway</p>
         <h1>
-          让 AI 接入从“能跑”
-          <span>进化为可持续交付</span>
+          把 AI 接入做成
+          <span>可持续交付的工程系统</span>
         </h1>
-        <p class="hero-subtitle">
-          参考 Superpowers 流程，按 TDD 执行：先定位问题、再设计方案、随后实现与验证，
-          最终形成可复用的工程闭环。
+        <p class="subtitle">
+          不是只跑通接口，而是用 Superpowers 工作流和 TDD 模式，
+          把排查、修复、验证、审计变成可复用的团队能力。
         </p>
 
         <div class="hero-actions">
@@ -39,102 +39,86 @@
           </el-button>
         </div>
 
-        <div class="hero-kpis">
-          <article class="kpi-card">
-            <strong>6 Steps</strong>
-            <span>Superpowers Workflow</span>
-          </article>
-          <article class="kpi-card">
-            <strong>4 Stages</strong>
-            <span>TDD Loop</span>
-          </article>
-          <article class="kpi-card">
-            <strong>One Gateway</strong>
-            <span>OpenAI / Anthropic Compatible</span>
-          </article>
+        <div class="hero-stats">
+          <div class="stat-card">
+            <strong>6 步</strong>
+            <span>工程工作流</span>
+          </div>
+          <div class="stat-card">
+            <strong>4 阶段</strong>
+            <span>TDD 闭环</span>
+          </div>
+          <div class="stat-card">
+            <strong>2 套协议</strong>
+            <span>OpenAI / Anthropic</span>
+          </div>
         </div>
       </div>
 
-      <aside class="hero-side">
-        <h3>Request Delivery Pipeline</h3>
+      <div class="hero-flow">
+        <h3>请求流可视化</h3>
         <ol>
           <li v-for="(node, index) in FLOW_NODES" :key="node">
             <span class="node-index">{{ index + 1 }}</span>
-            <div class="node-copy">
-              <strong>{{ node }}</strong>
-              <small>Traceable · Observable · Recoverable</small>
-            </div>
+            <span class="node-title">{{ node }}</span>
           </li>
         </ol>
-        <div class="pipeline-note">
-          <p>Fail-open + 影子观测 + 回归验证，降低策略上线风险。</p>
-        </div>
-      </aside>
+        <p class="flow-tip">Fail-open 策略 + 影子观测 + 回归验证</p>
+      </div>
     </section>
 
-    <section class="proof-strip shell-card">
-      <p>先计划后执行</p>
-      <p>范围控制</p>
-      <p>验证优先</p>
-      <p>每阶段 commit</p>
-      <p>输出可追溯</p>
-    </section>
-
-    <section id="workflow" class="workflow shell-card">
-      <header class="section-head">
+    <section id="workflow" class="workflow section-card">
+      <div class="section-head">
         <h2>Superpowers 标准工作流</h2>
-        <p>从排查到复盘，全流程固定节奏，避免“先改后对齐”。</p>
-      </header>
+        <p>每次需求都沿同一条路径推进，避免“先改后对齐”的返工。</p>
+      </div>
 
-      <div class="workflow-timeline">
-        <article v-for="(step, index) in WORKFLOW_STEPS" :key="step.title" class="timeline-item">
-          <div class="timeline-mark">
-            <span>{{ index + 1 }}</span>
+      <div class="workflow-grid">
+        <article v-for="(step, index) in WORKFLOW_STEPS" :key="step.title" class="workflow-item">
+          <div class="workflow-title">
+            <span class="step-no">{{ index + 1 }}</span>
+            <h3>{{ step.title }}</h3>
           </div>
-          <div class="timeline-body">
-            <header>
-              <em>{{ step.phase }}</em>
-              <h3>{{ step.title }}</h3>
-            </header>
-            <p>{{ step.detail }}</p>
-            <small>输出物：{{ step.deliverable }}</small>
-          </div>
+          <p>{{ step.detail }}</p>
+          <em>输出：{{ step.deliverable }}</em>
         </article>
       </div>
     </section>
 
-    <section class="tdd shell-card">
-      <header class="section-head">
-        <h2>TDD 执行墙</h2>
-        <p>先红后绿，再重构，最后全量验证，不跳步。</p>
-      </header>
+    <section class="tdd section-card">
+      <div class="section-head">
+        <h2>TDD 执行模式</h2>
+        <p>先测试后实现，证据优先，拒绝“看起来修好了”。</p>
+      </div>
 
-      <div class="tdd-wall">
-        <article v-for="stage in TDD_STAGES" :key="stage.name" class="tdd-card">
-          <strong>{{ stage.name }}</strong>
-          <p>{{ stage.detail }}</p>
+      <div class="tdd-grid">
+        <article v-for="stage in TDD_STAGES" :key="stage.name" class="tdd-item">
+          <header>
+            <strong>{{ stage.name }}</strong>
+            <span>{{ stage.detail }}</span>
+          </header>
           <code>{{ stage.command }}</code>
         </article>
       </div>
 
-      <div class="verify-box">
-        <p>发布前统一验证</p>
-        <div>
+      <div class="verify-banner">
+        <p>
+          发布前统一验证：
           <code>npm run test:unit</code>
           <code>npm run typecheck</code>
           <code>npm run build</code>
-        </div>
+        </p>
       </div>
     </section>
 
-    <section class="capability shell-card">
-      <header class="section-head">
+    <section class="capability section-card">
+      <div class="section-head">
         <h2>能力矩阵</h2>
-        <p>围绕质量、稳定、成本、兼容四个维度组织能力。</p>
-      </header>
+        <p>按质量、稳定性、成本、兼容性组织能力，而不是堆功能点。</p>
+      </div>
 
       <div class="cap-grid">
-        <article v-for="column in CAPABILITY_COLUMNS" :key="column.title" class="cap-card">
+        <article v-for="column in CAPABILITY_COLUMNS" :key="column.title" class="cap-item">
           <h3>{{ column.title }}</h3>
           <ul>
             <li v-for="point in column.points" :key="point">{{ point }}</li>
@@ -143,11 +127,11 @@
       </div>
     </section>
 
-    <section class="quickstart shell-card">
-      <header class="section-head">
+    <section class="quickstart section-card">
+      <div class="section-head">
         <h2>30 秒快速启动</h2>
-        <p>部署、编译、调用三条路径，命令可直接复制执行。</p>
-      </header>
+        <p>部署命令、源码路径、API 调用三条通路，立即可验证。</p>
+      </div>
 
       <el-tabs v-model="quickTab" class="quick-tabs">
         <el-tab-pane label="Docker" name="docker" />
@@ -155,8 +139,8 @@
         <el-tab-pane label="API" name="api" />
       </el-tabs>
 
-      <div class="code-panel">
-        <div class="code-panel-head">
+      <div class="code-box">
+        <div class="code-head">
           <span>bash</span>
           <el-button text @click="copyCurrentCommand">复制命令</el-button>
         </div>
@@ -164,8 +148,8 @@
       </div>
     </section>
 
-    <footer class="footer shell-card">
-      <p>开源免费 · MIT 许可 · 版本真相源：Git Tag</p>
+    <footer class="footer">
+      <p>开源免费 · MIT 许可 · 版本真相源为 Git Tag</p>
       <div class="footer-links">
         <a href="/docs">文档中心</a>
         <a href="/api-management">API 管理</a>
@@ -191,6 +175,7 @@ import {
 
 const router = useRouter()
 const quickTab = ref<keyof typeof QUICK_START_COMMANDS>('docker')
+
 const currentCommand = computed(() => QUICK_START_COMMANDS[quickTab.value])
 
 const copyCurrentCommand = async () => {
@@ -200,7 +185,8 @@ const copyCurrentCommand = async () => {
 
 const handleAction = async (action: HeroAction) => {
   if (action.route?.startsWith('#')) {
-    document.querySelector(action.route)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const target = document.querySelector(action.route)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     return
   }
 
@@ -216,37 +202,30 @@ const handleAction = async (action: HeroAction) => {
 </script>
 
 <style scoped lang="scss">
-.home-v4 {
-  --bg: #eef7ff;
-  --ink: #111827;
-  --soft: #475569;
-  --line: #d6e5f5;
-  --card: rgba(255, 255, 255, 0.88);
-  --accent: #0f766e;
-  --accent-strong: #0c4a6e;
-  --signal: #ea580c;
+.home-v3 {
+  --ink: #0f172a;
+  --ink-soft: #475569;
+  --paper: #f7fbff;
+  --panel: #ffffff;
+  --line: #d6e2f0;
+  --accent: #0ea5a4;
+  --accent-strong: #0369a1;
+  --signal: #f97316;
+  --radius: 20px;
 
   min-height: 100vh;
-  padding: 24px;
+  padding: 28px;
   color: var(--ink);
   background:
-    radial-gradient(circle at 14% 0%, rgba(15, 118, 110, 0.18) 0%, transparent 36%),
-    radial-gradient(circle at 82% 8%, rgba(14, 116, 144, 0.14) 0%, transparent 30%),
-    linear-gradient(180deg, #f6fbff 0%, #eaf3fc 56%, #edf6ff 100%);
+    radial-gradient(circle at 12% 8%, rgba(14, 165, 164, 0.14) 0%, transparent 42%),
+    radial-gradient(circle at 88% 16%, rgba(249, 115, 22, 0.12) 0%, transparent 36%),
+    linear-gradient(180deg, #f8fbff 0%, #edf4fb 58%, #eef6ff 100%);
   font-family: 'Avenir Next', 'Manrope', 'SF Pro Display', 'PingFang SC', 'Segoe UI', sans-serif;
 }
 
-.shell-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 22px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07);
-  backdrop-filter: blur(6px);
-}
-
-.top-nav {
-  max-width: 1220px;
-  margin: 0 auto 18px;
+.topbar {
+  max-width: 1200px;
+  margin: 0 auto 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -259,41 +238,41 @@ const handleAction = async (action: HeroAction) => {
   gap: 12px;
 }
 
-.brand-logo {
-  width: 44px;
-  height: 44px;
+.brand-mark {
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   display: grid;
   place-items: center;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.04em;
   color: #fff;
   background: linear-gradient(145deg, var(--accent-strong), var(--accent));
 }
 
-.brand-copy {
+.brand-text {
   display: grid;
+  line-height: 1.1;
 
   strong {
-    line-height: 1;
-    font-size: 17px;
+    font-size: 16px;
+    font-weight: 800;
   }
 
   small {
-    margin-top: 4px;
-    color: var(--soft);
     font-size: 12px;
+    color: var(--ink-soft);
   }
 }
 
-.nav-links {
+.top-links {
   display: flex;
-  gap: 16px;
+  gap: 18px;
 
   a {
-    color: var(--soft);
-    text-decoration: none;
     font-size: 14px;
+    color: var(--ink-soft);
+    text-decoration: none;
 
     &:hover {
       color: var(--accent-strong);
@@ -302,46 +281,57 @@ const handleAction = async (action: HeroAction) => {
 }
 
 .hero {
-  max-width: 1220px;
-  margin: 0 auto 18px;
-  padding: 28px;
+  max-width: 1200px;
+  margin: 0 auto 22px;
   display: grid;
   grid-template-columns: 1.35fr 1fr;
-  gap: 14px;
+  gap: 18px;
 }
 
-.hero-main {
+.hero-copy,
+.hero-flow,
+.section-card,
+.footer {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+}
+
+.hero-copy {
+  padding: 34px;
   animation: rise 0.45s ease-out both;
 
-  .hero-tag {
+  .badge {
     width: fit-content;
-    margin: 0;
-    padding: 7px 11px;
+    padding: 8px 12px;
     border-radius: 999px;
+    margin: 0 0 12px;
     font-size: 12px;
     font-weight: 700;
-    color: #0f766e;
-    background: rgba(15, 118, 110, 0.15);
+    color: #075985;
+    background: rgba(14, 165, 164, 0.14);
   }
 
   h1 {
-    margin: 12px 0 0;
-    font-size: 46px;
-    line-height: 1.05;
-    letter-spacing: -0.025em;
+    margin: 0;
+    font-size: 44px;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
 
     span {
-      margin-top: 7px;
       display: block;
+      margin-top: 6px;
       color: var(--accent-strong);
     }
   }
 
-  .hero-subtitle {
+  .subtitle {
     margin: 14px 0 0;
-    color: var(--soft);
-    line-height: 1.7;
-    max-width: 680px;
+    color: var(--ink-soft);
+    line-height: 1.65;
+    max-width: 640px;
   }
 }
 
@@ -352,20 +342,19 @@ const handleAction = async (action: HeroAction) => {
   gap: 10px;
 }
 
-.hero-kpis {
-  margin-top: 16px;
+.hero-stats {
+  margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
-.kpi-card {
-  border: 1px solid var(--line);
+.stat-card {
+  padding: 12px;
   border-radius: 14px;
-  padding: 10px;
-  background: #fff;
+  border: 1px solid var(--line);
+  background: #ffffff;
   display: grid;
-  gap: 3px;
 
   strong {
     font-size: 18px;
@@ -373,17 +362,15 @@ const handleAction = async (action: HeroAction) => {
   }
 
   span {
+    margin-top: 2px;
     font-size: 12px;
-    color: var(--soft);
+    color: var(--ink-soft);
   }
 }
 
-.hero-side {
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: #fff;
-  padding: 18px;
-  animation: rise 0.56s ease-out both;
+.hero-flow {
+  padding: 26px;
+  animation: rise 0.55s ease-out both;
 
   h3 {
     margin: 0;
@@ -391,21 +378,21 @@ const handleAction = async (action: HeroAction) => {
   }
 
   ol {
-    list-style: none;
-    margin: 14px 0 0;
+    margin: 16px 0 0;
     padding: 0;
+    list-style: none;
     display: grid;
-    gap: 9px;
+    gap: 10px;
   }
 
   li {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    padding: 10px 12px;
     border-radius: 14px;
     border: 1px solid var(--line);
-    padding: 10px;
-    background: #f9fcff;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   .node-index {
@@ -414,168 +401,102 @@ const handleAction = async (action: HeroAction) => {
     border-radius: 999px;
     display: grid;
     place-items: center;
-    color: #fff;
     font-size: 12px;
     font-weight: 700;
-    background: linear-gradient(145deg, var(--signal), #fb923c);
+    color: #fff;
+    background: var(--signal);
   }
 
-  .node-copy {
-    display: grid;
-    gap: 3px;
-
-    strong {
-      font-size: 14px;
-    }
-
-    small {
-      color: var(--soft);
-      font-size: 12px;
-    }
+  .node-title {
+    font-size: 14px;
+    font-weight: 600;
   }
 
-  .pipeline-note {
-    margin-top: 12px;
-    border-radius: 12px;
-    padding: 10px;
-    border: 1px dashed #b6d2ea;
-    background: #f3faff;
-
-    p {
-      margin: 0;
-      color: #0c4a6e;
-      font-size: 13px;
-      line-height: 1.55;
-    }
-  }
-}
-
-.proof-strip {
-  max-width: 1220px;
-  margin: 0 auto 18px;
-  padding: 12px;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
-
-  p {
-    margin: 0;
-    border-radius: 10px;
-    padding: 8px;
-    text-align: center;
+  .flow-tip {
+    margin: 14px 0 0;
     font-size: 13px;
-    font-weight: 700;
-    color: #14532d;
-    border: 1px solid #c7e8d0;
-    background: #f0fff4;
+    color: var(--ink-soft);
   }
 }
 
-.workflow,
-.tdd,
-.capability,
-.quickstart,
-.footer {
-  max-width: 1220px;
-  margin: 0 auto 18px;
-  padding: 24px;
+.section-card {
+  max-width: 1200px;
+  margin: 0 auto 22px;
+  padding: 28px;
 }
 
 .section-head {
   h2 {
     margin: 0;
-    font-size: 31px;
+    font-size: 30px;
     letter-spacing: -0.01em;
   }
 
   p {
     margin: 8px 0 0;
-    color: var(--soft);
+    color: var(--ink-soft);
   }
 }
 
-.workflow-timeline {
+.workflow-grid {
   margin-top: 18px;
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 
-.timeline-item {
-  display: grid;
-  grid-template-columns: 38px 1fr;
-  gap: 10px;
-  align-items: stretch;
-}
-
-.timeline-mark {
-  display: grid;
-  align-content: start;
-
-  span {
-    width: 30px;
-    height: 30px;
-    border-radius: 10px;
-    display: grid;
-    place-items: center;
-    color: #fff;
-    background: linear-gradient(145deg, var(--accent), var(--accent-strong));
-    font-size: 13px;
-    font-weight: 800;
-  }
-}
-
-.timeline-body {
+.workflow-item {
   border: 1px solid var(--line);
   border-radius: 16px;
+  padding: 14px;
   background: #fff;
-  padding: 12px;
-
-  header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-
-    em {
-      font-style: normal;
-      padding: 3px 7px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-weight: 800;
-      color: #7c2d12;
-      border: 1px solid #fed7aa;
-      background: #fff7ed;
-      letter-spacing: 0.04em;
-    }
-
-    h3 {
-      margin: 0;
-      font-size: 17px;
-    }
-  }
 
   p {
-    margin: 8px 0 6px;
-    color: var(--soft);
+    margin: 10px 0 8px;
+    color: var(--ink-soft);
+    line-height: 1.6;
     font-size: 14px;
-    line-height: 1.55;
   }
 
-  small {
+  em {
+    font-style: normal;
     color: #0c4a6e;
+    font-size: 13px;
     font-weight: 700;
-    font-size: 12px;
   }
 }
 
-.tdd-wall {
+.workflow-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  h3 {
+    margin: 0;
+    font-size: 16px;
+  }
+}
+
+.step-no {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(140deg, var(--accent), var(--accent-strong));
+}
+
+.tdd-grid {
   margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-.tdd-card {
+.tdd-item {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 12px;
@@ -583,73 +504,71 @@ const handleAction = async (action: HeroAction) => {
   display: grid;
   gap: 10px;
 
+  header {
+    display: grid;
+    gap: 6px;
+  }
+
   strong {
-    font-size: 21px;
+    font-size: 20px;
+    color: #0f172a;
     letter-spacing: 0.03em;
   }
 
-  p {
-    margin: 0;
-    color: var(--soft);
+  span {
+    color: var(--ink-soft);
     font-size: 13px;
-    line-height: 1.55;
+    line-height: 1.5;
   }
 
   code {
     display: block;
-    border: 1px dashed #c0d8ee;
-    border-radius: 10px;
-    background: #f5faff;
-    color: #0c4a6e;
     padding: 10px;
+    border-radius: 10px;
     font-size: 12px;
     line-height: 1.5;
+    border: 1px dashed #bfd6ea;
+    background: #f5faff;
+    color: #0c4a6e;
     white-space: pre-wrap;
     word-break: break-word;
   }
 }
 
-.verify-box {
+.verify-banner {
   margin-top: 12px;
-  border: 1px solid #fdd4a6;
-  border-radius: 12px;
-  background: #fff8ef;
-  padding: 10px;
-  display: grid;
-  gap: 8px;
+  border-radius: 14px;
+  border: 1px solid #ffd9b0;
+  background: #fff8f0;
+  padding: 12px;
 
   p {
     margin: 0;
-    font-size: 13px;
-    color: #7c2d12;
-    font-weight: 700;
-  }
-
-  div {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    align-items: center;
   }
 
   code {
     display: inline-block;
     padding: 4px 8px;
     border-radius: 8px;
-    border: 1px solid #fdd4a6;
     background: #fff;
+    border: 1px solid #ffd9b0;
     color: #7c2d12;
     font-size: 12px;
   }
 }
 
 .cap-grid {
-  margin-top: 16px;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
-.cap-card {
+.cap-item {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;
@@ -657,7 +576,7 @@ const handleAction = async (action: HeroAction) => {
 
   h3 {
     margin: 0;
-    font-size: 17px;
+    font-size: 16px;
   }
 
   ul {
@@ -665,38 +584,48 @@ const handleAction = async (action: HeroAction) => {
     padding: 0;
     list-style: none;
     display: grid;
-    gap: 7px;
-  }
+    gap: 8px;
 
-  li {
-    font-size: 14px;
-    color: var(--soft);
-    position: relative;
-    padding-left: 16px;
+    li {
+      font-size: 14px;
+      color: var(--ink-soft);
+      padding-left: 16px;
+      position: relative;
 
-    &::before {
-      content: '';
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: var(--accent);
-      position: absolute;
-      left: 0;
-      top: 8px;
+      &::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--accent);
+        position: absolute;
+        left: 0;
+        top: 7px;
+      }
     }
   }
 }
 
 .quick-tabs {
-  margin-top: 14px;
+  margin-top: 16px;
 }
 
-.code-panel {
+.code-box {
   margin-top: 10px;
   border: 1px solid var(--line);
   border-radius: 16px;
   overflow: hidden;
   background: #fff;
+
+  .code-head {
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    background: #f8fcff;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
 
   pre {
     margin: 0;
@@ -708,24 +637,18 @@ const handleAction = async (action: HeroAction) => {
     font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', monospace;
     font-size: 13px;
     line-height: 1.65;
-    color: var(--ink);
+    color: #0f172a;
   }
 }
 
-.code-panel-head {
-  border-bottom: 1px solid var(--line);
-  background: #f8fcff;
-  color: var(--soft);
-  font-size: 13px;
-  padding: 10px 12px;
-  display: flex;
-  justify-content: space-between;
-}
-
 .footer {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 22px;
+
   p {
     margin: 0;
-    color: var(--soft);
+    color: var(--ink-soft);
     font-size: 14px;
   }
 }
@@ -733,13 +656,13 @@ const handleAction = async (action: HeroAction) => {
 .footer-links {
   margin-top: 10px;
   display: flex;
-  flex-wrap: wrap;
   gap: 14px;
+  flex-wrap: wrap;
 
   a {
-    text-decoration: none;
     color: #0c4a6e;
     font-size: 14px;
+    text-decoration: none;
 
     &:hover {
       color: var(--accent-strong);
@@ -763,11 +686,11 @@ const handleAction = async (action: HeroAction) => {
     grid-template-columns: 1fr;
   }
 
-  .proof-strip {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  .workflow-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .tdd-wall {
+  .tdd-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -777,36 +700,35 @@ const handleAction = async (action: HeroAction) => {
 }
 
 @media (max-width: 768px) {
-  .home-v4 {
+  .home-v3 {
     padding: 16px;
   }
 
-  .top-nav {
+  .topbar {
     flex-direction: column;
     align-items: flex-start;
   }
 
-  .hero {
-    padding: 20px;
+  .hero-copy {
+    padding: 22px;
+
+    h1 {
+      font-size: 34px;
+    }
   }
 
-  .hero-main h1 {
-    font-size: 34px;
+  .hero-stats {
+    grid-template-columns: 1fr;
   }
 
-  .hero-kpis,
-  .proof-strip,
-  .tdd-wall,
+  .workflow-grid,
+  .tdd-grid,
   .cap-grid {
     grid-template-columns: 1fr;
   }
 
-  .workflow,
-  .tdd,
-  .capability,
-  .quickstart,
-  .footer {
-    padding: 18px;
+  .section-card {
+    padding: 20px;
   }
 
   .section-head h2 {
