@@ -17,7 +17,7 @@
       </nav>
 
       <div class="top-actions">
-        <router-link to="/login" class="btn btn-outline">控制台登录</router-link>
+        <router-link :to="loginRoute" class="btn btn-outline">控制台登录</router-link>
       </div>
     </header>
 
@@ -59,6 +59,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { LOGIN_ROUTE } from '@/constants/navigation'
 
 interface NavItem {
   label: string
@@ -71,6 +72,7 @@ interface NavGroup {
 }
 
 const route = useRoute()
+const loginRoute = LOGIN_ROUTE
 
 const navGroups: NavGroup[] = [
   {

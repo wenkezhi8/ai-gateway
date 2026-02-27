@@ -15,7 +15,7 @@
         <a href="#quickstart">接入</a>
       </nav>
       <div class="header-actions">
-        <router-link to="/login" class="btn btn-ghost">控制台</router-link>
+        <router-link :to="loginRoute" class="btn btn-ghost">控制台</router-link>
       </div>
     </header>
 
@@ -31,8 +31,8 @@
             让团队从“多家模型对接成本”切换到“业务价值交付”。
           </p>
           <div class="hero-actions">
-            <router-link to="/login" class="btn btn-primary">进入控制台</router-link>
-            <router-link to="/docs" class="btn btn-outline">查看文档中心</router-link>
+            <router-link :to="loginRoute" class="btn btn-primary">进入控制台</router-link>
+            <router-link :to="docsRoute" class="btn btn-outline">查看文档中心</router-link>
             <a href="https://github.com/wenkezhi8/ai-gateway" target="_blank" rel="noreferrer" class="btn btn-ghost">
               GitHub
             </a>
@@ -125,8 +125,8 @@ $ curl /api/admin/dashboard/realtime
     <footer class="home-footer reveal reveal-5">
       <p>AI Gateway · Unified Model Access Layer</p>
       <div class="footer-links">
-        <router-link to="/docs">文档</router-link>
-        <router-link to="/login">控制台</router-link>
+        <router-link :to="docsRoute">文档</router-link>
+        <router-link :to="loginRoute">控制台</router-link>
         <a href="/health" target="_blank" rel="noreferrer">健康检查</a>
       </div>
     </footer>
@@ -134,6 +134,11 @@ $ curl /api/admin/dashboard/realtime
 </template>
 
 <script setup lang="ts">
+import { DOCS_ROUTE, LOGIN_ROUTE } from '@/constants/navigation'
+
+const loginRoute = LOGIN_ROUTE
+const docsRoute = DOCS_ROUTE
+
 const capabilities = [
   {
     icon: '⇄',

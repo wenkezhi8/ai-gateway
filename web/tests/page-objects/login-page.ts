@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { LOGIN_ROUTE } from '../../src/constants/navigation';
 
 export class LoginPage {
   private page: Page;
@@ -8,7 +9,7 @@ export class LoginPage {
   }
 
   async navigate() {
-    await this.page.goto('/login');
+    await this.page.goto(LOGIN_ROUTE);
   }
 
   async fillCredentials(username: string, password: string) {
@@ -26,7 +27,7 @@ export class LoginPage {
     await this.submitLogin();
     await this.page.waitForURL(url => {
       const path = new URL(url.toString()).pathname;
-      return path !== '/login';
+      return path !== LOGIN_ROUTE;
     });
   }
 

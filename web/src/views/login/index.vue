@@ -65,6 +65,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { request } from '@/api/request'
+import { LOGIN_SUCCESS_REDIRECT } from '@/constants/navigation'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -109,7 +110,7 @@ const handleLogin = async () => {
     })
 
     ElMessage.success('登录成功')
-    router.push('/dashboard')
+    router.push(LOGIN_SUCCESS_REDIRECT)
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.error?.message || error?.message || '登录失败')
   } finally {

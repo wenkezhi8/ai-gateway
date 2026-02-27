@@ -50,7 +50,7 @@
       <el-header class="header glass-header">
         <div class="header-left">
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item :to="{ path: '/dashboard' }">控制台</el-breadcrumb-item>
+            <el-breadcrumb-item :to="{ path: dashboardRoute }">控制台</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentTitle">{{ currentTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
@@ -67,7 +67,7 @@
 
           <!-- 文档中心 -->
           <el-tooltip content="文档中心" placement="bottom">
-            <router-link to="/docs" class="docs-btn" :class="{ active: isActive('/docs') }">
+            <router-link :to="docsRoute" class="docs-btn" :class="{ active: isActive(docsRoute) }">
               <el-icon :size="18"><Document /></el-icon>
               <span class="docs-text">文档</span>
             </router-link>
@@ -186,7 +186,12 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useUserStore } from '@/store/user'
-import { POST_LOGOUT_REDIRECT } from '@/constants/navigation'
+import {
+  DASHBOARD_ROUTE,
+  DOCS_ROUTE,
+  POST_LOGOUT_REDIRECT,
+  SETTINGS_ROUTE
+} from '@/constants/navigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -197,9 +202,11 @@ const isCollapse = ref(false)
 const notificationCount = ref(3)
 const wechatQrLoadError = ref(false)
 const wechatQrSrc = '/logos/wechat-group-qr.png'
+const dashboardRoute = DASHBOARD_ROUTE
+const docsRoute = DOCS_ROUTE
 
 const menuItems = [
-  { path: '/dashboard', title: '监控仪表盘', icon: 'Monitor' },
+  { path: DASHBOARD_ROUTE, title: '监控仪表盘', icon: 'Monitor' },
   { path: '/ops', title: '运维监控', icon: 'Operation' },
   { path: '/chat', title: 'AI 对话', icon: 'ChatDotRound' },
   { path: '/api-management', title: 'API 管理', icon: 'Connection' },
@@ -273,10 +280,10 @@ const handleThemeCommand = (command: string) => {
 const handleUserCommand = (command: string) => {
   switch (command) {
     case 'profile':
-      router.push('/settings')
+      router.push(SETTINGS_ROUTE)
       break
     case 'settings':
-      router.push('/settings')
+      router.push(SETTINGS_ROUTE)
       break
     case 'logout':
       userStore.logout()

@@ -1,4 +1,5 @@
 import { test, expect } from '../utils/test-helper';
+import { DASHBOARD_ROUTE, POST_LOGOUT_REDIRECT } from '../../src/constants/navigation';
 
 test.describe('Comprehensive End-to-End Tests', () => {
   test.beforeEach(async ({ helper }) => {
@@ -42,13 +43,13 @@ test.describe('Comprehensive End-to-End Tests', () => {
       await helper.logout();
     });
 
-      expect(helper.page.url()).toContain('/login');
+      expect(new URL(helper.page.url()).pathname).toBe(POST_LOGOUT_REDIRECT);
   });
 
   test('should handle data flow across multiple pages', async ({ helper }) => {
     await helper.measurePerformance('Test data flow across pages', async () => {
       // Start with dashboard
-      await helper.page.goto('/dashboard');
+      await helper.page.goto(DASHBOARD_ROUTE);
       await helper.page.waitForLoadState('networkidle');
 
       // Check initial data
@@ -81,7 +82,7 @@ test.describe('Comprehensive End-to-End Tests', () => {
       expect(providerCountAfter).toBeGreaterThanOrEqual(providerCountBefore);
 
       // Return to dashboard to see updated stats
-      await helper.page.goto('/dashboard');
+      await helper.page.goto(DASHBOARD_ROUTE);
       await helper.page.waitForLoadState('networkidle');
       await helper.page.waitForTimeout(2000);
 
@@ -155,7 +156,7 @@ test.describe('Comprehensive End-to-End Tests', () => {
       await helper.measurePerformance(`Test responsive design - ${viewport.name}`, async () => {
         await helper.page.setViewportSize(viewport);
         
-        const pages = ['/dashboard', '/providers', '/accounts'];
+        const pages = [DASHBOARD_ROUTE, '/providers', '/accounts'];
         
         for (const pagePath of pages) {
           await helper.page.goto(pagePath);
@@ -186,7 +187,7 @@ test.describe('Comprehensive End-to-End Tests', () => {
 
   test('should test accessibility features', async ({ helper }) => {
     await helper.measurePerformance('Test accessibility features', async () => {
-      await helper.page.goto('/dashboard');
+      await helper.page.goto(DASHBOARD_ROUTE);
       await helper.page.waitForLoadState('networkidle');
 
       // Check for alt text on images

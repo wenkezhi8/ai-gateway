@@ -81,6 +81,37 @@ describe('pages static config extraction', () => {
 
     expect(layoutFile).toContain('POST_LOGOUT_REDIRECT')
     expect(layoutFile).not.toContain("router.push('/login')")
-    expect(navigationConstantsFile).toContain("export const POST_LOGOUT_REDIRECT = '/'")
+    expect(navigationConstantsFile).toContain("export const POST_LOGOUT_REDIRECT = HOME_ROUTE")
+  })
+
+  it('should centralize auth routes and redirects in navigation constants', () => {
+    const navigationConstantsFile = readFileSync(join(process.cwd(), 'src/constants/navigation.ts'), 'utf-8')
+    const routerFile = readFileSync(join(process.cwd(), 'src/router/index.ts'), 'utf-8')
+    const requestFile = readFileSync(join(process.cwd(), 'src/api/request.ts'), 'utf-8')
+    const errorHandlerFile = readFileSync(join(process.cwd(), 'src/utils/errorHandler.ts'), 'utf-8')
+    const apiManagementFile = readFileSync(join(process.cwd(), 'src/views/api-management/index.vue'), 'utf-8')
+    const loginViewFile = readFileSync(join(process.cwd(), 'src/views/login/index.vue'), 'utf-8')
+
+    expect(navigationConstantsFile).toContain("export const HOME_ROUTE = '/'")
+    expect(navigationConstantsFile).toContain("export const LOGIN_ROUTE = '/login'")
+    expect(navigationConstantsFile).toContain("export const DASHBOARD_ROUTE = '/dashboard'")
+    expect(navigationConstantsFile).toContain('export const UNAUTHORIZED_REDIRECT = LOGIN_ROUTE')
+    expect(navigationConstantsFile).toContain('export const LOGIN_SUCCESS_REDIRECT = DASHBOARD_ROUTE')
+
+    expect(routerFile).toContain('LOGIN_ROUTE')
+    expect(routerFile).toContain('UNAUTHORIZED_REDIRECT')
+    expect(routerFile).not.toContain("next('/login')")
+
+    expect(requestFile).toContain('UNAUTHORIZED_REDIRECT')
+    expect(requestFile).not.toContain("window.location.href = '/login'")
+
+    expect(errorHandlerFile).toContain('UNAUTHORIZED_REDIRECT')
+    expect(errorHandlerFile).not.toContain("router.push('/login')")
+
+    expect(apiManagementFile).toContain('LOGIN_ROUTE')
+    expect(apiManagementFile).not.toContain("router.push('/login')")
+
+    expect(loginViewFile).toContain('LOGIN_SUCCESS_REDIRECT')
+    expect(loginViewFile).not.toContain("router.push('/dashboard')")
   })
 })

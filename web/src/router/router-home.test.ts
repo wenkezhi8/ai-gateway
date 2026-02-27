@@ -8,7 +8,7 @@ describe('router home route', () => {
     const content = readFileSync(routerFile, 'utf-8')
 
     expect(content).toContain("name: 'Home'")
-    expect(content).toContain("path: '/'")
+    expect(content).toContain('path: HOME_ROUTE')
     expect(content).toContain('public: true')
   })
 })

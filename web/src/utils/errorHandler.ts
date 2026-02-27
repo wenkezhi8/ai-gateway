@@ -1,5 +1,6 @@
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
+import { UNAUTHORIZED_REDIRECT } from '@/constants/navigation'
 
 const router = useRouter()
 
@@ -31,7 +32,7 @@ export function handleApiError(
       case 401:
         message = '登录已过期，请重新登录'
         // 跳转到登录页
-        router.push('/login')
+        router.push(UNAUTHORIZED_REDIRECT)
         break
       case 403:
         message = '没有权限执行此操作'

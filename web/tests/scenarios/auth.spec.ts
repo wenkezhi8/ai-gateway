@@ -1,5 +1,11 @@
 import { test, expect } from '../utils/test-helper';
 import { LoginPage } from '../page-objects/login-page';
+import {
+  DASHBOARD_ROUTE,
+  LOGIN_ROUTE,
+  POST_LOGOUT_REDIRECT,
+  UNAUTHORIZED_REDIRECT
+} from '../../src/constants/navigation';
 
 test.describe('Authentication Tests', () => {
   let loginPage: LoginPage;
@@ -29,7 +35,7 @@ test.describe('Authentication Tests', () => {
     });
 
     await helper.measurePerformance('Verify successful login', async () => {
-      expect(page.url()).toContain('/dashboard');
+      expect(new URL(page.url()).pathname).toBe(DASHBOARD_ROUTE);
     });
 
     const report = helper.generateReport();
@@ -58,7 +64,7 @@ test.describe('Authentication Tests', () => {
     });
 
     const currentUrl = page.url();
-    expect(currentUrl).toContain('/login');
+    expect(currentUrl).toContain(LOGIN_ROUTE);
   });
 
   test('should logout successfully', async ({ page, helper }) => {
@@ -68,11 +74,27 @@ test.describe('Authentication Tests', () => {
       await helper.logout();
     });
 
-    expect(page.url()).toContain('/login');
+    expect(new URL(page.url()).pathname).toBe(POST_LOGOUT_REDIRECT);
+  });
+
+  test('should block protected history navigation after logout', async ({ page, helper }) => {
+    await helper.login('admin', 'admin123');
+    await page.goto(DASHBOARD_ROUTE);
+    await page.waitForLoadState('networkidle');
+
+    await helper.logout();
+    expect(new URL(page.url()).pathname).toBe(POST_LOGOUT_REDIRECT);
+
+    await page.goBack();
+    await page.waitForLoadState('networkidle');
+
+    const pathAfterBack = new URL(page.url()).pathname;
+    expect(pathAfterBack).not.toBe(DASHBOARD_ROUTE);
+    expect([UNAUTHORIZED_REDIRECT, POST_LOGOUT_REDIRECT]).toContain(pathAfterBack);
   });
 
   test('should redirect to login when accessing protected routes without authentication', async ({ page, helper }) => {
-    const protectedRoutes = ['/dashboard', '/providers', '/accounts', '/routing', '/cache', '/alerts', '/settings'];
+    const protectedRoutes = [DASHBOARD_ROUTE, '/providers', '/accounts', '/routing', '/cache', '/alerts', '/settings'];
 
     for (const route of protectedRoutes) {
       await helper.measurePerformance(`Access protected route ${route} without auth`, async () => {
@@ -80,7 +102,7 @@ test.describe('Authentication Tests', () => {
         await page.waitForLoadState('networkidle');
       });
 
-      expect(page.url()).toContain('/login');
+      expect(page.url()).toContain(UNAUTHORIZED_REDIRECT);
     }
   });
 

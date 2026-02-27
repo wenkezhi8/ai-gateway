@@ -679,6 +679,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { useRouter } from 'vue-router'
 import { API } from '@/constants/api'
 import { API_MANAGEMENT_STRATEGIES } from '@/constants/pages/api-management'
+import { LOGIN_ROUTE } from '@/constants/navigation'
 
 interface ApiKey {
   id: string
@@ -696,7 +697,7 @@ const router = useRouter()
 function getToken() {
   const token = localStorage.getItem('token')
   if (!token) {
-    router.push('/login')
+    router.push(LOGIN_ROUTE)
     return ''
   }
   return token

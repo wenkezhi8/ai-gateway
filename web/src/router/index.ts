@@ -1,16 +1,23 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import Layout from '@/components/Layout/index.vue'
 import { useUserStore } from '@/store/user'
+import {
+  DASHBOARD_ROUTE,
+  DOCS_ROUTE,
+  HOME_ROUTE,
+  LOGIN_ROUTE,
+  UNAUTHORIZED_REDIRECT
+} from '@/constants/navigation'
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/',
+    path: HOME_ROUTE,
     name: 'Home',
     component: () => import('@/views/home/index.vue'),
     meta: { title: 'AI Gateway 首页', public: true }
   },
   {
-    path: '/docs',
+    path: DOCS_ROUTE,
     component: () => import('@/views/docs/index.vue'),
     meta: { title: '文档中心', public: true },
     children: [
@@ -65,10 +72,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/console',
     component: Layout,
-    redirect: '/dashboard',
+    redirect: DASHBOARD_ROUTE,
     children: [
       {
-        path: '/dashboard',
+        path: DASHBOARD_ROUTE,
         name: 'Dashboard',
         component: () => import('@/views/dashboard/index.vue'),
         meta: { title: '监控仪表盘', icon: 'Monitor' }
@@ -154,7 +161,7 @@ const routes: RouteRecordRaw[] = [
     ]
   },
   {
-    path: '/login',
+    path: LOGIN_ROUTE,
     name: 'Login',
     component: () => import('@/views/login/index.vue'),
     meta: { title: '登录' }
@@ -184,7 +191,7 @@ router.beforeEach((to, _from, next) => {
   document.title = `${to.meta.title || 'AI Gateway'} - AI Gateway`
 
   // 公开页面不需要认证
-  if (to.meta.public || to.path === '/login') {
+  if (to.meta.public || to.path === LOGIN_ROUTE) {
     next()
     return
   }
@@ -193,8 +200,8 @@ router.beforeEach((to, _from, next) => {
   const userStore = useUserStore()
   const token = userStore.token || localStorage.getItem('token')
 
-  if (!token && to.path !== '/login') {
-    next('/login')
+  if (!token && to.path !== LOGIN_ROUTE) {
+    next(UNAUTHORIZED_REDIRECT)
     return
   }
 

@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { ElMessage } from 'element-plus'
+import { UNAUTHORIZED_REDIRECT } from '@/constants/navigation'
 
 // 创建axios实例
 const service: AxiosInstance = axios.create({
@@ -53,7 +54,7 @@ service.interceptors.response.use(
             // 延迟跳转，让用户看到提示
             setTimeout(() => {
               isHandling401 = false
-              window.location.href = '/login'
+              window.location.href = UNAUTHORIZED_REDIRECT
             }, 1000)
           }
           break

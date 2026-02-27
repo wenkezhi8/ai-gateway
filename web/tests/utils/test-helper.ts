@@ -1,4 +1,9 @@
 import { test as base, expect, Page, BrowserContext } from '@playwright/test';
+import {
+  LOGIN_ROUTE,
+  POST_LOGOUT_REDIRECT,
+  UNAUTHORIZED_REDIRECT
+} from '../../src/constants/navigation';
 
 export interface PerformanceMetrics {
   action: string;
@@ -174,16 +179,19 @@ export class TestHelper {
         await logoutButton.click();
       } else {
         await this.page.evaluate(() => localStorage.removeItem('token'));
-        await this.page.goto('/login');
+        await this.page.goto(POST_LOGOUT_REDIRECT);
       }
 
-      await this.page.waitForURL('**/login', { timeout: 10000 });
+      await this.page.waitForURL(url => {
+        const path = new URL(url.toString()).pathname;
+        return path === POST_LOGOUT_REDIRECT || path === UNAUTHORIZED_REDIRECT;
+      }, { timeout: 10000 });
     });
   }
 
   async login(username: string = 'admin', password: string = 'admin123'): Promise<void> {
     await this.measurePerformance('Login', async () => {
-      await this.page.goto('/login');
+      await this.page.goto(LOGIN_ROUTE);
       await this.page.waitForSelector('input[type="text"], input[name="username"], [placeholder*="用户名"], [placeholder*="用户"], [placeholder*="账号"]');
 
       await this.page.fill('input[type="text"], input[name="username"], [placeholder*="用户名"], [placeholder*="用户"], [placeholder*="账号"]', username);
@@ -235,7 +243,7 @@ export class TestHelper {
 
       await this.page.waitForURL(url => {
         const path = new URL(url.toString()).pathname;
-        return path !== '/login';
+        return path !== LOGIN_ROUTE;
       }, { timeout: 15000 });
     });
   }
