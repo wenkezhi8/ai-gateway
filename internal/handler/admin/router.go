@@ -1082,6 +1082,8 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	modelInstalled := false
 	models := make([]string, 0)
 	runningModels := make([]string, 0)
+	runningModelDetails := make([]gin.H, 0)
+	runningVramBytesTotal := int64(0)
 	runningModel := ""
 	message := "ollama not installed"
 
@@ -1093,8 +1095,16 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 		if running {
 			modelInstalled = containsModel(models, model)
 			psCtx, psCancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
-			runningModels, _ = routing.ListOllamaRunningModels(psCtx, cfg.BaseURL, constants.AdminOllamaCheckTimeout)
+			details, _ := routing.ListOllamaRunningModelDetails(psCtx, cfg.BaseURL, constants.AdminOllamaCheckTimeout)
 			psCancel()
+			runningModels = make([]string, 0, len(details))
+			for _, detail := range details {
+				runningModels = append(runningModels, detail.Name)
+				runningModelDetails = append(runningModelDetails, gin.H{"name": detail.Name, "size_vram": detail.SizeVRAM})
+				if detail.SizeVRAM > 0 {
+					runningVramBytesTotal += detail.SizeVRAM
+				}
+			}
 			if containsModel(runningModels, model) {
 				runningModel = model
 			} else if len(runningModels) > 0 {
@@ -1109,16 +1119,18 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"data": gin.H{
-			"installed":           installed,
-			"running":             running,
-			"model":               model,
-			"model_installed":     modelInstalled,
-			"models":              models,
-			"running_models":      runningModels,
-			"running_model":       runningModel,
-			"keep_alive_disabled": true,
-			"message":             message,
-			"os":                  runtime.GOOS,
+			"installed":                installed,
+			"running":                  running,
+			"model":                    model,
+			"model_installed":          modelInstalled,
+			"models":                   models,
+			"running_models":           runningModels,
+			"running_model_details":    runningModelDetails,
+			"running_vram_bytes_total": runningVramBytesTotal,
+			"running_model":            runningModel,
+			"keep_alive_disabled":      true,
+			"message":                  message,
+			"os":                       runtime.GOOS,
 		},
 	})
 }

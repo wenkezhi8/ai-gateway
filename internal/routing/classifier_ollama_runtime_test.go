@@ -72,3 +72,32 @@ func TestListOllamaRunningModels_FromPS(t *testing.T) {
 		t.Fatalf("unexpected running models: %#v", models)
 	}
 }
+
+func TestListOllamaRunningModelDetails_FromPS(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ps" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:4b","size_vram":2147483648},{"model":"qwen2.5:0.5b-instruct","size_vram":536870912}]}`))
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	details, err := ListOllamaRunningModelDetails(ctx, server.URL, time.Second)
+	if err != nil {
+		t.Fatalf("ListOllamaRunningModelDetails failed: %v", err)
+	}
+	if len(details) != 2 {
+		t.Fatalf("running model details len = %d, want 2", len(details))
+	}
+	if details[0].Name != "qwen2.5:0.5b-instruct" || details[0].SizeVRAM != 536870912 {
+		t.Fatalf("unexpected first detail: %#v", details[0])
+	}
+	if details[1].Name != "qwen3:4b" || details[1].SizeVRAM != 2147483648 {
+		t.Fatalf("unexpected second detail: %#v", details[1])
+	}
+}

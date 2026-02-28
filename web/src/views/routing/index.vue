@@ -231,6 +231,20 @@
               :closable="false"
               style="margin-bottom: 16px"
             />
+            <el-alert
+              v-if="ollamaSetup.running_models.length > 0"
+              :title="`运行模型列表: ${ollamaSetup.running_models.join(', ')}`"
+              type="info"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
+            <el-alert
+              v-if="ollamaSetup.running_vram_bytes_total > 0"
+              :title="`显存占用: ${formatVramBytes(ollamaSetup.running_vram_bytes_total)}`"
+              type="warning"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
             <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
               <el-descriptions-item label="总请求">{{ classifierStats.total_requests }}</el-descriptions-item>
               <el-descriptions-item label="LLM尝试">{{ classifierStats.llm_attempts }}</el-descriptions-item>
@@ -535,6 +549,8 @@ const ollamaSetup = reactive({
   model_installed: false,
   running_model: '',
   running_models: [] as string[],
+  running_model_details: [] as Array<{ name: string; size_vram: number }>,
+  running_vram_bytes_total: 0,
   keep_alive_disabled: false,
   message: ''
 })
@@ -669,6 +685,21 @@ function getScoreTagType(score: number): string {
   if (score >= 80) return 'success'
   if (score >= 60) return 'warning'
   return 'danger'
+}
+
+function formatVramBytes(value: number): string {
+  const bytes = Number(value || 0)
+  if (bytes <= 0) return '0 B'
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`
+  }
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`
+  }
+  if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(2)} KiB`
+  }
+  return `${bytes} B`
 }
 
 async function loadConfig() {
@@ -849,6 +880,8 @@ async function loadOllamaSetupStatus() {
     ollamaSetup.model = payload.model || model
     ollamaSetup.model_installed = Boolean(payload.model_installed)
     ollamaSetup.running_models = Array.isArray(payload.running_models) ? payload.running_models : []
+    ollamaSetup.running_model_details = Array.isArray(payload.running_model_details) ? payload.running_model_details : []
+    ollamaSetup.running_vram_bytes_total = Number(payload.running_vram_bytes_total || 0)
     ollamaSetup.running_model = String(payload.running_model || '')
     ollamaSetup.keep_alive_disabled = Boolean(payload.keep_alive_disabled)
     ollamaSetup.message = payload.message || ''

@@ -21,9 +21,15 @@ type ollamaTagsResponse struct {
 
 type ollamaPSResponse struct {
 	Models []struct {
-		Name  string `json:"name"`
-		Model string `json:"model"`
+		Name     string `json:"name"`
+		Model    string `json:"model"`
+		SizeVRAM int64  `json:"size_vram"`
 	} `json:"models"`
+}
+
+type OllamaRunningModelDetail struct {
+	Name     string
+	SizeVRAM int64
 }
 
 type ollamaChatRequest struct {
@@ -506,6 +512,19 @@ func ListOllamaModels(ctx context.Context, baseURL string, timeout time.Duration
 }
 
 func ListOllamaRunningModels(ctx context.Context, baseURL string, timeout time.Duration) ([]string, error) {
+	details, err := ListOllamaRunningModelDetails(ctx, baseURL, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	models := make([]string, 0, len(details))
+	for _, detail := range details {
+		models = append(models, detail.Name)
+	}
+	return models, nil
+}
+
+func ListOllamaRunningModelDetails(ctx context.Context, baseURL string, timeout time.Duration) ([]OllamaRunningModelDetail, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = constants.ClassifierDefaultBaseURL
 	}
@@ -535,7 +554,7 @@ func ListOllamaRunningModels(ctx context.Context, baseURL string, timeout time.D
 		return nil, fmt.Errorf("decode ollama ps response: %w", err)
 	}
 
-	models := make([]string, 0, len(psResp.Models))
+	details := make([]OllamaRunningModelDetail, 0, len(psResp.Models))
 	seen := make(map[string]struct{}, len(psResp.Models))
 	for _, item := range psResp.Models {
 		name := strings.TrimSpace(item.Name)
@@ -549,9 +568,11 @@ func ListOllamaRunningModels(ctx context.Context, baseURL string, timeout time.D
 			continue
 		}
 		seen[name] = struct{}{}
-		models = append(models, name)
+		details = append(details, OllamaRunningModelDetail{Name: name, SizeVRAM: item.SizeVRAM})
 	}
-	sort.Strings(models)
+	sort.Slice(details, func(i, j int) bool {
+		return details[i].Name < details[j].Name
+	})
 
-	return models, nil
+	return details, nil
 }
