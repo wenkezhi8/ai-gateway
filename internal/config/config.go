@@ -83,13 +83,28 @@ type IntentEngineConfig struct {
 
 // VectorCacheConfig holds Redis Stack vector cache configuration.
 type VectorCacheConfig struct {
-	Enabled        bool               `json:"enabled"`
-	IndexName      string             `json:"index_name"`
-	KeyPrefix      string             `json:"key_prefix"`
-	Dimension      int                `json:"dimension"`
-	QueryTimeoutMs int                `json:"query_timeout_ms"`
-	Thresholds     map[string]float64 `json:"thresholds"`
-	TTLSeconds     map[string]int64   `json:"ttl_seconds"`
+	Enabled                       bool               `json:"enabled"`
+	IndexName                     string             `json:"index_name"`
+	KeyPrefix                     string             `json:"key_prefix"`
+	Dimension                     int                `json:"dimension"`
+	QueryTimeoutMs                int                `json:"query_timeout_ms"`
+	Thresholds                    map[string]float64 `json:"thresholds"`
+	TTLSeconds                    map[string]int64   `json:"ttl_seconds"`
+	ColdVectorEnabled             bool               `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled        bool               `json:"cold_vector_query_enabled"`
+	ColdVectorBackend             string             `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled    bool               `json:"cold_vector_dual_write_enabled"`
+	ColdVectorSimilarityThreshold float64            `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                int                `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent float64            `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent        float64            `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize            int                `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds      int                `json:"hot_to_cold_interval_seconds"`
+	ColdVectorSQLitePath          string             `json:"cold_vector_sqlite_path"`
+	ColdVectorQdrantURL           string             `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey        string             `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection    string             `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs     int                `json:"cold_vector_qdrant_timeout_ms"`
 }
 
 // LimitConfig holds a single limit configuration
@@ -153,6 +168,19 @@ func DefaultConfig() *Config {
 				"qa":        24 * 3600,
 				"chat":      12 * 3600,
 			},
+			ColdVectorEnabled:             false,
+			ColdVectorQueryEnabled:        true,
+			ColdVectorBackend:             "sqlite",
+			ColdVectorDualWriteEnabled:    false,
+			ColdVectorSimilarityThreshold: 0.92,
+			ColdVectorTopK:                1,
+			HotMemoryHighWatermarkPercent: 75,
+			HotMemoryReliefPercent:        65,
+			HotToColdBatchSize:            500,
+			HotToColdIntervalSeconds:      30,
+			ColdVectorSQLitePath:          "data/ai-gateway-cold-vectors.db",
+			ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
+			ColdVectorQdrantTimeoutMs:     1500,
 		},
 	}
 }
@@ -247,6 +275,65 @@ func Load() (*Config, error) {
 	if timeout := os.Getenv("VECTOR_CACHE_QUERY_TIMEOUT_MS"); timeout != "" {
 		if v, err := strconv.Atoi(timeout); err == nil {
 			cfg.VectorCache.QueryTimeoutMs = v
+		}
+	}
+	if enabled := os.Getenv("VECTOR_COLD_ENABLED"); enabled != "" {
+		cfg.VectorCache.ColdVectorEnabled = parseBool(enabled)
+	}
+	if enabled := os.Getenv("VECTOR_COLD_QUERY_ENABLED"); enabled != "" {
+		cfg.VectorCache.ColdVectorQueryEnabled = parseBool(enabled)
+	}
+	if backend := os.Getenv("VECTOR_COLD_BACKEND"); backend != "" {
+		cfg.VectorCache.ColdVectorBackend = strings.ToLower(strings.TrimSpace(backend))
+	}
+	if enabled := os.Getenv("VECTOR_COLD_DUAL_WRITE_ENABLED"); enabled != "" {
+		cfg.VectorCache.ColdVectorDualWriteEnabled = parseBool(enabled)
+	}
+	if threshold := os.Getenv("VECTOR_COLD_SIMILARITY_THRESHOLD"); threshold != "" {
+		if v, err := strconv.ParseFloat(threshold, 64); err == nil {
+			cfg.VectorCache.ColdVectorSimilarityThreshold = v
+		}
+	}
+	if topK := os.Getenv("VECTOR_COLD_TOP_K"); topK != "" {
+		if v, err := strconv.Atoi(topK); err == nil {
+			cfg.VectorCache.ColdVectorTopK = v
+		}
+	}
+	if watermark := os.Getenv("VECTOR_HOT_MEMORY_HIGH_WATERMARK_PERCENT"); watermark != "" {
+		if v, err := strconv.ParseFloat(watermark, 64); err == nil {
+			cfg.VectorCache.HotMemoryHighWatermarkPercent = v
+		}
+	}
+	if relief := os.Getenv("VECTOR_HOT_MEMORY_RELIEF_PERCENT"); relief != "" {
+		if v, err := strconv.ParseFloat(relief, 64); err == nil {
+			cfg.VectorCache.HotMemoryReliefPercent = v
+		}
+	}
+	if batchSize := os.Getenv("VECTOR_HOT_TO_COLD_BATCH_SIZE"); batchSize != "" {
+		if v, err := strconv.Atoi(batchSize); err == nil {
+			cfg.VectorCache.HotToColdBatchSize = v
+		}
+	}
+	if interval := os.Getenv("VECTOR_HOT_TO_COLD_INTERVAL_SECONDS"); interval != "" {
+		if v, err := strconv.Atoi(interval); err == nil {
+			cfg.VectorCache.HotToColdIntervalSeconds = v
+		}
+	}
+	if sqlitePath := os.Getenv("VECTOR_COLD_SQLITE_PATH"); sqlitePath != "" {
+		cfg.VectorCache.ColdVectorSQLitePath = sqlitePath
+	}
+	if qdrantURL := os.Getenv("VECTOR_COLD_QDRANT_URL"); qdrantURL != "" {
+		cfg.VectorCache.ColdVectorQdrantURL = qdrantURL
+	}
+	if qdrantKey := os.Getenv("VECTOR_COLD_QDRANT_API_KEY"); qdrantKey != "" {
+		cfg.VectorCache.ColdVectorQdrantAPIKey = qdrantKey
+	}
+	if qdrantCollection := os.Getenv("VECTOR_COLD_QDRANT_COLLECTION"); qdrantCollection != "" {
+		cfg.VectorCache.ColdVectorQdrantCollection = qdrantCollection
+	}
+	if qdrantTimeout := os.Getenv("VECTOR_COLD_QDRANT_TIMEOUT_MS"); qdrantTimeout != "" {
+		if v, err := strconv.Atoi(qdrantTimeout); err == nil {
+			cfg.VectorCache.ColdVectorQdrantTimeoutMs = v
 		}
 	}
 
@@ -470,6 +557,33 @@ func (c *Config) Validate() error {
 		}
 		if c.VectorCache.Dimension <= 0 {
 			return &ValidationError{Field: "vector_cache.dimension", Message: "dimension must be positive"}
+		}
+		if c.VectorCache.ColdVectorSimilarityThreshold < 0 || c.VectorCache.ColdVectorSimilarityThreshold > 1 {
+			return &ValidationError{Field: "vector_cache.cold_vector_similarity_threshold", Message: "cold_vector_similarity_threshold must be between 0 and 1"}
+		}
+		if c.VectorCache.ColdVectorTopK <= 0 {
+			return &ValidationError{Field: "vector_cache.cold_vector_top_k", Message: "cold_vector_top_k must be positive"}
+		}
+		if c.VectorCache.HotMemoryHighWatermarkPercent <= 0 || c.VectorCache.HotMemoryHighWatermarkPercent > 100 {
+			return &ValidationError{Field: "vector_cache.hot_memory_high_watermark_percent", Message: "hot_memory_high_watermark_percent must be between 0 and 100"}
+		}
+		if c.VectorCache.HotMemoryReliefPercent <= 0 || c.VectorCache.HotMemoryReliefPercent >= c.VectorCache.HotMemoryHighWatermarkPercent {
+			return &ValidationError{Field: "vector_cache.hot_memory_relief_percent", Message: "hot_memory_relief_percent must be positive and less than high watermark"}
+		}
+		if c.VectorCache.HotToColdBatchSize <= 0 {
+			return &ValidationError{Field: "vector_cache.hot_to_cold_batch_size", Message: "hot_to_cold_batch_size must be positive"}
+		}
+		if c.VectorCache.HotToColdIntervalSeconds <= 0 {
+			return &ValidationError{Field: "vector_cache.hot_to_cold_interval_seconds", Message: "hot_to_cold_interval_seconds must be positive"}
+		}
+		if c.VectorCache.ColdVectorEnabled {
+			backend := strings.ToLower(strings.TrimSpace(c.VectorCache.ColdVectorBackend))
+			if backend != "sqlite" && backend != "qdrant" {
+				return &ValidationError{Field: "vector_cache.cold_vector_backend", Message: "cold_vector_backend must be sqlite or qdrant"}
+			}
+			if backend == "qdrant" && strings.TrimSpace(c.VectorCache.ColdVectorQdrantURL) == "" {
+				return &ValidationError{Field: "vector_cache.cold_vector_qdrant_url", Message: "cold_vector_qdrant_url is required when qdrant backend is active"}
+			}
 		}
 	}
 

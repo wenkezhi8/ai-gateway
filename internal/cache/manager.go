@@ -21,6 +21,7 @@ type Manager struct {
 	// Semantic cache (optional)
 	semanticCache *SemanticCache
 	vectorStore   VectorCacheStore
+	tieredStore   *TieredVectorStore
 
 	// Statistics
 	stats *StatsCollector
@@ -187,6 +188,10 @@ func (m *Manager) UpdateSettings(settings CacheSettings) {
 		RequestTimeout:  time.Duration(settings.Dedup.RequestTimeoutSeconds) * time.Second,
 		CleanupInterval: 10 * time.Second,
 	}, &settings.Dedup.Enabled)
+
+	if m.tieredStore != nil {
+		m.tieredStore.UpdateConfig(TieredConfigFromSettings(settings))
+	}
 }
 
 // GetRequestCacheStats returns request cache statistics
@@ -227,6 +232,22 @@ func (m *Manager) GetVectorStore() VectorCacheStore {
 // SetVectorStore sets the Redis Stack vector cache store.
 func (m *Manager) SetVectorStore(store VectorCacheStore) {
 	m.vectorStore = store
+	if tiered, ok := store.(*TieredVectorStore); ok {
+		m.tieredStore = tiered
+	}
+}
+
+// SetTieredVectorStore sets tiered vector store and syncs vector store reference.
+func (m *Manager) SetTieredVectorStore(store *TieredVectorStore) {
+	m.tieredStore = store
+	if store != nil {
+		m.vectorStore = store
+	}
+}
+
+// GetTieredVectorStore returns tiered vector store if initialized.
+func (m *Manager) GetTieredVectorStore() *TieredVectorStore {
+	return m.tieredStore
 }
 
 // GetTokenSavings returns total tokens saved across all caches

@@ -172,6 +172,90 @@
       </el-descriptions>
     </div>
 
+    <div class="panel signature-section">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">冷热向量分层</div>
+          <div class="panel-subtitle">Redis 热层 + 可开关冷层（sqlite/qdrant）+ 手动迁移/回暖</div>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <el-button link type="primary" :loading="tierStatsLoading" @click="loadVectorTierStats">刷新分层状态</el-button>
+          <el-button type="warning" size="small" plain :loading="tierMigrating" @click="migrateHotToCold">
+            手动迁移
+          </el-button>
+        </div>
+      </div>
+
+      <el-form :model="cacheConfig" label-width="170px" class="config-form">
+        <el-form-item label="冷向量总开关">
+          <el-switch v-model="cacheConfig.coldVectorEnabled" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="冷层查询开关">
+          <el-switch v-model="cacheConfig.coldVectorQueryEnabled" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="冷层后端">
+          <el-select v-model="cacheConfig.coldVectorBackend" style="width: 240px" @change="saveConfig">
+            <el-option label="SQLite（默认）" value="sqlite" />
+            <el-option label="Qdrant" value="qdrant" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="冷层双写">
+          <el-switch v-model="cacheConfig.coldVectorDualWriteEnabled" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="冷层相似阈值">
+          <el-input-number v-model="cacheConfig.coldVectorSimilarityThreshold" :min="0.5" :max="1" :step="0.01" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="冷层 TopK">
+          <el-input-number v-model="cacheConfig.coldVectorTopK" :min="1" :max="20" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="热层高水位(%)">
+          <el-input-number v-model="cacheConfig.hotMemoryHighWatermarkPercent" :min="50" :max="99" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="热层回落目标(%)">
+          <el-input-number v-model="cacheConfig.hotMemoryReliefPercent" :min="30" :max="95" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="迁移批大小">
+          <el-input-number v-model="cacheConfig.hotToColdBatchSize" :min="10" :max="5000" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="扫描周期(秒)">
+          <el-input-number v-model="cacheConfig.hotToColdIntervalSeconds" :min="5" :max="600" @change="saveConfig" />
+        </el-form-item>
+        <el-form-item label="Qdrant URL" v-if="cacheConfig.coldVectorBackend === 'qdrant'">
+          <el-input v-model="cacheConfig.coldVectorQdrantURL" placeholder="http://127.0.0.1:6333" @blur="saveConfig" />
+        </el-form-item>
+        <el-form-item label="Qdrant API Key" v-if="cacheConfig.coldVectorBackend === 'qdrant'">
+          <el-input v-model="cacheConfig.coldVectorQdrantAPIKey" type="password" show-password @blur="saveConfig" />
+        </el-form-item>
+        <el-form-item label="Qdrant Collection" v-if="cacheConfig.coldVectorBackend === 'qdrant'">
+          <el-input v-model="cacheConfig.coldVectorQdrantCollection" @blur="saveConfig" />
+        </el-form-item>
+      </el-form>
+
+      <el-descriptions :column="2" border size="small" style="margin-top: 10px">
+        <el-descriptions-item label="在线状态">
+          <el-tag :type="vectorTierStats.enabled ? 'success' : 'warning'">
+            {{ vectorTierStats.enabled ? '已初始化' : '未初始化' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="活跃后端">{{ vectorTierStats.cold_vector_backend }}</el-descriptions-item>
+        <el-descriptions-item label="热层内存">{{ vectorTierStats.hot_memory_usage_percent.toFixed(2) }}%</el-descriptions-item>
+        <el-descriptions-item label="迁移计数">{{ vectorTierStats.migration_moved }} / 失败 {{ vectorTierStats.migration_failed }}</el-descriptions-item>
+        <el-descriptions-item label="回暖计数">{{ vectorTierStats.promote_success }} / 失败 {{ vectorTierStats.promote_failed }}</el-descriptions-item>
+        <el-descriptions-item label="状态信息">{{ vectorTierStats.message || '-' }}</el-descriptions-item>
+      </el-descriptions>
+
+      <div class="entries-toolbar" style="margin-top: 12px">
+        <div class="entries-toolbar-left">
+          <el-input v-model="promoteCacheKey" placeholder="输入 cache_key 手动回暖" style="width: 360px" />
+        </div>
+        <div class="entries-toolbar-right">
+          <el-button type="primary" :loading="tierPromoting" @click="promoteToHotTier">
+            手动回暖
+          </el-button>
+        </div>
+      </div>
+    </div>
+
     <div class="panel config-panel">
       <div class="panel-header">
         <div>
@@ -778,8 +862,11 @@ import {
   getCacheRules,
   getCacheStats,
   getVectorStats,
+  getVectorTierStats,
   getSemanticSignatures,
+  promoteVectorTierEntry,
   rebuildVectorIndex,
+  triggerVectorTierMigrate,
   getTtlConfig,
   updateCacheConfig,
   updateCacheRule,
@@ -866,7 +953,21 @@ const cacheConfig = reactive({
     weather: 0.95,
     qa: 0.93,
     chat: 0.92
-  } as Record<string, number>
+  } as Record<string, number>,
+  coldVectorEnabled: false,
+  coldVectorQueryEnabled: true,
+  coldVectorBackend: 'sqlite',
+  coldVectorDualWriteEnabled: false,
+  coldVectorSimilarityThreshold: 0.92,
+  coldVectorTopK: 1,
+  hotMemoryHighWatermarkPercent: 75,
+  hotMemoryReliefPercent: 65,
+  hotToColdBatchSize: 500,
+  hotToColdIntervalSeconds: 30,
+  coldVectorQdrantURL: '',
+  coldVectorQdrantAPIKey: '',
+  coldVectorQdrantCollection: 'ai_gateway_cold_vectors',
+  coldVectorQdrantTimeoutMs: 1500
 })
 
 const ttlTaskTypeList = ref<CacheTaskTTLItem[]>(
@@ -892,6 +993,28 @@ const vectorStats = reactive({
   key_prefix: '',
   dimension: 0,
   query_timeout_ms: 0,
+  message: ''
+})
+
+const tierStatsLoading = ref(false)
+const tierMigrating = ref(false)
+const tierPromoting = ref(false)
+const promoteCacheKey = ref('')
+const vectorTierStats = reactive({
+  enabled: false,
+  cold_vector_enabled: false,
+  cold_vector_query_enabled: false,
+  cold_vector_backend: 'sqlite',
+  cold_vector_dual_write_enabled: false,
+  hot_memory_usage_percent: 0,
+  hot_memory_high_watermark_percent: 75,
+  hot_memory_relief_percent: 65,
+  migration_runs: 0,
+  migration_moved: 0,
+  migration_failed: 0,
+  promote_success: 0,
+  promote_failed: 0,
+  cold_backends: {} as Record<string, any>,
   message: ''
 })
 
@@ -1165,7 +1288,8 @@ const refreshAllCache = async () => {
     loadCacheHealth(),
     loadCacheRules(),
     loadCacheEntries(),
-    loadVectorStats()
+    loadVectorStats(),
+    loadVectorTierStats()
   ])
   handleSuccess('缓存数据已刷新')
 }
@@ -1182,7 +1306,21 @@ const saveConfig = async () => {
       vector_enabled: cacheConfig.vectorEnabled,
       vector_dimension: cacheConfig.vectorDimension,
       vector_query_timeout_ms: cacheConfig.vectorQueryTimeoutMs,
-      vector_thresholds: cacheConfig.vectorThresholds
+      vector_thresholds: cacheConfig.vectorThresholds,
+      cold_vector_enabled: cacheConfig.coldVectorEnabled,
+      cold_vector_query_enabled: cacheConfig.coldVectorQueryEnabled,
+      cold_vector_backend: cacheConfig.coldVectorBackend,
+      cold_vector_dual_write_enabled: cacheConfig.coldVectorDualWriteEnabled,
+      cold_vector_similarity_threshold: cacheConfig.coldVectorSimilarityThreshold,
+      cold_vector_top_k: cacheConfig.coldVectorTopK,
+      hot_memory_high_watermark_percent: cacheConfig.hotMemoryHighWatermarkPercent,
+      hot_memory_relief_percent: cacheConfig.hotMemoryReliefPercent,
+      hot_to_cold_batch_size: cacheConfig.hotToColdBatchSize,
+      hot_to_cold_interval_seconds: cacheConfig.hotToColdIntervalSeconds,
+      cold_vector_qdrant_url: cacheConfig.coldVectorQdrantURL,
+      cold_vector_qdrant_api_key: cacheConfig.coldVectorQdrantAPIKey,
+      cold_vector_qdrant_collection: cacheConfig.coldVectorQdrantCollection,
+      cold_vector_qdrant_timeout_ms: cacheConfig.coldVectorQdrantTimeoutMs
     })
     handleSuccess('配置已保存')
   } catch (e) {
@@ -1408,6 +1546,33 @@ async function loadVectorStats() {
   }
 }
 
+async function loadVectorTierStats() {
+  tierStatsLoading.value = true
+  try {
+    const stats: any = await getVectorTierStats()
+    vectorTierStats.enabled = Boolean(stats?.enabled)
+    vectorTierStats.cold_vector_enabled = Boolean(stats?.cold_vector_enabled)
+    vectorTierStats.cold_vector_query_enabled = Boolean(stats?.cold_vector_query_enabled)
+    vectorTierStats.cold_vector_backend = stats?.cold_vector_backend || 'sqlite'
+    vectorTierStats.cold_vector_dual_write_enabled = Boolean(stats?.cold_vector_dual_write_enabled)
+    vectorTierStats.hot_memory_usage_percent = Number(stats?.hot_memory_usage_percent || 0)
+    vectorTierStats.hot_memory_high_watermark_percent = Number(stats?.hot_memory_high_watermark_percent || 75)
+    vectorTierStats.hot_memory_relief_percent = Number(stats?.hot_memory_relief_percent || 65)
+    vectorTierStats.migration_runs = Number(stats?.migration_runs || 0)
+    vectorTierStats.migration_moved = Number(stats?.migration_moved || 0)
+    vectorTierStats.migration_failed = Number(stats?.migration_failed || 0)
+    vectorTierStats.promote_success = Number(stats?.promote_success || 0)
+    vectorTierStats.promote_failed = Number(stats?.promote_failed || 0)
+    vectorTierStats.cold_backends = stats?.cold_backends || {}
+    vectorTierStats.message = stats?.message || ''
+  } catch (e) {
+    vectorTierStats.message = '获取分层状态失败'
+    console.warn('Failed to load vector tier stats:', e)
+  } finally {
+    tierStatsLoading.value = false
+  }
+}
+
 async function rebuildVectorCacheIndex() {
   vectorRebuilding.value = true
   try {
@@ -1418,6 +1583,38 @@ async function rebuildVectorCacheIndex() {
     handleApiError(e, '向量索引重建失败')
   } finally {
     vectorRebuilding.value = false
+  }
+}
+
+async function migrateHotToCold() {
+  tierMigrating.value = true
+  try {
+    await triggerVectorTierMigrate()
+    handleSuccess('冷热迁移任务执行完成')
+    await loadVectorTierStats()
+  } catch (e) {
+    handleApiError(e, '迁移失败')
+  } finally {
+    tierMigrating.value = false
+  }
+}
+
+async function promoteToHotTier() {
+  const cacheKey = promoteCacheKey.value.trim()
+  if (!cacheKey) {
+    ElMessage.warning('请输入 cache_key')
+    return
+  }
+  tierPromoting.value = true
+  try {
+    await promoteVectorTierEntry(cacheKey)
+    handleSuccess('回暖完成')
+    promoteCacheKey.value = ''
+    await loadVectorTierStats()
+  } catch (e) {
+    handleApiError(e, '回暖失败')
+  } finally {
+    tierPromoting.value = false
   }
 }
 
@@ -1437,6 +1634,20 @@ async function loadCacheConfig() {
       cacheConfig.vectorDimension = cfg.vector_dimension || cfg.vectorDimension || 1024
       cacheConfig.vectorQueryTimeoutMs = cfg.vector_query_timeout_ms || cfg.vectorQueryTimeoutMs || 1200
       cacheConfig.vectorThresholds = cfg.vector_thresholds || cfg.vectorThresholds || cacheConfig.vectorThresholds
+      cacheConfig.coldVectorEnabled = cfg.cold_vector_enabled ?? cfg.coldVectorEnabled ?? false
+      cacheConfig.coldVectorQueryEnabled = cfg.cold_vector_query_enabled ?? cfg.coldVectorQueryEnabled ?? true
+      cacheConfig.coldVectorBackend = cfg.cold_vector_backend || cfg.coldVectorBackend || 'sqlite'
+      cacheConfig.coldVectorDualWriteEnabled = cfg.cold_vector_dual_write_enabled ?? cfg.coldVectorDualWriteEnabled ?? false
+      cacheConfig.coldVectorSimilarityThreshold = cfg.cold_vector_similarity_threshold ?? cfg.coldVectorSimilarityThreshold ?? 0.92
+      cacheConfig.coldVectorTopK = cfg.cold_vector_top_k || cfg.coldVectorTopK || 1
+      cacheConfig.hotMemoryHighWatermarkPercent = cfg.hot_memory_high_watermark_percent || cfg.hotMemoryHighWatermarkPercent || 75
+      cacheConfig.hotMemoryReliefPercent = cfg.hot_memory_relief_percent || cfg.hotMemoryReliefPercent || 65
+      cacheConfig.hotToColdBatchSize = cfg.hot_to_cold_batch_size || cfg.hotToColdBatchSize || 500
+      cacheConfig.hotToColdIntervalSeconds = cfg.hot_to_cold_interval_seconds || cfg.hotToColdIntervalSeconds || 30
+      cacheConfig.coldVectorQdrantURL = cfg.cold_vector_qdrant_url || cfg.coldVectorQdrantURL || ''
+      cacheConfig.coldVectorQdrantAPIKey = cfg.cold_vector_qdrant_api_key || cfg.coldVectorQdrantAPIKey || ''
+      cacheConfig.coldVectorQdrantCollection = cfg.cold_vector_qdrant_collection || cfg.coldVectorQdrantCollection || 'ai_gateway_cold_vectors'
+      cacheConfig.coldVectorQdrantTimeoutMs = cfg.cold_vector_qdrant_timeout_ms || cfg.coldVectorQdrantTimeoutMs || 1500
 
       if (cfg.dedup) {
         dedupConfig.enabled = cfg.dedup.enabled ?? dedupConfig.enabled
@@ -1938,6 +2149,7 @@ onMounted(() => {
   loadCacheEntries()
   loadSemanticSignatures()
   loadVectorStats()
+  loadVectorTierStats()
 })
 
 onUnmounted(() => {

@@ -19,8 +19,11 @@ type VectorCacheDocument struct {
 	Model           string            `json:"model"`
 	QualityScore    float64           `json:"quality_score"`
 	CreateTS        int64             `json:"create_ts"`
+	LastHitTS       int64             `json:"last_hit_ts"`
 	ExpireTS        int64             `json:"expire_ts"`
 	TTLSec          int64             `json:"ttl_sec"`
+	Tier            string            `json:"tier"`
+	MigrateTS       int64             `json:"migrate_ts"`
 }
 
 // VectorSearchHit represents one vector recall result.
@@ -40,6 +43,41 @@ type VectorStoreStats struct {
 	KeyPrefix    string `json:"key_prefix"`
 	Dimension    int    `json:"dimension"`
 	QueryTimeout int64  `json:"query_timeout_ms"`
+}
+
+const (
+	VectorTierHot  = "hot"
+	VectorTierCold = "cold"
+)
+
+const (
+	ColdVectorBackendSQLite = "sqlite"
+	ColdVectorBackendQdrant = "qdrant"
+)
+
+// ColdVectorStoreStats captures backend specific metrics of cold tier stores.
+type ColdVectorStoreStats struct {
+	Backend    string `json:"backend"`
+	Available  bool   `json:"available"`
+	Entries    int64  `json:"entries"`
+	Collection string `json:"collection,omitempty"`
+	LastError  string `json:"last_error,omitempty"`
+}
+
+// ColdVectorStore abstracts cold tier vector storage.
+type ColdVectorStore interface {
+	EnsureSchema(ctx context.Context) error
+	Upsert(ctx context.Context, doc *VectorCacheDocument) error
+	VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]VectorSearchHit, error)
+	GetExact(ctx context.Context, cacheKey string) (*VectorCacheDocument, error)
+	Delete(ctx context.Context, cacheKey string) error
+	Stats(ctx context.Context) (ColdVectorStoreStats, error)
+}
+
+// HotVectorTierControl exposes hot-tier introspection required for migration worker.
+type HotVectorTierControl interface {
+	MemoryUsagePercent(ctx context.Context) (float64, error)
+	ListMigrationCandidates(ctx context.Context, batchSize int) ([]*VectorCacheDocument, error)
 }
 
 // VectorCacheStore abstracts vector cache operations.
@@ -73,4 +111,3 @@ func DefaultRedisStackVectorConfig() RedisStackVectorConfig {
 		QueryTimeout: 1500 * time.Millisecond,
 	}
 }
-

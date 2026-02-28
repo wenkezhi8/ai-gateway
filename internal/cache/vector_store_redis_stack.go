@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,7 @@ func (s *RedisStackVectorStore) EnsureIndex(ctx context.Context) error {
 		"$.intent", "AS", "intent", "TAG", "SORTABLE",
 		"$.task_type", "AS", "task_type", "TAG", "SORTABLE",
 		"$.create_ts", "AS", "create_ts", "NUMERIC", "SORTABLE",
+		"$.last_hit_ts", "AS", "last_hit_ts", "NUMERIC", "SORTABLE",
 		"$.expire_ts", "AS", "expire_ts", "NUMERIC", "SORTABLE",
 		"$.vector", "AS", "vector", "VECTOR", "HNSW", "12",
 		"TYPE", "FLOAT32",
@@ -223,6 +225,9 @@ func (s *RedisStackVectorStore) Upsert(ctx context.Context, doc *VectorCacheDocu
 	if doc.CreateTS <= 0 {
 		doc.CreateTS = now
 	}
+	if doc.LastHitTS <= 0 {
+		doc.LastHitTS = doc.CreateTS
+	}
 	if doc.TTLSec <= 0 {
 		doc.TTLSec = int64((24 * time.Hour).Seconds())
 	}
@@ -231,6 +236,9 @@ func (s *RedisStackVectorStore) Upsert(ctx context.Context, doc *VectorCacheDocu
 	}
 	if doc.Slots == nil {
 		doc.Slots = map[string]string{}
+	}
+	if strings.TrimSpace(doc.Tier) == "" {
+		doc.Tier = VectorTierHot
 	}
 
 	payload, err := json.Marshal(doc)
@@ -259,7 +267,12 @@ func (s *RedisStackVectorStore) TouchTTL(ctx context.Context, cacheKey string, t
 	if s == nil || s.exec == nil || !s.cfg.Enabled || ttlSec <= 0 {
 		return nil
 	}
-	return s.exec.Do(ctx, "EXPIRE", s.fullKey(cacheKey), strconv.FormatInt(ttlSec, 10)).Err()
+	key := s.fullKey(cacheKey)
+	if err := s.exec.Do(ctx, "EXPIRE", key, strconv.FormatInt(ttlSec, 10)).Err(); err != nil {
+		return err
+	}
+	_ = s.exec.Do(ctx, "JSON.SET", key, "$.last_hit_ts", strconv.FormatInt(time.Now().Unix(), 10)).Err()
+	return nil
 }
 
 func (s *RedisStackVectorStore) Stats(ctx context.Context) (VectorStoreStats, error) {
@@ -283,6 +296,123 @@ func (s *RedisStackVectorStore) Stats(ctx context.Context) (VectorStoreStats, er
 
 func (s *RedisStackVectorStore) fullKey(cacheKey string) string {
 	return strings.TrimRight(s.cfg.KeyPrefix, ":") + ":" + strings.TrimLeft(cacheKey, ":")
+}
+
+// MemoryUsagePercent returns Redis memory usage percentage by parsing INFO memory.
+func (s *RedisStackVectorStore) MemoryUsagePercent(ctx context.Context) (float64, error) {
+	if s == nil || s.exec == nil || !s.cfg.Enabled {
+		return 0, nil
+	}
+	infoRaw, err := s.exec.Do(ctx, "INFO", "memory").Result()
+	if err != nil {
+		return 0, fmt.Errorf("redis info memory: %w", err)
+	}
+	info := normalizeFieldValue(infoRaw)
+	var used, max float64
+	for _, line := range strings.Split(info, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "used_memory:") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "used_memory:"))
+			used, _ = strconv.ParseFloat(v, 64)
+			continue
+		}
+		if strings.HasPrefix(line, "maxmemory:") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "maxmemory:"))
+			max, _ = strconv.ParseFloat(v, 64)
+		}
+	}
+	if max <= 0 {
+		return 0, nil
+	}
+	return (used / max) * 100, nil
+}
+
+// ListMigrationCandidates scans hot keys and returns least-active docs first.
+func (s *RedisStackVectorStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*VectorCacheDocument, error) {
+	if s == nil || s.exec == nil || !s.cfg.Enabled {
+		return nil, nil
+	}
+	if batchSize <= 0 {
+		batchSize = 100
+	}
+
+	pattern := strings.TrimRight(s.cfg.KeyPrefix, ":") + ":*"
+	var (
+		cursor = "0"
+		keys   []string
+	)
+	for {
+		raw, err := s.exec.Do(ctx, "SCAN", cursor, "MATCH", pattern, "COUNT", strconv.Itoa(batchSize*2)).Result()
+		if err != nil {
+			return nil, fmt.Errorf("scan vector keys: %w", err)
+		}
+		items, ok := raw.([]any)
+		if !ok || len(items) != 2 {
+			break
+		}
+		cursor = normalizeFieldValue(items[0])
+		keyItems, _ := items[1].([]any)
+		for _, item := range keyItems {
+			key := normalizeFieldValue(item)
+			if key != "" {
+				keys = append(keys, key)
+			}
+		}
+		if cursor == "0" || len(keys) >= batchSize*4 {
+			break
+		}
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	docs := make([]*VectorCacheDocument, 0, len(keys))
+	for _, key := range keys {
+		raw, err := s.exec.Do(ctx, "JSON.GET", key, "$").Result()
+		if err != nil {
+			continue
+		}
+		payload := normalizeFieldValue(raw)
+		if strings.TrimSpace(payload) == "" {
+			continue
+		}
+		var wrapped []VectorCacheDocument
+		if err := json.Unmarshal([]byte(payload), &wrapped); err == nil && len(wrapped) > 0 {
+			d := wrapped[0]
+			if strings.TrimSpace(d.CacheKey) != "" && len(d.Vector) > 0 {
+				docs = append(docs, &d)
+			}
+			continue
+		}
+
+		var doc VectorCacheDocument
+		if err := json.Unmarshal([]byte(payload), &doc); err != nil {
+			continue
+		}
+		if strings.TrimSpace(doc.CacheKey) == "" || len(doc.Vector) == 0 {
+			continue
+		}
+		docs = append(docs, &doc)
+	}
+	if len(docs) == 0 {
+		return nil, nil
+	}
+
+	sort.Slice(docs, func(i, j int) bool {
+		left := docs[i].LastHitTS
+		right := docs[j].LastHitTS
+		if left <= 0 {
+			left = docs[i].CreateTS
+		}
+		if right <= 0 {
+			right = docs[j].CreateTS
+		}
+		return left < right
+	})
+	if len(docs) > batchSize {
+		docs = docs[:batchSize]
+	}
+	return docs, nil
 }
 
 func vectorToFloat32Blob(vec []float64) ([]byte, error) {
@@ -378,4 +508,3 @@ func escapeTagValue(v string) string {
 	)
 	return replacer.Replace(strings.TrimSpace(v))
 }
-

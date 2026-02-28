@@ -145,17 +145,31 @@ type CacheStatDetail struct {
 
 // CacheConfigRequest represents cache configuration update
 type CacheConfigRequest struct {
-	Enabled             *bool    `json:"enabled"`
-	Strategy            *string  `json:"strategy"`
-	SimilarityThreshold *float64 `json:"similarity_threshold"`
-	DefaultTTLSeconds   *int     `json:"default_ttl_seconds"`
-	MaxEntries          *int     `json:"max_entries"`
-	EvictionPolicy      *string  `json:"eviction_policy"`
-	VectorEnabled       *bool               `json:"vector_enabled"`
-	VectorDimension     *int                `json:"vector_dimension"`
-	VectorQueryTimeoutMs *int               `json:"vector_query_timeout_ms"`
-	VectorThresholds    map[string]float64  `json:"vector_thresholds"`
-	Dedup               *struct {
+	Enabled                       *bool              `json:"enabled"`
+	Strategy                      *string            `json:"strategy"`
+	SimilarityThreshold           *float64           `json:"similarity_threshold"`
+	DefaultTTLSeconds             *int               `json:"default_ttl_seconds"`
+	MaxEntries                    *int               `json:"max_entries"`
+	EvictionPolicy                *string            `json:"eviction_policy"`
+	VectorEnabled                 *bool              `json:"vector_enabled"`
+	VectorDimension               *int               `json:"vector_dimension"`
+	VectorQueryTimeoutMs          *int               `json:"vector_query_timeout_ms"`
+	VectorThresholds              map[string]float64 `json:"vector_thresholds"`
+	ColdVectorEnabled             *bool              `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled        *bool              `json:"cold_vector_query_enabled"`
+	ColdVectorBackend             *string            `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled    *bool              `json:"cold_vector_dual_write_enabled"`
+	ColdVectorSimilarityThreshold *float64           `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                *int               `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent *float64           `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent        *float64           `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize            *int               `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds      *int               `json:"hot_to_cold_interval_seconds"`
+	ColdVectorQdrantURL           *string            `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey        *string            `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection    *string            `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs     *int               `json:"cold_vector_qdrant_timeout_ms"`
+	Dedup                         *struct {
 		Enabled               *bool `json:"enabled"`
 		MaxPending            *int  `json:"max_pending"`
 		RequestTimeoutSeconds *int  `json:"request_timeout_seconds"`

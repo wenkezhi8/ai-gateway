@@ -311,6 +311,89 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		}
 		settings.VectorThresholds = thresholds
 	}
+	if req.ColdVectorEnabled != nil {
+		settings.ColdVectorEnabled = *req.ColdVectorEnabled
+	}
+	if req.ColdVectorQueryEnabled != nil {
+		settings.ColdVectorQueryEnabled = *req.ColdVectorQueryEnabled
+	}
+	if req.ColdVectorBackend != nil {
+		backend := strings.ToLower(strings.TrimSpace(*req.ColdVectorBackend))
+		if backend != cache.ColdVectorBackendSQLite && backend != cache.ColdVectorBackendQdrant {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_cold_backend",
+					"message": "cold_vector_backend must be sqlite or qdrant",
+				},
+			})
+			return
+		}
+		settings.ColdVectorBackend = backend
+	}
+	if req.ColdVectorDualWriteEnabled != nil {
+		settings.ColdVectorDualWriteEnabled = *req.ColdVectorDualWriteEnabled
+	}
+	if req.ColdVectorSimilarityThreshold != nil {
+		value := *req.ColdVectorSimilarityThreshold
+		if value > 1 {
+			value = value / 100
+		}
+		if value < 0 {
+			value = 0
+		}
+		if value > 1 {
+			value = 1
+		}
+		settings.ColdVectorSimilarityThreshold = value
+	}
+	if req.ColdVectorTopK != nil && *req.ColdVectorTopK > 0 {
+		settings.ColdVectorTopK = *req.ColdVectorTopK
+	}
+	if req.HotMemoryHighWatermarkPercent != nil {
+		value := *req.HotMemoryHighWatermarkPercent
+		if value < 1 {
+			value = 1
+		}
+		if value > 100 {
+			value = 100
+		}
+		settings.HotMemoryHighWatermarkPercent = value
+	}
+	if req.HotMemoryReliefPercent != nil {
+		value := *req.HotMemoryReliefPercent
+		if value < 1 {
+			value = 1
+		}
+		if value > 100 {
+			value = 100
+		}
+		settings.HotMemoryReliefPercent = value
+	}
+	if settings.HotMemoryReliefPercent >= settings.HotMemoryHighWatermarkPercent {
+		settings.HotMemoryReliefPercent = settings.HotMemoryHighWatermarkPercent - 5
+		if settings.HotMemoryReliefPercent < 1 {
+			settings.HotMemoryReliefPercent = 1
+		}
+	}
+	if req.HotToColdBatchSize != nil && *req.HotToColdBatchSize > 0 {
+		settings.HotToColdBatchSize = *req.HotToColdBatchSize
+	}
+	if req.HotToColdIntervalSeconds != nil && *req.HotToColdIntervalSeconds > 0 {
+		settings.HotToColdIntervalSeconds = *req.HotToColdIntervalSeconds
+	}
+	if req.ColdVectorQdrantURL != nil {
+		settings.ColdVectorQdrantURL = strings.TrimSpace(*req.ColdVectorQdrantURL)
+	}
+	if req.ColdVectorQdrantAPIKey != nil {
+		settings.ColdVectorQdrantAPIKey = strings.TrimSpace(*req.ColdVectorQdrantAPIKey)
+	}
+	if req.ColdVectorQdrantCollection != nil {
+		settings.ColdVectorQdrantCollection = strings.TrimSpace(*req.ColdVectorQdrantCollection)
+	}
+	if req.ColdVectorQdrantTimeoutMs != nil && *req.ColdVectorQdrantTimeoutMs > 0 {
+		settings.ColdVectorQdrantTimeoutMs = *req.ColdVectorQdrantTimeoutMs
+	}
 	if req.Dedup != nil {
 		if req.Dedup.Enabled != nil {
 			settings.Dedup.Enabled = *req.Dedup.Enabled
@@ -325,6 +408,17 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 
 	// Apply base cache settings
 	h.manager.UpdateSettings(settings)
+	if tiered := h.manager.GetTieredVectorStore(); tiered != nil {
+		tiered.UpdateConfig(cache.TieredConfigFromSettings(settings))
+		qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
+			URL:        settings.ColdVectorQdrantURL,
+			APIKey:     settings.ColdVectorQdrantAPIKey,
+			Collection: settings.ColdVectorQdrantCollection,
+			Timeout:    time.Duration(settings.ColdVectorQdrantTimeoutMs) * time.Millisecond,
+			Dimension:  settings.VectorDimension,
+		})
+		tiered.SetColdStore(cache.ColdVectorBackendQdrant, qdrantStore)
+	}
 
 	// Optional per-cache TTL overrides
 	if req.RequestTTL != nil && h.manager.RequestCache != nil {
@@ -344,6 +438,132 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		"data": gin.H{
 			"message": "Cache configuration updated",
 			"config":  settings,
+		},
+	})
+}
+
+// GetVectorTierStats returns hot/cold tier runtime stats.
+// GET /api/admin/cache/vector/tier/stats
+func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
+	store := h.manager.GetTieredVectorStore()
+	if store == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"enabled": false,
+				"message": "tiered vector store is not initialized",
+			},
+		})
+		return
+	}
+
+	stats, err := store.TierStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_tier_stats_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    stats,
+	})
+}
+
+// TriggerVectorTierMigrate triggers one hot->cold migration round.
+// POST /api/admin/cache/vector/tier/migrate
+func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
+	store := h.manager.GetTieredVectorStore()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_tier_unavailable",
+				"message": "tiered vector store is not initialized",
+			},
+		})
+		return
+	}
+
+	result, err := store.TriggerMigrate(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_tier_migrate_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+
+// PromoteVectorTierEntry promotes one cold cache document back into hot tier.
+// POST /api/admin/cache/vector/tier/promote
+func (h *CacheHandler) PromoteVectorTierEntry(c *gin.Context) {
+	store := h.manager.GetTieredVectorStore()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_tier_unavailable",
+				"message": "tiered vector store is not initialized",
+			},
+		})
+		return
+	}
+
+	var req struct {
+		CacheKey string `json:"cache_key"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+	req.CacheKey = strings.TrimSpace(req.CacheKey)
+	if req.CacheKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_cache_key",
+				"message": "cache_key is required",
+			},
+		})
+		return
+	}
+
+	if err := store.Promote(c.Request.Context(), req.CacheKey); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_tier_promote_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"cache_key": req.CacheKey,
+			"message":   "promotion completed",
 		},
 	})
 }

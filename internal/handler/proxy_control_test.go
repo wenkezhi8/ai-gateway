@@ -6,6 +6,9 @@ import (
 	"ai-gateway/internal/intent"
 	"ai-gateway/internal/routing"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -284,9 +287,9 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 		},
 	}
 	h.processCacheV2Write(context.Background(), &intent.IntentEmbeddingResult{
-		Intent:       "unknown",
-		StandardKey:  "intent:unknown",
-		Embedding:    []float64{0.1},
+		Intent:        "unknown",
+		StandardKey:   "intent:unknown",
+		Embedding:     []float64{0.1},
 		EngineVersion: "v1",
 	}, "openai", "gpt-4o-mini", routing.TaskTypeUnknown, resp)
 
@@ -295,11 +298,166 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 	}
 }
 
+type proxyTierHotStore struct {
+	upsertDocs []*cache.VectorCacheDocument
+}
+
+func (s *proxyTierHotStore) EnsureIndex(ctx context.Context) error  { return nil }
+func (s *proxyTierHotStore) RebuildIndex(ctx context.Context) error { return nil }
+func (s *proxyTierHotStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+	return nil, nil
+}
+func (s *proxyTierHotStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+	return nil, nil
+}
+func (s *proxyTierHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+	if doc != nil {
+		cp := *doc
+		s.upsertDocs = append(s.upsertDocs, &cp)
+	}
+	return nil
+}
+func (s *proxyTierHotStore) Delete(ctx context.Context, cacheKey string) error { return nil }
+func (s *proxyTierHotStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+	return nil
+}
+func (s *proxyTierHotStore) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+	return cache.VectorStoreStats{Enabled: true}, nil
+}
+func (s *proxyTierHotStore) MemoryUsagePercent(ctx context.Context) (float64, error) {
+	return 0, nil
+}
+func (s *proxyTierHotStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*cache.VectorCacheDocument, error) {
+	return nil, nil
+}
+
+type proxyTierColdStore struct {
+	doc  *cache.VectorCacheDocument
+	hits []cache.VectorSearchHit
+}
+
+func (s *proxyTierColdStore) EnsureSchema(ctx context.Context) error { return nil }
+func (s *proxyTierColdStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+	return nil
+}
+func (s *proxyTierColdStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+	return s.hits, nil
+}
+func (s *proxyTierColdStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+	if s.doc != nil && s.doc.CacheKey == cacheKey {
+		return s.doc, nil
+	}
+	return nil, nil
+}
+func (s *proxyTierColdStore) Delete(ctx context.Context, cacheKey string) error { return nil }
+func (s *proxyTierColdStore) Stats(ctx context.Context) (cache.ColdVectorStoreStats, error) {
+	return cache.ColdVectorStoreStats{Backend: cache.ColdVectorBackendSQLite, Available: true}, nil
+}
+
+func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
+	intentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/intent-embed" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"intent":          "qa",
+			"slots":           map[string]string{},
+			"standard_key":    "intent:qa:key=cache-hot-miss",
+			"embedding":       []float64{0.1, 0.2},
+			"embedding_dim":   2,
+			"confidence":      0.99,
+			"engine_version":  "test",
+			"normalized_text": "什么是缓存",
+		})
+	}))
+	defer intentServer.Close()
+
+	hot := &proxyTierHotStore{}
+	coldDoc := &cache.VectorCacheDocument{
+		CacheKey: "intent:qa:key=cache-cold-hit",
+		Intent:   "qa",
+		Vector:   []float64{0.1, 0.2},
+		Response: map[string]any{
+			"choices": []map[string]any{
+				{
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "这是冷层命中的缓存回答",
+					},
+				},
+			},
+		},
+		TTLSec: 3600,
+	}
+	responseRaw, _ := json.Marshal(coldDoc.Response)
+	cold := &proxyTierColdStore{
+		doc: coldDoc,
+		hits: []cache.VectorSearchHit{
+			{
+				CacheKey:   coldDoc.CacheKey,
+				Intent:     "qa",
+				Similarity: 0.96,
+				Response:   responseRaw,
+			},
+		},
+	}
+	tiered := cache.NewTieredVectorStore(hot, map[string]cache.ColdVectorStore{
+		cache.ColdVectorBackendSQLite: cold,
+	}, cache.TieredVectorStoreConfig{
+		ColdVectorEnabled:             true,
+		ColdVectorQueryEnabled:        true,
+		ColdVectorBackend:             cache.ColdVectorBackendSQLite,
+		ColdVectorSimilarityThreshold: 0.95,
+	})
+
+	h := &ProxyHandler{
+		intentClient: intent.NewClient(intent.Config{
+			Enabled:           true,
+			BaseURL:           intentServer.URL,
+			Timeout:           300 * time.Millisecond,
+			ExpectedDimension: 2,
+		}),
+		vectorStore:    tiered,
+		textNormalizer: cache.NewTextNormalizer(),
+	}
+
+	settings := cache.DefaultCacheSettings()
+	settings.VectorEnabled = true
+	intentResult, payload, hit, layer, key := h.processCacheV2Read(context.Background(), "什么是缓存", "", settings)
+	if intentResult == nil {
+		t.Fatal("expected intent result")
+	}
+	if !hit {
+		t.Fatal("expected cold tier hit")
+	}
+	if layer != "vector-semantic" {
+		t.Fatalf("expected vector-semantic layer, got %s", layer)
+	}
+	if key != coldDoc.CacheKey {
+		t.Fatalf("expected hit key %s, got %s", coldDoc.CacheKey, key)
+	}
+	if len(payload) == 0 {
+		t.Fatal("expected cached payload from cold hit")
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(hot.upsertDocs) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(hot.upsertDocs) == 0 {
+		t.Fatal("expected cold hit to promote document back to hot tier")
+	}
+}
+
 type mockVectorStoreForProxy struct {
 	upsertCalled bool
 }
 
-func (m *mockVectorStoreForProxy) EnsureIndex(ctx context.Context) error { return nil }
+func (m *mockVectorStoreForProxy) EnsureIndex(ctx context.Context) error  { return nil }
 func (m *mockVectorStoreForProxy) RebuildIndex(ctx context.Context) error { return nil }
 func (m *mockVectorStoreForProxy) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
 	return nil, nil

@@ -221,17 +221,47 @@ func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager 
 			vectorCfg.Dimension = cfg.VectorCache.Dimension
 			vectorCfg.QueryTimeout = time.Duration(cfg.VectorCache.QueryTimeoutMs) * time.Millisecond
 
-			vectorStore := cache.NewRedisStackVectorStoreFromRedisCache(rc, vectorCfg)
-			cacheManager.SetVectorStore(vectorStore)
-			if err := vectorStore.EnsureIndex(context.Background()); err != nil {
+			hotStore := cache.NewRedisStackVectorStoreFromRedisCache(rc, vectorCfg)
+			if err := hotStore.EnsureIndex(context.Background()); err != nil {
 				logger.WithError(err).Warn("Failed to ensure Redis Stack vector index, vector cache disabled")
 				cacheManager.SetVectorStore(nil)
-			} else {
-				logger.WithFields(logrus.Fields{
-					"index":     vectorCfg.IndexName,
-					"dimension": vectorCfg.Dimension,
-				}).Info("Redis Stack vector cache initialized")
+				return cacheManager
 			}
+
+			coldStores := map[string]cache.ColdVectorStore{}
+			sqliteStore, err := cache.NewSQLiteColdVectorStore(cache.SQLiteColdVectorStoreConfig{
+				Path: cfg.VectorCache.ColdVectorSQLitePath,
+			})
+			if err != nil {
+				logger.WithError(err).Warn("Failed to initialize sqlite cold vector store")
+			} else {
+				coldStores[cache.ColdVectorBackendSQLite] = sqliteStore
+			}
+
+			qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
+				URL:        cfg.VectorCache.ColdVectorQdrantURL,
+				APIKey:     cfg.VectorCache.ColdVectorQdrantAPIKey,
+				Collection: cfg.VectorCache.ColdVectorQdrantCollection,
+				Timeout:    time.Duration(cfg.VectorCache.ColdVectorQdrantTimeoutMs) * time.Millisecond,
+				Dimension:  cfg.VectorCache.Dimension,
+			})
+			coldStores[cache.ColdVectorBackendQdrant] = qdrantStore
+
+			tieredCfg := cache.TieredConfigFromSettings(cacheManager.GetSettings())
+			tieredStore := cache.NewTieredVectorStore(hotStore, coldStores, tieredCfg)
+			_ = tieredStore.EnsureIndex(context.Background())
+			tieredStore.StartHotToColdWorker(context.Background())
+			cacheManager.SetTieredVectorStore(tieredStore)
+
+			logger.WithFields(logrus.Fields{
+				"index":         vectorCfg.IndexName,
+				"dimension":     vectorCfg.Dimension,
+				"cold_enabled":  tieredCfg.ColdVectorEnabled,
+				"cold_backend":  tieredCfg.ColdVectorBackend,
+				"cold_dual":     tieredCfg.ColdVectorDualWriteEnabled,
+				"cold_query":    tieredCfg.ColdVectorQueryEnabled,
+				"hot_watermark": tieredCfg.HotMemoryHighWatermarkPercent,
+			}).Info("Redis vector tier cache initialized")
 		}
 	}
 
@@ -247,6 +277,20 @@ func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Confi
 	settings.VectorEnabled = cfg.VectorCache.Enabled
 	settings.VectorDimension = cfg.VectorCache.Dimension
 	settings.VectorQueryTimeoutMs = cfg.VectorCache.QueryTimeoutMs
+	settings.ColdVectorEnabled = cfg.VectorCache.ColdVectorEnabled
+	settings.ColdVectorQueryEnabled = cfg.VectorCache.ColdVectorQueryEnabled
+	settings.ColdVectorBackend = cfg.VectorCache.ColdVectorBackend
+	settings.ColdVectorDualWriteEnabled = cfg.VectorCache.ColdVectorDualWriteEnabled
+	settings.ColdVectorSimilarityThreshold = cfg.VectorCache.ColdVectorSimilarityThreshold
+	settings.ColdVectorTopK = cfg.VectorCache.ColdVectorTopK
+	settings.HotMemoryHighWatermarkPercent = cfg.VectorCache.HotMemoryHighWatermarkPercent
+	settings.HotMemoryReliefPercent = cfg.VectorCache.HotMemoryReliefPercent
+	settings.HotToColdBatchSize = cfg.VectorCache.HotToColdBatchSize
+	settings.HotToColdIntervalSeconds = cfg.VectorCache.HotToColdIntervalSeconds
+	settings.ColdVectorQdrantURL = cfg.VectorCache.ColdVectorQdrantURL
+	settings.ColdVectorQdrantAPIKey = cfg.VectorCache.ColdVectorQdrantAPIKey
+	settings.ColdVectorQdrantCollection = cfg.VectorCache.ColdVectorQdrantCollection
+	settings.ColdVectorQdrantTimeoutMs = cfg.VectorCache.ColdVectorQdrantTimeoutMs
 	if len(cfg.VectorCache.Thresholds) > 0 {
 		settings.VectorThresholds = make(map[string]float64, len(cfg.VectorCache.Thresholds))
 		for k, v := range cfg.VectorCache.Thresholds {
