@@ -46,9 +46,16 @@ describe('pages static config extraction', () => {
   it('should remove hardcoded model defaults from stores', () => {
     const modelsStoreFile = readFileSync(join(process.cwd(), 'src/store/models.ts'), 'utf-8')
     const chatStoreFile = readFileSync(join(process.cwd(), 'src/store/chat.ts'), 'utf-8')
+    const chatConstantsFile = readFileSync(join(process.cwd(), 'src/constants/store/chat.ts'), 'utf-8')
+    const modelConstantsFile = readFileSync(join(process.cwd(), 'src/constants/store/models.ts'), 'utf-8')
 
     expect(modelsStoreFile).not.toContain('const defaultModels: Model[] = [')
     expect(chatStoreFile).not.toContain('const DEFAULT_PROVIDERS: ProviderConfig[] = [')
+    expect(chatConstantsFile).not.toContain('CHAT_DEFAULT_PROVIDERS: ProviderConfig[] = [')
+    expect(modelConstantsFile).not.toContain('STORE_DEFAULT_MODELS: DefaultModel[] = [')
+    expect(chatStoreFile).not.toContain('PROVIDERS.value = [...DEFAULT_PROVIDERS]')
+    expect(chatStoreFile).not.toContain('PROVIDERS.value = DEFAULT_PROVIDERS.filter')
+    expect(modelsStoreFile).not.toContain('models.value = [...defaultModels]')
   })
 
   it('should remove duplicated task type option blocks from cache view', () => {

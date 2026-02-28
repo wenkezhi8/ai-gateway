@@ -5,18 +5,15 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { ChatMessage, Conversation, ProviderConfig } from '@/types/chat'
 import { createConversation } from '@/types/chat'
-import { request } from '@/api/request'
-import { API } from '@/constants/api'
+import { getRouterModels } from '@/api/routing-domain'
+import { getAdminAccounts, getAdminProviderConfigs, getPublicProvidersConfig } from '@/api/chat-domain'
 import { useModelLabels } from '@/composables/useModelLabels'
-import { CHAT_DEFAULT_MODEL, CHAT_DEFAULT_PROVIDER, CHAT_DEFAULT_PROVIDERS } from '@/constants/store/chat'
+import { CHAT_PROVIDER_VISUALS, CHAT_PROVIDER_VISUAL_FALLBACK } from '@/constants/store/chat'
 
 const { fetchModelLabels, resetLabels, getModelLabel } = useModelLabels()
 
-/** Default providers configuration (fallback) - must be defined before first use */
-const DEFAULT_PROVIDERS: ProviderConfig[] = CHAT_DEFAULT_PROVIDERS.map(provider => ({ ...provider, models: [...provider.models] }))
-
 /** Dynamic providers (reactive) */
-export const PROVIDERS = ref<ProviderConfig[]>([...DEFAULT_PROVIDERS])
+export const PROVIDERS = ref<ProviderConfig[]>([])
 
 // Re-export getModelLabel from composable for compatibility
 export { getModelLabel }
@@ -56,43 +53,71 @@ function sortModelsNewestFirst(models: string[]): string[] {
   })
 }
 
+function getProviderVisual(providerId: string) {
+  return CHAT_PROVIDER_VISUALS[providerId] || {
+    ...CHAT_PROVIDER_VISUAL_FALLBACK,
+    label: providerId || CHAT_PROVIDER_VISUAL_FALLBACK.label
+  }
+}
+
+function buildProviderConfig(
+  providerId: string,
+  models: string[],
+  overrides?: { label?: string; color?: string }
+): ProviderConfig {
+  const visual = getProviderVisual(providerId)
+  return {
+    label: overrides?.label || visual.label,
+    value: providerId,
+    color: overrides?.color || visual.color,
+    logo: visual.logo,
+    models: sortModelsNewestFirst(models)
+  }
+}
+
+function normalizeRouterModels(data: unknown): Array<{ model: string; provider: string; enabled: boolean }> {
+  if (Array.isArray(data)) {
+    return data.map((item: any) => ({
+      model: String(item?.model || ''),
+      provider: String(item?.provider || ''),
+      enabled: item?.enabled !== false
+    }))
+  }
+
+  if (data && typeof data === 'object') {
+    return Object.entries(data as Record<string, any>).map(([model, item]) => ({
+      model,
+      provider: String(item?.provider || ''),
+      enabled: item?.enabled !== false
+    }))
+  }
+
+  return []
+}
+
 /** Load providers from public API (works without authentication) */
 export async function loadProvidersFromPublicAPI(): Promise<boolean> {
   try {
-    const response = await fetch(API.V1.CONFIG_PROVIDERS)
-    if (!response.ok) {
-      return false
-    }
-    const data = await response.json()
-    
-    if (!data.success || !data.data?.providers) {
-      return false
-    }
-    
+    const providerRecords = await getPublicProvidersConfig()
     const providers: ProviderConfig[] = []
-    for (const p of data.data.providers as Array<{name: string; enabled: boolean; models: string[]}>) {
+    for (const p of providerRecords) {
       if (p.enabled && p.models && p.models.length > 0) {
-        const defaultConfig = DEFAULT_PROVIDERS.find(dp => dp.value === p.name)
-        providers.push({
-          label: defaultConfig?.label || p.name,
-          value: p.name,
-          color: defaultConfig?.color || '#909399',
-          logo: defaultConfig?.logo || `/logos/${p.name}.svg`,
-          models: sortModelsNewestFirst(p.models)
-        })
+        providers.push(buildProviderConfig(p.name, p.models))
       }
     }
-    
+
     if (providers.length > 0) {
       PROVIDERS.value = providers
-
       // Public API doesn't provide display_name; reset to identity mapping.
       resetLabels()
       return true
     }
+
+    PROVIDERS.value = []
     return false
   } catch (e) {
     console.error('Failed to load providers from public API:', e)
+    PROVIDERS.value = []
     return false
   }
 }
@@ -102,70 +127,48 @@ export async function loadProvidersFromAdminAPI(): Promise<boolean> {
   try {
     // Fetch model labels using composable
     await fetchModelLabels()
-    
+
     const [configsRes, modelsRes, accountsRes] = await Promise.all([
-      request.get<{ success: boolean; data: Array<{ value: string; label: string; color: string; base_url: string; is_openai_compatible: boolean }> }>('/admin/providers/configs', { silent: true } as any),
-      request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any),
-      request.get<{ success: boolean; data: Array<{ id: string; provider: string; enabled: boolean }> }>('/admin/accounts', { silent: true } as any)
+      getAdminProviderConfigs(),
+      getRouterModels(),
+      getAdminAccounts()
     ])
-    
+
     const enabledProviders = new Set<string>()
-    if ((accountsRes as any).success && (accountsRes as any).data) {
-      for (const acc of (accountsRes as any).data) {
-        if (acc.enabled) {
-          enabledProviders.add(acc.provider)
-        }
+    for (const acc of accountsRes) {
+      if (acc.enabled) {
+        enabledProviders.add(acc.provider)
       }
     }
-    
+
     const providerConfigs: Map<string, { label: string; color: string }> = new Map()
-    if ((configsRes as any).success && (configsRes as any).data) {
-      for (const p of (configsRes as any).data) {
-        providerConfigs.set(p.value, { label: p.label, color: p.color })
-      }
+    for (const p of configsRes) {
+      providerConfigs.set(p.value, { label: p.label, color: p.color })
     }
-    
+
     const modelsByProvider: Record<string, string[]> = {}
-    if ((modelsRes as any).success && (modelsRes as any).data) {
-      for (const m of (modelsRes as any).data) {
-        if (m.enabled && m.model && enabledProviders.has(m.provider)) {
-          if (!modelsByProvider[m.provider]) {
-            modelsByProvider[m.provider] = []
-          }
-          const providerModels = modelsByProvider[m.provider]
-          if (providerModels && !providerModels.includes(m.model)) {
-            providerModels.push(m.model)
-          }
+    for (const m of normalizeRouterModels(modelsRes)) {
+      if (m.enabled && m.model && enabledProviders.has(m.provider)) {
+        if (!modelsByProvider[m.provider]) {
+          modelsByProvider[m.provider] = []
+        }
+        const providerModels = modelsByProvider[m.provider]
+        if (providerModels && !providerModels.includes(m.model)) {
+          providerModels.push(m.model)
         }
       }
     }
-    
+
     const providers: ProviderConfig[] = []
-    
     for (const [providerId, models] of Object.entries(modelsByProvider)) {
-      const config = providerConfigs.get(providerId)
-      const defaultConfig = DEFAULT_PROVIDERS.find(p => p.value === providerId)
-      providers.push({
-        label: config?.label || providerId,
-        value: providerId,
-        color: config?.color || '#909399',
-        logo: defaultConfig?.logo || `/logos/${providerId}.svg`,
-        models: sortModelsNewestFirst(models)
-      })
+      providers.push(buildProviderConfig(providerId, models, providerConfigs.get(providerId)))
     }
-    
-    if (providers.length === 0) {
-      PROVIDERS.value = DEFAULT_PROVIDERS.filter(p => enabledProviders.has(p.value))
-    } else {
-      PROVIDERS.value = providers
-    }
-    
-    if (PROVIDERS.value.length === 0) {
-      PROVIDERS.value = [...DEFAULT_PROVIDERS]
-    }
-    return true
+
+    PROVIDERS.value = providers
+    return providers.length > 0
   } catch (e) {
     console.error('Failed to load providers from admin API:', e)
+    PROVIDERS.value = []
     return false
   }
 }
@@ -173,16 +176,16 @@ export async function loadProvidersFromAdminAPI(): Promise<boolean> {
 /** Load providers from backend API */
 export async function loadProvidersFromAPI(): Promise<void> {
   const token = localStorage.getItem('token')
-  
+
   if (token) {
     const success = await loadProvidersFromAdminAPI()
     if (success) return
   }
-  
+
   const success = await loadProvidersFromPublicAPI()
   if (!success) {
-    console.warn('Using default providers as fallback')
-    PROVIDERS.value = [...DEFAULT_PROVIDERS]
+    console.warn('No providers returned from API')
+    PROVIDERS.value = []
   }
 }
 
@@ -200,6 +203,17 @@ export function getModelsForProvider(provider: string): string[] {
 /** Get provider config by value */
 export function getProviderConfig(provider: string): ProviderConfig | undefined {
   return PROVIDERS.value.find(p => p.value === provider)
+}
+
+function resolveDefaultConversationTarget(): { provider: string; model: string } {
+  const firstProvider = PROVIDERS.value[0]
+  if (!firstProvider) {
+    return { provider: '', model: '' }
+  }
+  return {
+    provider: firstProvider.value,
+    model: firstProvider.models[0] || ''
+  }
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -222,8 +236,11 @@ export const useChatStore = defineStore('chat', () => {
   // Actions
 
   /** Create a new conversation */
-  function createNewConversation(provider: string = CHAT_DEFAULT_PROVIDER, model: string = CHAT_DEFAULT_MODEL): Conversation {
-    const conversation = createConversation(provider, model)
+  function createNewConversation(provider: string = '', model: string = ''): Conversation {
+    const fallback = resolveDefaultConversationTarget()
+    const nextProvider = provider || fallback.provider
+    const nextModel = model || getModelsForProvider(nextProvider)[0] || fallback.model
+    const conversation = createConversation(nextProvider, nextModel)
     conversations.value.unshift(conversation)
     currentConversationId.value = conversation.id
     saveConversations()

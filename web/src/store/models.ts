@@ -2,7 +2,8 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { ElMessage } from 'element-plus'
-import { STORE_DEFAULT_MODELS } from '@/constants/store/models'
+import { getRouterModels } from '@/api/routing-domain'
+import { MODEL_FORM_DEFAULTS } from '@/constants/store/models'
 
 export interface Model {
   id: string
@@ -27,9 +28,34 @@ export interface ModelConfig {
   presencePenalty?: number
 }
 
-const MODEL_STORAGE_KEY = 'ai-gateway-models-config'
+function normalizeRemoteModels(payload: unknown): Model[] {
+  const source = Array.isArray(payload)
+    ? payload
+    : Object.entries((payload || {}) as Record<string, any>).map(([model, data]) => ({
+      model,
+      ...data
+    }))
 
-const defaultModels: Model[] = STORE_DEFAULT_MODELS.map(model => ({ ...model }))
+  return source
+    .map((item: any) => {
+      const modelId = String(item?.model || item?.id || '')
+      if (!modelId) return null
+      return {
+        id: modelId,
+        name: item?.display_name || item?.name || modelId,
+        provider: String(item?.provider || 'unknown'),
+        type: (item?.type || MODEL_FORM_DEFAULTS.type) as Model['type'],
+        enabled: item?.enabled !== false,
+        maxTokens: Number(item?.max_tokens ?? item?.maxTokens ?? MODEL_FORM_DEFAULTS.maxTokens),
+        inputPrice: Number(item?.input_price ?? item?.inputPrice ?? MODEL_FORM_DEFAULTS.inputPrice),
+        outputPrice: Number(item?.output_price ?? item?.outputPrice ?? MODEL_FORM_DEFAULTS.outputPrice),
+        description: item?.description || undefined,
+        createdAt: item?.created_at || item?.createdAt,
+        updatedAt: item?.updated_at || item?.updatedAt
+      } satisfies Model
+    })
+    .filter((item): item is Model => item !== null)
+}
 
 export const useModelsStore = defineStore('models', () => {
   const models = ref<Model[]>([])
@@ -67,41 +93,16 @@ export const useModelsStore = defineStore('models', () => {
   const chatModels = computed(() => enabledModels.value.filter(m => m.type === 'chat'))
   const embeddingModels = computed(() => enabledModels.value.filter(m => m.type === 'embedding'))
 
-  const loadFromStorage = () => {
-    try {
-      const saved = localStorage.getItem(MODEL_STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        const merged = defaultModels.map(m => {
-          const savedModel = parsed.find((s: Model) => s.id === m.id)
-          return savedModel ? { ...m, ...savedModel } : m
-        })
-        const newModels = parsed.filter((s: Model) => !defaultModels.find(m => m.id === s.id))
-        models.value = [...merged, ...newModels]
-        return
-      }
-    } catch (e) {
-      console.error('Failed to load models from storage:', e)
-    }
-    models.value = [...defaultModels]
-  }
-
-  const saveToStorage = () => {
-    try {
-      localStorage.setItem(MODEL_STORAGE_KEY, JSON.stringify(models.value))
-    } catch (e) {
-      console.error('Failed to save models to storage:', e)
-    }
-  }
-
   const fetchModels = async () => {
     loading.value = true
     error.value = null
     try {
-      loadFromStorage()
+      const payload = await getRouterModels()
+      models.value = normalizeRemoteModels(payload)
       lastFetchTime.value = Date.now()
       return models.value
     } catch (e: any) {
+      models.value = []
       error.value = e
       throw e
     } finally {
@@ -115,16 +116,15 @@ export const useModelsStore = defineStore('models', () => {
       const newModel: Model = {
         id: data.id || `model-${Date.now()}`,
         name: data.name || '',
-        provider: data.provider || 'openai',
-        type: data.type || 'chat',
-        enabled: data.enabled ?? true,
-        maxTokens: data.maxTokens || 4096,
-        inputPrice: data.inputPrice || 0,
-        outputPrice: data.outputPrice || 0,
+        provider: data.provider || 'unknown',
+        type: data.type || MODEL_FORM_DEFAULTS.type,
+        enabled: data.enabled ?? MODEL_FORM_DEFAULTS.enabled,
+        maxTokens: data.maxTokens || MODEL_FORM_DEFAULTS.maxTokens,
+        inputPrice: data.inputPrice || MODEL_FORM_DEFAULTS.inputPrice,
+        outputPrice: data.outputPrice || MODEL_FORM_DEFAULTS.outputPrice,
         description: data.description || undefined
       }
       models.value.push(newModel)
-      saveToStorage()
       ElMessage.success('模型添加成功')
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
       return true
@@ -147,7 +147,6 @@ export const useModelsStore = defineStore('models', () => {
           ...data,
           description: data.description !== undefined ? data.description : existing.description
         }
-        saveToStorage()
         ElMessage.success('模型更新成功')
         eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
         return true
@@ -168,7 +167,6 @@ export const useModelsStore = defineStore('models', () => {
       const index = models.value.findIndex(m => m.id === id)
       if (index >= 0) {
         models.value.splice(index, 1)
-        saveToStorage()
         ElMessage.success('模型删除成功')
         eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
         return true
@@ -187,7 +185,6 @@ export const useModelsStore = defineStore('models', () => {
     const model = models.value.find(m => m.id === id)
     if (model) {
       model.enabled = enabled
-      saveToStorage()
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
       return true
     }
@@ -231,8 +228,6 @@ export const useModelsStore = defineStore('models', () => {
     findById,
     findByProvider,
     getEnabledModelsByProvider,
-    calculateCost,
-    loadFromStorage,
-    saveToStorage
+    calculateCost
   }
 })
