@@ -66,6 +66,12 @@
               <el-switch v-model="settings.enableAnimation" />
             </el-form-item>
           </el-form>
+
+          <div class="sync-status">
+            <el-icon v-if="syncStatusMap[activeSection]?.syncing" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="syncStatusMap[activeSection]?.lastSyncAt"><Check /></el-icon>
+            <span>{{ getSyncStatusText(activeSection) }}</span>
+          </div>
         </el-card>
 
         <!-- 网关配置 -->
@@ -107,6 +113,12 @@
               />
             </el-form-item>
           </el-form>
+
+          <div class="sync-status">
+            <el-icon v-if="syncStatusMap[activeSection]?.syncing" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="syncStatusMap[activeSection]?.lastSyncAt"><Check /></el-icon>
+            <span>{{ getSyncStatusText(activeSection) }}</span>
+          </div>
         </el-card>
 
         <!-- 缓存配置 -->
@@ -164,6 +176,12 @@
               <el-input-number v-model="settings.cache.redis.db" :min="0" :max="15" :disabled="settings.cache.type !== 'redis'" />
             </el-form-item>
           </el-form>
+
+          <div class="sync-status">
+            <el-icon v-if="syncStatusMap[activeSection]?.syncing" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="syncStatusMap[activeSection]?.lastSyncAt"><Check /></el-icon>
+            <span>{{ getSyncStatusText(activeSection) }}</span>
+          </div>
         </el-card>
 
         <!-- 日志配置 -->
@@ -213,6 +231,12 @@
               <span class="form-hint">天</span>
             </el-form-item>
           </el-form>
+
+          <div class="sync-status">
+            <el-icon v-if="syncStatusMap[activeSection]?.syncing" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="syncStatusMap[activeSection]?.lastSyncAt"><Check /></el-icon>
+            <span>{{ getSyncStatusText(activeSection) }}</span>
+          </div>
         </el-card>
 
         <!-- 安全配置 -->
@@ -255,6 +279,12 @@
               />
             </el-form-item>
           </el-form>
+
+          <div class="sync-status">
+            <el-icon v-if="syncStatusMap[activeSection]?.syncing" class="is-loading"><Loading /></el-icon>
+            <el-icon v-else-if="syncStatusMap[activeSection]?.lastSyncAt"><Check /></el-icon>
+            <span>{{ getSyncStatusText(activeSection) }}</span>
+          </div>
         </el-card>
 
         <!-- 关于 -->
@@ -309,6 +339,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Loading, Check } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS, createSettingsDefaults } from '@/constants/pages/settings'
@@ -322,6 +353,34 @@ const settingsMenu = [...SETTINGS_MENU_ITEMS]
 const themeColors = [...THEME_COLOR_OPTIONS]
 
 const settings = reactive(createSettingsDefaults())
+
+interface SyncStatus {
+  syncing: boolean
+  lastSyncAt: string | null
+  error: string | null
+}
+
+const syncStatusMap = reactive<Record<string, SyncStatus>>({
+  appearance: { syncing: false, lastSyncAt: null, error: null },
+  gateway: { syncing: false, lastSyncAt: null, error: null },
+  cache: { syncing: false, lastSyncAt: null, error: null },
+  logging: { syncing: false, lastSyncAt: null, error: null },
+  security: { syncing: false, lastSyncAt: null, error: null }
+})
+
+function formatSyncTime(isoString: string): string {
+  const date = new Date(isoString)
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+function getSyncStatusText(section: string): string {
+  const status = syncStatusMap[section]
+  if (!status) return ''
+  if (status.syncing) return '同步中...'
+  if (status.error) return `同步失败: ${status.error}`
+  if (status.lastSyncAt) return `最后同步: ${formatSyncTime(status.lastSyncAt)}`
+  return ''
+}
 
 const handleThemeChange = (theme: string) => {
   setTheme(theme as 'light' | 'dark' | 'auto')
@@ -538,5 +597,29 @@ const saveSettings = async () => {
     gap: var(--spacing-md);
     padding-top: var(--spacing-xl);
   }
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-color);
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+
+  .el-icon {
+    font-size: 14px;
+  }
+
+  .is-loading {
+    animation: spin 1s linear infinite;
+  }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>
