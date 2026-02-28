@@ -26,6 +26,10 @@ type CacheSettings struct {
 	DefaultTTLSeconds    int           `json:"default_ttl_seconds"`
 	MaxEntries           int           `json:"max_entries"`
 	EvictionPolicy       string        `json:"eviction_policy"`
+	VectorEnabled        bool          `json:"vector_enabled"`
+	VectorDimension      int           `json:"vector_dimension"`
+	VectorQueryTimeoutMs int           `json:"vector_query_timeout_ms"`
+	VectorThresholds     map[string]float64 `json:"vector_thresholds"`
 	Dedup                DedupSettings `json:"dedup"`
 }
 
@@ -38,6 +42,16 @@ func DefaultCacheSettings() CacheSettings {
 		DefaultTTLSeconds:   int((30 * time.Minute).Seconds()),
 		MaxEntries:          10000,
 		EvictionPolicy:      "lru",
+		VectorEnabled:       false,
+		VectorDimension:     1024,
+		VectorQueryTimeoutMs: 1200,
+		VectorThresholds: map[string]float64{
+			"calc":      0.97,
+			"translate": 0.96,
+			"weather":   0.95,
+			"qa":        0.93,
+			"chat":      0.92,
+		},
 		Dedup: DedupSettings{
 			Enabled:              true,
 			MaxPending:           1000,

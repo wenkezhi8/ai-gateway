@@ -31,5 +31,33 @@
     "rate": 100,
     "burst": 200,
     "per_user": true
+  },
+  "intent_engine": {
+    "enabled": false,
+    "base_url": "http://127.0.0.1:18566",
+    "timeout_ms": 1500,
+    "language": "zh-CN",
+    "expected_dimension": 1024
+  },
+  "vector_cache": {
+    "enabled": true,
+    "index_name": "idx_ai_cache_v2",
+    "key_prefix": "ai:v2:cache:",
+    "dimension": 1024,
+    "query_timeout_ms": 1200,
+    "thresholds": {
+      "calc": 0.97,
+      "translate": 0.96,
+      "weather": 0.95,
+      "qa": 0.93,
+      "chat": 0.92
+    },
+    "ttl_seconds": {
+      "calc": 2592000,
+      "translate": 1209600,
+      "weather": 1800,
+      "qa": 86400,
+      "chat": 43200
+    }
   }
 }

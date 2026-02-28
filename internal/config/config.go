@@ -11,12 +11,14 @@ import (
 
 // Config holds all configuration for the AI Gateway
 type Config struct {
-	Server    ServerConfig     `json:"server"`
-	Redis     RedisConfig      `json:"redis"`
-	Database  DatabaseConfig   `json:"database"`
-	Providers []ProviderConfig `json:"providers"`
-	Limiter   LimiterConfig    `json:"limiter"`
-	Accounts  []AccountConfig  `json:"accounts"`
+	Server       ServerConfig       `json:"server"`
+	Redis        RedisConfig        `json:"redis"`
+	Database     DatabaseConfig     `json:"database"`
+	Providers    []ProviderConfig   `json:"providers"`
+	Limiter      LimiterConfig      `json:"limiter"`
+	Accounts     []AccountConfig    `json:"accounts"`
+	IntentEngine IntentEngineConfig `json:"intent_engine"`
+	VectorCache  VectorCacheConfig  `json:"vector_cache"`
 }
 
 // ServerConfig holds HTTP server configuration
@@ -70,6 +72,26 @@ type AccountConfig struct {
 	Limits   map[string]LimitConfig `json:"limits"`
 }
 
+// IntentEngineConfig holds local intent+embedding engine configuration.
+type IntentEngineConfig struct {
+	Enabled           bool   `json:"enabled"`
+	BaseURL           string `json:"base_url"`
+	TimeoutMs         int    `json:"timeout_ms"`
+	Language          string `json:"language"`
+	ExpectedDimension int    `json:"expected_dimension"`
+}
+
+// VectorCacheConfig holds Redis Stack vector cache configuration.
+type VectorCacheConfig struct {
+	Enabled        bool               `json:"enabled"`
+	IndexName      string             `json:"index_name"`
+	KeyPrefix      string             `json:"key_prefix"`
+	Dimension      int                `json:"dimension"`
+	QueryTimeoutMs int                `json:"query_timeout_ms"`
+	Thresholds     map[string]float64 `json:"thresholds"`
+	TTLSeconds     map[string]int64   `json:"ttl_seconds"`
+}
+
 // LimitConfig holds a single limit configuration
 type LimitConfig struct {
 	Type    string  `json:"type"`    // token, rpm, concurrent
@@ -104,6 +126,34 @@ func DefaultConfig() *Config {
 			CheckIntervalMs:  5000,
 		},
 		Accounts: []AccountConfig{},
+		IntentEngine: IntentEngineConfig{
+			Enabled:           false,
+			BaseURL:           "http://127.0.0.1:18566",
+			TimeoutMs:         1500,
+			Language:          "zh-CN",
+			ExpectedDimension: 1024,
+		},
+		VectorCache: VectorCacheConfig{
+			Enabled:        true,
+			IndexName:      "idx_ai_cache_v2",
+			KeyPrefix:      "ai:v2:cache:",
+			Dimension:      1024,
+			QueryTimeoutMs: 1200,
+			Thresholds: map[string]float64{
+				"calc":      0.97,
+				"translate": 0.96,
+				"weather":   0.95,
+				"qa":        0.93,
+				"chat":      0.92,
+			},
+			TTLSeconds: map[string]int64{
+				"calc":      30 * 24 * 3600,
+				"translate": 14 * 24 * 3600,
+				"weather":   30 * 60,
+				"qa":        24 * 3600,
+				"chat":      12 * 3600,
+			},
+		},
 	}
 }
 
@@ -155,6 +205,48 @@ func Load() (*Config, error) {
 	if redisDB := os.Getenv("REDIS_DB"); redisDB != "" {
 		if d, err := strconv.Atoi(redisDB); err == nil {
 			cfg.Redis.DB = d
+		}
+	}
+
+	// Intent engine configuration
+	if enabled := os.Getenv("INTENT_ENGINE_ENABLED"); enabled != "" {
+		cfg.IntentEngine.Enabled = parseBool(enabled)
+	}
+	if baseURL := os.Getenv("INTENT_ENGINE_BASE_URL"); baseURL != "" {
+		cfg.IntentEngine.BaseURL = baseURL
+	}
+	if timeout := os.Getenv("INTENT_ENGINE_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.IntentEngine.TimeoutMs = v
+		}
+	}
+	if language := os.Getenv("INTENT_ENGINE_LANGUAGE"); language != "" {
+		cfg.IntentEngine.Language = language
+	}
+	if dim := os.Getenv("INTENT_ENGINE_EXPECTED_DIMENSION"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.IntentEngine.ExpectedDimension = v
+		}
+	}
+
+	// Vector cache configuration
+	if enabled := os.Getenv("VECTOR_CACHE_ENABLED"); enabled != "" {
+		cfg.VectorCache.Enabled = parseBool(enabled)
+	}
+	if indexName := os.Getenv("VECTOR_CACHE_INDEX_NAME"); indexName != "" {
+		cfg.VectorCache.IndexName = indexName
+	}
+	if keyPrefix := os.Getenv("VECTOR_CACHE_KEY_PREFIX"); keyPrefix != "" {
+		cfg.VectorCache.KeyPrefix = keyPrefix
+	}
+	if dim := os.Getenv("VECTOR_CACHE_DIMENSION"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.VectorCache.Dimension = v
+		}
+	}
+	if timeout := os.Getenv("VECTOR_CACHE_QUERY_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.VectorCache.QueryTimeoutMs = v
 		}
 	}
 
@@ -360,7 +452,37 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.IntentEngine.Enabled {
+		if strings.TrimSpace(c.IntentEngine.BaseURL) == "" {
+			return &ValidationError{Field: "intent_engine.base_url", Message: "base_url is required when intent_engine is enabled"}
+		}
+		if c.IntentEngine.TimeoutMs <= 0 {
+			return &ValidationError{Field: "intent_engine.timeout_ms", Message: "timeout_ms must be positive"}
+		}
+	}
+
+	if c.VectorCache.Enabled {
+		if strings.TrimSpace(c.VectorCache.IndexName) == "" {
+			return &ValidationError{Field: "vector_cache.index_name", Message: "index_name is required when vector_cache is enabled"}
+		}
+		if strings.TrimSpace(c.VectorCache.KeyPrefix) == "" {
+			return &ValidationError{Field: "vector_cache.key_prefix", Message: "key_prefix is required when vector_cache is enabled"}
+		}
+		if c.VectorCache.Dimension <= 0 {
+			return &ValidationError{Field: "vector_cache.dimension", Message: "dimension must be positive"}
+		}
+	}
+
 	return nil
+}
+
+func parseBool(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidationError represents a configuration validation error

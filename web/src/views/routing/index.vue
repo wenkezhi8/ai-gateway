@@ -266,6 +266,49 @@
               <el-descriptions-item label="控制字段缺失">{{ classifierStats.control_fields_missing }}</el-descriptions-item>
             </el-descriptions>
 
+            <el-divider content-position="left">Intent Engine（本地意图+向量）</el-divider>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="启用">
+                  <el-switch v-model="intentEngineConfig.enabled" active-text="开启" inactive-text="关闭" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="语言">
+                  <el-input v-model="intentEngineConfig.language" placeholder="zh-CN" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="24">
+              <el-col :span="12">
+                <el-form-item label="服务地址">
+                  <el-input v-model="intentEngineConfig.base_url" placeholder="http://127.0.0.1:18566" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="超时(ms)">
+                  <el-input-number v-model="intentEngineConfig.timeout_ms" :min="100" :max="10000" :step="100" style="width: 140px" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="6">
+                <el-form-item label="向量维度">
+                  <el-input-number v-model="intentEngineConfig.expected_dimension" :min="64" :max="4096" :step="64" style="width: 140px" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="12" style="margin-bottom: 12px">
+              <el-col :span="24">
+                <el-button type="primary" :loading="intentEngineSaving" @click="saveIntentEngineConfigData">保存 Intent Engine</el-button>
+                <el-button @click="loadIntentEngineHealthData">健康检查</el-button>
+              </el-col>
+            </el-row>
+            <el-alert
+              :title="`Intent Engine: ${intentEngineHealth.message || 'unknown'} (延迟 ${formatDuration(intentEngineHealth.latency_ms)})`"
+              :type="intentEngineHealth.healthy ? 'success' : 'warning'"
+              :closable="false"
+              style="margin-bottom: 16px"
+            />
+
             <!-- 任务类型模型映射 -->
             <el-divider content-position="left">任务类型模型映射</el-divider>
             <el-alert type="info" :closable="false" style="margin-bottom: 16px">
@@ -490,6 +533,8 @@ import {
   getClassifierStats,
   getClassifierSwitchTask,
   getFeedbackStats,
+  getIntentEngineConfig,
+  getIntentEngineHealth,
   getOllamaStatus,
   getRouterConfig,
   getRouterModels,
@@ -502,6 +547,7 @@ import {
   stopOllama as stopOllamaApi,
   switchClassifierModelAsync,
   triggerFeedbackOptimization,
+  updateIntentEngineConfig,
   updateModelScore,
   updateRouterConfig
 } from '@/api/routing-domain'
@@ -543,6 +589,7 @@ const autoSaveEnabled = ref(false) // FIX: 自动保存开关
 const lastSavedAt = ref<string | null>(null) // FIX: 最近保存时间
 const isMappingReady = ref(false) // FIX: 防止初始化阶段触发自动保存
 const classifierSaving = ref(false)
+const intentEngineSaving = ref(false)
 const classifierSwitching = ref(false)
 const classifierModelsLoading = ref(false)
 const classifierSwitchModel = ref('')
@@ -572,6 +619,20 @@ const classifierStats = reactive({
   avg_control_latency_ms: 0,
   parse_errors: 0,
   control_fields_missing: 0
+})
+
+const intentEngineConfig = reactive({
+  enabled: false,
+  base_url: 'http://127.0.0.1:18566',
+  timeout_ms: 1500,
+  language: 'zh-CN',
+  expected_dimension: 1024
+})
+
+const intentEngineHealth = reactive({
+  healthy: false,
+  latency_ms: 0,
+  message: '未检查'
 })
 
 const ollamaSetup = reactive({
@@ -898,6 +959,53 @@ async function loadClassifierStats() {
   }
 }
 
+async function loadIntentEngineConfigData() {
+  try {
+    const data: any = await getIntentEngineConfig()
+    if (!data) return
+    intentEngineConfig.enabled = Boolean(data.enabled)
+    intentEngineConfig.base_url = data.base_url || intentEngineConfig.base_url
+    intentEngineConfig.timeout_ms = Number(data.timeout_ms || intentEngineConfig.timeout_ms)
+    intentEngineConfig.language = data.language || intentEngineConfig.language
+    intentEngineConfig.expected_dimension = Number(data.expected_dimension || intentEngineConfig.expected_dimension)
+  } catch (e) {
+    console.warn('Failed to load intent engine config:', e)
+  }
+}
+
+async function loadIntentEngineHealthData() {
+  try {
+    const data: any = await getIntentEngineHealth()
+    intentEngineHealth.healthy = Boolean(data?.healthy)
+    intentEngineHealth.latency_ms = Number(data?.latency_ms || 0)
+    intentEngineHealth.message = data?.message || (data?.healthy ? 'ok' : 'not ready')
+  } catch (e) {
+    intentEngineHealth.healthy = false
+    intentEngineHealth.latency_ms = 0
+    intentEngineHealth.message = '检查失败'
+    console.warn('Failed to load intent engine health:', e)
+  }
+}
+
+async function saveIntentEngineConfigData() {
+  intentEngineSaving.value = true
+  try {
+    await updateIntentEngineConfig({
+      enabled: intentEngineConfig.enabled,
+      base_url: intentEngineConfig.base_url,
+      timeout_ms: Number(intentEngineConfig.timeout_ms || 1500),
+      language: intentEngineConfig.language,
+      expected_dimension: Number(intentEngineConfig.expected_dimension || 1024)
+    })
+    handleSuccess('Intent Engine 配置已保存')
+    await loadIntentEngineHealthData()
+  } catch (e) {
+    handleApiError(e, '保存 Intent Engine 配置失败')
+  } finally {
+    intentEngineSaving.value = false
+  }
+}
+
 async function loadOllamaSetupStatus() {
   ollamaRefreshing.value = true
   try {
@@ -1156,6 +1264,8 @@ onMounted(async () => {
   loadClassifierHealth()
   loadClassifierStats()
   loadClassifierModels()
+  loadIntentEngineConfigData()
+  loadIntentEngineHealthData()
   loadOllamaSetupStatus()
   if (!ollamaStatusPollTimer) {
     ollamaStatusPollTimer = window.setInterval(loadOllamaSetupStatus, ollamaStatusPollIntervalMs)

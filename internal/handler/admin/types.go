@@ -151,6 +151,10 @@ type CacheConfigRequest struct {
 	DefaultTTLSeconds   *int     `json:"default_ttl_seconds"`
 	MaxEntries          *int     `json:"max_entries"`
 	EvictionPolicy      *string  `json:"eviction_policy"`
+	VectorEnabled       *bool               `json:"vector_enabled"`
+	VectorDimension     *int                `json:"vector_dimension"`
+	VectorQueryTimeoutMs *int               `json:"vector_query_timeout_ms"`
+	VectorThresholds    map[string]float64  `json:"vector_thresholds"`
 	Dedup               *struct {
 		Enabled               *bool `json:"enabled"`
 		MaxPending            *int  `json:"max_pending"`

@@ -66,6 +66,21 @@ export async function getClassifierSwitchTask(taskPath: string) {
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
+export async function getIntentEngineConfig() {
+  const raw = await request.get('/admin/router/intent-engine/config')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function updateIntentEngineConfig(payload: Record<string, unknown>) {
+  const raw = await request.put('/admin/router/intent-engine/config', payload)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function getIntentEngineHealth() {
+  const raw = await request.get('/admin/router/intent-engine/health')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
 export async function getOllamaStatus(model: string) {
   const raw = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
   return unwrapEnvelope<any>(raw, { allowPlain: true })

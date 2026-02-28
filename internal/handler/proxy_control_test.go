@@ -1,7 +1,11 @@
 package handler
 
 import (
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/config"
+	"ai-gateway/internal/intent"
 	"ai-gateway/internal/routing"
+	"context"
 	"testing"
 	"time"
 )
@@ -227,6 +231,92 @@ func TestBuildControlHeaders(t *testing.T) {
 	if len(headers) != 0 {
 		t.Fatalf("expected no headers when control disabled, got %#v", headers)
 	}
+}
+
+func TestIntentThreshold(t *testing.T) {
+	h := &ProxyHandler{}
+	settings := cache.CacheSettings{
+		SimilarityThreshold: 0.92,
+		VectorThresholds: map[string]float64{
+			"calc": 0.97,
+		},
+	}
+	if got := h.intentThreshold("calc", settings); got != 0.97 {
+		t.Fatalf("expected intent-specific threshold, got %v", got)
+	}
+	if got := h.intentThreshold("qa", settings); got != 0.92 {
+		t.Fatalf("expected fallback threshold, got %v", got)
+	}
+}
+
+func TestIntentTTLSeconds(t *testing.T) {
+	h := &ProxyHandler{
+		config: &config.Config{
+			VectorCache: config.VectorCacheConfig{
+				TTLSeconds: map[string]int64{
+					"calc": 2592000,
+				},
+			},
+		},
+	}
+	result := &intent.IntentEmbeddingResult{Intent: "calc"}
+	if got := h.intentTTLSeconds(result); got != 2592000 {
+		t.Fatalf("expected configured ttl, got %d", got)
+	}
+}
+
+func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
+	store := &mockVectorStoreForProxy{}
+	h := &ProxyHandler{
+		config: &config.Config{},
+		intentClient: intent.NewClient(intent.Config{
+			Enabled: true,
+			BaseURL: "http://127.0.0.1:18566",
+			Timeout: 100 * time.Millisecond,
+		}),
+		vectorStore: store,
+	}
+	resp := ChatCompletionResponse{
+		Choices: []Choice{
+			{
+				Message: &ChatMessage{Role: "assistant", Content: "ok"},
+			},
+		},
+	}
+	h.processCacheV2Write(context.Background(), &intent.IntentEmbeddingResult{
+		Intent:       "unknown",
+		StandardKey:  "intent:unknown",
+		Embedding:    []float64{0.1},
+		EngineVersion: "v1",
+	}, "openai", "gpt-4o-mini", routing.TaskTypeUnknown, resp)
+
+	if store.upsertCalled {
+		t.Fatal("expected unknown intent to skip vector cache write")
+	}
+}
+
+type mockVectorStoreForProxy struct {
+	upsertCalled bool
+}
+
+func (m *mockVectorStoreForProxy) EnsureIndex(ctx context.Context) error { return nil }
+func (m *mockVectorStoreForProxy) RebuildIndex(ctx context.Context) error { return nil }
+func (m *mockVectorStoreForProxy) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+	return nil, nil
+}
+func (m *mockVectorStoreForProxy) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+	return nil, nil
+}
+func (m *mockVectorStoreForProxy) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+	m.upsertCalled = true
+	return nil
+}
+func (m *mockVectorStoreForProxy) Delete(ctx context.Context, cacheKey string) error { return nil }
+func (m *mockVectorStoreForProxy) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+	return nil
+}
+func (m *mockVectorStoreForProxy) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+	return cache.VectorStoreStats{}, nil
 }
 
 func boolPtr(v bool) *bool {

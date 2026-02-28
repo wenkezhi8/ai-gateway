@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,7 @@ type RouterHandler struct {
 	nowFn           func() time.Time
 	sleepFn         func(time.Duration)
 	probeSwitchFn   func(targetModel, originalModel string) error
+	intentEngineCfg IntentEngineConfig
 }
 
 // NewRouterHandler creates a new router handler
@@ -38,11 +41,13 @@ func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 	h := &RouterHandler{
 		router:          router,
 		switchTaskStore: taskStore,
+		intentEngineCfg: defaultIntentEngineConfig(),
 	}
 	h.nowFn = time.Now
 	h.sleepFn = time.Sleep
 	h.probeSwitchFn = h.probeAndApplyClassifierSwitch
 	h.loadConfig()
+	h.loadIntentEngineConfig()
 	return h
 }
 
@@ -93,6 +98,15 @@ type UpdateModelScoreRequest struct {
 	Enabled      bool   `json:"enabled"`
 }
 
+// IntentEngineConfig represents local intent-engine runtime config.
+type IntentEngineConfig struct {
+	Enabled           bool   `json:"enabled"`
+	BaseURL           string `json:"base_url"`
+	TimeoutMs         int    `json:"timeout_ms"`
+	Language          string `json:"language"`
+	ExpectedDimension int    `json:"expected_dimension"`
+}
+
 // PersistedRouterConfig is the structure stored for UI routing mode selection
 type PersistedRouterConfig struct {
 	UseAutoMode     string                   `json:"use_auto_mode"`
@@ -103,6 +117,7 @@ type PersistedRouterConfig struct {
 
 const routerUIConfigFile = constants.RouterUIConfigFilePath
 const routerConfigFile = constants.RouterConfigFilePath
+const intentEngineConfigFile = constants.IntentEngineConfigFilePath
 
 var persistedConfig *PersistedRouterConfig
 
@@ -252,6 +267,58 @@ func containsModel(models []string, model string) bool {
 		}
 	}
 	return false
+}
+
+func defaultIntentEngineConfig() IntentEngineConfig {
+	return IntentEngineConfig{
+		Enabled:           false,
+		BaseURL:           "http://127.0.0.1:18566",
+		TimeoutMs:         1500,
+		Language:          "zh-CN",
+		ExpectedDimension: 1024,
+	}
+}
+
+func (h *RouterHandler) loadIntentEngineConfig() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	cfg := defaultIntentEngineConfig()
+	data, err := os.ReadFile(intentEngineConfigFile)
+	if err == nil && len(data) > 0 {
+		var persisted IntentEngineConfig
+		if json.Unmarshal(data, &persisted) == nil {
+			if strings.TrimSpace(persisted.BaseURL) != "" {
+				cfg.BaseURL = strings.TrimSpace(persisted.BaseURL)
+			}
+			if persisted.TimeoutMs > 0 {
+				cfg.TimeoutMs = persisted.TimeoutMs
+			}
+			if strings.TrimSpace(persisted.Language) != "" {
+				cfg.Language = strings.TrimSpace(persisted.Language)
+			}
+			if persisted.ExpectedDimension > 0 {
+				cfg.ExpectedDimension = persisted.ExpectedDimension
+			}
+			cfg.Enabled = persisted.Enabled
+		}
+	}
+	h.intentEngineCfg = cfg
+}
+
+func (h *RouterHandler) saveIntentEngineConfig() error {
+	h.mu.RLock()
+	cfg := h.intentEngineCfg
+	h.mu.RUnlock()
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(intentEngineConfigFile), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(intentEngineConfigFile, data, 0644)
 }
 
 func (h *RouterHandler) migrateLegacyRouterConfig() {
@@ -448,6 +515,153 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "Router configuration updated",
+	})
+}
+
+type UpdateIntentEngineConfigRequest struct {
+	Enabled           *bool   `json:"enabled"`
+	BaseURL           *string `json:"base_url"`
+	TimeoutMs         *int    `json:"timeout_ms"`
+	Language          *string `json:"language"`
+	ExpectedDimension *int    `json:"expected_dimension"`
+}
+
+// GetIntentEngineConfig returns local intent-engine configuration.
+// GET /api/admin/router/intent-engine/config
+func (h *RouterHandler) GetIntentEngineConfig(c *gin.Context) {
+	h.mu.RLock()
+	cfg := h.intentEngineCfg
+	h.mu.RUnlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    cfg,
+	})
+}
+
+// UpdateIntentEngineConfig updates local intent-engine configuration.
+// PUT /api/admin/router/intent-engine/config
+func (h *RouterHandler) UpdateIntentEngineConfig(c *gin.Context) {
+	var req UpdateIntentEngineConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	h.mu.Lock()
+	if req.Enabled != nil {
+		h.intentEngineCfg.Enabled = *req.Enabled
+	}
+	if req.BaseURL != nil && strings.TrimSpace(*req.BaseURL) != "" {
+		h.intentEngineCfg.BaseURL = strings.TrimSpace(*req.BaseURL)
+	}
+	if req.TimeoutMs != nil && *req.TimeoutMs > 0 {
+		h.intentEngineCfg.TimeoutMs = *req.TimeoutMs
+	}
+	if req.Language != nil && strings.TrimSpace(*req.Language) != "" {
+		h.intentEngineCfg.Language = strings.TrimSpace(*req.Language)
+	}
+	if req.ExpectedDimension != nil && *req.ExpectedDimension > 0 {
+		h.intentEngineCfg.ExpectedDimension = *req.ExpectedDimension
+	}
+	h.mu.Unlock()
+
+	if err := h.saveIntentEngineConfig(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "save_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "intent engine config updated",
+	})
+}
+
+// GetIntentEngineHealth probes local intent-engine health endpoint.
+// GET /api/admin/router/intent-engine/health
+func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
+	h.mu.RLock()
+	cfg := h.intentEngineCfg
+	h.mu.RUnlock()
+
+	if !cfg.Enabled {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"enabled": false,
+				"healthy": false,
+				"message": "intent engine disabled",
+			},
+		})
+		return
+	}
+
+	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 1500 * time.Millisecond
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.BaseURL, "/")+"/health", nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{"code": "request_build_failed", "message": err.Error()},
+		})
+		return
+	}
+
+	start := time.Now()
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"enabled":    true,
+				"healthy":    false,
+				"latency_ms": time.Since(start).Milliseconds(),
+				"message":    err.Error(),
+			},
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	payload := gin.H{
+		"enabled":    true,
+		"healthy":    resp.StatusCode >= 200 && resp.StatusCode < 300,
+		"status":     resp.StatusCode,
+		"latency_ms": time.Since(start).Milliseconds(),
+	}
+	if len(body) > 0 {
+		var parsed map[string]any
+		if err := json.Unmarshal(body, &parsed); err == nil {
+			for k, v := range parsed {
+				payload[k] = v
+			}
+		} else {
+			payload["raw"] = strings.TrimSpace(string(body))
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    payload,
 	})
 }
 

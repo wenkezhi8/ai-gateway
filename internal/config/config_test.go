@@ -22,6 +22,9 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, cfg.Limiter.Enabled)
 	assert.Equal(t, 100, cfg.Limiter.Rate)
 	assert.Equal(t, 200, cfg.Limiter.Burst)
+	assert.False(t, cfg.IntentEngine.Enabled)
+	assert.True(t, cfg.VectorCache.Enabled)
+	assert.Equal(t, 1024, cfg.VectorCache.Dimension)
 }
 
 func TestConfig_Fields(t *testing.T) {
@@ -48,6 +51,17 @@ func TestConfig_Fields(t *testing.T) {
 			Burst:   100,
 			PerUser: true,
 		},
+		IntentEngine: IntentEngineConfig{
+			Enabled:   true,
+			BaseURL:   "http://127.0.0.1:18566",
+			TimeoutMs: 1500,
+			Language:  "zh-CN",
+		},
+		VectorCache: VectorCacheConfig{
+			Enabled:        true,
+			Dimension:      1024,
+			QueryTimeoutMs: 1200,
+		},
 	}
 
 	assert.Equal(t, "9090", cfg.Server.Port)
@@ -55,6 +69,8 @@ func TestConfig_Fields(t *testing.T) {
 	assert.Equal(t, 1, cfg.Redis.DB)
 	assert.Len(t, cfg.Providers, 1)
 	assert.Equal(t, 50, cfg.Limiter.Rate)
+	assert.True(t, cfg.IntentEngine.Enabled)
+	assert.Equal(t, 1024, cfg.VectorCache.Dimension)
 }
 
 func TestLoad_NoFile(t *testing.T) {
@@ -119,15 +135,24 @@ func TestLoad_EnvOverride(t *testing.T) {
 	originalPort := os.Getenv("SERVER_PORT")
 	originalMode := os.Getenv("GIN_MODE")
 	originalRedis := os.Getenv("REDIS_HOST")
+	originalIntentEnabled := os.Getenv("INTENT_ENGINE_ENABLED")
+	originalIntentURL := os.Getenv("INTENT_ENGINE_BASE_URL")
+	originalVectorDim := os.Getenv("VECTOR_CACHE_DIMENSION")
 	defer func() {
 		os.Setenv("SERVER_PORT", originalPort)
 		os.Setenv("GIN_MODE", originalMode)
 		os.Setenv("REDIS_HOST", originalRedis)
+		os.Setenv("INTENT_ENGINE_ENABLED", originalIntentEnabled)
+		os.Setenv("INTENT_ENGINE_BASE_URL", originalIntentURL)
+		os.Setenv("VECTOR_CACHE_DIMENSION", originalVectorDim)
 	}()
 
 	os.Setenv("SERVER_PORT", "5000")
 	os.Setenv("GIN_MODE", "test")
 	os.Setenv("REDIS_HOST", "env.redis.com")
+	os.Setenv("INTENT_ENGINE_ENABLED", "true")
+	os.Setenv("INTENT_ENGINE_BASE_URL", "http://localhost:18566")
+	os.Setenv("VECTOR_CACHE_DIMENSION", "768")
 
 	cfg, err := Load()
 	require.NoError(t, err)
@@ -135,6 +160,9 @@ func TestLoad_EnvOverride(t *testing.T) {
 	assert.Equal(t, "5000", cfg.Server.Port)
 	assert.Equal(t, "test", cfg.Server.Mode)
 	assert.Equal(t, "env.redis.com", cfg.Redis.Host)
+	assert.True(t, cfg.IntentEngine.Enabled)
+	assert.Equal(t, "http://localhost:18566", cfg.IntentEngine.BaseURL)
+	assert.Equal(t, 768, cfg.VectorCache.Dimension)
 }
 
 func TestServerConfig_Fields(t *testing.T) {

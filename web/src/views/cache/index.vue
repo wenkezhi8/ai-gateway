@@ -145,6 +145,33 @@
       </el-table>
     </div>
 
+    <div class="panel signature-section">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">向量索引状态</div>
+          <div class="panel-subtitle">Redis Stack 向量索引健康、维度与检索超时参数</div>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <el-button link type="primary" @click="loadVectorStats">刷新</el-button>
+          <el-button type="warning" size="small" plain :loading="vectorRebuilding" @click="rebuildVectorCacheIndex">
+            重建索引
+          </el-button>
+        </div>
+      </div>
+      <el-descriptions :column="2" border size="small">
+        <el-descriptions-item label="向量启用">
+          <el-tag :type="vectorStats.enabled ? 'success' : 'info'">{{ vectorStats.enabled ? '已启用' : '未启用' }}</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="索引名">{{ vectorStats.index_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="键前缀">{{ vectorStats.key_prefix || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="向量维度">{{ vectorStats.dimension || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="查询超时">{{ vectorStats.query_timeout_ms || 0 }} ms</el-descriptions-item>
+        <el-descriptions-item label="状态">
+          <el-tag :type="vectorStats.enabled ? 'success' : 'warning'">{{ vectorStats.message || (vectorStats.enabled ? 'ready' : 'disabled') }}</el-tag>
+        </el-descriptions-item>
+      </el-descriptions>
+    </div>
+
     <div class="panel config-panel">
       <div class="panel-header">
         <div>
@@ -750,7 +777,9 @@ import {
   getCacheHealth,
   getCacheRules,
   getCacheStats,
+  getVectorStats,
   getSemanticSignatures,
+  rebuildVectorIndex,
   getTtlConfig,
   updateCacheConfig,
   updateCacheRule,
@@ -809,6 +838,7 @@ const hotCachePageSize = ref(10)
 const hotCacheTotal = ref(100)
 const cacheDetail = ref<CacheTypeDetail | null>(null)
 let detailChart: echarts.ECharts | null = null
+const vectorRebuilding = ref(false)
 
 const overallStats = reactive({
   hitRate: 0,
@@ -826,7 +856,17 @@ const cacheConfig = reactive({
   similarityThreshold: 92,
   defaultTTLSeconds: 1800,
   maxEntries: 10000,
-  evictionPolicy: 'lru'
+  evictionPolicy: 'lru',
+  vectorEnabled: false,
+  vectorDimension: 1024,
+  vectorQueryTimeoutMs: 1200,
+  vectorThresholds: {
+    calc: 0.97,
+    translate: 0.96,
+    weather: 0.95,
+    qa: 0.93,
+    chat: 0.92
+  } as Record<string, number>
 })
 
 const ttlTaskTypeList = ref<CacheTaskTTLItem[]>(
@@ -844,6 +884,15 @@ const cacheBackend = reactive({
   persistent: false,
   degraded: false,
   reason: ''
+})
+
+const vectorStats = reactive({
+  enabled: false,
+  index_name: '',
+  key_prefix: '',
+  dimension: 0,
+  query_timeout_ms: 0,
+  message: ''
 })
 
 const dedupConfig = reactive({
@@ -1115,7 +1164,8 @@ const refreshAllCache = async () => {
     loadTTLConfig(),
     loadCacheHealth(),
     loadCacheRules(),
-    loadCacheEntries()
+    loadCacheEntries(),
+    loadVectorStats()
   ])
   handleSuccess('缓存数据已刷新')
 }
@@ -1128,7 +1178,11 @@ const saveConfig = async () => {
       similarity_threshold: cacheConfig.similarityThreshold / 100,
       default_ttl_seconds: cacheConfig.defaultTTLSeconds,
       max_entries: cacheConfig.maxEntries,
-      eviction_policy: cacheConfig.evictionPolicy
+      eviction_policy: cacheConfig.evictionPolicy,
+      vector_enabled: cacheConfig.vectorEnabled,
+      vector_dimension: cacheConfig.vectorDimension,
+      vector_query_timeout_ms: cacheConfig.vectorQueryTimeoutMs,
+      vector_thresholds: cacheConfig.vectorThresholds
     })
     handleSuccess('配置已保存')
   } catch (e) {
@@ -1338,6 +1392,35 @@ async function loadSemanticSignatures() {
   }
 }
 
+async function loadVectorStats() {
+  try {
+    const stats: any = await getVectorStats()
+    vectorStats.enabled = Boolean(stats?.enabled)
+    vectorStats.index_name = stats?.index_name || ''
+    vectorStats.key_prefix = stats?.key_prefix || ''
+    vectorStats.dimension = Number(stats?.dimension || 0)
+    vectorStats.query_timeout_ms = Number(stats?.query_timeout_ms || 0)
+    vectorStats.message = stats?.message || ''
+  } catch (e) {
+    vectorStats.enabled = false
+    vectorStats.message = '获取失败'
+    console.warn('Failed to load vector stats:', e)
+  }
+}
+
+async function rebuildVectorCacheIndex() {
+  vectorRebuilding.value = true
+  try {
+    await rebuildVectorIndex()
+    handleSuccess('向量索引重建成功')
+    await loadVectorStats()
+  } catch (e) {
+    handleApiError(e, '向量索引重建失败')
+  } finally {
+    vectorRebuilding.value = false
+  }
+}
+
 // 改动点: 兼容后端 snake_case 字段并换算相似度
 async function loadCacheConfig() {
   try {
@@ -1350,6 +1433,10 @@ async function loadCacheConfig() {
       cacheConfig.defaultTTLSeconds = cfg.default_ttl_seconds || cfg.defaultTTLSeconds || 1800
       cacheConfig.maxEntries = cfg.max_entries || cfg.maxEntries || 10000
       cacheConfig.evictionPolicy = cfg.eviction_policy || cfg.evictionPolicy || 'lru'
+      cacheConfig.vectorEnabled = cfg.vector_enabled ?? cfg.vectorEnabled ?? false
+      cacheConfig.vectorDimension = cfg.vector_dimension || cfg.vectorDimension || 1024
+      cacheConfig.vectorQueryTimeoutMs = cfg.vector_query_timeout_ms || cfg.vectorQueryTimeoutMs || 1200
+      cacheConfig.vectorThresholds = cfg.vector_thresholds || cfg.vectorThresholds || cacheConfig.vectorThresholds
 
       if (cfg.dedup) {
         dedupConfig.enabled = cfg.dedup.enabled ?? dedupConfig.enabled
@@ -1850,6 +1937,7 @@ onMounted(() => {
   loadCacheRules()
   loadCacheEntries()
   loadSemanticSignatures()
+  loadVectorStats()
 })
 
 onUnmounted(() => {

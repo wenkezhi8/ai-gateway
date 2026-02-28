@@ -229,9 +229,12 @@ func TestCacheStatDetail_Fields(t *testing.T) {
 
 func TestCacheConfigRequest_Fields(t *testing.T) {
 	enabled := true
+	vectorEnabled := true
 	threshold := 0.8
 	ttl := 3600
 	entries := 10000
+	vectorDimension := 1024
+	vectorQueryTimeout := 1200
 	req := CacheConfigRequest{
 		Enabled:             &enabled,
 		Strategy:            strp("semantic"),
@@ -239,6 +242,12 @@ func TestCacheConfigRequest_Fields(t *testing.T) {
 		DefaultTTLSeconds:   &ttl,
 		MaxEntries:          &entries,
 		EvictionPolicy:      strp("lru"),
+		VectorEnabled:       &vectorEnabled,
+		VectorDimension:     &vectorDimension,
+		VectorQueryTimeoutMs: &vectorQueryTimeout,
+		VectorThresholds: map[string]float64{
+			"calc": 0.97,
+		},
 		RequestTTL:          &ttl,
 		ContextTTL:          &ttl,
 		RouteTTL:            &ttl,
@@ -248,6 +257,10 @@ func TestCacheConfigRequest_Fields(t *testing.T) {
 	assert.Equal(t, "semantic", *req.Strategy)
 	assert.Equal(t, 0.8, *req.SimilarityThreshold)
 	assert.Equal(t, 3600, *req.DefaultTTLSeconds)
+	assert.True(t, *req.VectorEnabled)
+	assert.Equal(t, 1024, *req.VectorDimension)
+	assert.Equal(t, 1200, *req.VectorQueryTimeoutMs)
+	assert.Equal(t, 0.97, req.VectorThresholds["calc"])
 }
 
 func strp(s string) *string {

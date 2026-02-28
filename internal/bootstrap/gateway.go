@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"time"
@@ -202,10 +203,57 @@ func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager 
 	})
 	if err != nil {
 		logger.WithError(err).Warn("Failed to connect to Redis, falling back to memory cache")
-		return cache.NewManagerWithCache(cache.NewMemoryCache())
+		fallback := cache.NewManagerWithCache(cache.NewMemoryCache())
+		applyCacheSettingsFromConfig(fallback, cfg)
+		return fallback
 	}
 	logger.Infof("Connected to Redis at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
+
+	applyCacheSettingsFromConfig(cacheManager, cfg)
+
+	// Initialize Redis Stack vector store when Redis backend is available.
+	if cfg.VectorCache.Enabled {
+		if rc, ok := cacheManager.Cache().(*cache.RedisCache); ok {
+			vectorCfg := cache.DefaultRedisStackVectorConfig()
+			vectorCfg.Enabled = cfg.VectorCache.Enabled
+			vectorCfg.IndexName = cfg.VectorCache.IndexName
+			vectorCfg.KeyPrefix = cfg.VectorCache.KeyPrefix
+			vectorCfg.Dimension = cfg.VectorCache.Dimension
+			vectorCfg.QueryTimeout = time.Duration(cfg.VectorCache.QueryTimeoutMs) * time.Millisecond
+
+			vectorStore := cache.NewRedisStackVectorStoreFromRedisCache(rc, vectorCfg)
+			cacheManager.SetVectorStore(vectorStore)
+			if err := vectorStore.EnsureIndex(context.Background()); err != nil {
+				logger.WithError(err).Warn("Failed to ensure Redis Stack vector index, vector cache disabled")
+				cacheManager.SetVectorStore(nil)
+			} else {
+				logger.WithFields(logrus.Fields{
+					"index":     vectorCfg.IndexName,
+					"dimension": vectorCfg.Dimension,
+				}).Info("Redis Stack vector cache initialized")
+			}
+		}
+	}
+
 	return cacheManager
+}
+
+func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Config) {
+	if cacheManager == nil || cfg == nil {
+		return
+	}
+
+	settings := cacheManager.GetSettings()
+	settings.VectorEnabled = cfg.VectorCache.Enabled
+	settings.VectorDimension = cfg.VectorCache.Dimension
+	settings.VectorQueryTimeoutMs = cfg.VectorCache.QueryTimeoutMs
+	if len(cfg.VectorCache.Thresholds) > 0 {
+		settings.VectorThresholds = make(map[string]float64, len(cfg.VectorCache.Thresholds))
+		for k, v := range cfg.VectorCache.Thresholds {
+			settings.VectorThresholds[k] = v
+		}
+	}
+	cacheManager.UpdateSettings(settings)
 }
 
 func StartMetricsServer(logger *logrus.Logger) *http.Server {

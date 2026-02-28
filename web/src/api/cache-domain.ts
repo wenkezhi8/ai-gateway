@@ -90,3 +90,13 @@ export async function addTestCacheEntry(payload: Record<string, unknown>) {
   const raw = await request.post('/admin/cache/test-entry', payload)
   return unwrapEnvelope(raw, { allowPlain: true })
 }
+
+export async function getVectorStats() {
+  const raw = await request.get('/admin/cache/vector/stats')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function rebuildVectorIndex() {
+  const raw = await request.post('/admin/cache/vector/rebuild')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}

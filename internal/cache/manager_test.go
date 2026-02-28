@@ -9,6 +9,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type dummyVectorStore struct{}
+
+func (d *dummyVectorStore) EnsureIndex(ctx context.Context) error { return nil }
+func (d *dummyVectorStore) RebuildIndex(ctx context.Context) error { return nil }
+func (d *dummyVectorStore) GetExact(ctx context.Context, cacheKey string) (*VectorCacheDocument, error) {
+	return nil, nil
+}
+func (d *dummyVectorStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]VectorSearchHit, error) {
+	return nil, nil
+}
+func (d *dummyVectorStore) Upsert(ctx context.Context, doc *VectorCacheDocument) error { return nil }
+func (d *dummyVectorStore) Delete(ctx context.Context, cacheKey string) error { return nil }
+func (d *dummyVectorStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error { return nil }
+func (d *dummyVectorStore) Stats(ctx context.Context) (VectorStoreStats, error) {
+	return VectorStoreStats{}, nil
+}
+
 func TestDefaultManagerConfig(t *testing.T) {
 	cfg := DefaultManagerConfig()
 
@@ -215,6 +232,17 @@ func TestManager_SemanticCache(t *testing.T) {
 	mgr.SetSemanticCache(sc)
 
 	assert.Equal(t, sc, mgr.GetSemanticCache())
+}
+
+func TestManager_VectorStore(t *testing.T) {
+	mgr, err := NewManager(DefaultManagerConfig())
+	require.NoError(t, err)
+
+	assert.Nil(t, mgr.GetVectorStore())
+
+	vs := &dummyVectorStore{}
+	mgr.SetVectorStore(vs)
+	assert.Equal(t, vs, mgr.GetVectorStore())
 }
 
 func TestManager_Close(t *testing.T) {

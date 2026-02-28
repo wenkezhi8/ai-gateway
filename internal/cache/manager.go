@@ -20,6 +20,7 @@ type Manager struct {
 
 	// Semantic cache (optional)
 	semanticCache *SemanticCache
+	vectorStore   VectorCacheStore
 
 	// Statistics
 	stats *StatsCollector
@@ -216,6 +217,16 @@ func (m *Manager) GetSemanticCache() *SemanticCache {
 // SetSemanticCache sets the semantic cache
 func (m *Manager) SetSemanticCache(sc *SemanticCache) {
 	m.semanticCache = sc
+}
+
+// GetVectorStore returns the Redis Stack vector cache store.
+func (m *Manager) GetVectorStore() VectorCacheStore {
+	return m.vectorStore
+}
+
+// SetVectorStore sets the Redis Stack vector cache store.
+func (m *Manager) SetVectorStore(store VectorCacheStore) {
+	m.vectorStore = store
 }
 
 // GetTokenSavings returns total tokens saved across all caches

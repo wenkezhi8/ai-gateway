@@ -4,6 +4,7 @@ import (
 	"ai-gateway/internal/cache"
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/handler/admin"
+	"ai-gateway/internal/intent"
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/middleware"
 	"ai-gateway/internal/provider"
@@ -88,6 +89,9 @@ type ProxyHandler struct {
 	semanticCache     *cache.SemanticCache
 	embeddingSvc      cache.EmbeddingProvider
 	modelMappingCache *cache.ModelMappingCache
+	intentClient      *intent.Client
+	vectorStore       cache.VectorCacheStore
+	textNormalizer    *cache.TextNormalizer
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -116,6 +120,22 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		TTL:     24 * time.Hour,
 	})
 
+	intentCfg := intent.Config{Enabled: false}
+	if cfg != nil {
+		intentCfg = intent.Config{
+			Enabled:           cfg.IntentEngine.Enabled,
+			BaseURL:           cfg.IntentEngine.BaseURL,
+			Timeout:           time.Duration(cfg.IntentEngine.TimeoutMs) * time.Millisecond,
+			Language:          cfg.IntentEngine.Language,
+			ExpectedDimension: cfg.IntentEngine.ExpectedDimension,
+		}
+	}
+
+	var vectorStore cache.VectorCacheStore
+	if cacheManager != nil {
+		vectorStore = cacheManager.GetVectorStore()
+	}
+
 	return &ProxyHandler{
 		config:            cfg,
 		registry:          provider.GetRegistry(),
@@ -125,6 +145,9 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		deduplicator:      cache.GetRequestDeduplicator(),
 		semanticCache:     semanticCache,
 		modelMappingCache: modelMappingCache,
+		intentClient:      intent.NewClient(intentCfg),
+		vectorStore:       vectorStore,
+		textNormalizer:    cache.NewTextNormalizer(),
 	}
 }
 
@@ -278,6 +301,30 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
+
+	// V2 cache read path: intent-engine + Redis Stack exact/vector retrieval.
+	intentResult, v2CachedBody, v2CacheHit, v2HitLayer, v2HitKey := h.processCacheV2Read(
+		c.Request.Context(),
+		prompt,
+		contextStr,
+		cacheSettings,
+	)
+	if v2CacheHit && len(v2CachedBody) > 0 {
+		tokens := extractTotalTokensFromBody(v2CachedBody)
+		h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+		c.Header("X-Local-Cache-Hit", "1")
+		c.Header("X-Cache-Layer", v2HitLayer)
+		if req.Stream {
+			h.writeCachedResponseAsStream(c, req.Model, v2CachedBody)
+		} else {
+			c.Data(http.StatusOK, "application/json", v2CachedBody)
+		}
+		if v2HitKey != "" && h.vectorStore != nil {
+			_ = h.vectorStore.TouchTTL(c.Request.Context(), v2HitKey, h.intentTTLSeconds(intentResult))
+		}
+		return
+	}
 
 	// Try semantic cache first (supports both non-streaming and streaming requests)
 	if allowSemantic && h.semanticCache != nil {
@@ -658,6 +705,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			"task_type": assessment.TaskType,
 		}).Debug("Semantic cache entry stored")
 	}
+
+	// V2 cache async write path.
+	h.processCacheV2Write(c.Request.Context(), intentResult, req.Provider, req.Model, assessment.TaskType, response)
 
 	// Return response in OpenAI-compatible format
 	c.Header("X-Local-Cache-Hit", "0")
@@ -2603,6 +2653,126 @@ func (h *ProxyHandler) persistResponseCacheHit(ctx context.Context, cacheKey str
 		}
 		_ = h.cache.ResponseCache.SetWithTTL(ctx, cacheKey, cached, ttl)
 	}
+}
+
+func (h *ProxyHandler) processCacheV2Read(
+	ctx context.Context,
+	prompt string,
+	contextText string,
+	cacheSettings cache.CacheSettings,
+) (*intent.IntentEmbeddingResult, []byte, bool, string, string) {
+	if h.intentClient == nil || !h.intentClient.Enabled() || h.vectorStore == nil || !cacheSettings.VectorEnabled {
+		return nil, nil, false, "", ""
+	}
+
+	normalizedPrompt := strings.TrimSpace(prompt)
+	if h.textNormalizer != nil {
+		normalizedPrompt = h.textNormalizer.Normalize(prompt)
+	}
+	if normalizedPrompt == "" {
+		return nil, nil, false, "", ""
+	}
+
+	intentResult, err := h.intentClient.Infer(ctx, normalizedPrompt, contextText)
+	if err != nil || intentResult == nil || strings.TrimSpace(intentResult.StandardKey) == "" {
+		return nil, nil, false, "", ""
+	}
+
+	exactDoc, err := h.vectorStore.GetExact(ctx, intentResult.StandardKey)
+	if err == nil && exactDoc != nil && exactDoc.Response != nil {
+		if payload, mErr := json.Marshal(exactDoc.Response); mErr == nil && len(payload) > 0 {
+			return intentResult, payload, true, "vector-exact", exactDoc.CacheKey
+		}
+	}
+
+	threshold := h.intentThreshold(intentResult.Intent, cacheSettings)
+	hits, err := h.vectorStore.VectorSearch(ctx, intentResult.Intent, intentResult.Embedding, 1, threshold)
+	if err != nil || len(hits) == 0 {
+		return intentResult, nil, false, "", ""
+	}
+
+	hit := hits[0]
+	payload := hit.Response
+	if len(payload) == 0 && strings.TrimSpace(hit.CacheKey) != "" {
+		if doc, gErr := h.vectorStore.GetExact(ctx, hit.CacheKey); gErr == nil && doc != nil && doc.Response != nil {
+			if b, mErr := json.Marshal(doc.Response); mErr == nil {
+				payload = b
+			}
+		}
+	}
+	if len(payload) == 0 {
+		return intentResult, nil, false, "", ""
+	}
+	return intentResult, payload, true, "vector-semantic", hit.CacheKey
+}
+
+func (h *ProxyHandler) processCacheV2Write(
+	ctx context.Context,
+	intentResult *intent.IntentEmbeddingResult,
+	providerName string,
+	model string,
+	taskType routing.TaskType,
+	response ChatCompletionResponse,
+) {
+	if intentResult == nil || h.vectorStore == nil || h.intentClient == nil || !h.intentClient.Enabled() {
+		return
+	}
+	if strings.TrimSpace(intentResult.Intent) == "" || strings.EqualFold(strings.TrimSpace(intentResult.Intent), "unknown") {
+		return
+	}
+	if strings.TrimSpace(intentResult.StandardKey) == "" || len(intentResult.Embedding) == 0 || !hasMeaningfulAssistantResponse(&response) {
+		return
+	}
+
+	ttlSec := h.intentTTLSeconds(intentResult)
+	doc := &cache.VectorCacheDocument{
+		CacheKey:        intentResult.StandardKey,
+		Intent:          intentResult.Intent,
+		TaskType:        string(taskType),
+		Slots:           intentResult.Slots,
+		NormalizedQuery: intentResult.NormalizedText,
+		Vector:          intentResult.Embedding,
+		Response:        response,
+		Provider:        providerName,
+		Model:           model,
+		QualityScore:    90,
+		TTLSec:          ttlSec,
+	}
+
+	go func() {
+		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		_ = h.vectorStore.Upsert(writeCtx, doc)
+		_ = h.vectorStore.TouchTTL(writeCtx, doc.CacheKey, ttlSec)
+	}()
+}
+
+func (h *ProxyHandler) intentThreshold(intentName string, cacheSettings cache.CacheSettings) float64 {
+	intentName = strings.ToLower(strings.TrimSpace(intentName))
+	if cacheSettings.VectorThresholds != nil {
+		if v, ok := cacheSettings.VectorThresholds[intentName]; ok && v > 0 && v <= 1 {
+			return v
+		}
+	}
+	if cacheSettings.SimilarityThreshold > 0 && cacheSettings.SimilarityThreshold <= 1 {
+		return cacheSettings.SimilarityThreshold
+	}
+	return 0.92
+}
+
+func (h *ProxyHandler) intentTTLSeconds(intentResult *intent.IntentEmbeddingResult) int64 {
+	defaultTTL := int64((24 * time.Hour).Seconds())
+	if h.config == nil {
+		return defaultTTL
+	}
+
+	intentName := strings.ToLower(strings.TrimSpace(intentResult.Intent))
+	if h.config.VectorCache.TTLSeconds != nil {
+		if ttl, ok := h.config.VectorCache.TTLSeconds[intentName]; ok && ttl > 0 {
+			return ttl
+		}
+	}
+	return defaultTTL
 }
 
 // Helper to check context cancellation
