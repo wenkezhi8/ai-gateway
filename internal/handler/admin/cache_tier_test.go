@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -118,6 +120,21 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T
 	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
 	handler := NewCacheHandler(manager)
 
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	initial := []byte(`{
+  "server":{"port":"8566","mode":"debug"},
+  "vector_cache":{"enabled":true,"dimension":1024,"query_timeout_ms":1200}
+}`)
+	if err := os.WriteFile(configPath, initial, 0o644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+	originPath := os.Getenv("CONFIG_PATH")
+	t.Cleanup(func() {
+		_ = os.Setenv("CONFIG_PATH", originPath)
+	})
+	_ = os.Setenv("CONFIG_PATH", configPath)
+
 	router := gin.New()
 	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
 
@@ -222,5 +239,82 @@ func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
 	router.ServeHTTP(promoteW, promoteReq)
 	if promoteW.Code != http.StatusOK {
 		t.Fatalf("expected promote 200, got %d body=%s", promoteW.Code, promoteW.Body.String())
+	}
+}
+
+func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	handler := NewCacheHandler(manager)
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.json")
+	initial := []byte(`{
+  "server":{"port":"8566","mode":"debug"},
+  "vector_cache":{
+    "enabled": true,
+    "index_name":"idx_ai_cache_v2",
+    "key_prefix":"ai:v2:cache:",
+    "dimension":1024,
+    "query_timeout_ms":1200
+  }
+}`)
+	if err := os.WriteFile(configPath, initial, 0o644); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+
+	originPath := os.Getenv("CONFIG_PATH")
+	t.Cleanup(func() {
+		_ = os.Setenv("CONFIG_PATH", originPath)
+	})
+	_ = os.Setenv("CONFIG_PATH", configPath)
+
+	router := gin.New()
+	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
+
+	body := map[string]any{
+		"cold_vector_enabled":               true,
+		"cold_vector_query_enabled":         false,
+		"cold_vector_backend":               "qdrant",
+		"cold_vector_similarity_threshold":  0.9,
+		"cold_vector_top_k":                 3,
+		"hot_memory_high_watermark_percent": 79,
+		"hot_memory_relief_percent":         68,
+		"hot_to_cold_batch_size":            256,
+		"hot_to_cold_interval_seconds":      22,
+		"cold_vector_qdrant_url":            "http://127.0.0.1:6333",
+		"cold_vector_qdrant_collection":     "tier_v22",
+		"cold_vector_qdrant_timeout_ms":     1800,
+	}
+	raw, _ := json.Marshal(body)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/cache/config", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
+	}
+
+	savedRaw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read saved config: %v", err)
+	}
+	var saved map[string]any
+	if err := json.Unmarshal(savedRaw, &saved); err != nil {
+		t.Fatalf("decode saved config: %v", err)
+	}
+	vectorCache, ok := saved["vector_cache"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected vector_cache object in saved config, got %#v", saved["vector_cache"])
+	}
+
+	if enabled, _ := vectorCache["cold_vector_enabled"].(bool); !enabled {
+		t.Fatalf("expected cold_vector_enabled=true in persisted config, got %#v", vectorCache["cold_vector_enabled"])
+	}
+	if backend, _ := vectorCache["cold_vector_backend"].(string); backend != "qdrant" {
+		t.Fatalf("expected backend=qdrant in persisted config, got %#v", vectorCache["cold_vector_backend"])
+	}
+	if topK, ok := vectorCache["cold_vector_top_k"].(float64); !ok || int(topK) != 3 {
+		t.Fatalf("expected cold_vector_top_k=3 in persisted config, got %#v", vectorCache["cold_vector_top_k"])
 	}
 }

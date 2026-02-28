@@ -78,6 +78,7 @@ type TieredVectorStore struct {
 	lastErrors map[string]string
 
 	workerOnce sync.Once
+	workerWake chan struct{}
 }
 
 // DefaultTieredVectorStoreConfig returns safe defaults for production.
@@ -144,6 +145,7 @@ func NewTieredVectorStore(hot VectorCacheStore, coldStores map[string]ColdVector
 		coldStores: storeMap,
 		cfg:        cfg,
 		lastErrors: map[string]string{},
+		workerWake: make(chan struct{}, 1),
 	}
 	if hotOps, ok := hot.(HotVectorTierControl); ok {
 		t.hotOps = hotOps
@@ -195,6 +197,7 @@ func (t *TieredVectorStore) UpdateConfig(cfg TieredVectorStoreConfig) {
 	t.mu.Lock()
 	t.cfg = cfg
 	t.mu.Unlock()
+	t.notifyWorkerConfigUpdated()
 }
 
 // SetColdStore sets or replaces one cold backend implementation.
@@ -580,18 +583,40 @@ func (t *TieredVectorStore) StartHotToColdWorker(ctx context.Context) {
 	}
 	t.workerOnce.Do(func() {
 		go func() {
-			ticker := time.NewTicker(t.getConfig().HotToColdInterval)
-			defer ticker.Stop()
+			currentInterval := t.getConfig().HotToColdInterval
+			timer := time.NewTimer(currentInterval)
+			defer timer.Stop()
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case <-ticker.C:
+				case <-t.workerWake:
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					currentInterval = t.getConfig().HotToColdInterval
+					timer.Reset(currentInterval)
+				case <-timer.C:
 					_, _ = t.TriggerMigrate(ctx)
+					currentInterval = t.getConfig().HotToColdInterval
+					timer.Reset(currentInterval)
 				}
 			}
 		}()
 	})
+}
+
+func (t *TieredVectorStore) notifyWorkerConfigUpdated() {
+	if t == nil || t.workerWake == nil {
+		return
+	}
+	select {
+	case t.workerWake <- struct{}{}:
+	default:
+	}
 }
 
 func (t *TieredVectorStore) promoteByCacheKeyAsync(cacheKey string) {

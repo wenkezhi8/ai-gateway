@@ -884,6 +884,7 @@ import {
 } from '@/constants/pages/cache'
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
 import { extractAIResponseFull, extractUserMessageFull } from './cache-content-parser'
+import { applyCacheConfigPayload, buildCacheConfigPayload, type CacheConfigModel } from './cache-tier-config'
 import * as echarts from 'echarts'
 
 interface CacheTypeDetail extends CacheTypeCard {
@@ -937,7 +938,7 @@ const overallStats = reactive({
 
 const cacheTypes = ref<CacheTypeCard[]>(buildCacheTypeCards())
 
-const cacheConfig = reactive({
+const cacheConfig = reactive<CacheConfigModel>({
   enabled: true,
   strategy: 'semantic',
   similarityThreshold: 92,
@@ -1296,32 +1297,7 @@ const refreshAllCache = async () => {
 
 const saveConfig = async () => {
   try {
-    await updateCacheConfig({
-      enabled: cacheConfig.enabled,
-      strategy: cacheConfig.strategy,
-      similarity_threshold: cacheConfig.similarityThreshold / 100,
-      default_ttl_seconds: cacheConfig.defaultTTLSeconds,
-      max_entries: cacheConfig.maxEntries,
-      eviction_policy: cacheConfig.evictionPolicy,
-      vector_enabled: cacheConfig.vectorEnabled,
-      vector_dimension: cacheConfig.vectorDimension,
-      vector_query_timeout_ms: cacheConfig.vectorQueryTimeoutMs,
-      vector_thresholds: cacheConfig.vectorThresholds,
-      cold_vector_enabled: cacheConfig.coldVectorEnabled,
-      cold_vector_query_enabled: cacheConfig.coldVectorQueryEnabled,
-      cold_vector_backend: cacheConfig.coldVectorBackend,
-      cold_vector_dual_write_enabled: cacheConfig.coldVectorDualWriteEnabled,
-      cold_vector_similarity_threshold: cacheConfig.coldVectorSimilarityThreshold,
-      cold_vector_top_k: cacheConfig.coldVectorTopK,
-      hot_memory_high_watermark_percent: cacheConfig.hotMemoryHighWatermarkPercent,
-      hot_memory_relief_percent: cacheConfig.hotMemoryReliefPercent,
-      hot_to_cold_batch_size: cacheConfig.hotToColdBatchSize,
-      hot_to_cold_interval_seconds: cacheConfig.hotToColdIntervalSeconds,
-      cold_vector_qdrant_url: cacheConfig.coldVectorQdrantURL,
-      cold_vector_qdrant_api_key: cacheConfig.coldVectorQdrantAPIKey,
-      cold_vector_qdrant_collection: cacheConfig.coldVectorQdrantCollection,
-      cold_vector_qdrant_timeout_ms: cacheConfig.coldVectorQdrantTimeoutMs
-    })
+    await updateCacheConfig(buildCacheConfigPayload(cacheConfig))
     handleSuccess('配置已保存')
   } catch (e) {
     handleApiError(e, '保存失败')
@@ -1623,31 +1599,7 @@ async function loadCacheConfig() {
   try {
     const cfg: any = await getCacheConfig()
     if (cfg) {
-      cacheConfig.enabled = cfg.enabled ?? true
-      cacheConfig.strategy = cfg.strategy || 'semantic'
-      const similarity = cfg.similarity_threshold ?? cfg.similarityThreshold ?? 0.92
-      cacheConfig.similarityThreshold = Math.round(similarity * 100)
-      cacheConfig.defaultTTLSeconds = cfg.default_ttl_seconds || cfg.defaultTTLSeconds || 1800
-      cacheConfig.maxEntries = cfg.max_entries || cfg.maxEntries || 10000
-      cacheConfig.evictionPolicy = cfg.eviction_policy || cfg.evictionPolicy || 'lru'
-      cacheConfig.vectorEnabled = cfg.vector_enabled ?? cfg.vectorEnabled ?? false
-      cacheConfig.vectorDimension = cfg.vector_dimension || cfg.vectorDimension || 1024
-      cacheConfig.vectorQueryTimeoutMs = cfg.vector_query_timeout_ms || cfg.vectorQueryTimeoutMs || 1200
-      cacheConfig.vectorThresholds = cfg.vector_thresholds || cfg.vectorThresholds || cacheConfig.vectorThresholds
-      cacheConfig.coldVectorEnabled = cfg.cold_vector_enabled ?? cfg.coldVectorEnabled ?? false
-      cacheConfig.coldVectorQueryEnabled = cfg.cold_vector_query_enabled ?? cfg.coldVectorQueryEnabled ?? true
-      cacheConfig.coldVectorBackend = cfg.cold_vector_backend || cfg.coldVectorBackend || 'sqlite'
-      cacheConfig.coldVectorDualWriteEnabled = cfg.cold_vector_dual_write_enabled ?? cfg.coldVectorDualWriteEnabled ?? false
-      cacheConfig.coldVectorSimilarityThreshold = cfg.cold_vector_similarity_threshold ?? cfg.coldVectorSimilarityThreshold ?? 0.92
-      cacheConfig.coldVectorTopK = cfg.cold_vector_top_k || cfg.coldVectorTopK || 1
-      cacheConfig.hotMemoryHighWatermarkPercent = cfg.hot_memory_high_watermark_percent || cfg.hotMemoryHighWatermarkPercent || 75
-      cacheConfig.hotMemoryReliefPercent = cfg.hot_memory_relief_percent || cfg.hotMemoryReliefPercent || 65
-      cacheConfig.hotToColdBatchSize = cfg.hot_to_cold_batch_size || cfg.hotToColdBatchSize || 500
-      cacheConfig.hotToColdIntervalSeconds = cfg.hot_to_cold_interval_seconds || cfg.hotToColdIntervalSeconds || 30
-      cacheConfig.coldVectorQdrantURL = cfg.cold_vector_qdrant_url || cfg.coldVectorQdrantURL || ''
-      cacheConfig.coldVectorQdrantAPIKey = cfg.cold_vector_qdrant_api_key || cfg.coldVectorQdrantAPIKey || ''
-      cacheConfig.coldVectorQdrantCollection = cfg.cold_vector_qdrant_collection || cfg.coldVectorQdrantCollection || 'ai_gateway_cold_vectors'
-      cacheConfig.coldVectorQdrantTimeoutMs = cfg.cold_vector_qdrant_timeout_ms || cfg.coldVectorQdrantTimeoutMs || 1500
+      applyCacheConfigPayload(cacheConfig, cfg)
 
       if (cfg.dedup) {
         dedupConfig.enabled = cfg.dedup.enabled ?? dedupConfig.enabled

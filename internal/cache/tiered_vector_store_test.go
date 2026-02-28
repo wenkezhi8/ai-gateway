@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -16,6 +17,7 @@ type fakeHotTierStore struct {
 	migrationDocs     []*VectorCacheDocument
 	memoryUsageSeq    []float64
 	memoryUsageSeqIdx int
+	migrateCallCount  atomic.Int32
 }
 
 func (f *fakeHotTierStore) EnsureIndex(ctx context.Context) error { return nil }
@@ -57,6 +59,7 @@ func (f *fakeHotTierStore) MemoryUsagePercent(ctx context.Context) (float64, err
 	return f.memoryUsageSeq[idx], nil
 }
 func (f *fakeHotTierStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*VectorCacheDocument, error) {
+	f.migrateCallCount.Add(1)
 	if len(f.migrationDocs) == 0 {
 		return nil, nil
 	}
@@ -303,4 +306,53 @@ func TestTieredVectorStore_VectorSearch_ShouldFailOpenWhenColdErrors(t *testing.
 	if len(hits) != 0 {
 		t.Fatalf("expected no hits on cold failure, got %+v", hits)
 	}
+}
+
+func TestTieredVectorStore_Worker_ShouldUseUpdatedIntervalWithoutRestart(t *testing.T) {
+	hot := &fakeHotTierStore{
+		memoryUsage: 90,
+	}
+	cold := &fakeColdStore{backend: ColdVectorBackendSQLite}
+	store := NewTieredVectorStore(hot, map[string]ColdVectorStore{
+		ColdVectorBackendSQLite: cold,
+	}, TieredVectorStoreConfig{
+		ColdVectorEnabled:             true,
+		ColdVectorBackend:             ColdVectorBackendSQLite,
+		ColdVectorQueryEnabled:        false,
+		HotMemoryHighWatermarkPercent: 75,
+		HotMemoryReliefPercent:        65,
+		HotToColdBatchSize:            1,
+		HotToColdInterval:             300 * time.Millisecond,
+		HotToColdMaxBatchesPerRound:   1,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store.StartHotToColdWorker(ctx)
+
+	time.Sleep(80 * time.Millisecond)
+	if got := hot.migrateCallCount.Load(); got != 0 {
+		t.Fatalf("expected no migration call before first long interval tick, got %d", got)
+	}
+
+	store.UpdateConfig(TieredVectorStoreConfig{
+		ColdVectorEnabled:             true,
+		ColdVectorBackend:             ColdVectorBackendSQLite,
+		ColdVectorQueryEnabled:        false,
+		HotMemoryHighWatermarkPercent: 75,
+		HotMemoryReliefPercent:        65,
+		HotToColdBatchSize:            1,
+		HotToColdInterval:             20 * time.Millisecond,
+		HotToColdMaxBatchesPerRound:   1,
+	})
+
+	deadline := time.Now().Add(150 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if hot.migrateCallCount.Load() > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("expected worker to pick new interval and run migration, call_count=%d", hot.migrateCallCount.Load())
 }

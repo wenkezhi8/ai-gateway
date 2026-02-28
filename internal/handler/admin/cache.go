@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +30,7 @@ type CacheHandler struct {
 }
 
 const emptyResponseCleanupInterval = 15 * time.Minute
+const defaultRuntimeConfigPath = "./configs/config.json"
 
 // NewCacheHandler creates a new cache handler
 func NewCacheHandler(manager *cache.Manager) *CacheHandler {
@@ -431,6 +434,17 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		h.manager.RouteCache.SetDefaultTTL(time.Duration(*req.RouteTTL) * time.Second)
 	}
 
+	if err := persistVectorCacheSettings(settings); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "persist_config_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
 	h.settings = settings
 
 	c.JSON(http.StatusOK, gin.H{
@@ -680,6 +694,95 @@ func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 		"success": true,
 		"data":    response,
 	})
+}
+
+func persistVectorCacheSettings(settings cache.CacheSettings) error {
+	configPath := strings.TrimSpace(os.Getenv("CONFIG_PATH"))
+	if configPath == "" {
+		configPath = defaultRuntimeConfigPath
+	}
+	configPath = filepath.Clean(configPath)
+
+	root, err := loadConfigMap(configPath)
+	if err != nil {
+		return fmt.Errorf("load config file: %w", err)
+	}
+
+	vectorCfg, ok := root["vector_cache"].(map[string]any)
+	if !ok || vectorCfg == nil {
+		vectorCfg = map[string]any{}
+	}
+
+	vectorCfg["enabled"] = settings.VectorEnabled
+	vectorCfg["dimension"] = settings.VectorDimension
+	vectorCfg["query_timeout_ms"] = settings.VectorQueryTimeoutMs
+	if len(settings.VectorThresholds) > 0 {
+		vectorCfg["thresholds"] = settings.VectorThresholds
+	}
+	vectorCfg["cold_vector_enabled"] = settings.ColdVectorEnabled
+	vectorCfg["cold_vector_query_enabled"] = settings.ColdVectorQueryEnabled
+	vectorCfg["cold_vector_backend"] = settings.ColdVectorBackend
+	vectorCfg["cold_vector_dual_write_enabled"] = settings.ColdVectorDualWriteEnabled
+	vectorCfg["cold_vector_similarity_threshold"] = settings.ColdVectorSimilarityThreshold
+	vectorCfg["cold_vector_top_k"] = settings.ColdVectorTopK
+	vectorCfg["hot_memory_high_watermark_percent"] = settings.HotMemoryHighWatermarkPercent
+	vectorCfg["hot_memory_relief_percent"] = settings.HotMemoryReliefPercent
+	vectorCfg["hot_to_cold_batch_size"] = settings.HotToColdBatchSize
+	vectorCfg["hot_to_cold_interval_seconds"] = settings.HotToColdIntervalSeconds
+	vectorCfg["cold_vector_qdrant_url"] = settings.ColdVectorQdrantURL
+	vectorCfg["cold_vector_qdrant_api_key"] = settings.ColdVectorQdrantAPIKey
+	vectorCfg["cold_vector_qdrant_collection"] = settings.ColdVectorQdrantCollection
+	vectorCfg["cold_vector_qdrant_timeout_ms"] = settings.ColdVectorQdrantTimeoutMs
+
+	root["vector_cache"] = vectorCfg
+	if err := writeConfigMapAtomic(configPath, root); err != nil {
+		return fmt.Errorf("persist config file: %w", err)
+	}
+	return nil
+}
+
+func loadConfigMap(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]any{}, nil
+		}
+		return nil, err
+	}
+	root := map[string]any{}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return root, nil
+	}
+	if err := json.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	return root, nil
+}
+
+func writeConfigMapAtomic(path string, root map[string]any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+
+	mode := os.FileMode(0o644)
+	if stat, err := os.Stat(path); err == nil {
+		mode = stat.Mode()
+	}
+
+	data, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmpPath := fmt.Sprintf("%s.%d.tmp", path, time.Now().UnixNano())
+	if err := os.WriteFile(tmpPath, data, mode); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	return nil
 }
 
 // GetCacheSummary returns a summary of cache state
