@@ -292,6 +292,25 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	if req.EvictionPolicy != nil {
 		settings.EvictionPolicy = *req.EvictionPolicy
 	}
+	if req.VectorEnabled != nil {
+		settings.VectorEnabled = *req.VectorEnabled
+	}
+	if req.VectorDimension != nil && *req.VectorDimension > 0 {
+		settings.VectorDimension = *req.VectorDimension
+	}
+	if req.VectorQueryTimeoutMs != nil && *req.VectorQueryTimeoutMs > 0 {
+		settings.VectorQueryTimeoutMs = *req.VectorQueryTimeoutMs
+	}
+	if req.VectorThresholds != nil {
+		thresholds := make(map[string]float64, len(req.VectorThresholds))
+		for k, v := range req.VectorThresholds {
+			if v <= 0 || v > 1 {
+				continue
+			}
+			thresholds[strings.ToLower(strings.TrimSpace(k))] = v
+		}
+		settings.VectorThresholds = thresholds
+	}
 	if req.Dedup != nil {
 		if req.Dedup.Enabled != nil {
 			settings.Dedup.Enabled = *req.Dedup.Enabled
@@ -449,6 +468,73 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 	summary := h.manager.Summary()
 
 	c.Data(http.StatusOK, "application/json", summary)
+}
+
+// GetVectorStats returns Redis Stack vector cache status.
+// GET /api/admin/cache/vector/stats
+func (h *CacheHandler) GetVectorStats(c *gin.Context) {
+	store := h.manager.GetVectorStore()
+	if store == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data": gin.H{
+				"enabled": false,
+				"message": "vector store is not initialized",
+			},
+		})
+		return
+	}
+
+	stats, err := store.Stats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_stats_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    stats,
+	})
+}
+
+// RebuildVectorIndex rebuilds Redis Stack vector index.
+// POST /api/admin/cache/vector/rebuild
+func (h *CacheHandler) RebuildVectorIndex(c *gin.Context) {
+	store := h.manager.GetVectorStore()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_store_unavailable",
+				"message": "vector store is not initialized",
+			},
+		})
+		return
+	}
+
+	if err := store.RebuildIndex(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_rebuild_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"message": "vector index rebuilt",
+		},
+	})
 }
 
 type SemanticSignatureItem struct {
@@ -879,13 +965,35 @@ func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 	}
 
 	ctx := context.Background()
-	entry, err := h.manager.GetEntryDetail(ctx, key)
+	detail, err := h.manager.GetEntryDetail(ctx, key)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error":   gin.H{"code": "not_found", "message": "Cache entry not found"},
 		})
 		return
+	}
+
+	entry := &cache.CacheEntryInfo{
+		Key:       detail.Key,
+		Type:      detail.Type,
+		Size:      detail.Size,
+		Hits:      detail.Hits,
+		CreatedAt: detail.CreatedAt,
+		ExpiresAt: detail.ExpiresAt,
+		TTL:       detail.TTL,
+	}
+
+	enrichEntryFromDetail(entry, detail)
+
+	entryTaskType, userMsg, aiResp, taskTypeSource := extractCacheSummary(detail.Value)
+	entry.TaskType = resolveTaskType(entry.TaskType, entryTaskType, userMsg)
+	entry.TaskTypeSource = resolveTaskTypeSource(entry.TaskTypeSource, taskTypeSource, entry.TaskType, userMsg)
+	if userMsg != "" {
+		entry.UserMessage = userMsg
+	}
+	if aiResp != "" {
+		entry.AIResponse = aiResp
 	}
 
 	c.JSON(http.StatusOK, gin.H{
