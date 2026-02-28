@@ -172,4 +172,13 @@ describe('pages static config extraction', () => {
     expect(modelManagementViewFile).not.toContain('MODEL_MANAGEMENT_STORAGE_KEY')
     expect(modelManagementViewFile).not.toContain('localStorage.setItem(STORAGE_KEY')
   })
+
+  it('should enforce api facade boundaries in stores and composables', () => {
+    const alertsStoreFile = readFileSync(join(process.cwd(), 'src/store/alerts.ts'), 'utf-8')
+    const globalDataComposableFile = readFileSync(join(process.cwd(), 'src/composables/useGlobalData.ts'), 'utf-8')
+
+    expect(alertsStoreFile).not.toContain("from '@/api/request'")
+    expect(globalDataComposableFile).not.toContain("from '@/api/request'")
+    expect(alertsStoreFile).toContain("from '@/api/alert-domain'")
+  })
 })

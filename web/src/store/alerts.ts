@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { request } from '@/api/request'
+import {
+  acknowledgeAlert as acknowledgeAlertApi,
+  acknowledgeAllAlerts,
+  clearResolvedAlerts,
+  getAlerts,
+  resolveAlert as resolveAlertApi
+} from '@/api/alert-domain'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { ElMessage } from 'element-plus'
 
@@ -66,10 +72,14 @@ export const useAlertsStore = defineStore('alerts', () => {
     loading.value = !silent
     error.value = null
     try {
-      const res = await request.get<{ success: boolean; data: Alert[] }>('/admin/alerts', { 
-        silent: true 
-      } as any)
-      alerts.value = (res as any).data || []
+      const res: any = await getAlerts()
+      if (Array.isArray(res)) {
+        alerts.value = res
+      } else if (Array.isArray(res?.data)) {
+        alerts.value = res.data
+      } else {
+        alerts.value = []
+      }
       lastFetchTime.value = Date.now()
     } catch (e: any) {
       error.value = e
@@ -84,7 +94,7 @@ export const useAlertsStore = defineStore('alerts', () => {
   const acknowledgeAlert = async (id: string): Promise<boolean> => {
     submitting.value = true
     try {
-      await request.put(`/admin/alerts/${id}/acknowledge`, {})
+      await acknowledgeAlertApi(id)
       const alert = alerts.value.find(a => a.id === id)
       if (alert) {
         alert.status = 'acknowledged'
@@ -104,7 +114,7 @@ export const useAlertsStore = defineStore('alerts', () => {
   const resolveAlert = async (id: string): Promise<boolean> => {
     submitting.value = true
     try {
-      await request.put(`/admin/alerts/${id}/resolve`, {})
+      await resolveAlertApi(id)
       const alert = alerts.value.find(a => a.id === id)
       if (alert) {
         alert.status = 'resolved'
@@ -123,7 +133,7 @@ export const useAlertsStore = defineStore('alerts', () => {
   const acknowledgeAll = async (): Promise<boolean> => {
     submitting.value = true
     try {
-      await request.post('/admin/alerts/acknowledge-all', {})
+      await acknowledgeAllAlerts()
       activeAlerts.value.forEach(alert => {
         alert.status = 'acknowledged'
         alert.acknowledgedAt = new Date().toISOString()
@@ -142,7 +152,7 @@ export const useAlertsStore = defineStore('alerts', () => {
   const clearResolved = async (): Promise<boolean> => {
     submitting.value = true
     try {
-      await request.delete('/admin/alerts/clear-resolved')
+      await clearResolvedAlerts()
       alerts.value = alerts.value.filter(a => a.status !== 'resolved')
       ElMessage.success('已清理解决的告警')
       eventBus.emit(DATA_EVENTS.ALERTS_CHANGED)
