@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +18,15 @@ import (
 )
 
 var jwtSecret string
+
+type serverRuntimeConfig struct {
+	readTimeout       time.Duration
+	readHeaderTimeout time.Duration
+	writeTimeout      time.Duration
+	idleTimeout       time.Duration
+	shutdownTimeout   time.Duration
+	maxHeaderBytes    int
+}
 
 func main() {
 	logger := bootstrap.NewLogger()
@@ -65,12 +77,19 @@ func main() {
 		port = cfg.Server.Port
 	}
 
+	runtimeCfg, runtimeWarnings := loadServerRuntimeConfig(os.Getenv)
+	for _, warning := range runtimeWarnings {
+		logger.Warnf("Runtime config warning: %s", warning)
+	}
+
 	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + port,
+		Handler:           r,
+		ReadTimeout:       runtimeCfg.readTimeout,
+		ReadHeaderTimeout: runtimeCfg.readHeaderTimeout,
+		WriteTimeout:      runtimeCfg.writeTimeout,
+		IdleTimeout:       runtimeCfg.idleTimeout,
+		MaxHeaderBytes:    runtimeCfg.maxHeaderBytes,
 	}
 
 	quit := make(chan os.Signal, 1)
@@ -87,7 +106,7 @@ func main() {
 	<-quit
 	logger.Info("Shutting down servers...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), runtimeCfg.shutdownTimeout)
 	defer cancel()
 
 	logger.Info("Shutting down metrics server...")
@@ -115,4 +134,51 @@ func main() {
 	}
 
 	logger.Info("AI Gateway stopped")
+}
+
+func loadServerRuntimeConfig(getenv func(string) string) (serverRuntimeConfig, []string) {
+	cfg := serverRuntimeConfig{
+		readTimeout:       15 * time.Second,
+		readHeaderTimeout: 10 * time.Second,
+		writeTimeout:      30 * time.Second,
+		idleTimeout:       60 * time.Second,
+		shutdownTimeout:   30 * time.Second,
+		maxHeaderBytes:    1 << 20,
+	}
+	warnings := make([]string, 0)
+
+	cfg.readTimeout, warnings = parseEnvDuration(getenv, "SERVER_READ_TIMEOUT", cfg.readTimeout, warnings)
+	cfg.readHeaderTimeout, warnings = parseEnvDuration(getenv, "SERVER_READ_HEADER_TIMEOUT", cfg.readHeaderTimeout, warnings)
+	cfg.writeTimeout, warnings = parseEnvDuration(getenv, "SERVER_WRITE_TIMEOUT", cfg.writeTimeout, warnings)
+	cfg.idleTimeout, warnings = parseEnvDuration(getenv, "SERVER_IDLE_TIMEOUT", cfg.idleTimeout, warnings)
+	cfg.shutdownTimeout, warnings = parseEnvDuration(getenv, "SERVER_SHUTDOWN_TIMEOUT", cfg.shutdownTimeout, warnings)
+	cfg.maxHeaderBytes, warnings = parseEnvInt(getenv, "SERVER_MAX_HEADER_BYTES", cfg.maxHeaderBytes, warnings)
+
+	return cfg, warnings
+}
+
+func parseEnvDuration(getenv func(string) string, key string, fallback time.Duration, warnings []string) (time.Duration, []string) {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return fallback, warnings
+	}
+	v, err := time.ParseDuration(raw)
+	if err != nil || v <= 0 {
+		warnings = append(warnings, fmt.Sprintf("invalid %s=%q, fallback=%s", key, raw, fallback))
+		return fallback, warnings
+	}
+	return v, warnings
+}
+
+func parseEnvInt(getenv func(string) string, key string, fallback int, warnings []string) (int, []string) {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return fallback, warnings
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		warnings = append(warnings, fmt.Sprintf("invalid %s=%q, fallback=%d", key, raw, fallback))
+		return fallback, warnings
+	}
+	return v, warnings
 }

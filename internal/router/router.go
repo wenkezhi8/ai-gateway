@@ -90,6 +90,7 @@ func NewFullWithConfig(
 	searchHandler := handler.NewSearchHandler()
 
 	r.GET("/health", healthHandler.Check)
+	r.GET("/ready", healthHandler.CheckReady)
 
 	// 改动点: 仅在调试模式或显式启用时暴露 pprof
 	if cfg.Server.Mode == "debug" || os.Getenv("PPROF_ENABLED") == "1" {
