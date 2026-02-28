@@ -332,13 +332,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
+import { updateModelManagementUiSettings } from '@/api/settings-domain'
 import { useModelLabels } from '@/composables/useModelLabels'
 import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
   MODEL_MANAGEMENT_DEFAULT_PROVIDERS,
   MODEL_MANAGEMENT_DEFAULT_SCORE,
-  MODEL_MANAGEMENT_FALLBACK_COLOR,
-  MODEL_MANAGEMENT_STORAGE_KEY
+  MODEL_MANAGEMENT_FALLBACK_COLOR
 } from '@/constants/pages/model-management'
 
 const { getModelLabel, fetchModelLabels } = useModelLabels()
@@ -409,25 +409,6 @@ const modelRules: FormRules = {
 const defaultProviders: ProviderSetting[] = MODEL_MANAGEMENT_DEFAULT_PROVIDERS.map(p => ({ ...p }))
 
 const providerSettings = ref<ProviderSetting[]>([])
-
-const STORAGE_KEY = MODEL_MANAGEMENT_STORAGE_KEY
-
-function loadFromLocalStorage() {
-  providerSettings.value = defaultProviders.map(p => ({ ...p }))
-}
-
-function saveToLocalStorage() {
-  // 只保存默认模型设置，不再保存模型列表（模型列表由后端管理）
-  try {
-    const settings = providerSettings.value.map(p => ({
-      id: p.id,
-      defaultModel: p.defaultModel
-    }))
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  } catch (e) {
-    console.error('Failed to save to localStorage:', e)
-  }
-}
 
 async function loadSettings() {
   loading.value = true
@@ -512,8 +493,9 @@ async function saveAllSettings(showMessage = true) {
     })
 
     await request.put('/admin/router/provider-defaults', settings)
-    
-    saveToLocalStorage()
+    await updateModelManagementUiSettings({
+      last_saved_at: new Date().toISOString()
+    })
     if (showMessage) {
       ElMessage.success('设置已保存')
     }
@@ -526,7 +508,6 @@ async function saveAllSettings(showMessage = true) {
 }
 
 function handleModelChange(_row: ProviderSetting) {
-  saveToLocalStorage()
   saveAllSettings(false)
 }
 
@@ -616,7 +597,6 @@ async function handleAddProvider() {
     })
 
     providerSettings.value.push(newProvider)
-    saveToLocalStorage()
     await saveAllSettings(false)
     providerDialogVisible.value = false
     ElMessage.success('服务商已添加')
@@ -656,7 +636,6 @@ async function handleAddModel() {
       provider.models = [...provider.models, modelName]
       currentProvider.value = provider
     }
-    saveToLocalStorage()
     
     // Sync to backend model scores
     await request.put(`/admin/router/models/${encodeURIComponent(modelName)}`, {
@@ -704,7 +683,6 @@ async function handleDeleteProvider(row: ProviderSetting) {
 
       // 同步默认模型映射，确保 provider_defaults 也移除该服务商
       await saveAllSettings(false)
-      saveToLocalStorage()
 
       ElMessage.success('服务商已删除并同步')
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
@@ -769,7 +747,6 @@ async function handleBatchAddModels() {
         providerSettings.value[idx]!.models = [...providerSettings.value[idx]!.models, ...newModels]
         editProvider.value!.models = [...editProvider.value!.models, ...newModels]
       }
-      saveToLocalStorage()
       batchModelsText.value = ''
       ElMessage.success(`成功添加 ${newModels.length} 个模型`)
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
@@ -821,8 +798,7 @@ async function handleBatchDeleteModels() {
       // Only update local state after successful backend delete
       provider.models = provider.models.filter(m => !selectedModels.value.includes(m))
       editProvider.value!.models = [...provider.models]
-      
-      saveToLocalStorage()
+
       selectedModels.value = []
       ElMessage.success('模型已删除')
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
@@ -835,7 +811,6 @@ async function handleBatchDeleteModels() {
 }
 
 onMounted(() => {
-  loadFromLocalStorage()
   loadSettings()
 })
 </script>

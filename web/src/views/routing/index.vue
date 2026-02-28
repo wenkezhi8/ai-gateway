@@ -505,6 +505,7 @@ import {
   updateModelScore,
   updateRouterConfig
 } from '@/api/routing-domain'
+import { getUiSettings, updateRoutingUiSettings } from '@/api/settings-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { formatDuration } from '@/utils/format-duration'
 import {
@@ -1064,7 +1065,10 @@ async function saveTaskMapping(isAuto = false) {
     await putTaskModelMapping(mappingData)
     const savedAt = new Date().toISOString()
     lastSavedAt.value = savedAt
-    localStorage.setItem('routing_task_mapping_last_saved', savedAt)
+    await updateRoutingUiSettings({
+      auto_save_enabled: autoSaveEnabled.value,
+      last_saved_at: savedAt
+    })
     if (!isAuto) {
       handleSuccess('映射已保存')
     }
@@ -1128,11 +1132,21 @@ async function loadTaskTypeDistribution() {
   }
 }
 
-onMounted(() => {
+async function loadRoutingUiSettings() {
+  try {
+    const uiSettings = await getUiSettings()
+    autoSaveEnabled.value = Boolean(uiSettings?.routing?.auto_save_enabled)
+    lastSavedAt.value = uiSettings?.routing?.last_saved_at || null
+  } catch (e) {
+    console.warn('Failed to load routing ui settings:', e)
+    autoSaveEnabled.value = false
+    lastSavedAt.value = null
+  }
+}
+
+onMounted(async () => {
   switchPollingCancelled.value = false
-  const storedAutoSave = localStorage.getItem('routing_task_mapping_auto_save')
-  autoSaveEnabled.value = storedAutoSave === '1'
-  lastSavedAt.value = localStorage.getItem('routing_task_mapping_last_saved')
+  await loadRoutingUiSettings()
   loadConfig()
   loadModelScores()
   loadAvailableModels()
@@ -1182,7 +1196,12 @@ watch(
 )
 
 watch(autoSaveEnabled, (value) => {
-  localStorage.setItem('routing_task_mapping_auto_save', value ? '1' : '0')
+  updateRoutingUiSettings({
+    auto_save_enabled: value,
+    last_saved_at: lastSavedAt.value || ''
+  }).catch((e) => {
+    console.warn('Failed to persist routing auto save settings:', e)
+  })
   if (value) {
     scheduleAutoSave()
   }

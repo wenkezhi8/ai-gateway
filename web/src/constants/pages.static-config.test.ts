@@ -160,4 +160,16 @@ describe('pages static config extraction', () => {
       expect(content).not.toMatch(/res\??\.data\s*\|\|\s*\[\]/)
     }
   })
+
+  it('should migrate business localStorage persistence to settings api', () => {
+    const routingViewFile = readFileSync(join(process.cwd(), 'src/views/routing/index.vue'), 'utf-8')
+    const settingsViewFile = readFileSync(join(process.cwd(), 'src/views/settings/index.vue'), 'utf-8')
+    const modelManagementViewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
+
+    expect(routingViewFile).not.toContain('routing_task_mapping_auto_save')
+    expect(routingViewFile).not.toContain('routing_task_mapping_last_saved')
+    expect(settingsViewFile).not.toContain('ai-gateway-settings')
+    expect(modelManagementViewFile).not.toContain('MODEL_MANAGEMENT_STORAGE_KEY')
+    expect(modelManagementViewFile).not.toContain('localStorage.setItem(STORAGE_KEY')
+  })
 })

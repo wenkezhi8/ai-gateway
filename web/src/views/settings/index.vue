@@ -310,6 +310,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useTheme } from '@/composables/useTheme'
+import { getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS, createSettingsDefaults } from '@/constants/pages/settings'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
@@ -348,8 +349,22 @@ const handleColorChange = (color: string) => {
   localStorage.setItem('ai-gateway-primary-color', color)
 }
 
+function buildPersistedSettingsPayload() {
+  return {
+    borderRadius: settings.borderRadius,
+    enableAnimation: settings.enableAnimation,
+    gateway: { ...settings.gateway },
+    cache: { ...settings.cache },
+    logging: {
+      ...settings.logging,
+      outputs: [...settings.logging.outputs]
+    },
+    security: { ...settings.security }
+  }
+}
+
 // 页面加载时从 localStorage 加载设置
-onMounted(() => {
+onMounted(async () => {
   // 同步主题设置
   settings.theme = currentTheme.value.mode
   settings.themeVariant = currentTheme.value.variant
@@ -361,33 +376,37 @@ onMounted(() => {
     applyPrimaryColor(savedPrimaryColor)
   }
 
-  // 加载其他设置
-  const savedSettings = localStorage.getItem('ai-gateway-settings')
-  if (savedSettings) {
-    try {
-      const parsed = JSON.parse(savedSettings)
-      // 只加载非主题设置（主题由 useTheme 管理）
+  // 加载后端持久化的业务设置
+  try {
+    const uiSettings = await getUiSettings()
+    const parsed = uiSettings?.settings as Record<string, any> | undefined
+    if (parsed) {
       if (parsed.borderRadius) settings.borderRadius = parsed.borderRadius
       if (parsed.enableAnimation !== undefined) settings.enableAnimation = parsed.enableAnimation
       if (parsed.gateway) Object.assign(settings.gateway, parsed.gateway)
       if (parsed.cache) Object.assign(settings.cache, parsed.cache)
       if (parsed.logging) Object.assign(settings.logging, parsed.logging)
       if (parsed.security) Object.assign(settings.security, parsed.security)
-    } catch (e) {
-      console.error('Failed to load settings:', e)
     }
+  } catch (e) {
+    console.error('Failed to load settings:', e)
   }
 })
 
-const resetSettings = () => {
+const resetSettings = async () => {
   Object.assign(settings, createSettingsDefaults())
-  localStorage.removeItem('ai-gateway-settings')
-  ElMessage.success('设置已重置为默认值')
+  try {
+    await updateGeneralUiSettings(buildPersistedSettingsPayload())
+    ElMessage.success('设置已重置为默认值')
+  } catch (e) {
+    console.error('Failed to reset settings:', e)
+    ElMessage.error('重置失败')
+  }
 }
 
-const saveSettings = () => {
+const saveSettings = async () => {
   try {
-    localStorage.setItem('ai-gateway-settings', JSON.stringify(settings))
+    await updateGeneralUiSettings(buildPersistedSettingsPayload())
     ElMessage.success('设置保存成功')
   } catch (error) {
     console.error('Failed to save settings:', error)
