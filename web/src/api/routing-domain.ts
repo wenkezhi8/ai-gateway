@@ -1,0 +1,107 @@
+import { request } from './request'
+import { unwrapEnvelope } from './envelope'
+
+export async function getRouterConfig() {
+  const raw = await request.get('/admin/router/config')
+  return unwrapEnvelope<any>(raw)
+}
+
+export async function getRouterModels() {
+  const raw = await request.get('/admin/router/models')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getAvailableModels() {
+  const raw = await request.get('/admin/router/available-models?format=object')
+  return unwrapEnvelope<any[]>(raw)
+}
+
+export async function getCascadeRules() {
+  const raw = await request.get('/admin/router/cascade-rules')
+  return unwrapEnvelope<any[]>(raw, { allowPlain: true })
+}
+
+export async function getTaskModelMapping() {
+  const raw = await request.get('/admin/router/task-model-mapping')
+  return unwrapEnvelope<Record<string, string>>(raw)
+}
+
+export async function putTaskModelMapping(data: Record<string, string>) {
+  const raw = await request.put('/admin/router/task-model-mapping', data)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function updateRouterConfig(data: Record<string, unknown>) {
+  const raw = await request.put('/admin/router/config', data)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function updateModelScore(model: string, payload: Record<string, unknown>) {
+  const raw = await request.put(`/admin/router/models/${encodeURIComponent(model)}`, payload)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function getClassifierHealth() {
+  const raw = await request.get('/admin/router/classifier/health')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getClassifierStats() {
+  const raw = await request.get('/admin/router/classifier/stats')
+  return unwrapEnvelope<any>(raw)
+}
+
+export async function getClassifierModels() {
+  const raw = await request.get('/admin/router/classifier/models')
+  return unwrapEnvelope<any>(raw)
+}
+
+export async function switchClassifierModelAsync(model: string) {
+  const raw = await request.post('/admin/router/classifier/switch-async', { model })
+  return unwrapEnvelope<{ task_id: string; taskId?: string }>(raw, { allowPlain: true })
+}
+
+export async function getClassifierSwitchTask(taskPath: string) {
+  const raw = await request.get(taskPath)
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getOllamaStatus(model: string) {
+  const raw = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function installOllama() {
+  const raw = await request.post('/admin/router/ollama/install')
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function startOllama() {
+  const raw = await request.post('/admin/router/ollama/start')
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function stopOllama() {
+  const raw = await request.post('/admin/router/ollama/stop')
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function pullOllamaModel(model: string) {
+  const raw = await request.post('/admin/router/ollama/pull', { model })
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function getFeedbackStats() {
+  const raw = await request.get('/admin/feedback/stats')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function triggerFeedbackOptimization() {
+  const raw = await request.post('/admin/feedback/optimize')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getTaskTypeDistribution() {
+  const raw = await request.get('/admin/feedback/task-type-distribution')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}

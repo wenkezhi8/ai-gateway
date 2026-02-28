@@ -736,7 +736,26 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { request } from '@/api/request'
+import {
+  addTestCacheEntry,
+  cleanupInvalidEntries as cleanupInvalidEntriesApi,
+  clearCacheByType,
+  createCacheRule,
+  deleteCacheEntry,
+  deleteCacheEntryGroup,
+  deleteCacheRule,
+  getCacheConfig,
+  getCacheEntries,
+  getCacheEntryDetail,
+  getCacheHealth,
+  getCacheRules,
+  getCacheStats,
+  getSemanticSignatures,
+  getTtlConfig,
+  updateCacheConfig,
+  updateCacheRule,
+  updateTtlConfig
+} from '@/api/cache-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
 import {
@@ -1000,7 +1019,7 @@ const getPriorityText = (priority: string) => {
 
 const handleTypeChange = async (type: CacheTypeCard) => {
   try {
-    await request.put('/admin/cache/config', {
+    await updateCacheConfig({
       [type.id]: { enabled: type.enabled }
     })
     ElMessage.success(`${type.name} 已${type.enabled ? '启用' : '禁用'}`)
@@ -1013,7 +1032,7 @@ const handleTypeChange = async (type: CacheTypeCard) => {
 const clearCacheType = async (type: CacheTypeCard) => {
   try {
     await ElMessageBox.confirm(`确定清空 ${type.name} 的所有缓存吗？`, '警告', { type: 'warning' })
-    await request.delete(`/admin/cache?type=${type.id}`)
+    await clearCacheByType(type.id)
     type.entries = 0
     type.size = '0 MB'
     type.hitRate = 0
@@ -1103,7 +1122,7 @@ const refreshAllCache = async () => {
 
 const saveConfig = async () => {
   try {
-    await request.put('/admin/cache/config', {
+    await updateCacheConfig({
       enabled: cacheConfig.enabled,
       strategy: cacheConfig.strategy,
       similarity_threshold: cacheConfig.similarityThreshold / 100,
@@ -1162,7 +1181,7 @@ const editRule = (rule: CacheRule) => {
 const deleteRule = async (rule: CacheRule) => {
   try {
     await ElMessageBox.confirm(`确定删除规则 "${rule.pattern}" 吗？`, '警告', { type: 'warning' })
-    await request.delete(`/admin/cache/rules/${rule.id}`)
+    await deleteCacheRule(rule.id)
     handleSuccess('规则已删除')
     loadCacheRules()
   } catch (e: any) {
@@ -1174,7 +1193,7 @@ const deleteRule = async (rule: CacheRule) => {
 
 const handleRuleChange = async (rule: CacheRule) => {
   try {
-    await request.put(`/admin/cache/rules/${rule.id}`, {
+    await updateCacheRule(rule.id, {
       enabled: rule.enabled
     })
     handleSuccess(`规则已${rule.enabled ? '启用' : '禁用'}`)
@@ -1197,7 +1216,7 @@ const submitRule = async () => {
       }
 
       if (isEditRule.value) {
-        await request.put(`/admin/cache/rules/${ruleForm.id}`, {
+        await updateCacheRule(ruleForm.id, {
           pattern: ruleForm.pattern,
           model_filter: ruleForm.modelFilter,
           ttl: ttl,
@@ -1206,7 +1225,7 @@ const submitRule = async () => {
         })
         handleSuccess('规则已更新')
       } else {
-        await request.post('/admin/cache/rules', {
+        await createCacheRule({
           pattern: ruleForm.pattern,
           model_filter: ruleForm.modelFilter,
           ttl: ttl,
@@ -1225,9 +1244,9 @@ const submitRule = async () => {
 
 async function loadCacheRules() {
   try {
-    const data: any = await request.get('/admin/cache/rules')
-    if (data?.data) {
-      cacheRules.value = data.data.map((r: any) => ({
+    const data: any = await getCacheRules()
+    if (Array.isArray(data)) {
+      cacheRules.value = data.map((r: any) => ({
         id: r.id,
         pattern: r.pattern,
         modelFilter: r.model_filter || '',
@@ -1244,9 +1263,8 @@ async function loadCacheRules() {
 async function loadCacheStats() {
   loading.value = true
   try {
-    const data: any = await request.get('/admin/cache/stats')
-    if (data) {
-      const stats = data.data || data
+    const stats: any = await getCacheStats()
+    if (stats) {
       
       let totalHits = 0
       let totalOps = 0
@@ -1313,8 +1331,8 @@ async function loadCacheStats() {
 
 async function loadSemanticSignatures() {
   try {
-    const data: any = await request.get('/admin/cache/semantic-signatures?limit=12')
-    semanticSignatures.value = data?.data || []
+    const data: any = await getSemanticSignatures(12)
+    semanticSignatures.value = Array.isArray(data) ? data : []
   } catch (e) {
     console.warn('Failed to load semantic signatures:', e)
   }
@@ -1323,9 +1341,8 @@ async function loadSemanticSignatures() {
 // 改动点: 兼容后端 snake_case 字段并换算相似度
 async function loadCacheConfig() {
   try {
-    const data: any = await request.get('/admin/cache/config')
-    if (data) {
-      const cfg = data.data || data
+    const cfg: any = await getCacheConfig()
+    if (cfg) {
       cacheConfig.enabled = cfg.enabled ?? true
       cacheConfig.strategy = cfg.strategy || 'semantic'
       const similarity = cfg.similarity_threshold ?? cfg.similarityThreshold ?? 0.92
@@ -1347,9 +1364,9 @@ async function loadCacheConfig() {
 
 async function loadTTLConfig() {
   try {
-    const data: any = await request.get('/admin/router/ttl-config')
-    if (data?.data?.task_type_defaults) {
-      const defaults = data.data.task_type_defaults as Record<string, number>
+    const data: any = await getTtlConfig()
+    if (data?.task_type_defaults) {
+      const defaults = data.task_type_defaults as Record<string, number>
       ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
         ...item,
         ttl: defaults[item.key] ?? CACHE_DEFAULT_TASK_TTL[item.key] ?? 24
@@ -1367,7 +1384,7 @@ async function saveTTLConfig() {
     for (const item of ttlTaskTypeList.value) {
       taskTypeDefaults[item.key] = item.ttl
     }
-    await request.put('/admin/router/ttl-config', {
+    await updateTtlConfig({
       task_type_defaults: taskTypeDefaults
     })
     handleSuccess('任务类型 TTL 配置已保存')
@@ -1389,9 +1406,8 @@ function resetTTLConfig() {
 // 改动点: 读取 health 返回的 backend/latency 字段
 async function loadCacheHealth() {
   try {
-    const data: any = await request.get('/admin/cache/health')
-    if (data) {
-      const health = data.data || data
+    const health: any = await getCacheHealth()
+    if (health) {
       redisHealth.status = health.status || 'unknown'
       redisHealth.backend = health.backend || 'memory'
       redisHealth.latency_ms = health.latency_ms || 0
@@ -1414,7 +1430,7 @@ async function loadCacheHealth() {
 
 async function runHealthCheck() {
   try {
-    await request.get('/admin/cache/health')
+    await getCacheHealth()
     await loadCacheHealth()
     await loadCacheStats()
     handleSuccess('健康检查完成')
@@ -1443,7 +1459,7 @@ function showRedisRecoveryGuide() {
 
 async function saveDedupConfig() {
   try {
-    await request.put('/admin/cache/config', {
+    await updateCacheConfig({
       dedup: {
         enabled: dedupConfig.enabled,
         max_pending: dedupConfig.maxPending,
@@ -1494,10 +1510,10 @@ async function loadCacheEntries() {
     params.append('page', entriesFilter.page.toString())
     params.append('page_size', entriesFilter.pageSize.toString())
     
-    const data: any = await request.get(`/admin/cache/entries?${params.toString()}`)
-    if (data?.data) {
-      cacheEntries.value = data.data.entries || []
-      entriesTotal.value = data.data.total || 0
+    const data: any = await getCacheEntries(params.toString())
+    if (data) {
+      cacheEntries.value = data.entries || []
+      entriesTotal.value = data.total || 0
       selectedEntryKeys.value = []
     }
   } catch (e) {
@@ -1510,9 +1526,9 @@ async function loadCacheEntries() {
 async function cleanupInvalidEntries() {
   try {
     await ElMessageBox.confirm('将清理无任务类型、无消息、无回复、无创建时间的异常缓存条目，是否继续？', '清理异常条目', { type: 'warning' })
-    const data: any = await request.post('/admin/cache/entries/cleanup-invalid')
-    const deleted = data?.data?.deleted || 0
-    const failed = data?.data?.failed || 0
+    const data: any = await cleanupInvalidEntriesApi()
+    const deleted = data?.deleted || 0
+    const failed = data?.failed || 0
     if (failed > 0) {
       ElMessage.warning(`已清理 ${deleted} 条，${failed} 条清理失败`)
     } else {
@@ -1538,16 +1554,16 @@ async function batchDeleteEntries() {
     for (const row of selectedRows) {
       try {
         if (entriesFilter.aggregate && (row.group_count || 1) > 1) {
-          const data: any = await request.post('/admin/cache/entries/delete-group', {
+          const data: any = await deleteCacheEntryGroup({
             task_type: row.task_type || '',
             user_message: row.user_message || '',
             ai_response: row.ai_response || '',
             model: '',
             provider: row.provider || ''
           })
-          successCount += Math.max(1, data?.data?.deleted || 0)
+          successCount += Math.max(1, data?.deleted || 0)
         } else {
-          await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+          await deleteCacheEntry(row.key)
           successCount++
         }
       } catch {
@@ -1573,13 +1589,13 @@ async function batchDeleteEntries() {
 
 async function viewEntryDetail(row: any) {
   try {
-    const data: any = await request.get(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
-    if (data?.data) {
+    const data: any = await getCacheEntryDetail(row.key)
+    if (data) {
       entryDetail.value = {
-        ...data.data,
-        model_stats: row.model_stats || data.data.model_stats,
-        task_type: row.task_type || data.data.task_type,
-        task_type_source: row.task_type_source || data.data.task_type_source
+        ...data,
+        model_stats: row.model_stats || data.model_stats,
+        task_type: row.task_type || data.task_type,
+        task_type_source: row.task_type_source || data.task_type_source
       }
       entryDetailVisible.value = true
     }
@@ -1592,7 +1608,7 @@ async function deleteEntry(row: any) {
   try {
     await ElMessageBox.confirm(`确定删除缓存 "${truncateKey(row.key, 30)}" 吗？`, '确认删除', { type: 'warning' })
     if (entriesFilter.aggregate && (row.group_count || 1) > 1) {
-      await request.post('/admin/cache/entries/delete-group', {
+      await deleteCacheEntryGroup({
         task_type: row.task_type || '',
         user_message: row.user_message || '',
         ai_response: row.ai_response || '',
@@ -1600,7 +1616,7 @@ async function deleteEntry(row: any) {
         provider: row.provider || ''
       })
     } else {
-      await request.delete(`/admin/cache/entries/${encodeURIComponent(row.key)}`)
+      await deleteCacheEntry(row.key)
     }
     handleSuccess('缓存已删除')
     loadCacheEntries()
@@ -1616,7 +1632,7 @@ async function deleteEntryAndClose() {
   if (!entryDetail.value) return
   try {
     if (entriesFilter.aggregate && (entryDetail.value.group_count || 1) > 1) {
-      await request.post('/admin/cache/entries/delete-group', {
+      await deleteCacheEntryGroup({
         task_type: entryDetail.value.task_type || '',
         user_message: entryDetail.value.user_message || '',
         ai_response: entryDetail.value.ai_response || '',
@@ -1624,7 +1640,7 @@ async function deleteEntryAndClose() {
         provider: entryDetail.value.provider || ''
       })
     } else {
-      await request.delete(`/admin/cache/entries/${encodeURIComponent(entryDetail.value.key)}`)
+      await deleteCacheEntry(entryDetail.value.key)
     }
     handleSuccess('缓存已删除')
     entryDetailVisible.value = false
@@ -1783,7 +1799,7 @@ async function submitWarmup() {
   
   warmupLoading.value = true
   try {
-    await request.post('/admin/cache/test-entry', warmupForm)
+    await addTestCacheEntry(warmupForm)
     handleSuccess('测试缓存添加成功')
     warmupDialogVisible.value = false
     warmupForm.user_message = ''

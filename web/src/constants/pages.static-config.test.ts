@@ -125,4 +125,32 @@ describe('pages static config extraction', () => {
     expect(playwrightConfigFile).toContain('process.env.CI')
     expect(playwrightConfigFile).toContain('const reporters =')
   })
+
+  it('should disallow direct request module imports in migrated views', () => {
+    const targets = [
+      'src/views/routing/index.vue',
+      'src/views/cache/index.vue',
+      'src/views/ops/index.vue'
+    ]
+
+    for (const file of targets) {
+      const content = readFileSync(join(process.cwd(), file), 'utf-8')
+      expect(content).not.toContain("from '@/api/request'")
+    }
+  })
+
+  it('should disallow fallback response unwrapping patterns in migrated views', () => {
+    const targets = [
+      'src/views/routing/index.vue',
+      'src/views/cache/index.vue',
+      'src/views/ops/index.vue'
+    ]
+
+    for (const file of targets) {
+      const content = readFileSync(join(process.cwd(), file), 'utf-8')
+      expect(content).not.toMatch(/data\??\.data\s*\|\|\s*data/)
+      expect(content).not.toMatch(/res\??\.data\s*\|\|\s*\{\}/)
+      expect(content).not.toMatch(/res\??\.data\s*\|\|\s*\[\]/)
+    }
+  })
 })

@@ -482,7 +482,29 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { request } from '@/api/request'
+import {
+  getAvailableModels,
+  getCascadeRules,
+  getClassifierHealth,
+  getClassifierModels,
+  getClassifierStats,
+  getClassifierSwitchTask,
+  getFeedbackStats,
+  getOllamaStatus,
+  getRouterConfig,
+  getRouterModels,
+  getTaskModelMapping,
+  getTaskTypeDistribution,
+  installOllama as installOllamaApi,
+  pullOllamaModel as pullOllamaModelApi,
+  putTaskModelMapping,
+  startOllama as startOllamaApi,
+  stopOllama as stopOllamaApi,
+  switchClassifierModelAsync,
+  triggerFeedbackOptimization,
+  updateModelScore,
+  updateRouterConfig
+} from '@/api/routing-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { formatDuration } from '@/utils/format-duration'
 import {
@@ -714,21 +736,21 @@ function formatVramBytes(value: number): string {
 
 async function loadConfig() {
   try {
-    const data: any = await request.get('/admin/router/config')
-    if (data?.data) {
-      config.defaultStrategy = data.data.default_strategy || 'auto'
-      config.defaultModel = data.data.default_model || 'deepseek-chat'
-      const mode = data.data.use_auto_mode
+    const data: any = await getRouterConfig()
+    if (data) {
+      config.defaultStrategy = data.default_strategy || 'auto'
+      config.defaultModel = data.default_model || 'deepseek-chat'
+      const mode = data.use_auto_mode
       if (typeof mode === 'string') {
         config.mode = mode
       } else {
         config.mode = mode ? 'auto' : 'fixed'
       }
-      if (data.data.strategies) {
-        strategies.value = data.data.strategies
+      if (data.strategies) {
+        strategies.value = data.strategies
       }
-      if (data.data.classifier) {
-        Object.assign(classifierConfig, data.data.classifier)
+      if (data.classifier) {
+        Object.assign(classifierConfig, data.classifier)
         ensureControlConfig()
         classifierSwitchModel.value = classifierConfig.active_model
       }
@@ -736,9 +758,9 @@ async function loadConfig() {
     
     // 加载任务类型模型映射
     try {
-      const mappingData: any = await request.get('/admin/router/task-model-mapping')
-      if (mappingData?.data) {
-        for (const [taskType, model] of Object.entries(mappingData.data)) {
+      const mappingData: any = await getTaskModelMapping()
+      if (mappingData) {
+        for (const [taskType, model] of Object.entries(mappingData)) {
           if (taskModelMapping[taskType]) {
             taskModelMapping[taskType].enabled = true
             taskModelMapping[taskType].model = model as string
@@ -757,9 +779,9 @@ async function loadConfig() {
 
 async function loadModelScores() {
   try {
-    const data: any = await request.get('/admin/router/models')
+    const data: any = await getRouterModels()
     if (data) {
-      const scores = data.data || data
+      const scores = data
       if (Array.isArray(scores)) {
         modelScores.value = scores.map((item: any) => ({
           model: item.model,
@@ -788,9 +810,9 @@ async function loadModelScores() {
 
 async function loadAvailableModels() {
   try {
-    const data: any = await request.get('/admin/router/available-models?format=object')
-    if (data?.data) {
-      availableModels.value = data.data
+    const data: any = await getAvailableModels()
+    if (Array.isArray(data)) {
+      availableModels.value = data
     }
   } catch (e) {
     console.warn('Failed to load available models:', e)
@@ -799,8 +821,8 @@ async function loadAvailableModels() {
 
 async function loadCascadeRules() {
   try {
-    const data: any = await request.get('/admin/router/cascade-rules')
-    cascadeRules.value = Array.isArray(data?.data) ? data.data : []
+    const data: any = await getCascadeRules()
+    cascadeRules.value = Array.isArray(data) ? data : []
   } catch (e) {
     console.warn('Failed to load cascade rules:', e)
   }
@@ -808,9 +830,8 @@ async function loadCascadeRules() {
 
 async function loadFeedbackStats() {
   try {
-    const data: any = await request.get('/admin/feedback/stats')
-    if (data) {
-      const stats = data.data || data
+    const stats: any = await getFeedbackStats()
+    if (stats) {
       feedbackStats.total = stats.total_feedback || 0
       feedbackStats.positive = stats.positive_count || 0
       feedbackStats.modelsTracked = stats.models_tracked || 0
@@ -826,8 +847,7 @@ async function loadFeedbackStats() {
 
 async function loadClassifierHealth() {
   try {
-    const data: any = await request.get('/admin/router/classifier/health')
-    const health = data?.data || data
+    const health: any = await getClassifierHealth()
     classifierHealth.healthy = Boolean(health?.healthy)
     classifierHealth.latency_ms = Number(health?.latency_ms || 0)
     classifierHealth.message = health?.message || 'ok'
@@ -842,8 +862,7 @@ async function loadClassifierHealth() {
 async function loadClassifierModels() {
   classifierModelsLoading.value = true
   try {
-    const data: any = await request.get('/admin/router/classifier/models')
-    const payload = data?.data || {}
+    const payload: any = await getClassifierModels()
     const models = Array.isArray(payload.models) ? payload.models : []
     if (models.length > 0) {
       classifierConfig.candidate_models = models
@@ -863,8 +882,7 @@ async function loadClassifierModels() {
 
 async function loadClassifierStats() {
   try {
-    const data: any = await request.get('/admin/router/classifier/stats')
-    const stats = data?.data || {}
+    const stats: any = await getClassifierStats()
     classifierStats.total_requests = Number(stats.total_requests || 0)
     classifierStats.llm_attempts = Number(stats.llm_attempts || 0)
     classifierStats.llm_success = Number(stats.llm_success || 0)
@@ -883,8 +901,7 @@ async function loadOllamaSetupStatus() {
   ollamaRefreshing.value = true
   try {
     const model = (ollamaModelInput.value || classifierConfig.active_model || ROUTING_OLLAMA_DEFAULT_MODEL).trim()
-    const data: any = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
-    const payload = data?.data || data || {}
+    const payload: any = await getOllamaStatus(model)
     ollamaSetup.installed = Boolean(payload.installed)
     ollamaSetup.running = Boolean(payload.running)
     ollamaSetup.model = payload.model || model
@@ -905,7 +922,7 @@ async function loadOllamaSetupStatus() {
 async function installOllama() {
   ollamaInstalling.value = true
   try {
-    await request.post('/admin/router/ollama/install')
+    await installOllamaApi()
     handleSuccess('Ollama 安装完成')
   } catch (e) {
     handleApiError(e, '安装 Ollama 失败')
@@ -918,7 +935,7 @@ async function installOllama() {
 async function startOllama() {
   ollamaStarting.value = true
   try {
-    await request.post('/admin/router/ollama/start')
+    await startOllamaApi()
     handleSuccess('Ollama 启动成功')
   } catch (e) {
     handleApiError(e, '启动 Ollama 失败')
@@ -932,7 +949,7 @@ async function startOllama() {
 async function stopOllama() {
   ollamaStopping.value = true
   try {
-    await request.post('/admin/router/ollama/stop')
+    await stopOllamaApi()
     handleSuccess('Ollama 已停止')
   } catch (e) {
     handleApiError(e, '停止 Ollama 失败')
@@ -951,7 +968,7 @@ async function pullOllamaModel() {
   }
   ollamaPulling.value = true
   try {
-    await request.post('/admin/router/ollama/pull', { model })
+    await pullOllamaModelApi(model)
     handleSuccess(`模型安装成功: ${model}`)
     await loadClassifierModels()
   } catch (e) {
@@ -965,7 +982,7 @@ async function pullOllamaModel() {
 async function saveClassifierConfig() {
   classifierSaving.value = true
   try {
-    await request.put('/admin/router/config', {
+    await updateRouterConfig({
       classifier: {
         ...classifierConfig,
         confidence_threshold: Number(classifierConfig.confidence_threshold || 0.65)
@@ -987,10 +1004,8 @@ async function switchClassifierModel() {
   }
   classifierSwitching.value = true
   try {
-    const switchResp: any = await request.post('/admin/router/classifier/switch-async', {
-      model: classifierSwitchModel.value
-    })
-    const taskId = switchResp?.data?.task_id || switchResp?.task_id
+    const switchResp: any = await switchClassifierModelAsync(classifierSwitchModel.value)
+    const taskId = switchResp?.task_id || switchResp?.taskId
     if (!taskId) {
       throw new Error('切换任务创建失败')
     }
@@ -1016,8 +1031,8 @@ async function pollClassifierSwitchTask(taskId: string) {
   const taskPath = `/admin/router/classifier/switch-tasks/${encodeURIComponent(taskId)}`
 
   while (!switchPollingCancelled.value) {
-    const taskResp: any = await request.get(taskPath)
-    const taskData = taskResp?.data || taskResp
+    const taskResp: any = await getClassifierSwitchTask(taskPath)
+    const taskData = taskResp || {}
     const status = String(taskData?.status || '').toLowerCase()
 
     if (status === 'success') {
@@ -1046,7 +1061,7 @@ async function saveTaskMapping(isAuto = false) {
         mappingData[taskType] = mapping.model
       }
     }
-    await request.put('/admin/router/task-model-mapping', mappingData)
+    await putTaskModelMapping(mappingData)
     const savedAt = new Date().toISOString()
     lastSavedAt.value = savedAt
     localStorage.setItem('routing_task_mapping_last_saved', savedAt)
@@ -1062,7 +1077,7 @@ async function saveTaskMapping(isAuto = false) {
 
 async function toggleModelEnabled(model: ModelScore) {
   try {
-    await request.put(`/admin/router/models/${model.model}`, {
+    await updateModelScore(model.model, {
       provider: model.provider,
       quality_score: model.quality_score,
       speed_score: model.speed_score,
@@ -1079,8 +1094,8 @@ async function toggleModelEnabled(model: ModelScore) {
 async function triggerOptimization() {
   try {
     await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分（每个模型至少需要 10 条样本）。', '确认', { type: 'info' })
-    const resp: any = await request.post('/admin/feedback/optimize')
-    const result = resp?.data || {}
+    const resp: any = await triggerFeedbackOptimization()
+    const result = (resp && typeof resp === 'object' && 'data' in resp) ? (resp as any).data : resp
     const msg = resp?.message || '优化已完成'
     handleSuccess(`${msg}（扫描:${result.models_scanned || 0}，可优化:${result.models_eligible || 0}，已更新:${result.models_updated || 0}）`)
     loadModelScores()
@@ -1094,8 +1109,8 @@ async function triggerOptimization() {
 
 async function loadTaskTypeDistribution() {
   try {
-    const data: any = await request.get('/admin/feedback/task-type-distribution')
-    if (data?.distribution && data.distribution.length > 0) {
+    const data: any = await getTaskTypeDistribution()
+    if (Array.isArray(data?.distribution) && data.distribution.length > 0) {
       const countMap: Record<string, number> = {}
       const percentMap: Record<string, number> = {}
       for (const item of data.distribution) {

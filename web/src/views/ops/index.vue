@@ -265,7 +265,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { request } from '@/api/request'
+import {
+  getOpsDashboard,
+  getOpsExportMetrics,
+  getOpsProviderHealth,
+  getOpsServices
+} from '@/api/ops-domain'
 import { formatDuration } from '@/utils/format-duration'
 import { OPS_TIME_TABS } from '@/constants/pages/ops'
 
@@ -296,8 +301,7 @@ const formatTime = (t: string): string => {
 
 const fetchData = async () => {
   try {
-    const res: any = await request.get(`/admin/ops/dashboard?range=${timeRange.value}`)
-    const data = res?.data || {}
+    const data: any = await getOpsDashboard(timeRange.value)
     system.value = data.system || {}
     realtime.value = data.realtime || {}
     resources.value = data.resources || {}
@@ -309,8 +313,7 @@ const fetchData = async () => {
 
 const fetchServices = async () => {
   try {
-    const res: any = await request.get('/admin/ops/services')
-    services.value = res?.data || []
+    services.value = await getOpsServices()
   } catch (e) {
     console.warn('Failed to fetch services:', e)
   }
@@ -318,8 +321,7 @@ const fetchServices = async () => {
 
 const fetchProviders = async () => {
   try {
-    const res: any = await request.get('/admin/ops/providers/health')
-    providers.value = res?.data || []
+    providers.value = await getOpsProviderHealth()
   } catch (e) {
     console.warn('Failed to fetch providers:', e)
   }
@@ -336,8 +338,8 @@ const refreshAll = async () => {
 
 const exportData = async () => {
   try {
-    const res: any = await request.get('/admin/ops/export')
-    const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+    const data: any = await getOpsExportMetrics()
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
