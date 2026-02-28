@@ -24,6 +24,8 @@ type AccountManager struct {
 	logger         *logrus.Logger
 	alertChan      chan Alert
 	switchTimeout  time.Duration // Max time for switch operation
+	scheduler      *AccountScheduler
+	schedulerOnce  sync.Once
 }
 
 // AccountLimiter interface for account-specific limiters
@@ -586,4 +588,119 @@ func (m *AccountManager) SetSwitchHistorySaver(saver func([]SwitchEvent)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.switchSaver = saver
+}
+
+// getScheduler returns the scheduler instance (lazy initialization)
+func (m *AccountManager) getScheduler() *AccountScheduler {
+	m.schedulerOnce.Do(func() {
+		config := DefaultSchedulerConfig()
+		m.scheduler = NewAccountScheduler(config, m.store, m.getAccountsByProviderType)
+	})
+	return m.scheduler
+}
+
+// getAccountsByProviderType returns all accounts for a provider type
+func (m *AccountManager) getAccountsByProviderType(providerType string) []*AccountConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []*AccountConfig
+	for _, acc := range m.accounts {
+		accProviderType := acc.ProviderType
+		if accProviderType == "" {
+			accProviderType = acc.Provider
+		}
+		if accProviderType == providerType {
+			result = append(result, acc)
+		}
+	}
+	return result
+}
+
+// SelectAccount selects an account using the three-layer scheduling strategy
+func (m *AccountManager) SelectAccount(ctx context.Context, req ScheduleRequest) (*AccountConfig, ScheduleDecision, func(), error) {
+	scheduler := m.getScheduler()
+	if scheduler == nil {
+		// Fallback to legacy behavior
+		account, err := m.GetActiveAccount(req.ProviderType)
+		return account, ScheduleDecision{Layer: ScheduleLayerLoadBalance}, nil, err
+	}
+	return scheduler.Select(ctx, req)
+}
+
+// ReportScheduleResult reports a request result for runtime statistics
+func (m *AccountManager) ReportScheduleResult(accountID string, success bool, ttftMs int64) {
+	scheduler := m.getScheduler()
+	if scheduler != nil {
+		scheduler.ReportResult(accountID, success, ttftMs)
+	}
+}
+
+// ReportAccountSwitch reports an account switch
+func (m *AccountManager) ReportAccountSwitch(fromAccountID, toAccountID, reason string) {
+	scheduler := m.getScheduler()
+	if scheduler != nil {
+		scheduler.ReportSwitch(fromAccountID, toAccountID, reason)
+	}
+}
+
+// BindResponseToAccount binds a response ID to an account for sticky sessions
+func (m *AccountManager) BindResponseToAccount(ctx context.Context, responseID, accountID string) error {
+	scheduler := m.getScheduler()
+	if scheduler == nil {
+		return nil
+	}
+	return scheduler.BindResponse(ctx, responseID, accountID)
+}
+
+// GetSchedulerMetrics returns scheduler metrics
+func (m *AccountManager) GetSchedulerMetrics() map[string]int64 {
+	scheduler := m.getScheduler()
+	if scheduler == nil {
+		return nil
+	}
+	return scheduler.GetMetrics()
+}
+
+// GetAccountRuntimeStats returns runtime statistics for an account
+func (m *AccountManager) GetAccountRuntimeStats(accountID string) *AccountRuntimeStats {
+	scheduler := m.getScheduler()
+	if scheduler == nil {
+		return nil
+	}
+	return scheduler.GetRuntimeStats(accountID)
+}
+
+// GetAccountLoadInfo returns current load information for an account
+func (m *AccountManager) GetAccountLoadInfo(ctx context.Context, accountID string) (*AccountLoadInfo, error) {
+	m.mu.RLock()
+	account, exists := m.accounts[accountID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("account not found: %s", accountID)
+	}
+
+	scheduler := m.getScheduler()
+	if scheduler == nil {
+		return &AccountLoadInfo{AccountID: accountID}, nil
+	}
+
+	return scheduler.concurrencyManager.GetLoadInfo(ctx, accountID, account.Concurrency)
+}
+
+// SetSchedulerConfig sets the scheduler configuration
+func (m *AccountManager) SetSchedulerConfig(config SchedulerConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Recreate scheduler with new config
+	m.scheduler = NewAccountScheduler(config, m.store, m.getAccountsByProviderType)
+	m.schedulerOnce = sync.Once{}
+}
+
+// IsSchedulerEnabled returns whether the scheduler is enabled
+func (m *AccountManager) IsSchedulerEnabled() bool {
+	scheduler := m.getScheduler()
+	return scheduler != nil && scheduler.config.Enabled
 }

@@ -7,6 +7,13 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// Redis key prefixes for scheduler
+const (
+	keyPrefixSession    = "sched:session:"
+	keyPrefixResponse   = "sched:response:"
+	keyPrefixConcurrent = "sched:concurrent:"
+)
+
 // RedisStore implements the Store interface using Redis
 type RedisStore struct {
 	client *redis.Client
@@ -113,4 +120,140 @@ func (s *RedisStore) Ping(ctx context.Context) error {
 // Close closes the Redis connection
 func (s *RedisStore) Close() error {
 	return s.client.Close()
+}
+
+// --- Session Sticky Methods ---
+
+// SetSessionAccount binds a session hash to an account ID
+func (s *RedisStore) SetSessionAccount(ctx context.Context, provider, sessionHash, accountID string, ttl time.Duration) error {
+	key := keyPrefixSession + provider + ":" + sessionHash
+	return s.client.Set(ctx, key, accountID, ttl).Err()
+}
+
+// GetSessionAccount gets the account ID bound to a session hash
+func (s *RedisStore) GetSessionAccount(ctx context.Context, provider, sessionHash string) (string, error) {
+	key := keyPrefixSession + provider + ":" + sessionHash
+	val, err := s.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return val, err
+}
+
+// DeleteSession deletes a session binding
+func (s *RedisStore) DeleteSession(ctx context.Context, provider, sessionHash string) error {
+	key := keyPrefixSession + provider + ":" + sessionHash
+	return s.client.Del(ctx, key).Err()
+}
+
+// RefreshSessionTTL refreshes the TTL of a session binding
+func (s *RedisStore) RefreshSessionTTL(ctx context.Context, provider, sessionHash string, ttl time.Duration) error {
+	key := keyPrefixSession + provider + ":" + sessionHash
+	return s.client.Expire(ctx, key, ttl).Err()
+}
+
+// --- Response Binding Methods ---
+
+// SetResponseAccount binds a response ID to an account ID
+func (s *RedisStore) SetResponseAccount(ctx context.Context, responseID, accountID string, ttl time.Duration) error {
+	key := keyPrefixResponse + responseID
+	return s.client.Set(ctx, key, accountID, ttl).Err()
+}
+
+// GetResponseAccount gets the account ID bound to a response ID
+func (s *RedisStore) GetResponseAccount(ctx context.Context, responseID string) (string, error) {
+	key := keyPrefixResponse + responseID
+	val, err := s.client.Get(ctx, key).Result()
+	if err == redis.Nil {
+		return "", nil
+	}
+	return val, err
+}
+
+// --- Concurrency Control Methods ---
+
+// IncrConcurrent increments the concurrent count for an account
+// Returns the new count after increment
+func (s *RedisStore) IncrConcurrent(ctx context.Context, accountID string) (int64, error) {
+	key := keyPrefixConcurrent + accountID
+	return s.client.Incr(ctx, key).Result()
+}
+
+// DecrConcurrent decrements the concurrent count for an account
+// Returns the new count after decrement
+func (s *RedisStore) DecrConcurrent(ctx context.Context, accountID string) (int64, error) {
+	key := keyPrefixConcurrent + accountID
+	return s.client.Decr(ctx, key).Result()
+}
+
+// GetConcurrent gets the current concurrent count for an account
+func (s *RedisStore) GetConcurrent(ctx context.Context, accountID string) (int64, error) {
+	key := keyPrefixConcurrent + accountID
+	val, err := s.client.Get(ctx, key).Int64()
+	if err == redis.Nil {
+		return 0, nil
+	}
+	return val, err
+}
+
+// SetConcurrentWithExpire sets the concurrent count with an expiration
+// This is used to initialize the counter with a TTL to prevent orphaned locks
+func (s *RedisStore) SetConcurrentWithExpire(ctx context.Context, accountID string, value int64, ttl time.Duration) error {
+	key := keyPrefixConcurrent + accountID
+	return s.client.Set(ctx, key, value, ttl).Err()
+}
+
+// TryAcquireSlot atomically tries to acquire a concurrency slot
+// Returns (currentCount, acquired, error)
+func (s *RedisStore) TryAcquireSlot(ctx context.Context, accountID string, maxConcurrency int) (int64, bool, error) {
+	key := keyPrefixConcurrent + accountID
+
+	// Use Lua script for atomic check-and-increment
+	script := `
+		local current = redis.call('GET', KEYS[1])
+		if current == false then
+			current = 0
+		else
+			current = tonumber(current)
+		end
+		if current < tonumber(ARGV[1]) then
+			local newval = redis.call('INCR', KEYS[1])
+			redis.call('EXPIRE', KEYS[1], 3600)
+			return {newval, 1}
+		else
+			return {current, 0}
+		end
+	`
+
+	result, err := s.client.Eval(ctx, script, []string{key}, maxConcurrency).Result()
+	if err != nil {
+		return 0, false, err
+	}
+
+	// Parse result [currentCount, acquired]
+	if arr, ok := result.([]interface{}); ok && len(arr) >= 2 {
+		count, _ := arr[0].(int64)
+		acquired, _ := arr[1].(int64)
+		return count, acquired == 1, nil
+	}
+
+	return 0, false, nil
+}
+
+// ReleaseSlot atomically releases a concurrency slot
+func (s *RedisStore) ReleaseSlot(ctx context.Context, accountID string) error {
+	key := keyPrefixConcurrent + accountID
+
+	// Use Lua script for atomic decrement (but not below 0)
+	script := `
+		local current = redis.call('GET', KEYS[1])
+		if current == false or tonumber(current) <= 0 then
+			return 0
+		else
+			return redis.call('DECR', KEYS[1])
+		end
+	`
+
+	_, err := s.client.Eval(ctx, script, []string{key}).Result()
+	return err
 }

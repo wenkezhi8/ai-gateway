@@ -145,7 +145,7 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	}
 
 	providerReq := buildProviderRequestFromAnthropic(req, requestedModel)
-	targetProvider, err := h.getProviderForRequest(providerReq.Model, "anthropic")
+	targetProvider, err := h.getProviderForRequest(c, providerReq.Model, "anthropic")
 	if err != nil {
 		h.recordMetrics("", "", providerReq.Model, time.Since(startTime), 0, false)
 		h.writeAnthropicError(c, http.StatusServiceUnavailable, "provider_error", err.Error())

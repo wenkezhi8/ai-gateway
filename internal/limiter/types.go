@@ -7,10 +7,14 @@ import (
 
 // Common errors
 var (
-	ErrQuotaExceeded      = errors.New("quota exceeded")
-	ErrRateLimitExceeded  = errors.New("rate limit exceeded")
-	ErrNoAvailableAccount = errors.New("no available account")
-	ErrInvalidPeriod      = errors.New("invalid period")
+	ErrQuotaExceeded         = errors.New("quota exceeded")
+	ErrRateLimitExceeded     = errors.New("rate limit exceeded")
+	ErrNoAvailableAccount    = errors.New("no available account")
+	ErrInvalidPeriod         = errors.New("invalid period")
+	ErrAccountUnavailable    = errors.New("account unavailable")
+	ErrConcurrencyExceeded   = errors.New("concurrency limit exceeded")
+	ErrSchedulerDisabled     = errors.New("scheduler disabled")
+	ErrStickySessionNotFound = errors.New("sticky session not found")
 )
 
 // Period defines the time period for rate limiting
@@ -80,6 +84,8 @@ type AccountConfig struct {
 	BaseURL           string                     `json:"base_url"`
 	Enabled           bool                       `json:"enabled"`
 	Priority          int                        `json:"priority"`
+	Concurrency       int                        `json:"concurrency,omitempty"`   // Maximum concurrent requests (0 = unlimited)
+	HealthStatus      string                     `json:"health_status,omitempty"` // healthy, degraded, unhealthy
 	Limits            map[LimitType]*LimitConfig `json:"limits"`
 	CodingPlanEnabled bool                       `json:"coding_plan_enabled,omitempty"` // AI 编程订阅开关
 }
@@ -129,4 +135,102 @@ type Alert struct {
 	PercentUsed float64   `json:"percent_used"`
 	Timestamp   time.Time `json:"timestamp"`
 	Message     string    `json:"message"`
+}
+
+// ScheduleLayer defines the layer at which account was selected
+type ScheduleLayer string
+
+const (
+	ScheduleLayerPreviousResponse ScheduleLayer = "previous_response"
+	ScheduleLayerSessionSticky    ScheduleLayer = "session_sticky"
+	ScheduleLayerLoadBalance      ScheduleLayer = "load_balance"
+)
+
+// HealthStatus constants
+const (
+	HealthStatusHealthy   = "healthy"
+	HealthStatusDegraded  = "degraded"
+	HealthStatusUnhealthy = "unhealthy"
+)
+
+// ScheduleRequest represents a request for account scheduling
+type ScheduleRequest struct {
+	ProviderType       string              `json:"provider_type"`
+	Model              string              `json:"model"`
+	SessionHash        string              `json:"session_hash,omitempty"`
+	PreviousResponseID string              `json:"previous_response_id,omitempty"`
+	ExcludedIDs        map[string]struct{} `json:"excluded_ids,omitempty"`
+}
+
+// ScheduleDecision represents the decision made by the scheduler
+type ScheduleDecision struct {
+	Layer             ScheduleLayer `json:"layer"`
+	SelectedAccountID string        `json:"selected_account_id"`
+	StickyHit         bool          `json:"sticky_hit"`
+	Score             float64       `json:"score"`
+	CandidateCount    int           `json:"candidate_count"`
+	LoadSkew          float64       `json:"load_skew"`
+}
+
+// AccountRuntimeStats represents runtime statistics for an account
+type AccountRuntimeStats struct {
+	AccountID      string    `json:"account_id"`
+	ErrorRateEWMA  float64   `json:"error_rate_ewma"` // Exponential weighted moving average of error rate
+	TTFTMsEWMA     float64   `json:"ttft_ms_ewma"`    // Exponential weighted moving average of TTFT in ms
+	SuccessCount   int64     `json:"success_count"`
+	ErrorCount     int64     `json:"error_count"`
+	LastUpdateTime time.Time `json:"last_update_time"`
+}
+
+// AccountLoadInfo represents current load information for an account
+type AccountLoadInfo struct {
+	AccountID         string  `json:"account_id"`
+	CurrentConcurrent int     `json:"current_concurrent"`
+	MaxConcurrency    int     `json:"max_concurrency"`
+	LoadRate          float64 `json:"load_rate"` // 0-100
+	WaitingCount      int     `json:"waiting_count"`
+}
+
+// SchedulerScoreWeights defines weights for scoring accounts
+type SchedulerScoreWeights struct {
+	Priority  float64 `json:"priority"`
+	Load      float64 `json:"load"`
+	ErrorRate float64 `json:"error_rate"`
+	TTFT      float64 `json:"ttft"`
+}
+
+// DefaultSchedulerScoreWeights returns default scoring weights
+func DefaultSchedulerScoreWeights() SchedulerScoreWeights {
+	return SchedulerScoreWeights{
+		Priority:  1.0,
+		Load:      1.0,
+		ErrorRate: 0.8,
+		TTFT:      0.5,
+	}
+}
+
+// SchedulerConfig represents configuration for the scheduler
+type SchedulerConfig struct {
+	Enabled                 bool                  `json:"enabled"`
+	StickySessionTTL        time.Duration         `json:"sticky_session_ttl"`
+	ResponseBindTTL         time.Duration         `json:"response_bind_ttl"`
+	ScoreWeights            SchedulerScoreWeights `json:"score_weights"`
+	EWMAAlpha               float64               `json:"ewma_alpha"` // Smoothing factor for EWMA
+	MaxStickySessionWait    time.Duration         `json:"max_sticky_session_wait"`
+	HealthCheckInterval     time.Duration         `json:"health_check_interval"`
+	UnhealthyErrorThreshold float64               `json:"unhealthy_error_threshold"`
+}
+
+// DefaultSchedulerConfig returns default scheduler configuration
+func DefaultSchedulerConfig() SchedulerConfig {
+	return SchedulerConfig{
+		Enabled:                 true,
+		StickySessionTTL:        30 * time.Minute,
+		ResponseBindTTL:         1 * time.Hour,
+		ScoreWeights:            DefaultSchedulerScoreWeights(),
+		EWMAAlpha:               0.2,
+		MaxStickySessionWait:    10 * time.Second,
+		HealthCheckInterval:     30 * time.Second,
+		UnhealthyErrorThreshold: 0.5,
+	}
 }

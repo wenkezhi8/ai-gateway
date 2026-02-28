@@ -54,6 +54,8 @@ type PersistedAccount struct {
 	BaseURL           string                    `json:"base_url"`
 	Enabled           bool                      `json:"enabled"`
 	Priority          int                       `json:"priority"`
+	Concurrency       int                       `json:"concurrency,omitempty"`
+	HealthStatus      string                    `json:"health_status,omitempty"`
 	Limits            map[string]PersistedLimit `json:"limits,omitempty"`
 	CodingPlanEnabled bool                      `json:"coding_plan_enabled,omitempty"`
 }
@@ -85,6 +87,8 @@ func saveAccountsToFile(accounts []*limiter.AccountConfig) error {
 			BaseURL:           acc.BaseURL,
 			Enabled:           acc.Enabled,
 			Priority:          acc.Priority,
+			Concurrency:       acc.Concurrency,
+			HealthStatus:      acc.HealthStatus,
 			Limits:            make(map[string]PersistedLimit),
 			CodingPlanEnabled: acc.CodingPlanEnabled,
 		}
@@ -136,6 +140,8 @@ func LoadPersistedAccounts() ([]*limiter.AccountConfig, error) {
 			BaseURL:           pa.BaseURL,
 			Enabled:           pa.Enabled,
 			Priority:          pa.Priority,
+			Concurrency:       pa.Concurrency,
+			HealthStatus:      pa.HealthStatus,
 			Limits:            make(map[limiter.LimitType]*limiter.LimitConfig),
 			CodingPlanEnabled: pa.CodingPlanEnabled,
 		}

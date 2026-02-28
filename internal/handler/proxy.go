@@ -393,13 +393,44 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// Get provider for the request - try account manager first
-	targetProvider, err := h.getProviderForRequest(requestedModel, req.Provider)
-	if err != nil {
-		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
-		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
-		Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, err.Error())
-		return
+	// Get provider for the request - try scheduler first, then fallback
+	providerType := req.Provider
+	if providerType == "" {
+		providerType = inferProviderFromModel(requestedModel)
+	}
+
+	var targetProvider provider.Provider
+	var scheduleResult *ScheduleResult
+
+	// Try scheduler if account manager has it enabled
+	if h.accountManager != nil && h.accountManager.IsSchedulerEnabled() {
+		scheduleCtx := extractScheduleContext(c, requestedModel, providerType)
+		p, result, schedErr := h.getProviderWithScheduler(c.Request.Context(), scheduleCtx)
+		if schedErr == nil && p != nil && result != nil {
+			targetProvider = *p
+			scheduleResult = result
+			// Set response headers for debugging
+			c.Header("X-Account-ID", result.Account.ID)
+			c.Header("X-Schedule-Layer", string(result.Decision.Layer))
+			c.Header("X-Sticky-Hit", fmt.Sprintf("%v", result.Decision.StickyHit))
+		}
+	}
+
+	// Fallback to original logic if scheduler didn't work
+	if targetProvider == nil {
+		var fallbackErr error
+		targetProvider, fallbackErr = h.getProviderForRequest(c, requestedModel, req.Provider)
+		if fallbackErr != nil {
+			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, fallbackErr.Error())
+			return
+		}
+	}
+
+	// Ensure slot is released after request completes
+	if scheduleResult != nil && scheduleResult.ReleaseFunc != nil {
+		defer scheduleResult.ReleaseFunc()
 	}
 
 	// Get default temperature based on model
@@ -717,12 +748,60 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 // getProviderForRequest gets the appropriate provider for the request
 // First tries to use account manager to get active account credentials
 // Falls back to registry providers if no account manager or no active account
-func (h *ProxyHandler) getProviderForRequest(model string, providerName string) (provider.Provider, error) {
+func (h *ProxyHandler) getProviderForRequest(c *gin.Context, model string, providerName string) (provider.Provider, error) {
 	providerName = normalizeProviderName(providerName)
 	if providerName == "" {
 		providerName = inferProviderFromModel(model)
 	}
 	var lastCreateErr error
+
+	// Try scheduler first if gin.Context is provided and scheduler is enabled
+	if c != nil && h.accountManager != nil && h.accountManager.IsSchedulerEnabled() {
+		sessionHash := c.GetHeader("X-Session-Hash")
+		previousResponseID := c.GetHeader("X-Previous-Response-ID")
+
+		if sessionHash != "" || previousResponseID != "" {
+			scheduleReq := limiter.ScheduleRequest{
+				ProviderType:       providerName,
+				Model:              model,
+				SessionHash:        sessionHash,
+				PreviousResponseID: previousResponseID,
+			}
+
+			account, decision, releaseFunc, err := h.accountManager.SelectAccount(c.Request.Context(), scheduleReq)
+			if err == nil && account != nil {
+				backendProvider := mapProviderName(account.Provider)
+				if account.ProviderType != "" {
+					backendProvider = account.ProviderType
+				}
+
+				provConfig := &provider.ProviderConfig{
+					Name:    backendProvider,
+					APIKey:  account.APIKey,
+					BaseURL: account.BaseURL,
+					Models:  getModelsForProvider(account.Provider),
+					Enabled: true,
+				}
+
+				p, createErr := h.registry.CreateProvider(provConfig)
+				if createErr == nil {
+					c.Set("scheduler_account_id", account.ID)
+					c.Set("scheduler_decision", decision)
+					c.Set("scheduler_release_func", releaseFunc)
+					c.Header("X-Account-ID", account.ID)
+					c.Header("X-Schedule-Layer", string(decision.Layer))
+					if decision.StickyHit {
+						c.Header("X-Sticky-Hit", "1")
+					}
+					return p, nil
+				}
+				lastCreateErr = createErr
+				if releaseFunc != nil {
+					releaseFunc()
+				}
+			}
+		}
+	}
 
 	// Try route cache first
 	if h.cache != nil && h.cache.RouteCache != nil && providerName != "" {
@@ -2825,4 +2904,110 @@ func getTextContent(content interface{}) string {
 // GetModelMappingCache returns the model mapping cache for admin handlers
 func (h *ProxyHandler) GetModelMappingCache() *cache.ModelMappingCache {
 	return h.modelMappingCache
+}
+
+// ScheduleContext contains context for account scheduling
+type ScheduleContext struct {
+	SessionHash        string
+	PreviousResponseID string
+	ProviderType       string
+	Model              string
+}
+
+// extractScheduleContext extracts scheduling context from request
+func extractScheduleContext(c *gin.Context, model, providerName string) ScheduleContext {
+	return ScheduleContext{
+		SessionHash:        c.GetHeader("X-Session-Hash"),
+		PreviousResponseID: c.GetHeader("X-Previous-Response-ID"),
+		ProviderType:       providerName,
+		Model:              model,
+	}
+}
+
+// ScheduleResult contains the result of account scheduling
+type ScheduleResult struct {
+	Account     *limiter.AccountConfig
+	Decision    limiter.ScheduleDecision
+	ReleaseFunc func()
+}
+
+// getProviderWithScheduler gets provider using the three-layer scheduling strategy
+func (h *ProxyHandler) getProviderWithScheduler(ctx context.Context, scheduleCtx ScheduleContext) (*provider.Provider, *ScheduleResult, error) {
+	if h.accountManager == nil {
+		return nil, nil, &provider.ProviderError{
+			Message:   "Account manager not available",
+			Code:      http.StatusServiceUnavailable,
+			Retryable: false,
+		}
+	}
+
+	// Build schedule request
+	req := limiter.ScheduleRequest{
+		ProviderType:       scheduleCtx.ProviderType,
+		Model:              scheduleCtx.Model,
+		SessionHash:        scheduleCtx.SessionHash,
+		PreviousResponseID: scheduleCtx.PreviousResponseID,
+	}
+
+	// Select account using scheduler
+	account, decision, releaseFunc, err := h.accountManager.SelectAccount(ctx, req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if account == nil {
+		return nil, nil, &provider.ProviderError{
+			Message:   "No available account for provider: " + scheduleCtx.ProviderType,
+			Code:      http.StatusServiceUnavailable,
+			Retryable: false,
+		}
+	}
+
+	// Map provider type to backend provider
+	backendProvider := mapProviderName(account.Provider)
+	if account.ProviderType != "" {
+		backendProvider = account.ProviderType
+	}
+
+	// Create provider config
+	provConfig := &provider.ProviderConfig{
+		Name:    backendProvider,
+		APIKey:  account.APIKey,
+		BaseURL: account.BaseURL,
+		Models:  getModelsForProvider(account.Provider),
+		Enabled: true,
+	}
+
+	// Create provider
+	p, err := h.registry.CreateProvider(provConfig)
+	if err != nil {
+		if releaseFunc != nil {
+			releaseFunc()
+		}
+		return nil, nil, err
+	}
+
+	result := &ScheduleResult{
+		Account:     account,
+		Decision:    decision,
+		ReleaseFunc: releaseFunc,
+	}
+
+	return &p, result, nil
+}
+
+// reportScheduleResult reports the result of a scheduled request
+func (h *ProxyHandler) reportScheduleResult(accountID string, success bool, ttftMs int64) {
+	if h.accountManager == nil {
+		return
+	}
+	h.accountManager.ReportScheduleResult(accountID, success, ttftMs)
+}
+
+// bindResponseToAccount binds a response ID to the account that handled it
+func (h *ProxyHandler) bindResponseToAccount(ctx context.Context, responseID, accountID string) {
+	if h.accountManager == nil {
+		return
+	}
+	_ = h.accountManager.BindResponseToAccount(ctx, responseID, accountID)
 }
