@@ -97,6 +97,7 @@ func (d *RequestDeduplicator) GenerateKey(prompt string, model string, params ma
 func (d *RequestDeduplicator) Do(ctx context.Context, key string, fn func() (interface{}, error)) (interface{}, error) {
 	d.mu.RLock()
 	enabled := d.enabled
+	requestTimeout := d.config.RequestTimeout
 	d.mu.RUnlock()
 
 	if !enabled {
@@ -123,7 +124,7 @@ func (d *RequestDeduplicator) Do(ctx context.Context, key string, fn func() (int
 			return resp.Data, resp.Error
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(d.config.RequestTimeout):
+		case <-time.After(requestTimeout):
 			d.stats.mu.Lock()
 			d.stats.Timeouts++
 			d.stats.mu.Unlock()
@@ -213,7 +214,10 @@ func (d *RequestDeduplicator) getDedupRate() float64 {
 }
 
 func (d *RequestDeduplicator) cleanupLoop() {
-	ticker := time.NewTicker(d.config.CleanupInterval)
+	d.mu.RLock()
+	interval := d.config.CleanupInterval
+	d.mu.RUnlock()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
