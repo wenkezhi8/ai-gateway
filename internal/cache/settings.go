@@ -30,6 +30,15 @@ type CacheSettings struct {
 	VectorDimension               int                `json:"vector_dimension"`
 	VectorQueryTimeoutMs          int                `json:"vector_query_timeout_ms"`
 	VectorThresholds              map[string]float64 `json:"vector_thresholds"`
+	VectorPipelineEnabled         bool               `json:"vector_pipeline_enabled"`
+	VectorStandardKeyVersion      string             `json:"vector_standard_key_version"`
+	VectorEmbeddingProvider       string             `json:"vector_embedding_provider"`
+	VectorOllamaBaseURL           string             `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel    string             `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension int               `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs int               `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode      string             `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled        bool               `json:"vector_writeback_enabled"`
 	ColdVectorEnabled             bool               `json:"cold_vector_enabled"`
 	ColdVectorQueryEnabled        bool               `json:"cold_vector_query_enabled"`
 	ColdVectorBackend             string             `json:"cold_vector_backend"`
@@ -66,6 +75,15 @@ func DefaultCacheSettings() CacheSettings {
 			"qa":        0.93,
 			"chat":      0.92,
 		},
+		VectorPipelineEnabled:          true,
+		VectorStandardKeyVersion:       "v2",
+		VectorEmbeddingProvider:        "ollama",
+		VectorOllamaBaseURL:            "http://127.0.0.1:11434",
+		VectorOllamaEmbeddingModel:     "nomic-embed-text",
+		VectorOllamaEmbeddingDimension: 1024,
+		VectorOllamaEmbeddingTimeoutMs: 1500,
+		VectorOllamaEndpointMode:       "auto",
+		VectorWritebackEnabled:         true,
 		ColdVectorEnabled:             false,
 		ColdVectorQueryEnabled:        true,
 		ColdVectorBackend:             ColdVectorBackendSQLite,

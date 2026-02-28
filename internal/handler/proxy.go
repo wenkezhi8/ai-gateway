@@ -91,6 +91,7 @@ type ProxyHandler struct {
 	modelMappingCache *cache.ModelMappingCache
 	intentClient      *intent.Client
 	vectorStore       cache.VectorCacheStore
+	vectorPipeline    *VectorPipeline
 	textNormalizer    *cache.TextNormalizer
 }
 
@@ -136,6 +137,13 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		vectorStore = cacheManager.GetVectorStore()
 	}
 
+	settingsGetter := cache.DefaultCacheSettings
+	if cacheManager != nil {
+		settingsGetter = cacheManager.GetSettings
+	}
+	textNormalizer := cache.NewTextNormalizer()
+	vectorPipeline := NewVectorPipeline(vectorStore, textNormalizer, settingsGetter)
+
 	return &ProxyHandler{
 		config:            cfg,
 		registry:          provider.GetRegistry(),
@@ -147,7 +155,8 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		modelMappingCache: modelMappingCache,
 		intentClient:      intent.NewClient(intentCfg),
 		vectorStore:       vectorStore,
-		textNormalizer:    cache.NewTextNormalizer(),
+		vectorPipeline:    vectorPipeline,
+		textNormalizer:    textNormalizer,
 	}
 }
 
@@ -306,7 +315,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	intentResult, v2CachedBody, v2CacheHit, v2HitLayer, v2HitKey := h.processCacheV2Read(
 		c.Request.Context(),
 		prompt,
-		contextStr,
+		normalizedQuery,
+		string(assessment.TaskType),
 		cacheSettings,
 	)
 	if v2CacheHit && len(v2CachedBody) > 0 {
@@ -2737,52 +2747,28 @@ func (h *ProxyHandler) persistResponseCacheHit(ctx context.Context, cacheKey str
 func (h *ProxyHandler) processCacheV2Read(
 	ctx context.Context,
 	prompt string,
-	contextText string,
+	normalizedQuery string,
+	taskType string,
 	cacheSettings cache.CacheSettings,
 ) (*intent.IntentEmbeddingResult, []byte, bool, string, string) {
-	if h.intentClient == nil || !h.intentClient.Enabled() || h.vectorStore == nil || !cacheSettings.VectorEnabled {
+	if h.vectorStore == nil || !cacheSettings.VectorEnabled {
 		return nil, nil, false, "", ""
 	}
-
-	normalizedPrompt := strings.TrimSpace(prompt)
-	if h.textNormalizer != nil {
-		normalizedPrompt = h.textNormalizer.Normalize(prompt)
+	pipeline := h.vectorPipeline
+	if pipeline == nil {
+		settingsCopy := cacheSettings
+		pipeline = NewVectorPipeline(h.vectorStore, h.textNormalizer, func() cache.CacheSettings {
+			return settingsCopy
+		})
 	}
-	if normalizedPrompt == "" {
-		return nil, nil, false, "", ""
-	}
-
-	intentResult, err := h.intentClient.Infer(ctx, normalizedPrompt, contextText)
-	if err != nil || intentResult == nil || strings.TrimSpace(intentResult.StandardKey) == "" {
-		return nil, nil, false, "", ""
-	}
-
-	exactDoc, err := h.vectorStore.GetExact(ctx, intentResult.StandardKey)
-	if err == nil && exactDoc != nil && exactDoc.Response != nil {
-		if payload, mErr := json.Marshal(exactDoc.Response); mErr == nil && len(payload) > 0 {
-			return intentResult, payload, true, "vector-exact", exactDoc.CacheKey
-		}
-	}
-
-	threshold := h.intentThreshold(intentResult.Intent, cacheSettings)
-	hits, err := h.vectorStore.VectorSearch(ctx, intentResult.Intent, intentResult.Embedding, 1, threshold)
-	if err != nil || len(hits) == 0 {
-		return intentResult, nil, false, "", ""
-	}
-
-	hit := hits[0]
-	payload := hit.Response
-	if len(payload) == 0 && strings.TrimSpace(hit.CacheKey) != "" {
-		if doc, gErr := h.vectorStore.GetExact(ctx, hit.CacheKey); gErr == nil && doc != nil && doc.Response != nil {
-			if b, mErr := json.Marshal(doc.Response); mErr == nil {
-				payload = b
-			}
-		}
-	}
-	if len(payload) == 0 {
-		return intentResult, nil, false, "", ""
-	}
-	return intentResult, payload, true, "vector-semantic", hit.CacheKey
+	return pipeline.Read(
+		ctx,
+		prompt,
+		normalizedQuery,
+		taskType,
+		&cacheSettings,
+		h.intentThreshold,
+	)
 }
 
 func (h *ProxyHandler) processCacheV2Write(
@@ -2793,41 +2779,35 @@ func (h *ProxyHandler) processCacheV2Write(
 	taskType routing.TaskType,
 	response ChatCompletionResponse,
 ) {
-	if intentResult == nil || h.vectorStore == nil || h.intentClient == nil || !h.intentClient.Enabled() {
-		return
-	}
-	if strings.TrimSpace(intentResult.Intent) == "" || strings.EqualFold(strings.TrimSpace(intentResult.Intent), "unknown") {
-		return
-	}
-	if strings.TrimSpace(intentResult.StandardKey) == "" || len(intentResult.Embedding) == 0 || !hasMeaningfulAssistantResponse(&response) {
+	if intentResult == nil || h.vectorStore == nil {
 		return
 	}
 
-	ttlSec := h.intentTTLSeconds(intentResult)
-	doc := &cache.VectorCacheDocument{
-		CacheKey:        intentResult.StandardKey,
-		Intent:          intentResult.Intent,
-		TaskType:        string(taskType),
-		Slots:           intentResult.Slots,
-		NormalizedQuery: intentResult.NormalizedText,
-		Vector:          intentResult.Embedding,
-		Response:        response,
-		Provider:        providerName,
-		Model:           model,
-		QualityScore:    90,
-		TTLSec:          ttlSec,
+	settings := cache.DefaultCacheSettings()
+	if h.cache != nil {
+		settings = h.cache.GetSettings()
 	}
-
-	go func() {
-		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		_ = h.vectorStore.Upsert(writeCtx, doc)
-		_ = h.vectorStore.TouchTTL(writeCtx, doc.CacheKey, ttlSec)
-	}()
+	pipeline := h.vectorPipeline
+	if pipeline == nil {
+		settingsCopy := settings
+		pipeline = NewVectorPipeline(h.vectorStore, h.textNormalizer, func() cache.CacheSettings {
+			return settingsCopy
+		})
+	}
+	pipeline.Write(
+		ctx,
+		intentResult,
+		providerName,
+		model,
+		taskType,
+		response,
+		h.intentTTLSeconds(intentResult),
+		&settings,
+	)
 }
 
 func (h *ProxyHandler) intentThreshold(intentName string, cacheSettings cache.CacheSettings) float64 {
-	intentName = strings.ToLower(strings.TrimSpace(intentName))
+	intentName = normalizeVectorIntentPolicyKey(intentName)
 	if cacheSettings.VectorThresholds != nil {
 		if v, ok := cacheSettings.VectorThresholds[intentName]; ok && v > 0 && v <= 1 {
 			return v
@@ -2845,13 +2825,25 @@ func (h *ProxyHandler) intentTTLSeconds(intentResult *intent.IntentEmbeddingResu
 		return defaultTTL
 	}
 
-	intentName := strings.ToLower(strings.TrimSpace(intentResult.Intent))
+	intentName := normalizeVectorIntentPolicyKey(intentResult.Intent)
 	if h.config.VectorCache.TTLSeconds != nil {
 		if ttl, ok := h.config.VectorCache.TTLSeconds[intentName]; ok && ttl > 0 {
 			return ttl
 		}
 	}
 	return defaultTTL
+}
+
+func normalizeVectorIntentPolicyKey(intentName string) string {
+	normalized := strings.ToLower(strings.TrimSpace(intentName))
+	switch normalized {
+	case "math":
+		return "calc"
+	case "fact", "reasoning", "code", "long_text":
+		return "qa"
+	default:
+		return normalized
+	}
 }
 
 // Helper to check context cancellation

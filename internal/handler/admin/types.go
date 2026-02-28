@@ -155,6 +155,15 @@ type CacheConfigRequest struct {
 	VectorDimension               *int               `json:"vector_dimension"`
 	VectorQueryTimeoutMs          *int               `json:"vector_query_timeout_ms"`
 	VectorThresholds              map[string]float64 `json:"vector_thresholds"`
+	VectorPipelineEnabled         *bool              `json:"vector_pipeline_enabled"`
+	VectorStandardKeyVersion      *string            `json:"vector_standard_key_version"`
+	VectorEmbeddingProvider       *string            `json:"vector_embedding_provider"`
+	VectorOllamaBaseURL           *string            `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel    *string            `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension *int              `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs *int              `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode      *string            `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled        *bool              `json:"vector_writeback_enabled"`
 	ColdVectorEnabled             *bool              `json:"cold_vector_enabled"`
 	ColdVectorQueryEnabled        *bool              `json:"cold_vector_query_enabled"`
 	ColdVectorBackend             *string            `json:"cold_vector_backend"`

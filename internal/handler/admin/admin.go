@@ -176,6 +176,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.GET("/summary", handlers.Cache.GetCacheSummary)
 		cacheGroup.GET("/vector/stats", handlers.Cache.GetVectorStats)
 		cacheGroup.POST("/vector/rebuild", handlers.Cache.RebuildVectorIndex)
+		cacheGroup.GET("/vector/pipeline/health", handlers.Cache.GetVectorPipelineHealth)
+		cacheGroup.POST("/vector/pipeline/test", handlers.Cache.TestVectorPipeline)
 		cacheGroup.GET("/vector/tier/stats", handlers.Cache.GetVectorTierStats)
 		cacheGroup.POST("/vector/tier/migrate", handlers.Cache.TriggerVectorTierMigrate)
 		cacheGroup.POST("/vector/tier/promote", handlers.Cache.PromoteVectorTierEntry)

@@ -355,23 +355,18 @@ func (s *proxyTierColdStore) Stats(ctx context.Context) (cache.ColdVectorStoreSt
 }
 
 func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
-	intentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/intent-embed" {
+	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"intent":          "qa",
-			"slots":           map[string]string{},
-			"standard_key":    "intent:qa:key=cache-hot-miss",
-			"embedding":       []float64{0.1, 0.2},
-			"embedding_dim":   2,
-			"confidence":      0.99,
-			"engine_version":  "test",
-			"normalized_text": "什么是缓存",
+			"embeddings": [][]float64{
+				{0.1, 0.2},
+			},
 		})
 	}))
-	defer intentServer.Close()
+	defer ollamaServer.Close()
 
 	hot := &proxyTierHotStore{}
 	coldDoc := &cache.VectorCacheDocument{
@@ -412,19 +407,20 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 	})
 
 	h := &ProxyHandler{
-		intentClient: intent.NewClient(intent.Config{
-			Enabled:           true,
-			BaseURL:           intentServer.URL,
-			Timeout:           300 * time.Millisecond,
-			ExpectedDimension: 2,
-		}),
 		vectorStore:    tiered,
 		textNormalizer: cache.NewTextNormalizer(),
 	}
 
 	settings := cache.DefaultCacheSettings()
 	settings.VectorEnabled = true
-	intentResult, payload, hit, layer, key := h.processCacheV2Read(context.Background(), "什么是缓存", "", settings)
+	settings.VectorPipelineEnabled = true
+	settings.VectorEmbeddingProvider = "ollama"
+	settings.VectorOllamaBaseURL = ollamaServer.URL
+	settings.VectorOllamaEmbeddingModel = "nomic-embed-text"
+	settings.VectorOllamaEmbeddingDimension = 2
+	settings.VectorOllamaEndpointMode = cache.OllamaEndpointModeAuto
+
+	intentResult, payload, hit, layer, key := h.processCacheV2Read(context.Background(), "什么是缓存", "什么是缓存", "qa", settings)
 	if intentResult == nil {
 		t.Fatal("expected intent result")
 	}

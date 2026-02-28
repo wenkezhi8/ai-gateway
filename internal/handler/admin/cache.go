@@ -314,6 +314,108 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		}
 		settings.VectorThresholds = thresholds
 	}
+	if req.VectorPipelineEnabled != nil {
+		settings.VectorPipelineEnabled = *req.VectorPipelineEnabled
+	}
+	if req.VectorStandardKeyVersion != nil {
+		value := strings.TrimSpace(*req.VectorStandardKeyVersion)
+		if value == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_standard_key_version",
+					"message": "vector_standard_key_version cannot be empty",
+				},
+			})
+			return
+		}
+		settings.VectorStandardKeyVersion = value
+	}
+	if req.VectorEmbeddingProvider != nil {
+		value := strings.ToLower(strings.TrimSpace(*req.VectorEmbeddingProvider))
+		if value != "ollama" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_embedding_provider",
+					"message": "vector_embedding_provider must be ollama",
+				},
+			})
+			return
+		}
+		settings.VectorEmbeddingProvider = value
+	}
+	if req.VectorOllamaBaseURL != nil {
+		value := strings.TrimSpace(*req.VectorOllamaBaseURL)
+		if value == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_ollama_base_url",
+					"message": "vector_ollama_base_url cannot be empty",
+				},
+			})
+			return
+		}
+		settings.VectorOllamaBaseURL = value
+	}
+	if req.VectorOllamaEmbeddingModel != nil {
+		value := strings.TrimSpace(*req.VectorOllamaEmbeddingModel)
+		if value == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_ollama_embedding_model",
+					"message": "vector_ollama_embedding_model cannot be empty",
+				},
+			})
+			return
+		}
+		settings.VectorOllamaEmbeddingModel = value
+	}
+	if req.VectorOllamaEmbeddingDimension != nil {
+		if *req.VectorOllamaEmbeddingDimension <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_ollama_embedding_dimension",
+					"message": "vector_ollama_embedding_dimension must be positive",
+				},
+			})
+			return
+		}
+		settings.VectorOllamaEmbeddingDimension = *req.VectorOllamaEmbeddingDimension
+	}
+	if req.VectorOllamaEmbeddingTimeoutMs != nil {
+		if *req.VectorOllamaEmbeddingTimeoutMs <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_ollama_embedding_timeout_ms",
+					"message": "vector_ollama_embedding_timeout_ms must be positive",
+				},
+			})
+			return
+		}
+		settings.VectorOllamaEmbeddingTimeoutMs = *req.VectorOllamaEmbeddingTimeoutMs
+	}
+	if req.VectorOllamaEndpointMode != nil {
+		value := strings.ToLower(strings.TrimSpace(*req.VectorOllamaEndpointMode))
+		if value != cache.OllamaEndpointModeAuto && value != cache.OllamaEndpointModeEmbed && value != cache.OllamaEndpointModeEmbeddings {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_vector_ollama_endpoint_mode",
+					"message": "vector_ollama_endpoint_mode must be auto/embed/embeddings",
+				},
+			})
+			return
+		}
+		settings.VectorOllamaEndpointMode = value
+	}
+	if req.VectorWritebackEnabled != nil {
+		settings.VectorWritebackEnabled = *req.VectorWritebackEnabled
+	}
 	if req.ColdVectorEnabled != nil {
 		settings.ColdVectorEnabled = *req.ColdVectorEnabled
 	}
@@ -716,6 +818,15 @@ func persistVectorCacheSettings(settings cache.CacheSettings) error {
 	vectorCfg["enabled"] = settings.VectorEnabled
 	vectorCfg["dimension"] = settings.VectorDimension
 	vectorCfg["query_timeout_ms"] = settings.VectorQueryTimeoutMs
+	vectorCfg["pipeline_enabled"] = settings.VectorPipelineEnabled
+	vectorCfg["standard_key_version"] = settings.VectorStandardKeyVersion
+	vectorCfg["embedding_provider"] = settings.VectorEmbeddingProvider
+	vectorCfg["ollama_base_url"] = settings.VectorOllamaBaseURL
+	vectorCfg["ollama_embedding_model"] = settings.VectorOllamaEmbeddingModel
+	vectorCfg["ollama_embedding_dimension"] = settings.VectorOllamaEmbeddingDimension
+	vectorCfg["ollama_embedding_timeout_ms"] = settings.VectorOllamaEmbeddingTimeoutMs
+	vectorCfg["ollama_endpoint_mode"] = settings.VectorOllamaEndpointMode
+	vectorCfg["writeback_enabled"] = settings.VectorWritebackEnabled
 	if len(settings.VectorThresholds) > 0 {
 		vectorCfg["thresholds"] = settings.VectorThresholds
 	}
@@ -791,6 +902,217 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 	summary := h.manager.Summary()
 
 	c.Data(http.StatusOK, "application/json", summary)
+}
+
+type vectorPipelineTestRequest struct {
+	Query         string  `json:"query" binding:"required"`
+	TaskType      string  `json:"task_type"`
+	TopK          int     `json:"top_k"`
+	MinSimilarity float64 `json:"min_similarity"`
+}
+
+func (h *CacheHandler) newOllamaEmbeddingServiceFromSettings(settings cache.CacheSettings) *cache.OllamaEmbeddingService {
+	return cache.NewOllamaEmbeddingService(cache.OllamaEmbeddingConfig{
+		BaseURL:      settings.VectorOllamaBaseURL,
+		Model:        settings.VectorOllamaEmbeddingModel,
+		Timeout:      time.Duration(settings.VectorOllamaEmbeddingTimeoutMs) * time.Millisecond,
+		EndpointMode: settings.VectorOllamaEndpointMode,
+	})
+}
+
+func (h *CacheHandler) resolveVectorThreshold(taskType string, settings cache.CacheSettings) float64 {
+	key := strings.ToLower(strings.TrimSpace(taskType))
+	switch key {
+	case "math":
+		key = "calc"
+	case "fact", "reasoning", "code", "long_text":
+		key = "qa"
+	}
+	if settings.VectorThresholds != nil {
+		if value, ok := settings.VectorThresholds[key]; ok && value > 0 && value <= 1 {
+			return value
+		}
+	}
+	if settings.SimilarityThreshold > 0 && settings.SimilarityThreshold <= 1 {
+		return settings.SimilarityThreshold
+	}
+	return 0.92
+}
+
+// GetVectorPipelineHealth returns ollama embedding pipeline status.
+// GET /api/admin/cache/vector/pipeline/health
+func (h *CacheHandler) GetVectorPipelineHealth(c *gin.Context) {
+	settings := h.manager.GetSettings()
+	store := h.manager.GetVectorStore()
+
+	data := gin.H{
+		"enabled":                    settings.VectorEnabled && settings.VectorPipelineEnabled,
+		"vector_enabled":             settings.VectorEnabled,
+		"pipeline_enabled":           settings.VectorPipelineEnabled,
+		"embedding_provider":         settings.VectorEmbeddingProvider,
+		"ollama_base_url":            settings.VectorOllamaBaseURL,
+		"ollama_embedding_model":     settings.VectorOllamaEmbeddingModel,
+		"ollama_embedding_dimension": settings.VectorOllamaEmbeddingDimension,
+		"ollama_endpoint_mode":       settings.VectorOllamaEndpointMode,
+		"writeback_enabled":          settings.VectorWritebackEnabled,
+	}
+
+	if !settings.VectorEnabled || !settings.VectorPipelineEnabled {
+		data["healthy"] = false
+		data["message"] = "vector pipeline disabled"
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+		return
+	}
+
+	start := time.Now()
+	embedder := h.newOllamaEmbeddingServiceFromSettings(settings)
+	embedding, err := embedder.GetEmbedding(c.Request.Context(), "vector pipeline health check")
+	latency := time.Since(start).Milliseconds()
+	data["embedding_latency_ms"] = latency
+	data["embedding_dimension_actual"] = len(embedding)
+
+	if err != nil {
+		data["healthy"] = false
+		data["message"] = err.Error()
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+		return
+	}
+
+	var stats cache.VectorStoreStats
+	var statsErr error
+	if store != nil {
+		stats, statsErr = store.Stats(c.Request.Context())
+	}
+	if statsErr != nil {
+		data["healthy"] = false
+		data["message"] = statsErr.Error()
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+		return
+	}
+
+	indexDim := stats.Dimension
+	if indexDim == 0 {
+		indexDim = settings.VectorDimension
+	}
+
+	data["vector_index_dimension"] = indexDim
+	data["dimension_match"] = len(embedding) == indexDim
+	data["healthy"] = len(embedding) == indexDim
+	if len(embedding) == indexDim {
+		data["message"] = "ok"
+	} else {
+		data["message"] = "embedding dimension does not match vector index"
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
+}
+
+// TestVectorPipeline performs a vector pipeline dry-run.
+// POST /api/admin/cache/vector/pipeline/test
+func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
+	var req vectorPipelineTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	settings := h.manager.GetSettings()
+	if !settings.VectorEnabled || !settings.VectorPipelineEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_pipeline_disabled",
+				"message": "vector pipeline is disabled",
+			},
+		})
+		return
+	}
+
+	taskType := strings.ToLower(strings.TrimSpace(req.TaskType))
+	if taskType == "" {
+		taskType = "unknown"
+	}
+	normalizer := cache.NewTextNormalizer()
+	normalizedQuery := normalizer.Normalize(req.Query)
+	if normalizedQuery == "" {
+		normalizedQuery = strings.TrimSpace(req.Query)
+	}
+	standardKey := cache.BuildTaskTypeStandardKey(taskType, normalizedQuery)
+
+	embedder := h.newOllamaEmbeddingServiceFromSettings(settings)
+	embedStart := time.Now()
+	embedding, err := embedder.GetEmbedding(c.Request.Context(), normalizedQuery)
+	embedLatency := time.Since(embedStart).Milliseconds()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "vector_embedding_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	store := h.manager.GetVectorStore()
+	var hits []cache.VectorSearchHit
+	searchLatency := int64(0)
+	if store != nil {
+		topK := req.TopK
+		if topK <= 0 {
+			topK = 5
+		}
+		if topK > 20 {
+			topK = 20
+		}
+		minSimilarity := req.MinSimilarity
+		if minSimilarity <= 0 || minSimilarity > 1 {
+			minSimilarity = h.resolveVectorThreshold(taskType, settings)
+		}
+
+		searchStart := time.Now()
+		hits, err = store.VectorSearch(c.Request.Context(), taskType, embedding, topK, minSimilarity)
+		searchLatency = time.Since(searchStart).Milliseconds()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "vector_search_failed",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+	}
+
+	resultHits := make([]gin.H, 0, len(hits))
+	for _, hit := range hits {
+		resultHits = append(resultHits, gin.H{
+			"cache_key":   hit.CacheKey,
+			"intent":      hit.Intent,
+			"similarity":  hit.Similarity,
+			"score":       hit.Score,
+			"response_raw": string(hit.Response),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"task_type":             taskType,
+			"normalized_query":      normalizedQuery,
+			"standard_key":          standardKey,
+			"embedding_dimension":   len(embedding),
+			"embedding_latency_ms":  embedLatency,
+			"vector_search_latency": searchLatency,
+			"hits":                  resultHits,
+		},
+	})
 }
 
 // GetVectorStats returns Redis Stack vector cache status.

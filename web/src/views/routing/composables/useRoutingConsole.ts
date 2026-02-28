@@ -27,9 +27,13 @@ import {
   updateRouterConfig
 } from '@/api/routing-domain'
 import {
+  getCacheConfig,
+  getVectorPipelineHealth,
   getVectorStats,
   getVectorTierStats,
-  rebuildVectorIndex as rebuildVectorIndexApi
+  rebuildVectorIndex as rebuildVectorIndexApi,
+  testVectorPipeline,
+  updateCacheConfig
 } from '@/api/cache-domain'
 import { getUiSettings, updateRoutingUiSettings } from '@/api/settings-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
@@ -168,6 +172,39 @@ export function useRoutingConsole() {
     promote_failed: 0,
     message: ''
   })
+
+  const vectorPipelineSaving = ref(false)
+  const vectorPipelineTesting = ref(false)
+  const vectorPipelineConfig = reactive({
+    vector_pipeline_enabled: true,
+    vector_standard_key_version: 'v2',
+    vector_embedding_provider: 'ollama',
+    vector_ollama_base_url: 'http://127.0.0.1:11434',
+    vector_ollama_embedding_model: 'nomic-embed-text',
+    vector_ollama_embedding_dimension: 1024,
+    vector_ollama_embedding_timeout_ms: 1500,
+    vector_ollama_endpoint_mode: 'auto',
+    vector_writeback_enabled: true
+  })
+
+  const vectorPipelineHealth = reactive({
+    enabled: false,
+    healthy: false,
+    message: '未检查',
+    embedding_latency_ms: 0,
+    embedding_dimension_actual: 0,
+    vector_index_dimension: 0,
+    dimension_match: false
+  })
+
+  const vectorPipelineTestForm = reactive({
+    query: '',
+    task_type: 'qa',
+    top_k: 5,
+    min_similarity: 0.92
+  })
+
+  const vectorPipelineTestResult = ref<any | null>(null)
 
   const ollamaSetup = reactive({
     installed: false,
@@ -775,6 +812,88 @@ export function useRoutingConsole() {
     }
   }
 
+  async function loadVectorPipelineConfigData() {
+    try {
+      const data: any = await getCacheConfig()
+      if (!data) return
+
+      vectorPipelineConfig.vector_pipeline_enabled = data.vector_pipeline_enabled ?? vectorPipelineConfig.vector_pipeline_enabled
+      vectorPipelineConfig.vector_standard_key_version = data.vector_standard_key_version || vectorPipelineConfig.vector_standard_key_version
+      vectorPipelineConfig.vector_embedding_provider = data.vector_embedding_provider || vectorPipelineConfig.vector_embedding_provider
+      vectorPipelineConfig.vector_ollama_base_url = data.vector_ollama_base_url || vectorPipelineConfig.vector_ollama_base_url
+      vectorPipelineConfig.vector_ollama_embedding_model = data.vector_ollama_embedding_model || vectorPipelineConfig.vector_ollama_embedding_model
+      vectorPipelineConfig.vector_ollama_embedding_dimension = Number(data.vector_ollama_embedding_dimension || vectorPipelineConfig.vector_ollama_embedding_dimension)
+      vectorPipelineConfig.vector_ollama_embedding_timeout_ms = Number(data.vector_ollama_embedding_timeout_ms || vectorPipelineConfig.vector_ollama_embedding_timeout_ms)
+      vectorPipelineConfig.vector_ollama_endpoint_mode = data.vector_ollama_endpoint_mode || vectorPipelineConfig.vector_ollama_endpoint_mode
+      vectorPipelineConfig.vector_writeback_enabled = data.vector_writeback_enabled ?? vectorPipelineConfig.vector_writeback_enabled
+    } catch (e) {
+      console.warn('Failed to load vector pipeline config:', e)
+    }
+  }
+
+  async function loadVectorPipelineHealthData() {
+    try {
+      const data: any = await getVectorPipelineHealth()
+      vectorPipelineHealth.enabled = Boolean(data?.enabled)
+      vectorPipelineHealth.healthy = Boolean(data?.healthy)
+      vectorPipelineHealth.message = data?.message || (data?.healthy ? 'ok' : 'not ready')
+      vectorPipelineHealth.embedding_latency_ms = Number(data?.embedding_latency_ms || 0)
+      vectorPipelineHealth.embedding_dimension_actual = Number(data?.embedding_dimension_actual || 0)
+      vectorPipelineHealth.vector_index_dimension = Number(data?.vector_index_dimension || 0)
+      vectorPipelineHealth.dimension_match = Boolean(data?.dimension_match)
+    } catch (e) {
+      vectorPipelineHealth.healthy = false
+      vectorPipelineHealth.message = '检查失败'
+      console.warn('Failed to load vector pipeline health:', e)
+    }
+  }
+
+  async function saveVectorPipelineConfigData() {
+    vectorPipelineSaving.value = true
+    try {
+      await updateCacheConfig({
+        vector_pipeline_enabled: vectorPipelineConfig.vector_pipeline_enabled,
+        vector_standard_key_version: vectorPipelineConfig.vector_standard_key_version,
+        vector_embedding_provider: vectorPipelineConfig.vector_embedding_provider,
+        vector_ollama_base_url: vectorPipelineConfig.vector_ollama_base_url,
+        vector_ollama_embedding_model: vectorPipelineConfig.vector_ollama_embedding_model,
+        vector_ollama_embedding_dimension: Number(vectorPipelineConfig.vector_ollama_embedding_dimension || 1024),
+        vector_ollama_embedding_timeout_ms: Number(vectorPipelineConfig.vector_ollama_embedding_timeout_ms || 1500),
+        vector_ollama_endpoint_mode: vectorPipelineConfig.vector_ollama_endpoint_mode,
+        vector_writeback_enabled: vectorPipelineConfig.vector_writeback_enabled
+      })
+      handleSuccess('向量 Pipeline 配置已保存')
+      await Promise.all([loadVectorPipelineConfigData(), loadVectorPipelineHealthData(), loadVectorStatsData()])
+    } catch (e) {
+      handleApiError(e, '保存向量 Pipeline 配置失败')
+    } finally {
+      vectorPipelineSaving.value = false
+    }
+  }
+
+  async function runVectorPipelineTest() {
+    if (!vectorPipelineTestForm.query?.trim()) {
+      handleApiError(new Error('测试文本不能为空'), '执行测试失败')
+      return
+    }
+    vectorPipelineTesting.value = true
+    vectorPipelineTestResult.value = null
+    try {
+      const result = await testVectorPipeline({
+        query: vectorPipelineTestForm.query.trim(),
+        task_type: vectorPipelineTestForm.task_type || 'qa',
+        top_k: Number(vectorPipelineTestForm.top_k || 5),
+        min_similarity: Number(vectorPipelineTestForm.min_similarity || 0.92)
+      })
+      vectorPipelineTestResult.value = result
+      handleSuccess('向量 Pipeline 测试完成')
+    } catch (e) {
+      handleApiError(e, '执行向量 Pipeline 测试失败')
+    } finally {
+      vectorPipelineTesting.value = false
+    }
+  }
+
   async function loadVectorStatsData() {
     vectorRefreshing.value = true
     try {
@@ -889,8 +1008,13 @@ export function useRoutingConsole() {
   async function reloadVectorPanel() {
     markPanelLoading('vector')
     try {
-      await Promise.all([loadVectorStatsData(), loadVectorTierStatsData()])
-      panelState.vector = vectorStats.enabled || vectorTierStats.enabled ? 'success' : 'empty'
+      await Promise.all([
+        loadVectorPipelineConfigData(),
+        loadVectorPipelineHealthData(),
+        loadVectorStatsData(),
+        loadVectorTierStatsData()
+      ])
+      panelState.vector = vectorStats.enabled || vectorTierStats.enabled || vectorPipelineHealth.enabled ? 'success' : 'empty'
     } catch (e) {
       panelError.vector = '向量状态加载失败'
       panelState.vector = 'error'
@@ -982,6 +1106,8 @@ export function useRoutingConsole() {
     ollamaModelInput,
     vectorRefreshing,
     vectorRebuilding,
+    vectorPipelineSaving,
+    vectorPipelineTesting,
     classifierConfig,
     classifierHealth,
     classifierStats,
@@ -989,6 +1115,10 @@ export function useRoutingConsole() {
     intentEngineHealth,
     vectorStats,
     vectorTierStats,
+    vectorPipelineConfig,
+    vectorPipelineHealth,
+    vectorPipelineTestForm,
+    vectorPipelineTestResult,
     ollamaSetup,
     config,
     taskModelMapping,
@@ -1028,6 +1158,8 @@ export function useRoutingConsole() {
     reloadModelsPanel,
     reloadVectorPanel,
     reloadAllPanels,
-    rebuildVectorCacheIndex
+    rebuildVectorCacheIndex,
+    saveVectorPipelineConfigData,
+    runVectorPipelineTest
   }
 }

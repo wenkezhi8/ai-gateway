@@ -273,6 +273,15 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
 
 	body := map[string]any{
+		"vector_pipeline_enabled":           true,
+		"vector_standard_key_version":       "v2",
+		"vector_embedding_provider":         "ollama",
+		"vector_ollama_base_url":            "http://127.0.0.1:11434",
+		"vector_ollama_embedding_model":     "nomic-embed-text",
+		"vector_ollama_embedding_dimension": 1024,
+		"vector_ollama_embedding_timeout_ms": 1600,
+		"vector_ollama_endpoint_mode":       "auto",
+		"vector_writeback_enabled":          true,
 		"cold_vector_enabled":               true,
 		"cold_vector_query_enabled":         false,
 		"cold_vector_backend":               "qdrant",
@@ -314,7 +323,97 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 	if backend, _ := vectorCache["cold_vector_backend"].(string); backend != "qdrant" {
 		t.Fatalf("expected backend=qdrant in persisted config, got %#v", vectorCache["cold_vector_backend"])
 	}
+	if baseURL, _ := vectorCache["ollama_base_url"].(string); baseURL != "http://127.0.0.1:11434" {
+		t.Fatalf("expected ollama_base_url persisted, got %#v", vectorCache["ollama_base_url"])
+	}
+	if model, _ := vectorCache["ollama_embedding_model"].(string); model != "nomic-embed-text" {
+		t.Fatalf("expected ollama_embedding_model persisted, got %#v", vectorCache["ollama_embedding_model"])
+	}
+	if endpointMode, _ := vectorCache["ollama_endpoint_mode"].(string); endpointMode != "auto" {
+		t.Fatalf("expected ollama_endpoint_mode persisted, got %#v", vectorCache["ollama_endpoint_mode"])
+	}
+	if enabled, _ := vectorCache["writeback_enabled"].(bool); !enabled {
+		t.Fatalf("expected writeback_enabled=true in persisted config, got %#v", vectorCache["writeback_enabled"])
+	}
 	if topK, ok := vectorCache["cold_vector_top_k"].(float64); !ok || int(topK) != 3 {
 		t.Fatalf("expected cold_vector_top_k=3 in persisted config, got %#v", vectorCache["cold_vector_top_k"])
+	}
+}
+
+type vectorPipelineTestStore struct {
+	hits []cache.VectorSearchHit
+}
+
+func (s *vectorPipelineTestStore) EnsureIndex(ctx context.Context) error  { return nil }
+func (s *vectorPipelineTestStore) RebuildIndex(ctx context.Context) error { return nil }
+func (s *vectorPipelineTestStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+	return nil, nil
+}
+func (s *vectorPipelineTestStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+	return s.hits, nil
+}
+func (s *vectorPipelineTestStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error { return nil }
+func (s *vectorPipelineTestStore) Delete(ctx context.Context, cacheKey string) error                 { return nil }
+func (s *vectorPipelineTestStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+	return nil
+}
+func (s *vectorPipelineTestStore) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+	return cache.VectorStoreStats{Enabled: true, Dimension: 3, IndexName: "idx_ai_cache_v2"}, nil
+}
+
+func TestCacheHandler_VectorPipelineEndpoints_ShouldWork(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/embed":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"embeddings": [][]float64{{0.1, 0.2, 0.3}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ollamaServer.Close()
+
+	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	settings := manager.GetSettings()
+	settings.VectorEnabled = true
+	settings.VectorPipelineEnabled = true
+	settings.VectorEmbeddingProvider = "ollama"
+	settings.VectorOllamaBaseURL = ollamaServer.URL
+	settings.VectorOllamaEmbeddingModel = "nomic-embed-text"
+	settings.VectorOllamaEmbeddingDimension = 3
+	settings.VectorOllamaEmbeddingTimeoutMs = 500
+	settings.VectorOllamaEndpointMode = cache.OllamaEndpointModeAuto
+	settings.VectorWritebackEnabled = true
+	manager.UpdateSettings(settings)
+
+	store := &vectorPipelineTestStore{
+		hits: []cache.VectorSearchHit{
+			{CacheKey: "intent:qa:query_hash=abc", Intent: "qa", Similarity: 0.96, Score: 0.04},
+		},
+	}
+	manager.SetVectorStore(store)
+	handler := NewCacheHandler(manager)
+
+	router := gin.New()
+	router.GET("/api/admin/cache/vector/pipeline/health", handler.GetVectorPipelineHealth)
+	router.POST("/api/admin/cache/vector/pipeline/test", handler.TestVectorPipeline)
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/pipeline/health", nil)
+	healthW := httptest.NewRecorder()
+	router.ServeHTTP(healthW, healthReq)
+	if healthW.Code != http.StatusOK {
+		t.Fatalf("expected health 200, got %d body=%s", healthW.Code, healthW.Body.String())
+	}
+
+	testBody := []byte(`{"query":"向量检索测试","task_type":"qa","top_k":3,"min_similarity":0.9}`)
+	testReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/vector/pipeline/test", bytes.NewReader(testBody))
+	testReq.Header.Set("Content-Type", "application/json")
+	testW := httptest.NewRecorder()
+	router.ServeHTTP(testW, testReq)
+	if testW.Code != http.StatusOK {
+		t.Fatalf("expected test 200, got %d body=%s", testW.Code, testW.Body.String())
 	}
 }

@@ -101,6 +101,16 @@ export async function rebuildVectorIndex() {
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
+export async function getVectorPipelineHealth() {
+  const raw = await request.get('/admin/cache/vector/pipeline/health')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function testVectorPipeline(payload: Record<string, unknown>) {
+  const raw = await request.post('/admin/cache/vector/pipeline/test', payload)
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
 export async function getVectorTierStats() {
   const raw = await request.get('/admin/cache/vector/tier/stats')
   return unwrapEnvelope<any>(raw, { allowPlain: true })

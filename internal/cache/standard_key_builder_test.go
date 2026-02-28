@@ -32,3 +32,25 @@ func TestBuildStandardKey_IgnoreEmptyValues(t *testing.T) {
 	}
 }
 
+func TestBuildTaskTypeStandardKey_StableForSameInput(t *testing.T) {
+	taskType := "qa"
+	normalizedQuery := "什么是缓存"
+
+	first := BuildTaskTypeStandardKey(taskType, normalizedQuery)
+	second := BuildTaskTypeStandardKey(taskType, normalizedQuery)
+
+	if first == "" || second == "" {
+		t.Fatalf("expected non-empty standard key, got first=%q second=%q", first, second)
+	}
+	if first != second {
+		t.Fatalf("expected deterministic standard key, got first=%q second=%q", first, second)
+	}
+}
+
+func TestBuildTaskTypeStandardKey_DifferentQueryShouldDiffer(t *testing.T) {
+	left := BuildTaskTypeStandardKey("qa", "缓存是什么")
+	right := BuildTaskTypeStandardKey("qa", "缓存原理")
+	if left == right {
+		t.Fatalf("expected different key for different query, got %q", left)
+	}
+}

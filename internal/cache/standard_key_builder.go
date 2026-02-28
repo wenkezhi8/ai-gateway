@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -41,3 +43,24 @@ func BuildStandardKey(intent string, slots map[string]string) string {
 	return fmt.Sprintf("intent:%s:%s", normalizedIntent, strings.Join(parts, ","))
 }
 
+// BuildTaskTypeStandardKey generates a stable key from task type + normalized query.
+func BuildTaskTypeStandardKey(taskType string, normalizedQuery string) string {
+	normalizedTaskType := strings.ToLower(strings.TrimSpace(taskType))
+	if normalizedTaskType == "" {
+		normalizedTaskType = "unknown"
+	}
+	normalizedQuery = strings.TrimSpace(normalizedQuery)
+	if normalizedQuery == "" {
+		return BuildStandardKey(normalizedTaskType, map[string]string{
+			"task_type": normalizedTaskType,
+		})
+	}
+
+	hash := sha256.Sum256([]byte(normalizedQuery))
+	queryHash := hex.EncodeToString(hash[:])
+
+	return BuildStandardKey(normalizedTaskType, map[string]string{
+		"task_type":  normalizedTaskType,
+		"query_hash": queryHash,
+	})
+}

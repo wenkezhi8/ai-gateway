@@ -5,7 +5,7 @@
     empty-text="向量缓存未启用或暂无状态"
     @retry="ctx.reloadVectorPanel"
   >
-    <el-row :gutter="24">
+    <el-row :gutter="24" class="row-gap">
       <el-col :span="12">
         <el-card shadow="never" class="page-card">
           <template #header>
@@ -67,6 +67,133 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="24" class="row-gap">
+      <el-col :span="12">
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>Ollama 向量 Pipeline 配置</span>
+              <el-button type="primary" size="small" :loading="ctx.vectorPipelineSaving" @click="ctx.saveVectorPipelineConfigData">
+                保存
+              </el-button>
+            </div>
+          </template>
+
+          <el-form label-position="top" class="compact-form">
+            <el-form-item label="启用向量 Pipeline">
+              <el-switch v-model="ctx.vectorPipelineConfig.vector_pipeline_enabled" />
+            </el-form-item>
+            <el-form-item label="标准 Key 版本">
+              <el-input v-model="ctx.vectorPipelineConfig.vector_standard_key_version" />
+            </el-form-item>
+            <el-form-item label="Embedding 提供商">
+              <el-select v-model="ctx.vectorPipelineConfig.vector_embedding_provider" style="width: 100%">
+                <el-option label="ollama" value="ollama" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="Ollama 地址">
+              <el-input v-model="ctx.vectorPipelineConfig.vector_ollama_base_url" />
+            </el-form-item>
+            <el-form-item label="Embedding 模型">
+              <el-input v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_model" />
+            </el-form-item>
+            <el-form-item label="Embedding 维度">
+              <el-input-number v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_dimension" :min="1" :step="1" controls-position="right" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="Embedding 超时(ms)">
+              <el-input-number v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_timeout_ms" :min="100" :step="100" controls-position="right" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="端点模式">
+              <el-select v-model="ctx.vectorPipelineConfig.vector_ollama_endpoint_mode" style="width: 100%">
+                <el-option label="auto" value="auto" />
+                <el-option label="embed (/api/embed)" value="embed" />
+                <el-option label="embeddings (/api/embeddings)" value="embeddings" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="启用异步回写">
+              <el-switch v-model="ctx.vectorPipelineConfig.vector_writeback_enabled" />
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-col>
+
+      <el-col :span="12">
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>Pipeline 健康检查</span>
+              <el-button link :loading="ctx.vectorRefreshing" @click="ctx.reloadVectorPanel">刷新</el-button>
+            </div>
+          </template>
+
+          <el-descriptions :column="2" border size="small">
+            <el-descriptions-item label="整体状态">
+              <el-tag :type="ctx.vectorPipelineHealth.healthy ? 'success' : 'danger'">
+                {{ ctx.vectorPipelineHealth.healthy ? '健康' : '异常' }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item label="说明">{{ ctx.vectorPipelineHealth.message }}</el-descriptions-item>
+            <el-descriptions-item label="Embedding耗时">{{ ctx.vectorPipelineHealth.embedding_latency_ms }} ms</el-descriptions-item>
+            <el-descriptions-item label="实际维度">{{ ctx.vectorPipelineHealth.embedding_dimension_actual }}</el-descriptions-item>
+            <el-descriptions-item label="索引维度">{{ ctx.vectorPipelineHealth.vector_index_dimension }}</el-descriptions-item>
+            <el-descriptions-item label="维度匹配">
+              <el-tag :type="ctx.vectorPipelineHealth.dimension_match ? 'success' : 'warning'">
+                {{ ctx.vectorPipelineHealth.dimension_match ? '匹配' : '不匹配' }}
+              </el-tag>
+            </el-descriptions-item>
+          </el-descriptions>
+        </el-card>
+
+        <el-card shadow="never" class="page-card">
+          <template #header>
+            <div class="card-header">
+              <span>Pipeline 在线测试</span>
+              <el-button type="primary" size="small" :loading="ctx.vectorPipelineTesting" @click="ctx.runVectorPipelineTest">
+                执行测试
+              </el-button>
+            </div>
+          </template>
+
+          <el-form label-position="top" class="compact-form">
+            <el-form-item label="测试文本">
+              <el-input v-model="ctx.vectorPipelineTestForm.query" type="textarea" :rows="3" placeholder="输入用于向量检索测试的文本" />
+            </el-form-item>
+            <el-form-item label="任务类型">
+              <el-input v-model="ctx.vectorPipelineTestForm.task_type" />
+            </el-form-item>
+            <el-form-item label="Top K">
+              <el-input-number v-model="ctx.vectorPipelineTestForm.top_k" :min="1" :max="20" controls-position="right" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="最小相似度">
+              <el-input-number v-model="ctx.vectorPipelineTestForm.min_similarity" :min="0.1" :max="1" :step="0.01" controls-position="right" style="width: 100%" />
+            </el-form-item>
+          </el-form>
+
+          <el-empty v-if="!ctx.vectorPipelineTestResult" description="执行测试后显示结果" />
+          <template v-else>
+            <el-descriptions :column="1" border size="small">
+              <el-descriptions-item label="任务类型">{{ ctx.vectorPipelineTestResult.task_type }}</el-descriptions-item>
+              <el-descriptions-item label="归一化查询">{{ ctx.vectorPipelineTestResult.normalized_query }}</el-descriptions-item>
+              <el-descriptions-item label="Standard Key">{{ ctx.vectorPipelineTestResult.standard_key }}</el-descriptions-item>
+              <el-descriptions-item label="Embedding 维度">{{ ctx.vectorPipelineTestResult.embedding_dimension }}</el-descriptions-item>
+              <el-descriptions-item label="Embedding 耗时">{{ ctx.vectorPipelineTestResult.embedding_latency_ms }} ms</el-descriptions-item>
+              <el-descriptions-item label="检索耗时">{{ ctx.vectorPipelineTestResult.vector_search_latency }} ms</el-descriptions-item>
+            </el-descriptions>
+
+            <el-table :data="ctx.vectorPipelineTestResult.hits || []" size="small" style="margin-top: 12px">
+              <el-table-column prop="cache_key" label="Cache Key" min-width="260" show-overflow-tooltip />
+              <el-table-column prop="intent" label="Intent" width="120" />
+              <el-table-column prop="similarity" label="相似度" width="120">
+                <template #default="{ row }">
+                  {{ Number(row.similarity || 0).toFixed(4) }}
+                </template>
+              </el-table-column>
+            </el-table>
+          </template>
+        </el-card>
+      </el-col>
+    </el-row>
   </TabStateView>
 </template>
 
@@ -79,9 +206,19 @@ defineProps<{
 </script>
 
 <style scoped lang="scss">
+.row-gap {
+  margin-bottom: 20px;
+}
+
 .header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.compact-form {
+  :deep(.el-form-item) {
+    margin-bottom: 12px;
+  }
 }
 </style>

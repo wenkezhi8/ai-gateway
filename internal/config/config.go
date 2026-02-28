@@ -90,6 +90,15 @@ type VectorCacheConfig struct {
 	QueryTimeoutMs                int                `json:"query_timeout_ms"`
 	Thresholds                    map[string]float64 `json:"thresholds"`
 	TTLSeconds                    map[string]int64   `json:"ttl_seconds"`
+	PipelineEnabled               bool               `json:"pipeline_enabled"`
+	StandardKeyVersion            string             `json:"standard_key_version"`
+	EmbeddingProvider             string             `json:"embedding_provider"`
+	OllamaBaseURL                 string             `json:"ollama_base_url"`
+	OllamaEmbeddingModel          string             `json:"ollama_embedding_model"`
+	OllamaEmbeddingDimension      int                `json:"ollama_embedding_dimension"`
+	OllamaEmbeddingTimeoutMs      int                `json:"ollama_embedding_timeout_ms"`
+	OllamaEndpointMode            string             `json:"ollama_endpoint_mode"`
+	WritebackEnabled              bool               `json:"writeback_enabled"`
 	ColdVectorEnabled             bool               `json:"cold_vector_enabled"`
 	ColdVectorQueryEnabled        bool               `json:"cold_vector_query_enabled"`
 	ColdVectorBackend             string             `json:"cold_vector_backend"`
@@ -168,6 +177,15 @@ func DefaultConfig() *Config {
 				"qa":        24 * 3600,
 				"chat":      12 * 3600,
 			},
+			PipelineEnabled:          true,
+			StandardKeyVersion:       "v2",
+			EmbeddingProvider:        "ollama",
+			OllamaBaseURL:            "http://127.0.0.1:11434",
+			OllamaEmbeddingModel:     "nomic-embed-text",
+			OllamaEmbeddingDimension: 1024,
+			OllamaEmbeddingTimeoutMs: 1500,
+			OllamaEndpointMode:       "auto",
+			WritebackEnabled:         true,
 			ColdVectorEnabled:             false,
 			ColdVectorQueryEnabled:        true,
 			ColdVectorBackend:             "sqlite",
@@ -276,6 +294,37 @@ func Load() (*Config, error) {
 		if v, err := strconv.Atoi(timeout); err == nil {
 			cfg.VectorCache.QueryTimeoutMs = v
 		}
+	}
+	if enabled := os.Getenv("VECTOR_PIPELINE_ENABLED"); enabled != "" {
+		cfg.VectorCache.PipelineEnabled = parseBool(enabled)
+	}
+	if version := os.Getenv("VECTOR_STANDARD_KEY_VERSION"); version != "" {
+		cfg.VectorCache.StandardKeyVersion = strings.TrimSpace(version)
+	}
+	if provider := os.Getenv("VECTOR_EMBEDDING_PROVIDER"); provider != "" {
+		cfg.VectorCache.EmbeddingProvider = strings.ToLower(strings.TrimSpace(provider))
+	}
+	if baseURL := os.Getenv("VECTOR_OLLAMA_BASE_URL"); baseURL != "" {
+		cfg.VectorCache.OllamaBaseURL = strings.TrimSpace(baseURL)
+	}
+	if model := os.Getenv("VECTOR_OLLAMA_EMBEDDING_MODEL"); model != "" {
+		cfg.VectorCache.OllamaEmbeddingModel = strings.TrimSpace(model)
+	}
+	if dim := os.Getenv("VECTOR_OLLAMA_EMBEDDING_DIMENSION"); dim != "" {
+		if v, err := strconv.Atoi(dim); err == nil {
+			cfg.VectorCache.OllamaEmbeddingDimension = v
+		}
+	}
+	if timeout := os.Getenv("VECTOR_OLLAMA_EMBEDDING_TIMEOUT_MS"); timeout != "" {
+		if v, err := strconv.Atoi(timeout); err == nil {
+			cfg.VectorCache.OllamaEmbeddingTimeoutMs = v
+		}
+	}
+	if mode := os.Getenv("VECTOR_OLLAMA_ENDPOINT_MODE"); mode != "" {
+		cfg.VectorCache.OllamaEndpointMode = strings.ToLower(strings.TrimSpace(mode))
+	}
+	if enabled := os.Getenv("VECTOR_WRITEBACK_ENABLED"); enabled != "" {
+		cfg.VectorCache.WritebackEnabled = parseBool(enabled)
 	}
 	if enabled := os.Getenv("VECTOR_COLD_ENABLED"); enabled != "" {
 		cfg.VectorCache.ColdVectorEnabled = parseBool(enabled)
@@ -584,6 +633,28 @@ func (c *Config) Validate() error {
 			if backend == "qdrant" && strings.TrimSpace(c.VectorCache.ColdVectorQdrantURL) == "" {
 				return &ValidationError{Field: "vector_cache.cold_vector_qdrant_url", Message: "cold_vector_qdrant_url is required when qdrant backend is active"}
 			}
+		}
+		if strings.TrimSpace(c.VectorCache.StandardKeyVersion) == "" {
+			return &ValidationError{Field: "vector_cache.standard_key_version", Message: "standard_key_version is required when vector_cache is enabled"}
+		}
+		if provider := strings.ToLower(strings.TrimSpace(c.VectorCache.EmbeddingProvider)); provider == "" || provider != "ollama" {
+			return &ValidationError{Field: "vector_cache.embedding_provider", Message: "embedding_provider must be ollama"}
+		}
+		if strings.TrimSpace(c.VectorCache.OllamaBaseURL) == "" {
+			return &ValidationError{Field: "vector_cache.ollama_base_url", Message: "ollama_base_url is required when vector_cache is enabled"}
+		}
+		if strings.TrimSpace(c.VectorCache.OllamaEmbeddingModel) == "" {
+			return &ValidationError{Field: "vector_cache.ollama_embedding_model", Message: "ollama_embedding_model is required when vector_cache is enabled"}
+		}
+		if c.VectorCache.OllamaEmbeddingDimension <= 0 {
+			return &ValidationError{Field: "vector_cache.ollama_embedding_dimension", Message: "ollama_embedding_dimension must be positive"}
+		}
+		if c.VectorCache.OllamaEmbeddingTimeoutMs <= 0 {
+			return &ValidationError{Field: "vector_cache.ollama_embedding_timeout_ms", Message: "ollama_embedding_timeout_ms must be positive"}
+		}
+		mode := strings.ToLower(strings.TrimSpace(c.VectorCache.OllamaEndpointMode))
+		if mode != "auto" && mode != "embed" && mode != "embeddings" {
+			return &ValidationError{Field: "vector_cache.ollama_endpoint_mode", Message: "ollama_endpoint_mode must be auto/embed/embeddings"}
 		}
 	}
 

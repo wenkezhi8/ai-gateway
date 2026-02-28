@@ -277,6 +277,15 @@ func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Confi
 	settings.VectorEnabled = cfg.VectorCache.Enabled
 	settings.VectorDimension = cfg.VectorCache.Dimension
 	settings.VectorQueryTimeoutMs = cfg.VectorCache.QueryTimeoutMs
+	settings.VectorPipelineEnabled = cfg.VectorCache.PipelineEnabled
+	settings.VectorStandardKeyVersion = cfg.VectorCache.StandardKeyVersion
+	settings.VectorEmbeddingProvider = cfg.VectorCache.EmbeddingProvider
+	settings.VectorOllamaBaseURL = cfg.VectorCache.OllamaBaseURL
+	settings.VectorOllamaEmbeddingModel = cfg.VectorCache.OllamaEmbeddingModel
+	settings.VectorOllamaEmbeddingDimension = cfg.VectorCache.OllamaEmbeddingDimension
+	settings.VectorOllamaEmbeddingTimeoutMs = cfg.VectorCache.OllamaEmbeddingTimeoutMs
+	settings.VectorOllamaEndpointMode = cfg.VectorCache.OllamaEndpointMode
+	settings.VectorWritebackEnabled = cfg.VectorCache.WritebackEnabled
 	settings.ColdVectorEnabled = cfg.VectorCache.ColdVectorEnabled
 	settings.ColdVectorQueryEnabled = cfg.VectorCache.ColdVectorQueryEnabled
 	settings.ColdVectorBackend = cfg.VectorCache.ColdVectorBackend
