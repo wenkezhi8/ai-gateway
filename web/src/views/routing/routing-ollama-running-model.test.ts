@@ -12,5 +12,7 @@ describe('routing ollama running model visibility', () => {
     expect(viewFile).toContain('keep_alive_disabled')
     expect(viewFile).toContain('运行模型列表')
     expect(viewFile).toContain('显存占用')
+    expect(viewFile).toContain('setInterval(loadOllamaSetupStatus')
+    expect(viewFile).toContain('clearInterval(ollamaStatusPollTimer)')
   })
 })

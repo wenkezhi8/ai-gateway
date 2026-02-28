@@ -558,6 +558,7 @@ const ollamaSetup = reactive({
 const classifierSwitchPollIntervalMs = 2000
 const classifierSwitchLoadingMessage = '正在加载模型，首次可能较慢（最多180秒）'
 const classifierSwitchTimeoutMessage = '模型加载超时，请继续等待Ollama完成加载后重试'
+const ollamaStatusPollIntervalMs = 8000
 
 function ensureControlConfig() {
   if (!classifierConfig.control) {
@@ -1118,6 +1119,9 @@ onMounted(() => {
   loadClassifierStats()
   loadClassifierModels()
   loadOllamaSetupStatus()
+  if (!ollamaStatusPollTimer) {
+    ollamaStatusPollTimer = window.setInterval(loadOllamaSetupStatus, ollamaStatusPollIntervalMs)
+  }
 })
 
 onUnmounted(() => {
@@ -1125,9 +1129,14 @@ onUnmounted(() => {
   if (autoSaveTimer) {
     window.clearTimeout(autoSaveTimer)
   }
+  if (ollamaStatusPollTimer) {
+    window.clearInterval(ollamaStatusPollTimer)
+    ollamaStatusPollTimer = null
+  }
 })
 
 let autoSaveTimer: number | null = null
+let ollamaStatusPollTimer: number | null = null
 const autoSaveDelayMs = 800
 
 function scheduleAutoSave() {
