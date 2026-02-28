@@ -37,10 +37,10 @@ function normalizeRemoteModels(payload: unknown): Model[] {
     }))
 
   return source
-    .map((item: any) => {
+    .map((item: any): Model | null => {
       const modelId = String(item?.model || item?.id || '')
       if (!modelId) return null
-      return {
+      const model: Model = {
         id: modelId,
         name: item?.display_name || item?.name || modelId,
         provider: String(item?.provider || 'unknown'),
@@ -52,7 +52,8 @@ function normalizeRemoteModels(payload: unknown): Model[] {
         description: item?.description || undefined,
         createdAt: item?.created_at || item?.createdAt,
         updatedAt: item?.updated_at || item?.updatedAt
-      } satisfies Model
+      }
+      return model
     })
     .filter((item): item is Model => item !== null)
 }
