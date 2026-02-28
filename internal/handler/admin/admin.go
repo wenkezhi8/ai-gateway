@@ -2,6 +2,7 @@ package admin
 
 import (
 	"ai-gateway/internal/cache"
+	"ai-gateway/internal/constants"
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
@@ -27,6 +28,7 @@ type Handlers struct {
 	Feedback    *FeedbackHandler
 	Ops         *OpsHandler
 	Usage       *UsageHandler
+	Settings    *SettingsHandler
 }
 
 // NewHandlers creates all admin handlers
@@ -58,6 +60,7 @@ func NewHandlers(
 		Feedback:    GetFeedbackHandler(),
 		Ops:         NewOpsHandler(),
 		Usage:       usageHandler,
+		Settings:    NewSettingsHandler(constants.UISettingsFilePath),
 	}
 	// 改动点: 定时健康检测并触发告警
 	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
@@ -269,5 +272,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	{
 		usage.GET("/logs", handlers.Usage.GetUsageLogs)
 		usage.GET("/stats", handlers.Usage.GetUsageStats)
+	}
+
+	// UI settings routes
+	settings := r.Group("/settings")
+	{
+		settings.GET("/ui", handlers.Settings.GetUISettings)
+		settings.PUT("/ui", handlers.Settings.UpdateUISettings)
 	}
 }

@@ -55,6 +55,9 @@ const (
 
 	// Upload
 	UploadLogo = AdminPrefix + "/upload/logo"
+
+	// UI settings
+	AdminSettingsUI = AdminPrefix + "/settings/ui"
 )
 
 // Auth API 路径

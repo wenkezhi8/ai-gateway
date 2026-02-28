@@ -7,6 +7,7 @@ const (
 	ProviderDefaultsFilePath   = "data/provider_defaults.json"
 	RouterConfigFilePath       = "data/router_config.json"
 	RouterUIConfigFilePath     = "data/router_ui_config.json"
+	UISettingsFilePath         = "data/ui-settings.json"
 	ClassifierSwitchTaskDBPath = "data/classifier_switch_tasks.db"
 )
 
