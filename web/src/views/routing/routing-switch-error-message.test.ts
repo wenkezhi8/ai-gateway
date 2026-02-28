@@ -4,10 +4,10 @@ import { join } from 'node:path'
 
 describe('routing classifier switch error handling', () => {
   it('should surface backend classifier switch error message', () => {
-    const viewFile = readFileSync(join(process.cwd(), 'src/views/routing/index.vue'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
 
-    expect(viewFile).toContain('const err = e as any')
-    expect(viewFile).toContain('err?.response?.data?.error?.message')
-    expect(viewFile).toContain('handleApiError(new Error(detailMessage),')
+    expect(logicFile).toContain('const err = e as any')
+    expect(logicFile).toContain('err?.response?.data?.error?.message')
+    expect(logicFile).toContain('handleApiError(new Error(detailMessage),')
   })
 })
