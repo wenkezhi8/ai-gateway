@@ -353,6 +353,8 @@ func TestProxyHandler_GetProviderForRequest_UsesInferredProviderWhenModelNotMapp
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
 
 	// Register a Google provider that does not explicitly include gemini-3.1-pro-preview in model list
 	googleProvider := &mockProvider{
@@ -366,7 +368,7 @@ func TestProxyHandler_GetProviderForRequest_UsesInferredProviderWhenModelNotMapp
 	}
 	provider.RegisterProvider("google", googleProvider)
 
-	selected, err := h.getProviderForRequest("gemini-3.1-pro-preview", "")
+	selected, err := h.getProviderForRequest(c, "gemini-3.1-pro-preview", "")
 	require.NoError(t, err)
 	require.NotNil(t, selected)
 	assert.Equal(t, "google", selected.Name())
