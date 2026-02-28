@@ -245,6 +245,15 @@
               :closable="false"
               style="margin-bottom: 16px"
             />
+            <el-descriptions v-if="ollamaSetup.running_model_details.length > 0" :column="1" border size="small" style="margin-bottom: 16px">
+              <el-descriptions-item
+                v-for="item in ollamaSetup.running_model_details"
+                :key="item.name"
+                :label="`运行模型 ${item.name}`"
+              >
+                显存占用 {{ formatVramBytes(item.size_vram) }}
+              </el-descriptions-item>
+            </el-descriptions>
             <el-descriptions :column="2" border size="small" style="margin-bottom: 16px">
               <el-descriptions-item label="总请求">{{ classifierStats.total_requests }}</el-descriptions-item>
               <el-descriptions-item label="LLM尝试">{{ classifierStats.llm_attempts }}</el-descriptions-item>

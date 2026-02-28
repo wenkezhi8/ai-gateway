@@ -14,5 +14,7 @@ describe('routing ollama running model visibility', () => {
     expect(viewFile).toContain('显存占用')
     expect(viewFile).toContain('setInterval(loadOllamaSetupStatus')
     expect(viewFile).toContain('clearInterval(ollamaStatusPollTimer)')
+    expect(viewFile).toContain('running_model_details')
+    expect(viewFile).toContain('formatVramBytes(item.size_vram)')
   })
 })
