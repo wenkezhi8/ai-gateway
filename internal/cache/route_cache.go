@@ -15,10 +15,10 @@ var (
 
 // RouteCacheConfig holds configuration for route caching
 type RouteCacheConfig struct {
-	DefaultTTL     time.Duration // Default cache TTL
-	MaxEntries     int           // Maximum cached routes
-	EnableWarmup   bool          // Enable cache warmup on start
-	ConfigVersion  string        // Current config version for invalidation
+	DefaultTTL    time.Duration // Default cache TTL
+	MaxEntries    int           // Maximum cached routes
+	EnableWarmup  bool          // Enable cache warmup on start
+	ConfigVersion string        // Current config version for invalidation
 }
 
 // DefaultRouteCacheConfig returns default configuration
@@ -48,21 +48,21 @@ type RouteDecision struct {
 
 // RouteCache caches routing decisions for hot models
 type RouteCache struct {
-	cache        Cache
-	stats        *Stats
-	config       RouteCacheConfig
-	hotModels    map[string]int64 // model -> access count
-	mu           sync.RWMutex
+	cache         Cache
+	stats         *Stats
+	config        RouteCacheConfig
+	hotModels     map[string]int64 // model -> access count
+	mu            sync.RWMutex
 	configVersion string
 }
 
 // NewRouteCache creates a new route cache
 func NewRouteCache(cache Cache, config RouteCacheConfig) *RouteCache {
 	return &RouteCache{
-		cache:        cache,
-		stats:        GlobalStatsCollector.GetStats("route"),
-		config:       config,
-		hotModels:    make(map[string]int64),
+		cache:         cache,
+		stats:         GlobalStatsCollector.GetStats("route"),
+		config:        config,
+		hotModels:     make(map[string]int64),
 		configVersion: config.ConfigVersion,
 	}
 }
@@ -221,20 +221,25 @@ func (c *RouteCache) SetDefaultTTL(ttl time.Duration) {
 // UpdateConfig updates the cache configuration and invalidates if version changed
 func (c *RouteCache) UpdateConfig(config RouteCacheConfig) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// If config version changed, invalidate all
-	if config.ConfigVersion != c.configVersion {
+	shouldInvalidate := config.ConfigVersion != c.configVersion
+	if shouldInvalidate {
 		c.configVersion = config.ConfigVersion
-		// Invalidate in background
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			c.InvalidateAll(ctx)
-		}()
 	}
-
 	c.config = config
+	c.mu.Unlock()
+
+	if shouldInvalidate {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return c.invalidateRouteKeys(ctx)
+	}
+	return nil
+}
+
+func (c *RouteCache) invalidateRouteKeys(ctx context.Context) error {
+	if rc, ok := c.cache.(*RedisCache); ok {
+		return rc.DeleteByPattern(ctx, "route:*")
+	}
 	return nil
 }
 
