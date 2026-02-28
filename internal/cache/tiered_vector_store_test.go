@@ -3,12 +3,14 @@ package cache
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 type fakeHotTierStore struct {
+	mu                sync.RWMutex
 	exactDocs         map[string]*VectorCacheDocument
 	vectorHits        []VectorSearchHit
 	upserts           []*VectorCacheDocument
@@ -20,7 +22,7 @@ type fakeHotTierStore struct {
 	migrateCallCount  atomic.Int32
 }
 
-func (f *fakeHotTierStore) EnsureIndex(ctx context.Context) error { return nil }
+func (f *fakeHotTierStore) EnsureIndex(ctx context.Context) error  { return nil }
 func (f *fakeHotTierStore) RebuildIndex(ctx context.Context) error { return nil }
 func (f *fakeHotTierStore) GetExact(ctx context.Context, cacheKey string) (*VectorCacheDocument, error) {
 	if f.exactDocs == nil {
@@ -36,14 +38,20 @@ func (f *fakeHotTierStore) Upsert(ctx context.Context, doc *VectorCacheDocument)
 		return nil
 	}
 	cp := *doc
+	f.mu.Lock()
 	f.upserts = append(f.upserts, &cp)
+	f.mu.Unlock()
 	return nil
 }
 func (f *fakeHotTierStore) Delete(ctx context.Context, cacheKey string) error {
+	f.mu.Lock()
 	f.deleted = append(f.deleted, cacheKey)
+	f.mu.Unlock()
 	return nil
 }
-func (f *fakeHotTierStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error { return nil }
+func (f *fakeHotTierStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+	return nil
+}
 func (f *fakeHotTierStore) Stats(ctx context.Context) (VectorStoreStats, error) {
 	return VectorStoreStats{Enabled: true, IndexName: "hot"}, nil
 }
@@ -67,6 +75,12 @@ func (f *fakeHotTierStore) ListMigrationCandidates(ctx context.Context, batchSiz
 		return f.migrationDocs, nil
 	}
 	return f.migrationDocs[:batchSize], nil
+}
+
+func (f *fakeHotTierStore) UpsertCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.upserts)
 }
 
 type fakeColdStore struct {
@@ -180,12 +194,12 @@ func TestTieredVectorStore_VectorSearch_ColdHit_ShouldPromoteToHot(t *testing.T)
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if len(hot.upserts) > 0 {
+		if hot.UpsertCount() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(hot.upserts) == 0 {
+	if hot.UpsertCount() == 0 {
 		t.Fatal("expected cold hit to trigger async hot promotion")
 	}
 }
@@ -221,14 +235,14 @@ func TestTieredVectorStore_Upsert_DualWrite_ShouldWriteToTwoBackends(t *testing.
 		ColdVectorBackendSQLite: sqliteStore,
 		ColdVectorBackendQdrant: qdrantStore,
 	}, TieredVectorStoreConfig{
-		ColdVectorEnabled:           true,
-		ColdVectorBackend:           ColdVectorBackendSQLite,
-		ColdVectorDualWriteEnabled:  true,
-		ColdVectorQueryEnabled:      true,
-		HotToColdBatchSize:          100,
-		HotToColdInterval:           30 * time.Second,
+		ColdVectorEnabled:             true,
+		ColdVectorBackend:             ColdVectorBackendSQLite,
+		ColdVectorDualWriteEnabled:    true,
+		ColdVectorQueryEnabled:        true,
+		HotToColdBatchSize:            100,
+		HotToColdInterval:             30 * time.Second,
 		HotMemoryHighWatermarkPercent: 75,
-		HotMemoryReliefPercent:      65,
+		HotMemoryReliefPercent:        65,
 	})
 
 	err := store.Upsert(context.Background(), &VectorCacheDocument{
@@ -257,17 +271,17 @@ func TestTieredVectorStore_TriggerMigrate_ShouldRelieveMemoryWatermark(t *testin
 	store := NewTieredVectorStore(hot, map[string]ColdVectorStore{
 		ColdVectorBackendSQLite: cold,
 	}, TieredVectorStoreConfig{
-		ColdVectorEnabled:               true,
-		ColdVectorBackend:               ColdVectorBackendSQLite,
-		HotMemoryHighWatermarkPercent:   75,
-		HotMemoryReliefPercent:          65,
-		HotToColdBatchSize:              1,
-		HotToColdMaxBatchesPerRound:     4,
-		HotToColdInterval:               30 * time.Second,
-		ColdVectorSimilarityThreshold:   0.92,
-		ColdVectorTopK:                  1,
-		ColdVectorQueryEnabled:          true,
-		ColdVectorDualWriteEnabled:      false,
+		ColdVectorEnabled:             true,
+		ColdVectorBackend:             ColdVectorBackendSQLite,
+		HotMemoryHighWatermarkPercent: 75,
+		HotMemoryReliefPercent:        65,
+		HotToColdBatchSize:            1,
+		HotToColdMaxBatchesPerRound:   4,
+		HotToColdInterval:             30 * time.Second,
+		ColdVectorSimilarityThreshold: 0.92,
+		ColdVectorTopK:                1,
+		ColdVectorQueryEnabled:        true,
+		ColdVectorDualWriteEnabled:    false,
 	})
 
 	result, err := store.TriggerMigrate(context.Background())
