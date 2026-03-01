@@ -190,12 +190,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '账号与限额', icon: 'Key' }
       },
       {
-        path: '/providers',
-        name: 'Providers',
-        component: () => import('@/views/providers/index.vue'),
-        meta: { title: '服务商管理', icon: 'Collection' }
-      },
-      {
         path: '/accounts',
         name: 'Accounts',
         component: () => import('@/views/accounts/index.vue'),

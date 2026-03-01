@@ -3,7 +3,7 @@
     <div class="cache-hero">
       <div class="hero-main">
         <div class="hero-title">路由策略控制台</div>
-        <div class="hero-subtitle">统一管理分类器、Ollama、模型评分与向量 Pipeline 状态</div>
+        <div class="hero-subtitle">统一管理分类器、Ollama 双模型与向量 Pipeline 状态</div>
       </div>
       <div class="hero-actions">
         <el-button type="primary" @click="ctx.reloadAllPanels">

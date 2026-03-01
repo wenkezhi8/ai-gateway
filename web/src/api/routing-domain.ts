@@ -66,18 +66,13 @@ export async function getClassifierSwitchTask(taskPath: string) {
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
-export async function getIntentEngineConfig() {
-  const raw = await request.get('/admin/router/intent-engine/config')
+export async function getOllamaDualModelConfig() {
+  const raw = await request.get('/admin/router/ollama/dual-model/config')
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
-export async function updateIntentEngineConfig(payload: Record<string, unknown>) {
-  const raw = await request.put('/admin/router/intent-engine/config', payload)
-  return unwrapEnvelope(raw, { allowPlain: true })
-}
-
-export async function getIntentEngineHealth() {
-  const raw = await request.get('/admin/router/intent-engine/health')
+export async function updateOllamaDualModelConfig(payload: Record<string, unknown>) {
+  const raw = await request.put('/admin/router/ollama/dual-model/config', payload)
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 

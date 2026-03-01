@@ -49,16 +49,15 @@ echo "🛑 停止所有旧服务（包括僵尸进程）..."
 # 停止所有 gateway 相关进程
 pkill -9 -f "go run ./cmd/gateway" 2>/dev/null || true
 pkill -9 -f "clawdbot-gateway" 2>/dev/null || true
-pkill -9 -f "ai-gateway" 2>/dev/null || true
 pkill -9 -f "openclaw-gateway" 2>/dev/null || true
-pkill -9 -f "/gateway" 2>/dev/null || true
+pkill -9 -f "/bin/gateway" 2>/dev/null || true
 sleep 2
 
 # 再次确认没有残留
-REMAINING=$(pgrep -f "gateway" 2>/dev/null | wc -l | tr -d ' ')
+REMAINING=$( (pgrep -f "go run ./cmd/gateway|clawdbot-gateway|openclaw-gateway|/bin/gateway" 2>/dev/null || true) | wc -l | tr -d ' ' )
 if [ "$REMAINING" -gt 0 ]; then
     echo "⚠️  发现 $REMAINING 个残留进程，强制清理..."
-    pkill -9 gateway 2>/dev/null || true
+    pkill -9 -f "/bin/gateway" 2>/dev/null || true
     sleep 1
 fi
 
@@ -98,7 +97,8 @@ if echo "$HEALTH" | grep -q "healthy"; then
         exit 1
     fi
 
-    TRACE_ASSET_HEAD=$(curl -s "http://localhost:8566$TRACE_ASSET" | head -c 20)
+    TRACE_ASSET_BODY=$(curl -s "http://localhost:8566$TRACE_ASSET")
+    TRACE_ASSET_HEAD="${TRACE_ASSET_BODY:0:20}"
     if echo "$TRACE_ASSET_HEAD" | grep -qi "<!doctype html"; then
         echo "❌ /trace 资产返回了 HTML，疑似资源不一致"
         echo "   资产路径: $TRACE_ASSET"

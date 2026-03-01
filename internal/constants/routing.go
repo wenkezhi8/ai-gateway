@@ -9,7 +9,6 @@ const (
 	RouterUIConfigFilePath     = "data/router_ui_config.json"
 	UISettingsFilePath         = "data/ui-settings.json"
 	ClassifierSwitchTaskDBPath = "data/classifier_switch_tasks.db"
-	IntentEngineConfigFilePath = "data/intent_engine_config.json"
 )
 
 const (

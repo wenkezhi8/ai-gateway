@@ -87,7 +87,7 @@
               <span>请求将通过网关进行路由和监控</span>
             </div>
           </div>
-          <el-button type="primary" size="large" @click="$router.push('/providers')" class="action-btn">
+          <el-button type="primary" size="large" @click="$router.push('/providers-accounts')" class="action-btn">
             <el-icon><Setting /></el-icon>
             前往配置
           </el-button>
@@ -112,7 +112,7 @@
         <div class="hero-actions">
           <el-button type="primary" @click="$router.push('/alerts')">告警事件管理</el-button>
           <el-button @click="$router.push('/ops')">运维监控</el-button>
-          <el-button @click="$router.push('/providers')">服务商配置</el-button>
+          <el-button @click="$router.push('/providers-accounts')">账号与限额</el-button>
         </div>
       </div>
 

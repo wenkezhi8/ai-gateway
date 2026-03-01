@@ -216,56 +216,7 @@
     </el-row>
 
     <el-row :gutter="24" class="row-gap">
-      <el-col :span="12">
-        <el-card shadow="never" class="page-card">
-          <template #header>
-            <div class="card-header">
-              <span>Ollama 向量 Pipeline 配置</span>
-              <el-button type="primary" size="small" :loading="ctx.vectorPipelineSaving" @click="ctx.saveVectorPipelineConfigData">
-                保存
-              </el-button>
-            </div>
-          </template>
-
-          <el-form label-position="top" class="compact-form">
-            <el-form-item label="启用向量 Pipeline">
-              <el-switch v-model="ctx.vectorPipelineConfig.vector_pipeline_enabled" />
-            </el-form-item>
-            <el-form-item label="标准 Key 版本">
-              <el-input v-model="ctx.vectorPipelineConfig.vector_standard_key_version" />
-            </el-form-item>
-            <el-form-item label="Embedding 提供商">
-              <el-select v-model="ctx.vectorPipelineConfig.vector_embedding_provider" style="width: 100%">
-                <el-option label="ollama" value="ollama" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="Ollama 地址">
-              <el-input v-model="ctx.vectorPipelineConfig.vector_ollama_base_url" />
-            </el-form-item>
-            <el-form-item label="Embedding 模型">
-              <el-input v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_model" />
-            </el-form-item>
-            <el-form-item label="Embedding 维度">
-              <el-input-number v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_dimension" :min="1" :step="1" controls-position="right" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="Embedding 超时(ms)">
-              <el-input-number v-model="ctx.vectorPipelineConfig.vector_ollama_embedding_timeout_ms" :min="100" :step="100" controls-position="right" style="width: 100%" />
-            </el-form-item>
-            <el-form-item label="端点模式">
-              <el-select v-model="ctx.vectorPipelineConfig.vector_ollama_endpoint_mode" style="width: 100%">
-                <el-option label="auto" value="auto" />
-                <el-option label="embed (/api/embed)" value="embed" />
-                <el-option label="embeddings (/api/embeddings)" value="embeddings" />
-              </el-select>
-            </el-form-item>
-            <el-form-item label="启用异步回写">
-              <el-switch v-model="ctx.vectorPipelineConfig.vector_writeback_enabled" />
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-col>
-
-      <el-col :span="12">
+      <el-col :span="24">
         <el-card shadow="never" class="page-card">
           <template #header>
             <div class="card-header">

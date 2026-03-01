@@ -8,11 +8,9 @@ import {
   getClassifierStats,
   getClassifierSwitchTask,
   getFeedbackStats,
-  getIntentEngineConfig,
-  getIntentEngineHealth,
+  getOllamaDualModelConfig,
   getOllamaStatus,
   getRouterConfig,
-  getRouterModels,
   getTaskModelMapping,
   getTaskTypeDistribution,
   getVectorTierConfig,
@@ -27,17 +25,14 @@ import {
   triggerVectorTierMigrate,
   triggerFeedbackOptimization,
   updateVectorTierConfig,
-  updateIntentEngineConfig,
-  updateModelScore,
+  updateOllamaDualModelConfig,
   updateRouterConfig
 } from '@/api/routing-domain'
 import {
-  getCacheConfig,
   getVectorPipelineHealth,
   getVectorStats,
   rebuildVectorIndex as rebuildVectorIndexApi,
-  testVectorPipeline,
-  updateCacheConfig
+  testVectorPipeline
 } from '@/api/cache-domain'
 import { getUiSettings, updateRoutingUiSettings } from '@/api/settings-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
@@ -49,15 +44,6 @@ import {
   createDefaultTaskTypes,
 } from '@/constants/routing'
 import type { RoutingPanelState } from '../routing-types'
-
-interface ModelScore {
-  model: string
-  provider: string
-  quality_score: number
-  speed_score: number
-  cost_score: number
-  enabled: boolean
-}
 
 interface CascadeRule {
   task_type: string
@@ -96,14 +82,12 @@ export function useRoutingConsole() {
   })
 
   const saving = ref(false)
-  const modelSearch = ref('')
-  const modelScores = ref<ModelScore[]>([])
   const availableModels = ref<ModelOption[]>([])
   const autoSaveEnabled = ref(false)
   const lastSavedAt = ref<string | null>(null)
   const isMappingReady = ref(false)
   const classifierSaving = ref(false)
-  const intentEngineSaving = ref(false)
+  const dualModelSaving = ref(false)
   const classifierSwitching = ref(false)
   const classifierModelsLoading = ref(false)
   const classifierSwitchModel = ref('')
@@ -141,18 +125,19 @@ export function useRoutingConsole() {
     control_fields_missing: 0
   })
 
-  const intentEngineConfig = reactive({
-    enabled: false,
-    base_url: 'http://127.0.0.1:18566',
-    timeout_ms: 1500,
-    language: 'zh-CN',
-    expected_dimension: 1024
-  })
-
-  const intentEngineHealth = reactive({
-    healthy: false,
-    latency_ms: 0,
-    message: '未检查'
+  const dualModelConfig = reactive({
+    classifier_enabled: true,
+    classifier_base_url: 'http://127.0.0.1:11434',
+    classifier_active_model: ROUTING_OLLAMA_DEFAULT_MODEL,
+    classifier_candidate_models: [ROUTING_OLLAMA_DEFAULT_MODEL] as string[],
+    classifier_timeout_ms: 1500,
+    vector_pipeline_enabled: true,
+    vector_ollama_base_url: 'http://127.0.0.1:11434',
+    vector_ollama_embedding_model: 'nomic-embed-text',
+    vector_ollama_embedding_dimension: 1024,
+    vector_ollama_embedding_timeout_ms: 1500,
+    vector_ollama_endpoint_mode: 'auto',
+    vector_writeback_enabled: true
   })
 
   const vectorStats = reactive({
@@ -197,20 +182,7 @@ export function useRoutingConsole() {
     cold_vector_qdrant_collection: 'ai_gateway_cold_vectors',
     cold_vector_qdrant_timeout_ms: 1500
   })
-
-  const vectorPipelineSaving = ref(false)
   const vectorPipelineTesting = ref(false)
-  const vectorPipelineConfig = reactive({
-    vector_pipeline_enabled: true,
-    vector_standard_key_version: 'v2',
-    vector_embedding_provider: 'ollama',
-    vector_ollama_base_url: 'http://127.0.0.1:11434',
-    vector_ollama_embedding_model: 'nomic-embed-text',
-    vector_ollama_embedding_dimension: 1024,
-    vector_ollama_embedding_timeout_ms: 1500,
-    vector_ollama_endpoint_mode: 'auto',
-    vector_writeback_enabled: true
-  })
 
   const vectorPipelineHealth = reactive({
     enabled: false,
@@ -289,15 +261,6 @@ export function useRoutingConsole() {
     { title: '平均评分', value: feedbackStats.avgRating.toFixed(1), icon: 'StarFilled', color: '#5856D6' }
   ])
 
-  const filteredModels = computed(() => {
-    if (!modelSearch.value) return modelScores.value
-    const search = modelSearch.value.toLowerCase()
-    return modelScores.value.filter(m =>
-      m.model.toLowerCase().includes(search) ||
-      m.provider.toLowerCase().includes(search)
-    )
-  })
-
   const modeLabel = computed(() => {
     const labels: Record<string, string> = {
       auto: 'Auto 智能选择',
@@ -350,22 +313,6 @@ export function useRoutingConsole() {
     classifierConfig.control.tool_gate_enable = Boolean(classifierConfig.control.tool_gate_enable)
     classifierConfig.control.model_fit_enable = Boolean(classifierConfig.control.model_fit_enable)
     classifierConfig.control.parameter_hint_enable = Boolean(classifierConfig.control.parameter_hint_enable)
-  }
-
-  function calculateCompositeScore(row: ModelScore): number {
-    return Math.round(row.quality_score * 0.4 + row.speed_score * 0.35 + row.cost_score * 0.25)
-  }
-
-  function getScoreColor(score: number): string {
-    if (score >= 80) return '#67c23a'
-    if (score >= 60) return '#e6a23c'
-    return '#f56c6c'
-  }
-
-  function getScoreTagType(score: number): string {
-    if (score >= 80) return 'success'
-    if (score >= 60) return 'warning'
-    return 'danger'
   }
 
   function formatVramBytes(value: number): string {
@@ -422,37 +369,6 @@ export function useRoutingConsole() {
       console.warn('Failed to load config:', e)
     } finally {
       isMappingReady.value = true
-    }
-  }
-
-  async function loadModelScores() {
-    try {
-      const data: any = await getRouterModels()
-      if (data) {
-        const scores = data
-        if (Array.isArray(scores)) {
-          modelScores.value = scores.map((item: any) => ({
-            model: item.model,
-            provider: item.provider || 'unknown',
-            quality_score: item.quality_score || 80,
-            speed_score: item.speed_score || 80,
-            cost_score: item.cost_score || 80,
-            enabled: item.enabled ?? true
-          }))
-        } else {
-          modelScores.value = Object.entries(scores).map(([model, score]) => ({
-            model,
-            provider: (score as any).provider || 'unknown',
-            quality_score: (score as any).quality_score || 80,
-            speed_score: (score as any).speed_score || 80,
-            cost_score: (score as any).cost_score || 80,
-            enabled: (score as any).enabled ?? true
-          }))
-        }
-        availableModels.value = modelScores.value.map(m => ({ id: m.model }))
-      }
-    } catch (e) {
-      console.warn('Failed to load model scores:', e)
     }
   }
 
@@ -545,50 +461,71 @@ export function useRoutingConsole() {
     }
   }
 
-  async function loadIntentEngineConfigData() {
+  async function loadDualModelConfigData() {
     try {
-      const data: any = await getIntentEngineConfig()
+      const data: any = await getOllamaDualModelConfig()
       if (!data) return
-      intentEngineConfig.enabled = Boolean(data.enabled)
-      intentEngineConfig.base_url = data.base_url || intentEngineConfig.base_url
-      intentEngineConfig.timeout_ms = Number(data.timeout_ms || intentEngineConfig.timeout_ms)
-      intentEngineConfig.language = data.language || intentEngineConfig.language
-      intentEngineConfig.expected_dimension = Number(data.expected_dimension || intentEngineConfig.expected_dimension)
+
+      dualModelConfig.classifier_enabled = Boolean(data.classifier_enabled)
+      dualModelConfig.classifier_base_url = data.classifier_base_url || dualModelConfig.classifier_base_url
+      dualModelConfig.classifier_active_model = data.classifier_active_model || dualModelConfig.classifier_active_model
+      dualModelConfig.classifier_candidate_models = Array.isArray(data.classifier_candidate_models)
+        ? data.classifier_candidate_models.filter((item: unknown) => typeof item === 'string' && item.trim().length > 0)
+        : dualModelConfig.classifier_candidate_models
+      dualModelConfig.classifier_timeout_ms = Number(data.classifier_timeout_ms || dualModelConfig.classifier_timeout_ms)
+      dualModelConfig.vector_pipeline_enabled = Boolean(data.vector_pipeline_enabled ?? dualModelConfig.vector_pipeline_enabled)
+      dualModelConfig.vector_ollama_base_url = data.vector_ollama_base_url || dualModelConfig.vector_ollama_base_url
+      dualModelConfig.vector_ollama_embedding_model = data.vector_ollama_embedding_model || dualModelConfig.vector_ollama_embedding_model
+      dualModelConfig.vector_ollama_embedding_dimension = Number(data.vector_ollama_embedding_dimension || dualModelConfig.vector_ollama_embedding_dimension)
+      dualModelConfig.vector_ollama_embedding_timeout_ms = Number(data.vector_ollama_embedding_timeout_ms || dualModelConfig.vector_ollama_embedding_timeout_ms)
+      dualModelConfig.vector_ollama_endpoint_mode = data.vector_ollama_endpoint_mode || dualModelConfig.vector_ollama_endpoint_mode
+      dualModelConfig.vector_writeback_enabled = Boolean(data.vector_writeback_enabled ?? dualModelConfig.vector_writeback_enabled)
+
+      // 同步策略页中的分类器核心模型字段，避免展示与运行配置不一致。
+      classifierConfig.enabled = dualModelConfig.classifier_enabled
+      classifierConfig.base_url = dualModelConfig.classifier_base_url
+      classifierConfig.active_model = dualModelConfig.classifier_active_model
+      classifierConfig.candidate_models = [...dualModelConfig.classifier_candidate_models]
+      classifierConfig.timeout_ms = dualModelConfig.classifier_timeout_ms
+      classifierSwitchModel.value = dualModelConfig.classifier_active_model
     } catch (e) {
-      console.warn('Failed to load intent engine config:', e)
+      console.warn('Failed to load dual model config:', e)
     }
   }
 
-  async function loadIntentEngineHealthData() {
+  async function saveDualModelConfigData() {
+    dualModelSaving.value = true
     try {
-      const data: any = await getIntentEngineHealth()
-      intentEngineHealth.healthy = Boolean(data?.healthy)
-      intentEngineHealth.latency_ms = Number(data?.latency_ms || 0)
-      intentEngineHealth.message = data?.message || (data?.healthy ? 'ok' : 'not ready')
+      const normalizedCandidates = (dualModelConfig.classifier_candidate_models || [])
+        .map(model => (model || '').trim())
+        .filter(Boolean)
+      const payload: Record<string, unknown> = {
+        classifier_enabled: dualModelConfig.classifier_enabled,
+        classifier_base_url: dualModelConfig.classifier_base_url,
+        classifier_active_model: dualModelConfig.classifier_active_model,
+        classifier_candidate_models: normalizedCandidates.length > 0 ? normalizedCandidates : [dualModelConfig.classifier_active_model],
+        classifier_timeout_ms: Number(dualModelConfig.classifier_timeout_ms || 1500),
+        vector_pipeline_enabled: dualModelConfig.vector_pipeline_enabled,
+        vector_ollama_base_url: dualModelConfig.vector_ollama_base_url,
+        vector_ollama_embedding_model: dualModelConfig.vector_ollama_embedding_model,
+        vector_ollama_embedding_dimension: Number(dualModelConfig.vector_ollama_embedding_dimension || 1024),
+        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || 1500),
+        vector_ollama_endpoint_mode: dualModelConfig.vector_ollama_endpoint_mode,
+        vector_writeback_enabled: dualModelConfig.vector_writeback_enabled
+      }
+      await updateOllamaDualModelConfig(payload)
+      handleSuccess('Ollama 双模型配置已保存')
+      await Promise.all([
+        loadDualModelConfigData(),
+        loadClassifierHealth(),
+        loadClassifierStats(),
+        loadVectorPipelineHealthData(),
+        loadVectorStatsData()
+      ])
     } catch (e) {
-      intentEngineHealth.healthy = false
-      intentEngineHealth.latency_ms = 0
-      intentEngineHealth.message = '检查失败'
-      console.warn('Failed to load intent engine health:', e)
-    }
-  }
-
-  async function saveIntentEngineConfigData() {
-    intentEngineSaving.value = true
-    try {
-      await updateIntentEngineConfig({
-        enabled: intentEngineConfig.enabled,
-        base_url: intentEngineConfig.base_url,
-        timeout_ms: Number(intentEngineConfig.timeout_ms || 1500),
-        language: intentEngineConfig.language,
-        expected_dimension: Number(intentEngineConfig.expected_dimension || 1024)
-      })
-      handleSuccess('Intent Engine 配置已保存')
-      await loadIntentEngineHealthData()
-    } catch (e) {
-      handleApiError(e, '保存 Intent Engine 配置失败')
+      handleApiError(e, '保存双模型配置失败')
     } finally {
-      intentEngineSaving.value = false
+      dualModelSaving.value = false
     }
   }
 
@@ -772,22 +709,6 @@ export function useRoutingConsole() {
     }
   }
 
-  async function toggleModelEnabled(model: ModelScore) {
-    try {
-      await updateModelScore(model.model, {
-        provider: model.provider,
-        quality_score: model.quality_score,
-        speed_score: model.speed_score,
-        cost_score: model.cost_score,
-        enabled: model.enabled
-      })
-      handleSuccess(`${model.model} 已${model.enabled ? '启用' : '禁用'}`)
-    } catch (e) {
-      model.enabled = !model.enabled
-      handleApiError(e, '操作失败')
-    }
-  }
-
   async function triggerOptimization() {
     try {
       await ElMessageBox.confirm('确定要触发自动优化吗？这将根据反馈数据调整模型评分（每个模型至少需要 10 条样本）。', '确认', { type: 'info' })
@@ -795,7 +716,6 @@ export function useRoutingConsole() {
       const result = (resp && typeof resp === 'object' && 'data' in resp) ? (resp as any).data : resp
       const msg = resp?.message || '优化已完成'
       handleSuccess(`${msg}（扫描:${result.models_scanned || 0}，可优化:${result.models_eligible || 0}，已更新:${result.models_updated || 0}）`)
-      loadModelScores()
       loadFeedbackStats()
     } catch (e) {
       if ((e as any) !== 'cancel') {
@@ -837,25 +757,6 @@ export function useRoutingConsole() {
     }
   }
 
-  async function loadVectorPipelineConfigData() {
-    try {
-      const data: any = await getCacheConfig()
-      if (!data) return
-
-      vectorPipelineConfig.vector_pipeline_enabled = data.vector_pipeline_enabled ?? vectorPipelineConfig.vector_pipeline_enabled
-      vectorPipelineConfig.vector_standard_key_version = data.vector_standard_key_version || vectorPipelineConfig.vector_standard_key_version
-      vectorPipelineConfig.vector_embedding_provider = data.vector_embedding_provider || vectorPipelineConfig.vector_embedding_provider
-      vectorPipelineConfig.vector_ollama_base_url = data.vector_ollama_base_url || vectorPipelineConfig.vector_ollama_base_url
-      vectorPipelineConfig.vector_ollama_embedding_model = data.vector_ollama_embedding_model || vectorPipelineConfig.vector_ollama_embedding_model
-      vectorPipelineConfig.vector_ollama_embedding_dimension = Number(data.vector_ollama_embedding_dimension || vectorPipelineConfig.vector_ollama_embedding_dimension)
-      vectorPipelineConfig.vector_ollama_embedding_timeout_ms = Number(data.vector_ollama_embedding_timeout_ms || vectorPipelineConfig.vector_ollama_embedding_timeout_ms)
-      vectorPipelineConfig.vector_ollama_endpoint_mode = data.vector_ollama_endpoint_mode || vectorPipelineConfig.vector_ollama_endpoint_mode
-      vectorPipelineConfig.vector_writeback_enabled = data.vector_writeback_enabled ?? vectorPipelineConfig.vector_writeback_enabled
-    } catch (e) {
-      console.warn('Failed to load vector pipeline config:', e)
-    }
-  }
-
   async function loadVectorPipelineHealthData() {
     try {
       const data: any = await getVectorPipelineHealth()
@@ -870,29 +771,6 @@ export function useRoutingConsole() {
       vectorPipelineHealth.healthy = false
       vectorPipelineHealth.message = '检查失败'
       console.warn('Failed to load vector pipeline health:', e)
-    }
-  }
-
-  async function saveVectorPipelineConfigData() {
-    vectorPipelineSaving.value = true
-    try {
-      await updateCacheConfig({
-        vector_pipeline_enabled: vectorPipelineConfig.vector_pipeline_enabled,
-        vector_standard_key_version: vectorPipelineConfig.vector_standard_key_version,
-        vector_embedding_provider: vectorPipelineConfig.vector_embedding_provider,
-        vector_ollama_base_url: vectorPipelineConfig.vector_ollama_base_url,
-        vector_ollama_embedding_model: vectorPipelineConfig.vector_ollama_embedding_model,
-        vector_ollama_embedding_dimension: Number(vectorPipelineConfig.vector_ollama_embedding_dimension || 1024),
-        vector_ollama_embedding_timeout_ms: Number(vectorPipelineConfig.vector_ollama_embedding_timeout_ms || 1500),
-        vector_ollama_endpoint_mode: vectorPipelineConfig.vector_ollama_endpoint_mode,
-        vector_writeback_enabled: vectorPipelineConfig.vector_writeback_enabled
-      })
-      handleSuccess('向量 Pipeline 配置已保存')
-      await Promise.all([loadVectorPipelineConfigData(), loadVectorPipelineHealthData(), loadVectorStatsData()])
-    } catch (e) {
-      handleApiError(e, '保存向量 Pipeline 配置失败')
-    } finally {
-      vectorPipelineSaving.value = false
     }
   }
 
@@ -1105,11 +983,15 @@ export function useRoutingConsole() {
     markPanelLoading('models')
     try {
       await Promise.all([
-        loadModelScores(),
-        loadIntentEngineConfigData(),
-        loadIntentEngineHealthData()
+        loadDualModelConfigData(),
+        loadClassifierHealth(),
+        loadVectorPipelineHealthData()
       ])
-      panelState.models = modelScores.value.length > 0 ? 'success' : 'empty'
+      const hasDualModelConfig =
+        Boolean(dualModelConfig.classifier_base_url) &&
+        Boolean(dualModelConfig.classifier_active_model) &&
+        Boolean(dualModelConfig.vector_ollama_embedding_model)
+      panelState.models = hasDualModelConfig ? 'success' : 'empty'
     } catch (e) {
       panelError.models = '模型数据加载失败'
       panelState.models = 'error'
@@ -1120,7 +1002,6 @@ export function useRoutingConsole() {
     markPanelLoading('vector')
     try {
       await Promise.all([
-        loadVectorPipelineConfigData(),
         loadVectorPipelineHealthData(),
         loadVectorStatsData(),
         loadVectorTierConfigData(),
@@ -1200,13 +1081,11 @@ export function useRoutingConsole() {
     panelState,
     panelError,
     saving,
-    modelSearch,
-    modelScores,
     availableModels,
     autoSaveEnabled,
     lastSavedAt,
     classifierSaving,
-    intentEngineSaving,
+    dualModelSaving,
     classifierSwitching,
     classifierModelsLoading,
     classifierSwitchModel,
@@ -1222,17 +1101,14 @@ export function useRoutingConsole() {
     tierMigrating,
     tierPromoting,
     promoteCacheKey,
-    vectorPipelineSaving,
     vectorPipelineTesting,
     classifierConfig,
     classifierHealth,
     classifierStats,
-    intentEngineConfig,
-    intentEngineHealth,
+    dualModelConfig,
     vectorStats,
     vectorTierConfig,
     vectorTierStats,
-    vectorPipelineConfig,
     vectorPipelineHealth,
     vectorPipelineTestForm,
     vectorPipelineTestResult,
@@ -1245,21 +1121,17 @@ export function useRoutingConsole() {
     cascadeLevels,
     taskTypes,
     statsCards,
-    filteredModels,
     modeLabel,
     strategyLabel,
     lastSavedLabel,
     classifierConfidencePercent,
-    calculateCompositeScore,
-    getScoreColor,
-    getScoreTagType,
     formatVramBytes,
     formatDuration,
     loadClassifierHealth,
     loadClassifierModels,
     loadClassifierStats,
-    loadIntentEngineHealthData,
-    saveIntentEngineConfigData,
+    loadDualModelConfigData,
+    saveDualModelConfigData,
     loadOllamaSetupStatus,
     installOllama,
     startOllama,
@@ -1268,7 +1140,6 @@ export function useRoutingConsole() {
     saveClassifierConfig,
     switchClassifierModel,
     saveTaskMapping,
-    toggleModelEnabled,
     triggerOptimization,
     reloadPolicyPanel,
     reloadOllamaPanel,
@@ -1279,7 +1150,6 @@ export function useRoutingConsole() {
     saveVectorTierConfigPatch,
     migrateHotToCold,
     promoteToHotTier,
-    saveVectorPipelineConfigData,
     runVectorPipelineTest
   }
 }
