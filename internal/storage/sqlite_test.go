@@ -737,15 +737,11 @@ func TestSQLiteStorage_ClearUsageLogs(t *testing.T) {
 		"cache_hit":  false,
 		"success":    true,
 	}))
-
-	statsBefore := store.GetUsageStats()
-	assert.Equal(t, int64(2), statsBefore["total_requests"])
-
 	deleted, err := store.ClearUsageLogs()
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), deleted)
 
-	statsAfter := store.GetUsageStats()
-	assert.Equal(t, int64(0), statsAfter["total_requests"])
-	assert.Equal(t, int64(0), statsAfter["total_tokens"])
+	logs, err := store.GetUsageLogsWithFilter(UsageFilter{}, 10, 0)
+	require.NoError(t, err)
+	assert.Len(t, logs, 0)
 }

@@ -181,11 +181,11 @@ func TestUsageHandler_ClearUsageLogs(t *testing.T) {
 	handler := NewUsageHandler(store)
 	r := gin.New()
 	r.DELETE("/admin/usage/logs", handler.ClearUsageLogs)
+	r.GET("/admin/usage/logs", handler.GetUsageLogs)
 
 	req := httptest.NewRequest(http.MethodDelete, "/admin/usage/logs", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-
 	require.Equal(t, http.StatusOK, w.Code)
 
 	var resp struct {
@@ -198,7 +198,18 @@ func TestUsageHandler_ClearUsageLogs(t *testing.T) {
 	require.True(t, resp.Success)
 	assert.Equal(t, int64(2), resp.Data.Deleted)
 
-	stats := store.GetUsageStats()
-	assert.Equal(t, int64(0), stats["total_requests"])
-	assert.Equal(t, int64(0), stats["total_tokens"])
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/usage/logs", http.NoBody)
+	listW := httptest.NewRecorder()
+	r.ServeHTTP(listW, listReq)
+	require.Equal(t, http.StatusOK, listW.Code)
+
+	var listResp struct {
+		Success bool               `json:"success"`
+		Data    []UsageLogResponse `json:"data"`
+		Total   int                `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(listW.Body.Bytes(), &listResp))
+	require.True(t, listResp.Success)
+	assert.Equal(t, 0, listResp.Total)
+	assert.Len(t, listResp.Data, 0)
 }
