@@ -101,6 +101,7 @@ export const API = {
   USAGE: {
     LOGS: '/admin/usage/logs',
     STATS: '/admin/usage/stats',
+    CLEAR: '/admin/usage/logs',
   },
   
   TRACES: {

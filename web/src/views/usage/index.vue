@@ -111,6 +111,9 @@
           </div>
         </div>
         <div class="filters-right">
+          <el-button type="danger" plain :loading="loading" @click="clearUsageLogs">
+            清空使用记录
+          </el-button>
           <el-button :loading="loading" @click="resetFilters">重置</el-button>
           <el-button type="primary" :loading="loading" @click="exportCsv">导出 CSV</el-button>
         </div>
@@ -189,6 +192,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
 import { filterUsageRows } from '@/utils/usage-filters'
@@ -424,6 +428,35 @@ const resetFilters = async () => {
   range.value = '7d'
   if (!changed) {
     await refreshAll()
+  }
+}
+
+const clearUsageLogs = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定清空全部使用记录吗？该操作不可恢复。',
+      '清空使用记录',
+      {
+        type: 'warning',
+        confirmButtonText: '确认清空',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+
+  loading.value = true
+  try {
+    const res = await request.delete(API.USAGE.CLEAR)
+    const deleted = Number((res as any)?.data?.deleted || 0)
+    ElMessage.success(`已清空使用记录，共删除 ${formatNumber(deleted)} 条`)
+    await Promise.all([fetchUsageLogs(), fetchUsageStats()])
+    page.value = 1
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || e?.message || '清空失败')
+  } finally {
+    loading.value = false
   }
 }
 

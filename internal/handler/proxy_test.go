@@ -3,6 +3,7 @@ package handler
 import (
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/storage"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -228,6 +229,198 @@ func (m *mockProvider) Name() string {
 type failingProvider struct {
 	*provider.BaseProvider
 	chatErr error
+}
+
+type doneStreamProvider struct {
+	*provider.BaseProvider
+}
+
+func (d *doneStreamProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "fallback-id",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{
+			{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "fallback response",
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: provider.Usage{TotalTokens: 3, PromptTokens: 2, CompletionTokens: 1},
+	}, nil
+}
+
+func (d *doneStreamProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	ch := make(chan *provider.StreamChunk, 2)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-id",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{
+				{
+					Index: 0,
+					Delta: &provider.StreamDelta{
+						Role:    "assistant",
+						Content: "stream answer",
+					},
+				},
+			},
+		}
+		ch <- &provider.StreamChunk{
+			ID:      "stream-id",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Done:    true,
+			Choices: []provider.StreamChoice{
+				{
+					Index:        0,
+					FinishReason: "stop",
+					Delta:        &provider.StreamDelta{},
+				},
+			},
+			Usage: &provider.Usage{TotalTokens: 3, PromptTokens: 2, CompletionTokens: 1},
+		}
+	}()
+	return ch, nil
+}
+
+func (d *doneStreamProvider) ValidateKey(ctx context.Context) bool {
+	return true
+}
+
+type fallbackStreamProvider struct {
+	*provider.BaseProvider
+}
+
+func (f *fallbackStreamProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "fallback-chat-id",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{{
+			Index: 0,
+			Message: provider.ChatMessage{
+				Role:    "assistant",
+				Content: "fallback answer",
+			},
+			FinishReason: "stop",
+		}},
+		Usage: provider.Usage{TotalTokens: 4, PromptTokens: 2, CompletionTokens: 2},
+	}, nil
+}
+
+func (f *fallbackStreamProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	ch := make(chan *provider.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-empty",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Done:    true,
+			Choices: []provider.StreamChoice{{
+				Index:        0,
+				FinishReason: "stop",
+				Delta:        &provider.StreamDelta{},
+			}},
+		}
+	}()
+	return ch, nil
+}
+
+func (f *fallbackStreamProvider) ValidateKey(ctx context.Context) bool {
+	return true
+}
+
+func TestProxyHandler_ChatCompletions_StreamShouldRecordHTTPResponseSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &doneStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello stream"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(1) FROM request_traces WHERE request_id = ? AND operation = 'http.response'`, requestID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	var attrsRaw string
+	err = db.QueryRow(`SELECT attributes FROM request_traces WHERE request_id = ? AND operation = 'http.response'`, requestID).Scan(&attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+	assert.Equal(t, "stream answer", attrs["ai_response_preview"])
+	assert.Equal(t, "stream answer", attrs["ai_response_full"])
+	assert.Equal(t, "hello stream", attrs["user_message_preview"])
+	assert.Equal(t, "hello stream", attrs["user_message_full"])
+}
+
+func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &fallbackStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"trigger fallback"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(1) FROM request_traces WHERE request_id = ? AND operation = 'http.response'`, requestID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	var attrsRaw string
+	err = db.QueryRow(`SELECT attributes FROM request_traces WHERE request_id = ? AND operation = 'http.response'`, requestID).Scan(&attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+	assert.Equal(t, "fallback answer", attrs["ai_response_preview"])
+	assert.Equal(t, "fallback answer", attrs["ai_response_full"])
+	assert.Equal(t, "trigger fallback", attrs["user_message_preview"])
+	assert.Equal(t, "trigger fallback", attrs["user_message_full"])
 }
 
 func (f *failingProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
