@@ -60,7 +60,10 @@ func TestMaskAPIKey(t *testing.T) {
 
 func TestIsEncrypted(t *testing.T) {
 	plaintext := "my-secret-key"
-	encrypted, _ := Encrypt(plaintext)
+	encrypted, err := Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt(%q) error: %v", plaintext, err)
+	}
 
 	if !IsEncrypted(encrypted) {
 		t.Errorf("IsEncrypted(encrypted) = false, want true")
