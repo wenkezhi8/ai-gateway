@@ -273,12 +273,7 @@ func TestIntentTTLSeconds(t *testing.T) {
 func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 	store := &mockVectorStoreForProxy{}
 	h := &ProxyHandler{
-		config: &config.Config{},
-		intentClient: intent.NewClient(intent.Config{
-			Enabled: true,
-			BaseURL: "http://127.0.0.1:18566",
-			Timeout: 100 * time.Millisecond,
-		}),
+		config:      &config.Config{},
 		vectorStore: store,
 	}
 	resp := ChatCompletionResponse{

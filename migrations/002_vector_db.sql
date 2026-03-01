@@ -7,10 +7,16 @@ CREATE TABLE IF NOT EXISTS vector_collections (
 	dimension INTEGER NOT NULL,
 	distance_metric TEXT NOT NULL DEFAULT 'cosine',
 	index_type TEXT NOT NULL DEFAULT 'hnsw',
-	storage_backend TEXT NOT NULL DEFAULT 'sqlite',
+	hnsw_m INTEGER NOT NULL DEFAULT 16,
+	hnsw_ef_construct INTEGER NOT NULL DEFAULT 100,
+	ivf_nlist INTEGER NOT NULL DEFAULT 1024,
+	storage_backend TEXT NOT NULL DEFAULT 'qdrant',
 	tags TEXT,
-	environment TEXT NOT NULL DEFAULT 'production',
+	environment TEXT NOT NULL DEFAULT 'default',
 	status TEXT NOT NULL DEFAULT 'active',
+	vector_count INTEGER NOT NULL DEFAULT 0,
+	indexed_count INTEGER NOT NULL DEFAULT 0,
+	size_bytes INTEGER NOT NULL DEFAULT 0,
 	created_at TEXT NOT NULL,
 	updated_at TEXT NOT NULL,
 	created_by TEXT NOT NULL,
@@ -32,6 +38,8 @@ CREATE TABLE IF NOT EXISTS vector_import_jobs (
 	total_records INTEGER NOT NULL,
 	processed_records INTEGER DEFAULT 0,
 	failed_records INTEGER DEFAULT 0,
+	retry_count INTEGER DEFAULT 0,
+	max_retries INTEGER DEFAULT 3,
 	status TEXT NOT NULL DEFAULT 'pending',
 	error_message TEXT,
 	started_at TEXT,
@@ -64,3 +72,53 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_type ON vector_audit_logs(res
 CREATE INDEX IF NOT EXISTS idx_audit_logs_resource_id ON vector_audit_logs(resource_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON vector_audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON vector_audit_logs(created_at);
+
+-- Alert rules table
+CREATE TABLE IF NOT EXISTS vector_alert_rules (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	name TEXT NOT NULL,
+	metric TEXT NOT NULL,
+	operator TEXT NOT NULL,
+	threshold REAL NOT NULL,
+	duration TEXT NOT NULL,
+	channels TEXT,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_rules_metric ON vector_alert_rules(metric);
+CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON vector_alert_rules(enabled);
+
+-- Vector API keys table
+CREATE TABLE IF NOT EXISTS vector_api_keys (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	key_hash TEXT NOT NULL UNIQUE,
+	role TEXT NOT NULL,
+	enabled INTEGER NOT NULL DEFAULT 1,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_vector_api_keys_role ON vector_api_keys(role);
+CREATE INDEX IF NOT EXISTS idx_vector_api_keys_enabled ON vector_api_keys(enabled);
+
+-- Backup tasks table
+CREATE TABLE IF NOT EXISTS vector_backup_tasks (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	collection_name TEXT NOT NULL,
+	snapshot_name TEXT NOT NULL,
+	action TEXT NOT NULL,
+	status TEXT NOT NULL,
+	source_backup_id INTEGER NOT NULL DEFAULT 0,
+	error_message TEXT,
+	started_at TEXT,
+	completed_at TEXT,
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL,
+	created_by TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_backup_tasks_collection ON vector_backup_tasks(collection_name);
+CREATE INDEX IF NOT EXISTS idx_backup_tasks_status ON vector_backup_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_backup_tasks_action ON vector_backup_tasks(action);

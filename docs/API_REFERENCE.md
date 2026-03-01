@@ -416,3 +416,43 @@ func main() {
 - [用户使用手册](./USER_GUIDE.md)
 - [部署指南](./DEPLOYMENT.md)
 - [常见问题](./FAQ.md)
+
+---
+
+## 向量数据库（Vector DB）扩展 API
+
+以下接口用于向量集合管理、检索、监控、权限、备份恢复与可视化。
+
+### 向量检索接口（业务侧）
+
+- `POST /api/v1/vector/collections/:name/search`
+- `POST /api/v1/vector/collections/:name/recommend`
+- `GET /api/v1/vector/collections/:name/vectors/:id`
+
+请求示例（search）：
+
+```json
+{
+  "top_k": 5,
+  "min_score": 0.3,
+  "vector": [0.1, 0.2, 0.3]
+}
+```
+
+### 管理端接口（Admin）
+
+- 集合管理：`/api/admin/vector-db/collections`
+- 导入任务：`/api/admin/vector-db/import-jobs`
+- 监控汇总：`GET /api/admin/vector-db/metrics/summary`
+- 告警规则：`/api/admin/vector-db/alerts/rules`
+- 索引配置：`GET|PUT /api/admin/vector-db/index-config/:name`
+- 权限管理：`/api/admin/vector-db/permissions`
+- 备份恢复：`/api/admin/vector-db/backups`
+- 可视化采样：`GET /api/admin/vector-db/visualization/scatter`
+
+可视化示例请求：
+
+```bash
+curl "http://localhost:8080/api/admin/vector-db/visualization/scatter?collection_name=docs&sample_size=200" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```

@@ -13,6 +13,8 @@ import (
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/middleware"
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/storage"
+	vectordb "ai-gateway/internal/vector-db"
 
 	"github.com/gin-gonic/gin"
 
@@ -21,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // New creates and configures a new Gin router
@@ -131,6 +134,16 @@ func NewFullWithConfig(
 	apiV1.GET("/models", proxyHandler.ListModels)
 	apiV1.GET("/config/providers", proxyHandler.ListConfiguredProviders)
 	apiV1.POST("/search", searchHandler.Search)
+
+	vectorService := vectordb.NewServiceWithConfig(vectordb.ServiceConfig{
+		DB:             storage.GetSQLiteStorage().GetDB(),
+		QdrantHTTPAddr: strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_URL")),
+		QdrantAPIKey:   strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_API_KEY")),
+	})
+	vectorSearchHandler := vectordb.NewSearchHandler(vectorService)
+	rbacMiddleware := vectordb.NewRBACMiddleware(vectordb.NewRBACService(vectorService.GetRepository()))
+	vectorRateLimiter := vectordb.NewVectorSearchRateLimiter(120, time.Minute)
+	vectordb.RegisterVectorSearchRoutesWithRBAC(apiV1, vectorSearchHandler, rbacMiddleware.Middleware(), vectorRateLimiter.Middleware())
 
 	// Anthropic-compatible routes
 	r.GET(constants.ApiAnthropicBasePrefix, proxyHandler.AnthropicRoot)

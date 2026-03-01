@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"os"
+	"strings"
+
 	"ai-gateway/internal/cache"
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
@@ -66,7 +69,11 @@ func NewHandlers(
 		Usage:       usageHandler,
 		Settings:    NewSettingsHandler(""),
 		Trace:       NewTraceHandler(storage.GetSQLiteStorage().GetDB()),
-		VectorDB:    vectordb.NewCollectionHandler(vectordb.NewService()),
+		VectorDB: vectordb.NewCollectionHandler(vectordb.NewServiceWithConfig(vectordb.ServiceConfig{
+			DB:             storage.GetSQLiteStorage().GetDB(),
+			QdrantHTTPAddr: strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_URL")),
+			QdrantAPIKey:   strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_API_KEY")),
+		})),
 	}
 	// 改动点: 定时健康检测并触发告警
 	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
@@ -316,4 +323,21 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	vectorDBCollectionsGroup.GET("/:name", handlers.VectorDB.GetCollection)
 	vectorDBCollectionsGroup.PUT("/:name", handlers.VectorDB.UpdateCollection)
 	vectorDBCollectionsGroup.DELETE("/:name", handlers.VectorDB.DeleteCollection)
+
+	vectorDBImportJobsGroup := r.Group("/vector-db/import-jobs")
+	vectorDBImportJobsGroup.POST("", handlers.VectorDB.CreateImportJob)
+	vectorDBImportJobsGroup.GET("", handlers.VectorDB.ListImportJobs)
+	vectorDBImportJobsGroup.GET("/summary", handlers.VectorDB.GetImportJobSummary)
+	vectorDBImportJobsGroup.GET("/:id", handlers.VectorDB.GetImportJob)
+	vectorDBImportJobsGroup.PUT("/:id/status", handlers.VectorDB.UpdateImportJobStatus)
+	vectorDBImportJobsGroup.POST("/:id/run", handlers.VectorDB.RunImportJob)
+	vectorDBImportJobsGroup.POST("/:id/retry", handlers.VectorDB.RetryImportJob)
+	vectorDBImportJobsGroup.POST("/retry-failed", handlers.VectorDB.RetryFailedImportJobs)
+	vectorDBImportJobsGroup.GET("/:id/errors", handlers.VectorDB.GetImportJobErrors)
+
+	vectordb.RegisterMonitoringRoutes(r, handlers.VectorDB)
+	vectordb.RegisterIndexConfigRoutes(r, handlers.VectorDB)
+	vectordb.RegisterRBACRoutes(r, handlers.VectorDB.RBACService())
+	vectordb.RegisterBackupRoutes(r, handlers.VectorDB)
+	vectordb.RegisterVisualizationRoutes(r, handlers.VectorDB)
 }

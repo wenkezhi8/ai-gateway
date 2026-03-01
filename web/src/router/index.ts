@@ -106,6 +106,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '向量集合', icon: 'Collection' }
       },
       {
+        path: '/vector-db/search',
+        name: 'VectorDBSearch',
+        component: () => import('@/views/vector-db/search/index.vue'),
+        meta: { title: '向量检索', icon: 'Search' }
+      },
+      {
+        path: '/vector-db/monitoring',
+        name: 'VectorDBMonitoring',
+        component: () => import('@/views/vector-db/monitoring/index.vue'),
+        meta: { title: '向量监控', icon: 'DataLine' }
+      },
+      {
+        path: '/vector-db/permissions',
+        name: 'VectorDBPermissions',
+        component: () => import('@/views/vector-db/permissions/index.vue'),
+        meta: { title: '向量权限', icon: 'Key' }
+      },
+      {
+        path: '/vector-db/backup',
+        name: 'VectorDBBackup',
+        component: () => import('@/views/vector-db/backup/index.vue'),
+        meta: { title: '备份恢复', icon: 'Folder' }
+      },
+      {
+        path: '/vector-db/visualization',
+        name: 'VectorDBVisualization',
+        component: () => import('@/views/vector-db/visualization/index.vue'),
+        meta: { title: '向量可视化', icon: 'DataAnalysis' }
+      },
+      {
         path: '/knowledge/documents',
         name: 'KnowledgeDocuments',
         component: () => import('@/views/knowledge/documents/index.vue'),

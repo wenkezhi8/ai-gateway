@@ -130,3 +130,49 @@ func TestClient_GetCollections(t *testing.T) {
 		t.Logf("Found %d collections: %v", len(collections), collections)
 	}
 }
+
+func TestClient_CreateDeleteGetCollectionInfo_ShouldHandleInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	client, err := NewQdrantClient("", "", "test-collection")
+	if err != nil {
+		t.Fatalf("Failed to create Qdrant client: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.CreateCollection(context.Background(), "", 768, "cosine"); err == nil {
+		t.Fatal("CreateCollection() should fail for empty name")
+	}
+	if err := client.CreateCollection(context.Background(), "docs", 0, "cosine"); err == nil {
+		t.Fatal("CreateCollection() should fail for invalid dimension")
+	}
+	if err := client.DeleteCollection(context.Background(), ""); err == nil {
+		t.Fatal("DeleteCollection() should fail for empty name")
+	}
+	if _, err := client.GetCollectionInfo(context.Background(), ""); err == nil {
+		t.Fatal("GetCollectionInfo() should fail for empty name")
+	}
+}
+
+func TestClient_UpsertPoints_ShouldHandleInvalidInput(t *testing.T) {
+	t.Parallel()
+
+	client, err := NewQdrantClient("", "", "test-collection")
+	if err != nil {
+		t.Fatalf("Failed to create Qdrant client: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.UpsertPoints(context.Background(), "", []UpsertPoint{{ID: "1", Vector: []float32{0.1}}}); err == nil {
+		t.Fatal("UpsertPoints() should fail for empty collection")
+	}
+	if err := client.UpsertPoints(context.Background(), "docs", nil); err == nil {
+		t.Fatal("UpsertPoints() should fail for empty points")
+	}
+	if err := client.UpsertPoints(context.Background(), "docs", []UpsertPoint{{ID: "", Vector: []float32{0.1}}}); err == nil {
+		t.Fatal("UpsertPoints() should fail for empty id")
+	}
+	if err := client.UpsertPoints(context.Background(), "docs", []UpsertPoint{{ID: "1", Vector: nil}}); err == nil {
+		t.Fatal("UpsertPoints() should fail for empty vector")
+	}
+}
