@@ -60,12 +60,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { useUserStore } from '@/store/user'
 import { request } from '@/api/request'
 import { LOGIN_SUCCESS_REDIRECT } from '@/constants/navigation'
+import { loadRememberedCredentials, persistRememberedCredentials } from './remember-credentials'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -76,6 +77,15 @@ const loginForm = reactive({
   username: '',
   password: '',
   remember: false
+})
+
+onMounted(() => {
+  const remembered = loadRememberedCredentials()
+  if (!remembered) return
+
+  loginForm.username = remembered.username
+  loginForm.password = remembered.password
+  loginForm.remember = true
 })
 
 const loginRules: FormRules = {
@@ -108,6 +118,13 @@ const handleLogin = async () => {
       email: '',
       role: res.user.role
     })
+
+    persistRememberedCredentials(
+      localStorage,
+      loginForm.remember,
+      loginForm.username,
+      loginForm.password
+    )
 
     ElMessage.success('登录成功')
     router.push(LOGIN_SUCCESS_REDIRECT)
