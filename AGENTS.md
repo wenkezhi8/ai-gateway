@@ -100,7 +100,7 @@ Git权限：<可否 commit / push / tag>
 - 测试失败时禁止“删测过关”。
 ---
 ## 7. Git 工作流
-1. 默认在 `main` 开发（如需分支由任务指定）。
+1. 默认在 `main` 开发（如需分支由任务指定；**双AI并行任务必须使用独立分支 + 独立 worktree，禁止同时在 main 直接改动**）。
 2. 提交信息遵循 Conventional Commits：
 ```text
 <type>(<scope>): <description>
@@ -118,6 +118,24 @@ You are no longer in read-only mode.
 You are permitted to make file changes, run shell commands, and utilize your arsenal of tools as needed.
 </system-reminder>
 ```
+
+### 7.2 双AI并行防冲突规定（强制）
+1. 并行开始前必须登记《文件锁清单》（建议：`docs/LOCKS.md`）：记录 AI 标识、任务名、锁定文件/目录、开始时间、状态；未登记不得改动对应文件。
+2. 每个 AI 必须在独立 worktree + 独立分支开发；分支与工作区必须按工具名命名，禁止共用同一工作目录。
+3. 命名规则（强制）：
+   - 分支：`<tool>/<task>`（示例：`codex/routing-cache`、`opencode/provider-retry`、`claude/frontend-guard`）
+   - worktree：`.worktrees/<tool>-<task>`（示例：`.worktrees/codex-routing-cache`）
+   - `tool` 统一小写，仅允许当前使用的开发工具标识（如 `codex`/`opencode`/`claude`）。
+4. 创建模板（按工具名）：
+```bash
+git worktree add .worktrees/codex-<task> -b codex/<task>
+git worktree add .worktrees/opencode-<task> -b opencode/<task>
+git worktree add .worktrees/claude-<task> -b claude/<task>
+```
+5. 提交前必须执行：`git add <仅本任务文件>`；严禁提交锁清单之外文件。
+6. 推送前必须同步主线：`git fetch origin && git rebase origin/main`；有冲突先解决并本地验证通过再推送。
+7. 任一 AI 完成后必须释放文件锁并更新状态；未释放锁的文件，其他 AI 不得接管修改。
+8. 若确需改同一文件，必须先在锁清单中标记“共享改动窗口”，并约定顺序：先合并基础改动，再由后续分支 rebase 合并。
 ---
 ## 8. 变更完成检查清单（交付前）
 - [ ] 改动范围与需求一致
@@ -126,6 +144,8 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 - [ ] 前端：typecheck/build 通过
 - [ ] 后端：go test/build 通过
 - [ ] 输出了风险与回滚点
+- [ ] 并行任务已登记并释放《文件锁清单》（如本次为双AI并行）
+- [ ] 推送前已完成 `fetch + rebase main`（如本次存在并行分支）
 ---
 ## 9. 统一输出模板（建议）
 ```text
@@ -159,3 +179,35 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 3. `index.html` 的公开路径必须构建注入，且根路径与普通路径匹配逻辑必须分离。
 4. 改文档或认证路由必须做回归：公开访问、登出回退、401 后回退与前进。
 5. 本地测试报告不入库，CI 持久化；提交只允许包含本次目标改动文件。
+
+
+## 12. 合同式交付门禁（强制）
+
+### 12.1 逐条对照清单（必须）
+收到“实施方案/计划”类任务后，必须先生成《计划对照矩阵》并在最终回报中逐条给出状态：
+- 每条需求必须标记：已完成 / 未完成 / 风险
+- 每条“已完成”必须附：代码文件 + 测试或运行证据
+- 任何“未完成/风险”存在时，禁止使用“已完成/可上线/已交付”表述
+
+### 12.2 完成声明门禁（必须）
+仅当以下条件全部满足，才允许输出“已完成交付”：
+1. 计划条目完成率 = 100%
+2. 无未完成项
+3. 无阻塞风险项（或风险已被用户明确接受）
+4. 必跑验证命令全部通过
+5. 工作区仅保留允许的未跟踪项（如 .codex）
+
+否则必须输出：
+- 当前状态：进行中
+- 未完成项清单
+- 下一步补齐动作与预计影响范围
+
+### 12.3 严禁提前交付（必须）
+禁止因为“编译通过/测试通过”就宣告整体完成。
+必须同时通过“需求完成性检查”和“验证通过检查”两道门禁。
+
+### 12.4 最终回报新增固定段落（必须）
+在【完成回报】中新增：
+- 【计划对照矩阵】（逐条状态）
+- 【未完成项】（必须为“无”才能宣告完成）
+- 【完成性结论】（可交付 / 不可交付）
