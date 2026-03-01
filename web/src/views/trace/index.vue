@@ -47,7 +47,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="duration_ms" label="耗时" width="100">
-          <template #default="{ row }">{{ row.duration_ms }}ms</template>
+          <template #default="{ row }">{{ formatDuration(row.duration_ms) }}</template>
         </el-table-column>
         <el-table-column prop="created_at" label="时间" width="160">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
@@ -83,7 +83,7 @@
               {{ detailSummary.status === 'success' ? '成功' : '失败' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="总耗时">{{ detailSummary.duration_ms }}ms</el-descriptions-item>
+          <el-descriptions-item label="总耗时">{{ formatDuration(detailSummary.duration_ms) }}</el-descriptions-item>
         </el-descriptions>
 
         <h4 style="margin-top: 20px">处理步骤</h4>
@@ -101,7 +101,7 @@
                   <el-tag size="small" :type="trace.status === 'success' ? 'success' : 'danger'">
                     {{ trace.status === 'success' ? '成功' : '失败' }}
                   </el-tag>
-                  <span class="step-duration">{{ trace.duration_ms }}ms</span>
+                  <span class="step-duration">{{ formatDuration(trace.duration_ms) }}</span>
                 </div>
                 <div class="step-desc">{{ getOperationDesc(trace.operation) }}</div>
                 <div v-if="trace.error" class="step-error">{{ trace.error }}</div>
@@ -109,8 +109,8 @@
                 <div v-if="trace.attributes?.provider_type" class="step-attr">协议类型: {{ trace.attributes.provider_type }}</div>
                 <div v-if="trace.attributes?.provider_name" class="step-attr">服务商: {{ trace.attributes.provider_name }}</div>
                 <div v-else-if="trace.provider" class="step-attr">服务商: {{ trace.provider }}</div>
-                <div v-if="trace.attributes?.task_type" class="step-attr">任务类型: {{ trace.attributes.task_type }}</div>
-                <div v-if="trace.attributes?.difficulty" class="step-attr">任务难度: {{ trace.attributes.difficulty }}</div>
+                <div v-if="trace.attributes?.task_type" class="step-attr">任务类型: {{ formatTaskType(trace.attributes.task_type) }}</div>
+                <div v-if="trace.attributes?.difficulty" class="step-attr">任务难度: {{ formatDifficulty(trace.attributes.difficulty) }}</div>
                 <div v-if="trace.attributes?.recommended_ttl" class="step-attr">推荐TTL: {{ formatTTL(trace.attributes.recommended_ttl) }}</div>
                 <div v-if="trace.attributes?.answer_preview" class="step-answer">
                   <div class="step-answer-title">命中答案预览</div>
@@ -207,6 +207,20 @@ const OPERATION_META: Record<string, { label: string; desc: string }> = {
   'http.response': { label: '返回响应', desc: '向客户端返回最终响应' }
 }
 
+const TASK_TYPE_LABELS: Record<string, string> = {
+  coding: '编程',
+  math: '数学',
+  creative: '创作',
+  analysis: '分析',
+  chat: '通用对话'
+}
+
+const DIFFICULTY_LABELS: Record<string, string> = {
+  low: '低',
+  medium: '中',
+  high: '高'
+}
+
 onMounted(() => {
   loadTraces()
 })
@@ -295,6 +309,11 @@ function formatTime(timestamp: string) {
   return new Date(timestamp).toLocaleString('zh-CN')
 }
 
+function formatDuration(durationMs: number) {
+  const seconds = Number(durationMs || 0) / 1000
+  return `${seconds.toFixed(3)}s`
+}
+
 function getOperationLabel(operation: string) {
   return OPERATION_META[operation]?.label || operation
 }
@@ -335,6 +354,14 @@ function formatTTL(raw: number | string) {
 function showFullAnswer(trace: RequestTrace) {
   activeAnswerTrace.value = trace
   answerVisible.value = true
+}
+
+function formatTaskType(taskType: string) {
+  return TASK_TYPE_LABELS[taskType] || taskType
+}
+
+function formatDifficulty(difficulty: string) {
+  return DIFFICULTY_LABELS[difficulty] || difficulty
 }
 </script>
 
