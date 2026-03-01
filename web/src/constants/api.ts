@@ -104,7 +104,7 @@ export const API = {
   },
   
   TRACES: {
-    LIST: '/api/admin/traces',
-    DETAIL: '/api/admin/traces/:request_id',
+    LIST: '/admin/traces',
+    DETAIL: '/admin/traces/:request_id',
   },
 } as const
