@@ -378,9 +378,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		})
 	}
 	if v2CacheHit && len(v2CachedBody) > 0 {
-		tokens := extractTotalTokensFromBody(v2CachedBody)
-		h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
-		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+		tokenUsage := extractUsageTokensFromBody(v2CachedBody)
+		h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
 		c.Header("X-Local-Cache-Hit", "1")
 		c.Header("X-Cache-Layer", v2HitLayer)
 		if req.Stream {
@@ -428,9 +428,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			}).Info("Semantic cache hit")
 
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
-			tokens := extractTotalTokensFromBody(semanticEntry.Response)
-			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
-			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+			tokenUsage := extractUsageTokensFromBody(semanticEntry.Response)
+			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
 			c.Header("X-Local-Cache-Hit", "1")
 			if req.Stream {
 				h.writeCachedResponseAsStream(c, req.Model, semanticEntry.Response)
@@ -471,9 +471,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 					"task_type": assessment.TaskType,
 				}).Info("Response cache hit")
 
-				tokens := extractTotalTokensFromBody(cached.Body)
-				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
-				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokens)
+				tokenUsage := extractUsageTokensFromBody(cached.Body)
+				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
 				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 				c.Header("X-Local-Cache-Hit", "1")
 				if req.Stream {
@@ -2671,20 +2671,34 @@ func responseCacheModelDimension(taskType routing.TaskType, model string) string
 	return model
 }
 
-func extractTotalTokensFromBody(body []byte) int {
+type usageTokens struct {
+	Prompt     int
+	Completion int
+	Total      int
+}
+
+func extractUsageTokensFromBody(body []byte) usageTokens {
 	var payload map[string]interface{}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return 0
+		return usageTokens{}
 	}
 	usage, ok := payload["usage"].(map[string]interface{})
 	if !ok {
-		return 0
+		return usageTokens{}
 	}
-	total, ok := usage["total_tokens"]
-	if !ok {
-		return 0
+	tokens := usageTokens{
+		Prompt:     extractTokenInt(usage["prompt_tokens"]),
+		Completion: extractTokenInt(usage["completion_tokens"]),
+		Total:      extractTokenInt(usage["total_tokens"]),
 	}
-	switch v := total.(type) {
+	if tokens.Total <= 0 {
+		tokens.Total = tokens.Prompt + tokens.Completion
+	}
+	return tokens
+}
+
+func extractTokenInt(raw interface{}) int {
+	switch v := raw.(type) {
 	case float64:
 		return int(v)
 	case int:
