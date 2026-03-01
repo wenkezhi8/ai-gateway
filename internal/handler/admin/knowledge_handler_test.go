@@ -55,7 +55,7 @@ func TestKnowledgeHandler_DocumentLifecycle(t *testing.T) {
 	require.True(t, uploadPayload.Success)
 	require.NotEmpty(t, uploadPayload.Data.DocumentID)
 
-	listReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/documents?page=1&page_size=20", nil)
+	listReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/documents?page=1&page_size=20", http.NoBody)
 	listResp := httptest.NewRecorder()
 	r.ServeHTTP(listResp, listReq)
 	require.Equal(t, http.StatusOK, listResp.Code)
@@ -73,7 +73,7 @@ func TestKnowledgeHandler_DocumentLifecycle(t *testing.T) {
 	require.Len(t, listPayload.Data.Items, 1)
 
 	docID := uploadPayload.Data.DocumentID
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/documents/"+docID, nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/documents/"+docID, http.NoBody)
 	getResp := httptest.NewRecorder()
 	r.ServeHTTP(getResp, getReq)
 	require.Equal(t, http.StatusOK, getResp.Code)
@@ -86,7 +86,7 @@ func TestKnowledgeHandler_DocumentLifecycle(t *testing.T) {
 	require.True(t, getPayload.Success)
 	assert.Equal(t, "completed", getPayload.Data["status"])
 
-	delReq := httptest.NewRequest(http.MethodDelete, "/admin/knowledge/documents/"+docID, nil)
+	delReq := httptest.NewRequest(http.MethodDelete, "/admin/knowledge/documents/"+docID, http.NoBody)
 	delResp := httptest.NewRecorder()
 	r.ServeHTTP(delResp, delReq)
 	require.Equal(t, http.StatusOK, delResp.Code)
@@ -146,7 +146,7 @@ func TestKnowledgeHandler_ChatAndConfig(t *testing.T) {
 	r.ServeHTTP(updateResp, updateReq)
 	require.Equal(t, http.StatusOK, updateResp.Code)
 
-	getReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/config", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/admin/knowledge/config", http.NoBody)
 	getResp := httptest.NewRecorder()
 	r.ServeHTTP(getResp, getReq)
 	require.Equal(t, http.StatusOK, getResp.Code)

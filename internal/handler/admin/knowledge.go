@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 )
 
 const defaultCollectionID = "default"
+const defaultEmbeddingModel = "nomic-embed-text"
 
 type KnowledgeHandler struct {
 	db *sql.DB
@@ -80,7 +82,7 @@ func (h *KnowledgeHandler) ensureSchema() {
 func defaultKnowledgeConfig() knowledgeConfig {
 	var cfg knowledgeConfig
 	cfg.VectorBackend = "sqlite"
-	cfg.EmbeddingModel = "nomic-embed-text"
+	cfg.EmbeddingModel = defaultEmbeddingModel
 	cfg.Chunking.Type = "fixed_size"
 	cfg.Chunking.ChunkSize = 500
 	cfg.Chunking.ChunkOverlap = 50
@@ -98,7 +100,10 @@ func (h *KnowledgeHandler) ensureDefaultConfig() {
 		return
 	}
 
-	b, _ := json.Marshal(defaultKnowledgeConfig())
+	b, err := json.Marshal(defaultKnowledgeConfig())
+	if err != nil {
+		panic(fmt.Sprintf("marshal default knowledge config failed: %v", err))
+	}
 	if _, err := h.db.Exec(`INSERT INTO kb_config(id, payload, updated_at) VALUES (1, ?, ?)`, string(b), time.Now().UTC()); err != nil {
 		panic(fmt.Sprintf("insert default knowledge config failed: %v", err))
 	}
@@ -113,35 +118,7 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 	status := strings.TrimSpace(c.Query("status"))
 	search := strings.TrimSpace(c.Query("search"))
 
-	where := make([]string, 0, 2)
-	args := make([]any, 0, 4)
-	if status != "" {
-		where = append(where, "status = ?")
-		args = append(args, status)
-	}
-	if search != "" {
-		where = append(where, "name LIKE ?")
-		args = append(args, "%"+search+"%")
-	}
-
-	whereSQL := ""
-	if len(where) > 0 {
-		whereSQL = "WHERE " + strings.Join(where, " AND ")
-	}
-
-	var total int
-	countSQL := "SELECT COUNT(1) FROM kb_documents " + whereSQL
-	if err := h.db.QueryRow(countSQL, args...).Scan(&total); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	offset := (page - 1) * pageSize
-	querySQL := `SELECT id, name, type, size, chunk_count, status, collection_id, created_at, updated_at
-		FROM kb_documents ` + whereSQL + ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
-	queryArgs := append(args, pageSize, offset)
-
-	rows, err := h.db.Query(querySQL, queryArgs...)
+	total, rows, err := h.queryDocumentList(status, search, page, pageSize)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -177,6 +154,10 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 			"updated_at":    updatedAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -185,6 +166,46 @@ func (h *KnowledgeHandler) ListDocuments(c *gin.Context) {
 			"items": items,
 		},
 	})
+}
+
+func (h *KnowledgeHandler) queryDocumentList(status, search string, page, pageSize int) (int, *sql.Rows, error) {
+	var total int
+	var err error
+	searchLike := "%" + search + "%"
+	switch {
+	case status != "" && search != "":
+		err = h.db.QueryRow(`SELECT COUNT(1) FROM kb_documents WHERE status = ? AND name LIKE ?`, status, searchLike).Scan(&total)
+	case status != "":
+		err = h.db.QueryRow(`SELECT COUNT(1) FROM kb_documents WHERE status = ?`, status).Scan(&total)
+	case search != "":
+		err = h.db.QueryRow(`SELECT COUNT(1) FROM kb_documents WHERE name LIKE ?`, searchLike).Scan(&total)
+	default:
+		err = h.db.QueryRow(`SELECT COUNT(1) FROM kb_documents`).Scan(&total)
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+
+	offset := (page - 1) * pageSize
+	var rows *sql.Rows
+	switch {
+	case status != "" && search != "":
+		rows, err = h.db.Query(`SELECT id, name, type, size, chunk_count, status, collection_id, created_at, updated_at
+			FROM kb_documents WHERE status = ? AND name LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, status, searchLike, pageSize, offset)
+	case status != "":
+		rows, err = h.db.Query(`SELECT id, name, type, size, chunk_count, status, collection_id, created_at, updated_at
+			FROM kb_documents WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, status, pageSize, offset)
+	case search != "":
+		rows, err = h.db.Query(`SELECT id, name, type, size, chunk_count, status, collection_id, created_at, updated_at
+			FROM kb_documents WHERE name LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?`, searchLike, pageSize, offset)
+	default:
+		rows, err = h.db.Query(`SELECT id, name, type, size, chunk_count, status, collection_id, created_at, updated_at
+			FROM kb_documents ORDER BY created_at DESC LIMIT ? OFFSET ?`, pageSize, offset)
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	return total, rows, nil
 }
 
 func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
@@ -212,57 +233,8 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 		collectionID = defaultCollectionID
 	}
 
-	docID := "doc_" + uuid.NewString()
-	now := time.Now().UTC()
-	docType := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileHeader.Filename)), ".")
-	if docType == "" {
-		docType = "txt"
-	}
-
-	tx, err := h.db.Begin()
+	docID, err := h.storeUploadedDocument(fileHeader, body, collectionID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	defer tx.Rollback()
-
-	_, err = tx.Exec(`INSERT INTO kb_documents(id, name, type, size, chunk_count, status, collection_id, created_at, updated_at)
-		VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?)`, docID, fileHeader.Filename, docType, fileHeader.Size, "processing", collectionID, now, now)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	chunks := chunkText(string(body), 500, 50)
-	if len(chunks) == 0 {
-		chunks = []string{strings.TrimSpace(string(body))}
-	}
-
-	insertChunkStmt, err := tx.Prepare(`INSERT INTO kb_chunks(id, document_id, content, score, created_at) VALUES (?, ?, ?, ?, ?)`)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-	defer insertChunkStmt.Close()
-
-	for _, chunk := range chunks {
-		trimmed := strings.TrimSpace(chunk)
-		if trimmed == "" {
-			continue
-		}
-		if _, err := insertChunkStmt.Exec("chunk_"+uuid.NewString(), docID, trimmed, 0, now); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-			return
-		}
-	}
-
-	_, err = tx.Exec(`UPDATE kb_documents SET chunk_count = (SELECT COUNT(1) FROM kb_chunks WHERE document_id = ?), status = ?, updated_at = ? WHERE id = ?`, docID, "completed", now, docID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
@@ -275,6 +247,64 @@ func (h *KnowledgeHandler) UploadDocument(c *gin.Context) {
 			"message":     "文档上传并处理成功",
 		},
 	})
+}
+
+func (h *KnowledgeHandler) storeUploadedDocument(fileHeader *multipart.FileHeader, body []byte, collectionID string) (string, error) {
+	docID := "doc_" + uuid.NewString()
+	now := time.Now().UTC()
+	docType := strings.TrimPrefix(strings.ToLower(filepath.Ext(fileHeader.Filename)), ".")
+	if docType == "" {
+		docType = "txt"
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		rbErr := tx.Rollback()
+		if rbErr != nil && rbErr != sql.ErrTxDone {
+			return
+		}
+	}()
+
+	_, err = tx.Exec(`INSERT INTO kb_documents(id, name, type, size, chunk_count, status, collection_id, created_at, updated_at)
+		VALUES(?, ?, ?, ?, 0, ?, ?, ?, ?)`, docID, fileHeader.Filename, docType, fileHeader.Size, "processing", collectionID, now, now)
+	if err != nil {
+		return "", err
+	}
+
+	chunks := chunkText(string(body), 500, 50)
+	if len(chunks) == 0 {
+		chunks = []string{strings.TrimSpace(string(body))}
+	}
+
+	insertChunkStmt, err := tx.Prepare(`INSERT INTO kb_chunks(id, document_id, content, score, created_at) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return "", err
+	}
+	defer insertChunkStmt.Close()
+
+	for _, chunk := range chunks {
+		trimmed := strings.TrimSpace(chunk)
+		if trimmed == "" {
+			continue
+		}
+		if _, execErr := insertChunkStmt.Exec("chunk_"+uuid.NewString(), docID, trimmed, 0, now); execErr != nil {
+			return "", execErr
+		}
+	}
+
+	_, err = tx.Exec(`UPDATE kb_documents SET chunk_count = (SELECT COUNT(1) FROM kb_chunks WHERE document_id = ?), status = ?, updated_at = ? WHERE id = ?`, docID, "completed", now, docID)
+	if err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+
+	return docID, nil
 }
 
 func (h *KnowledgeHandler) GetDocument(c *gin.Context) {
@@ -330,7 +360,11 @@ func (h *KnowledgeHandler) DeleteDocument(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	affected, _ := res.RowsAffected()
+	affected, raErr := res.RowsAffected()
+	if raErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": raErr.Error()})
+		return
+	}
 	if affected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "document not found"})
 		return
@@ -345,7 +379,11 @@ func (h *KnowledgeHandler) VectorizeDocument(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-	affected, _ := res.RowsAffected()
+	affected, raErr := res.RowsAffected()
+	if raErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": raErr.Error()})
+		return
+	}
 	if affected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "error": "document not found"})
 		return
@@ -413,21 +451,12 @@ func (h *KnowledgeHandler) ChatMessage(c *gin.Context) {
 		collectionID = defaultCollectionID
 	}
 
-	whereLike := make([]string, 0, len(keywords))
-	args := make([]any, 0, len(keywords)+2)
-	args = append(args, collectionID)
-	for _, kw := range keywords {
-		whereLike = append(whereLike, "c.content LIKE ?")
-		args = append(args, "%"+kw+"%")
-	}
-	args = append(args, req.TopK)
-
 	rows, err := h.db.Query(`SELECT c.id, c.document_id, d.name, c.content
 		FROM kb_chunks c
 		JOIN kb_documents d ON d.id = c.document_id
-		WHERE d.collection_id = ? AND (`+strings.Join(whereLike, " OR ")+`)
+		WHERE d.collection_id = ?
 		ORDER BY c.created_at DESC
-		LIMIT ?`, args...)
+		LIMIT ?`, collectionID, 200)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -442,6 +471,9 @@ func (h *KnowledgeHandler) ChatMessage(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 			return
 		}
+		if !matchesAnyKeyword(content, keywords) {
+			continue
+		}
 		snippet := content
 		if len([]rune(snippet)) > 120 {
 			snippet = string([]rune(snippet)[:120]) + "..."
@@ -454,6 +486,13 @@ func (h *KnowledgeHandler) ChatMessage(c *gin.Context) {
 			"score":         1,
 		})
 		answerParts = append(answerParts, fmt.Sprintf("- %s", snippet))
+		if len(sources) >= req.TopK {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
 	}
 
 	answer := "未检索到相关内容，请先上传文档。"
@@ -507,14 +546,11 @@ func (h *KnowledgeHandler) GetConfig(c *gin.Context) {
 		return
 	}
 
-	var cfg knowledgeConfig
-	if err := json.Unmarshal([]byte(payload), &cfg); err != nil {
+	cfgMap := map[string]any{}
+	if err := json.Unmarshal([]byte(payload), &cfgMap); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
 	}
-
-	cfgMap := map[string]any{}
-	_ = json.Unmarshal([]byte(payload), &cfgMap)
 	cfgMap["collections"] = h.listCollections()
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": cfgMap})
 }
@@ -537,7 +573,11 @@ func (h *KnowledgeHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 	mergeMap(base, update)
-	merged, _ := json.Marshal(base)
+	merged, err := json.Marshal(base)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
+		return
+	}
 	if _, err := h.db.Exec(`UPDATE kb_config SET payload = ?, updated_at = ? WHERE id = 1`, string(merged), time.Now().UTC()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "error": err.Error()})
 		return
@@ -562,6 +602,9 @@ func (h *KnowledgeHandler) listChunksByDocument(documentID string) ([]gin.H, err
 		}
 		chunks = append(chunks, gin.H{"id": id, "document_id": documentID, "content": content, "score": score, "created_at": createdAt})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return chunks, nil
 }
 
@@ -581,6 +624,9 @@ func (h *KnowledgeHandler) listCollections() []gin.H {
 		}
 		collections = append(collections, gin.H{"id": id, "name": id, "document_count": docCount, "chunk_count": chunkCount})
 	}
+	if err := rows.Err(); err != nil {
+		return []gin.H{{"id": defaultCollectionID, "name": "默认知识库", "document_count": 0, "chunk_count": 0}}
+	}
 	if len(collections) == 0 {
 		collections = append(collections, gin.H{"id": defaultCollectionID, "name": "默认知识库", "document_count": 0, "chunk_count": 0})
 	}
@@ -595,7 +641,7 @@ func parsePositiveInt(raw string, fallback int) int {
 	return v
 }
 
-func chunkText(content string, size int, overlap int) []string {
+func chunkText(content string, size, overlap int) []string {
 	trimmed := strings.TrimSpace(content)
 	if trimmed == "" {
 		return nil
@@ -629,7 +675,7 @@ func chunkText(content string, size int, overlap int) []string {
 	return chunks
 }
 
-func mergeMap(dst map[string]any, src map[string]any) {
+func mergeMap(dst, src map[string]any) {
 	for k, v := range src {
 		srcMap, srcIsMap := v.(map[string]any)
 		dstMap, dstIsMap := dst[k].(map[string]any)
@@ -640,4 +686,17 @@ func mergeMap(dst map[string]any, src map[string]any) {
 		}
 		dst[k] = v
 	}
+}
+
+func matchesAnyKeyword(content string, keywords []string) bool {
+	text := strings.ToLower(content)
+	for _, keyword := range keywords {
+		if keyword == "" {
+			continue
+		}
+		if strings.Contains(text, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
 }
