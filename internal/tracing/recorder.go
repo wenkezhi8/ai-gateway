@@ -186,6 +186,18 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 		attributes[k] = v
 	}
 
+	durationMs := time.Since(startTime).Milliseconds()
+	if raw, ok := attrs["duration_ms"]; ok {
+		switch v := raw.(type) {
+		case int:
+			durationMs = int64(v)
+		case int64:
+			durationMs = v
+		case float64:
+			durationMs = int64(v)
+		}
+	}
+
 	traceRecord := &RequestTrace{
 		ID:         uuid.New().String(),
 		RequestID:  requestID,
@@ -195,7 +207,7 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 		Status:     "success",
 		StartTime:  startTime,
 		EndTime:    time.Now(),
-		DurationMs: time.Since(startTime).Milliseconds(),
+		DurationMs: durationMs,
 		Attributes: attributes,
 		Events:     JSONB{},
 		CreatedAt:  time.Now(),

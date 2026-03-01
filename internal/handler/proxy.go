@@ -381,6 +381,16 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		tokenUsage := extractUsageTokensFromBody(v2CachedBody)
 		h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
+		if h.traceRecorder != nil {
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+				"duration_ms": time.Since(startTime).Milliseconds(),
+				"model":       req.Model,
+				"provider":    req.Provider,
+				"cache_hit":   true,
+				"cache_layer": v2HitLayer,
+				"status_code": http.StatusOK,
+			})
+		}
 		c.Header("X-Local-Cache-Hit", "1")
 		c.Header("X-Cache-Layer", v2HitLayer)
 		if req.Stream {
@@ -431,6 +441,16 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			tokenUsage := extractUsageTokensFromBody(semanticEntry.Response)
 			h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
+			if h.traceRecorder != nil {
+				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+					"duration_ms": time.Since(startTime).Milliseconds(),
+					"model":       req.Model,
+					"provider":    req.Provider,
+					"cache_hit":   true,
+					"cache_layer": "semantic",
+					"status_code": http.StatusOK,
+				})
+			}
 			c.Header("X-Local-Cache-Hit", "1")
 			if req.Stream {
 				h.writeCachedResponseAsStream(c, req.Model, semanticEntry.Response)
@@ -475,6 +495,16 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
 				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
+				if h.traceRecorder != nil {
+					h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+						"duration_ms": time.Since(startTime).Milliseconds(),
+						"model":       req.Model,
+						"provider":    req.Provider,
+						"cache_hit":   true,
+						"cache_layer": "exact",
+						"status_code": cached.StatusCode,
+					})
+				}
 				c.Header("X-Local-Cache-Hit", "1")
 				if req.Stream {
 					h.writeCachedResponseAsStream(c, req.Model, cached.Body)
