@@ -567,15 +567,17 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		var fallbackErr error
 		targetProvider, fallbackErr = h.getProviderForRequest(c, requestedModel, req.Provider)
 		if h.traceRecorder != nil {
-			providerName := req.Provider
+			providerProtocol := req.Provider
 			if targetProvider != nil {
-				providerName = targetProvider.Name()
+				providerProtocol = targetProvider.Name()
 			}
 			h.traceRecorder.RecordSimpleSpan(ctx, "provider.select", map[string]interface{}{
-				"duration_ms": time.Since(providerStart).Milliseconds(),
-				"model":       requestedModel,
-				"provider":    providerName,
-				"user_id":     userID,
+				"duration_ms":   time.Since(providerStart).Milliseconds(),
+				"model":         requestedModel,
+				"provider":      providerType,
+				"provider_type": providerProtocol,
+				"provider_name": providerType,
+				"user_id":       userID,
 			})
 		}
 		if fallbackErr != nil {
@@ -705,12 +707,15 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		return providerResult, providerErr
 	})
 	if h.traceRecorder != nil {
+		providerProtocol := targetProvider.Name()
 		h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
-			"duration_ms": time.Since(upstreamStart).Milliseconds(),
-			"model":       providerReq.Model,
-			"provider":    targetProvider.Name(),
-			"stream":      providerReq.Stream,
-			"success":     err == nil,
+			"duration_ms":   time.Since(upstreamStart).Milliseconds(),
+			"model":         providerReq.Model,
+			"provider":      providerType,
+			"provider_type": providerProtocol,
+			"provider_name": providerType,
+			"stream":        providerReq.Stream,
+			"success":       err == nil,
 		})
 	}
 
@@ -909,11 +914,17 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// 记录 Span 8: 缓存写入
 	if h.traceRecorder != nil {
+		resolvedProviderProtocol := ""
+		if targetProvider != nil {
+			resolvedProviderProtocol = targetProvider.Name()
+		}
 		h.traceRecorder.RecordSimpleSpan(ctx, "cache.write", map[string]interface{}{
-			"model":     req.Model,
-			"provider":  req.Provider,
-			"task_type": string(assessment.TaskType),
-			"ttl":       recommendedTTL,
+			"model":         req.Model,
+			"provider":      providerType,
+			"provider_type": resolvedProviderProtocol,
+			"provider_name": providerType,
+			"task_type":     string(assessment.TaskType),
+			"ttl":           recommendedTTL,
 		})
 	}
 
@@ -922,11 +933,17 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// 记录 Span 9: 响应返回
 	if h.traceRecorder != nil {
+		resolvedProviderProtocol := ""
+		if targetProvider != nil {
+			resolvedProviderProtocol = targetProvider.Name()
+		}
 		h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
-			"duration_ms": time.Since(startTime).Milliseconds(),
-			"model":       req.Model,
-			"provider":    req.Provider,
-			"success":     true,
+			"duration_ms":   time.Since(startTime).Milliseconds(),
+			"model":         req.Model,
+			"provider":      providerType,
+			"provider_type": resolvedProviderProtocol,
+			"provider_name": providerType,
+			"success":       true,
 		})
 	}
 

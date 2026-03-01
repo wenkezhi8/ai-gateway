@@ -227,6 +227,9 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 	if provider, ok := attrs["provider"].(string); ok {
 		traceRecord.Provider = provider
 	}
+	if providerName, ok := attrs["provider_name"].(string); ok && providerName != "" {
+		traceRecord.Provider = providerName
+	}
 	if userID, ok := attrs["user_id"].(string); ok {
 		traceRecord.UserID = userID
 	}

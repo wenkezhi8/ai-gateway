@@ -106,7 +106,9 @@
                 <div class="step-desc">{{ getOperationDesc(trace.operation) }}</div>
                 <div v-if="trace.error" class="step-error">{{ trace.error }}</div>
                 <div v-if="trace.model" class="step-attr">模型: {{ trace.model }}</div>
-                <div v-if="trace.provider" class="step-attr">服务商: {{ trace.provider }}</div>
+                <div v-if="trace.attributes?.provider_type" class="step-attr">协议类型: {{ trace.attributes.provider_type }}</div>
+                <div v-if="trace.attributes?.provider_name" class="step-attr">服务商: {{ trace.attributes.provider_name }}</div>
+                <div v-else-if="trace.provider" class="step-attr">服务商: {{ trace.provider }}</div>
                 <div v-if="trace.attributes?.task_type" class="step-attr">任务类型: {{ trace.attributes.task_type }}</div>
                 <div v-if="trace.attributes?.difficulty" class="step-attr">任务难度: {{ trace.attributes.difficulty }}</div>
                 <div v-if="trace.attributes?.recommended_ttl" class="step-attr">推荐TTL: {{ formatTTL(trace.attributes.recommended_ttl) }}</div>
