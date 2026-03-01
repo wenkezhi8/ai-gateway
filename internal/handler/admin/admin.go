@@ -2,7 +2,6 @@ package admin
 
 import (
 	"ai-gateway/internal/cache"
-	"ai-gateway/internal/constants"
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
@@ -29,6 +28,7 @@ type Handlers struct {
 	Ops         *OpsHandler
 	Usage       *UsageHandler
 	Settings    *SettingsHandler
+	Trace       *TraceHandler
 }
 
 // NewHandlers creates all admin handlers
@@ -60,7 +60,8 @@ func NewHandlers(
 		Feedback:    GetFeedbackHandler(),
 		Ops:         NewOpsHandler(),
 		Usage:       usageHandler,
-		Settings:    NewSettingsHandler(constants.UISettingsFilePath),
+		Settings:    NewSettingsHandler(""),
+		Trace:       NewTraceHandler(storage.GetSQLiteStorage().GetDB()),
 	}
 	// 改动点: 定时健康检测并触发告警
 	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
@@ -205,6 +206,13 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 		cacheGroup.GET("/model-mappings", handlers.Cache.GetModelMappings)
 		cacheGroup.DELETE("/model-mappings", handlers.Cache.ClearModelMappings)
 		cacheGroup.POST("/model-mappings/cleanup", handlers.Cache.CleanupModelMappings)
+	}
+
+	// Trace routes
+	traceGroup := r.Group("/traces")
+	{
+		traceGroup.GET("", handlers.Trace.GetTraces)
+		traceGroup.GET("/:request_id", handlers.Trace.GetTraceDetail)
 	}
 
 	// Dashboard routes

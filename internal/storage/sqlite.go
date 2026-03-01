@@ -151,6 +151,32 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_feedback_model ON feedback(model)`,
 		`CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at)`,
 
+		`CREATE TABLE IF NOT EXISTS request_traces (
+			id TEXT PRIMARY KEY,
+			request_id TEXT NOT NULL,
+			trace_id TEXT NOT NULL,
+			span_id TEXT NOT NULL,
+			parent_span_id TEXT,
+			operation TEXT NOT NULL,
+			status TEXT NOT NULL,
+			start_time TEXT NOT NULL,
+			end_time TEXT NOT NULL,
+			duration_ms INTEGER NOT NULL,
+			attributes TEXT,
+			events TEXT,
+			user_id TEXT,
+			method TEXT,
+			path TEXT,
+			model TEXT,
+			provider TEXT,
+			error TEXT,
+			created_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_traces_request_id ON request_traces(request_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_traces_trace_id ON request_traces(trace_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_traces_created_at ON request_traces(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_traces_operation ON request_traces(operation)`,
+
 		`CREATE TABLE IF NOT EXISTS usage_logs (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			request_id TEXT,
@@ -1462,4 +1488,9 @@ func (s *SQLiteStorage) UpdateDashboardAlertAcknowledged(alertID string, acknowl
 		alertID,
 	)
 	return err
+}
+
+// GetDB returns the underlying database connection
+func (s *SQLiteStorage) GetDB() *sql.DB {
+	return s.db
 }

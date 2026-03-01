@@ -102,4 +102,9 @@ export const API = {
     LOGS: '/admin/usage/logs',
     STATS: '/admin/usage/stats',
   },
+  
+  TRACES: {
+    LIST: '/api/admin/traces',
+    DETAIL: '/api/admin/traces/:request_id',
+  },
 } as const

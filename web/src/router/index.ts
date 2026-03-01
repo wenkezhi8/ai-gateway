@@ -148,6 +148,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'API 使用统计', icon: 'DataLine' }
       },
       {
+        path: '/trace',
+        name: 'Trace',
+        component: () => import('@/views/trace/index.vue'),
+        meta: { title: '请求链路追踪', icon: 'Connection' }
+      },
+      {
         path: '/chat',
         name: 'Chat',
         component: () => import('@/views/chat/index.vue'),
