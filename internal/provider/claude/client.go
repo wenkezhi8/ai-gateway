@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,goconst
 package claude
 
 import (

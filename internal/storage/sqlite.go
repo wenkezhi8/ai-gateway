@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"ai-gateway/internal/models"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -12,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/models"
+
+	// Register sqlite3 driver.
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/sirupsen/logrus"
 )
@@ -321,6 +323,9 @@ func (s *SQLiteStorage) GetAllAccounts() (map[string]*models.AccountRecord, erro
 		acc.Enabled = enabledInt == 1
 		accounts[acc.ID] = &acc
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return accounts, nil
 }
 
@@ -370,7 +375,11 @@ func (s *SQLiteStorage) GetAllModelScores() (map[string]*models.ModelScoreRecord
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query(`SELECT model, provider, quality_score, speed_score, cost_score, enabled, is_custom, created_at, updated_at FROM model_scores`)
+	return s.queryModelScores(`SELECT model, provider, quality_score, speed_score, cost_score, enabled, is_custom, created_at, updated_at FROM model_scores`)
+}
+
+func (s *SQLiteStorage) queryModelScores(query string, args ...interface{}) (map[string]*models.ModelScoreRecord, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -386,6 +395,9 @@ func (s *SQLiteStorage) GetAllModelScores() (map[string]*models.ModelScoreRecord
 		score.Enabled = enabledInt == 1
 		score.IsCustom = isCustomInt == 1
 		scores[score.Model] = &score
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return scores, nil
 }
@@ -394,24 +406,7 @@ func (s *SQLiteStorage) GetEnabledModelScores() (map[string]*models.ModelScoreRe
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	rows, err := s.db.Query(`SELECT model, provider, quality_score, speed_score, cost_score, enabled, is_custom, created_at, updated_at FROM model_scores WHERE enabled = 1 AND model NOT IN (SELECT model FROM deleted_models)`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	scores := make(map[string]*models.ModelScoreRecord)
-	for rows.Next() {
-		var score models.ModelScoreRecord
-		var enabledInt, isCustomInt int
-		if err := rows.Scan(&score.Model, &score.Provider, &score.QualityScore, &score.SpeedScore, &score.CostScore, &enabledInt, &isCustomInt, &score.CreatedAt, &score.UpdatedAt); err != nil {
-			return nil, err
-		}
-		score.Enabled = enabledInt == 1
-		score.IsCustom = isCustomInt == 1
-		scores[score.Model] = &score
-	}
-	return scores, nil
+	return s.queryModelScores(`SELECT model, provider, quality_score, speed_score, cost_score, enabled, is_custom, created_at, updated_at FROM model_scores WHERE enabled = 1 AND model NOT IN (SELECT model FROM deleted_models)`)
 }
 
 func (s *SQLiteStorage) DeleteModelScore(model string) error {
@@ -422,7 +417,11 @@ func (s *SQLiteStorage) DeleteModelScore(model string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && rbErr != sql.ErrTxDone {
+			sqliteLogger.WithError(rbErr).Warn("rollback transaction failed")
+		}
+	}()
 
 	if _, err := tx.Exec(`DELETE FROM model_scores WHERE model = ?`, model); err != nil {
 		return err
@@ -488,6 +487,9 @@ func (s *SQLiteStorage) GetAllUsers() (map[string]*models.UserRecord, error) {
 		}
 		user.Email = email.String
 		users[user.Username] = &user
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return users, nil
 }
@@ -558,6 +560,9 @@ func (s *SQLiteStorage) GetAllAPIKeys() (map[string]*models.APIKeyRecord, error)
 		key.ExpiresAt = expiresAt.String
 		keys[key.ID] = &key
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return keys, nil
 }
 
@@ -607,6 +612,9 @@ func (s *SQLiteStorage) GetAllProviderDefaults() (map[string]string, error) {
 		}
 		defaults[provider] = model
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return defaults, nil
 }
 
@@ -627,6 +635,9 @@ func (s *SQLiteStorage) GetRouterConfig() (*models.RouterConfigRecord, error) {
 			return nil, err
 		}
 		configMap[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	config := &models.RouterConfigRecord{
@@ -692,6 +703,9 @@ func (s *SQLiteStorage) GetAllDeletedModels() ([]string, error) {
 		}
 		models = append(models, model)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return models, nil
 }
 
@@ -728,6 +742,9 @@ func (s *SQLiteStorage) GetFeedback(limit, offset int) ([]*models.FeedbackRecord
 		f.CacheHit = cacheHitInt == 1
 		feedbacks = append(feedbacks, &f)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return feedbacks, nil
 }
 
@@ -738,11 +755,15 @@ func (s *SQLiteStorage) GetFeedbackStats() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
 	var totalCount int64
-	s.db.QueryRow(`SELECT COUNT(*) FROM feedback`).Scan(&totalCount)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM feedback`).Scan(&totalCount); err != nil {
+		return nil, err
+	}
 	stats["total_count"] = totalCount
 
 	var avgRating sql.NullFloat64
-	s.db.QueryRow(`SELECT AVG(rating) FROM feedback WHERE rating > 0`).Scan(&avgRating)
+	if err := s.db.QueryRow(`SELECT AVG(rating) FROM feedback WHERE rating > 0`).Scan(&avgRating); err != nil {
+		return nil, err
+	}
 	stats["avg_rating"] = avgRating.Float64
 
 	rows, err := s.db.Query(`SELECT model, COUNT(*) as count, AVG(rating) as avg_rating FROM feedback GROUP BY model`)
@@ -764,6 +785,9 @@ func (s *SQLiteStorage) GetFeedbackStats() (map[string]interface{}, error) {
 			"avg_rating": avgRating.Float64,
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	stats["model_stats"] = modelStats
 
 	return stats, nil
@@ -773,12 +797,20 @@ func (s *SQLiteStorage) GetStats() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var accountCount, modelCount, userCount, apiKeyCount, feedbackCount int64
-	s.db.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&accountCount)
-	s.db.QueryRow(`SELECT COUNT(*) FROM model_scores`).Scan(&modelCount)
-	s.db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userCount)
-	s.db.QueryRow(`SELECT COUNT(*) FROM api_keys`).Scan(&apiKeyCount)
-	s.db.QueryRow(`SELECT COUNT(*) FROM feedback`).Scan(&feedbackCount)
+	count := func(query string) int64 {
+		var value int64
+		if err := s.db.QueryRow(query).Scan(&value); err != nil {
+			sqliteLogger.WithError(err).WithField("query", query).Warn("count query failed")
+			return 0
+		}
+		return value
+	}
+
+	accountCount := count(`SELECT COUNT(*) FROM accounts`)
+	modelCount := count(`SELECT COUNT(*) FROM model_scores`)
+	userCount := count(`SELECT COUNT(*) FROM users`)
+	apiKeyCount := count(`SELECT COUNT(*) FROM api_keys`)
+	feedbackCount := count(`SELECT COUNT(*) FROM feedback`)
 
 	var dbSize int64
 	if info, err := os.Stat(s.path); err == nil {
@@ -817,25 +849,46 @@ func (s *SQLiteStorage) Export() ([]byte, error) {
 		DeletedModels    []string                            `json:"deleted_models"`
 	}{}
 
-	accounts, _ := s.GetAllAccounts()
+	accounts, err := s.GetAllAccounts()
+	if err != nil {
+		return nil, err
+	}
 	data.Accounts = accounts
 
-	scores, _ := s.GetAllModelScores()
+	scores, err := s.GetAllModelScores()
+	if err != nil {
+		return nil, err
+	}
 	data.ModelScores = scores
 
-	defaults, _ := s.GetAllProviderDefaults()
+	defaults, err := s.GetAllProviderDefaults()
+	if err != nil {
+		return nil, err
+	}
 	data.ProviderDefaults = defaults
 
-	config, _ := s.GetRouterConfig()
+	config, err := s.GetRouterConfig()
+	if err != nil {
+		return nil, err
+	}
 	data.RouterConfig = config
 
-	keys, _ := s.GetAllAPIKeys()
+	keys, err := s.GetAllAPIKeys()
+	if err != nil {
+		return nil, err
+	}
 	data.APIKeys = keys
 
-	users, _ := s.GetAllUsers()
+	users, err := s.GetAllUsers()
+	if err != nil {
+		return nil, err
+	}
 	data.Users = users
 
-	deleted, _ := s.GetAllDeletedModels()
+	deleted, err := s.GetAllDeletedModels()
+	if err != nil {
+		return nil, err
+	}
 	data.DeletedModels = deleted
 
 	return json.MarshalIndent(data, "", "  ")
@@ -850,10 +903,6 @@ func boolToInt(b bool) int {
 
 func intToBool(i int) bool {
 	return i == 1
-}
-
-func intFromInt64(i int64) int {
-	return int(i)
 }
 
 type UsageFilter struct {
@@ -972,11 +1021,13 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 	return err
 }
 
+//nolint:gocritic // Keep value receiver for compatibility with existing callers.
 func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset int) ([]map[string]interface{}, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	whereClause, args := buildUsageWhereClause(filter)
+	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
 	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
 		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
 		FROM usage_logs WHERE ` + whereClause
@@ -1025,6 +1076,9 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 			"created_at":     createdAt,
 		})
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return logs, nil
 }
 
@@ -1053,6 +1107,9 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 		}
 		existing[name] = struct{}{}
 	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
 
 	for col, colType := range required {
 		if _, ok := existing[col]; ok {
@@ -1076,6 +1133,7 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 	return nil
 }
 
+//nolint:gocritic // Keep value receiver for compatibility with existing callers.
 func buildUsageWhereClause(filter UsageFilter) (string, []interface{}) {
 	conditions := []string{"1=1"}
 	args := make([]interface{}, 0, 8)
@@ -1165,6 +1223,7 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 	return s.GetUsageStatsWithFilter(UsageFilter{})
 }
 
+//nolint:gocritic // Keep value receiver for compatibility with existing callers.
 func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1184,7 +1243,7 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN tokens ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN 1 ELSE 0 END), 0)
 	FROM usage_logs WHERE ` + whereClause
-	_ = s.db.QueryRow(statsQuery, args...).Scan(
+	if err := s.db.QueryRow(statsQuery, args...).Scan(
 		&totalRequests,
 		&totalTokens,
 		&totalLatency,
@@ -1192,7 +1251,20 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 		&cacheMisses,
 		&savedTokens,
 		&savedRequests,
-	)
+	); err != nil {
+		sqliteLogger.WithError(err).Warn("query usage stats failed")
+		return map[string]interface{}{
+			"total_requests": int64(0),
+			"total_tokens":   int64(0),
+			"cache_hits":     int64(0),
+			"cache_misses":   int64(0),
+			"saved_tokens":   int64(0),
+			"saved_requests": int64(0),
+			"cache_hit_rate": float64(0),
+			"avg_latency_ms": int64(0),
+			"model_stats":    map[string]map[string]int64{},
+		}
+	}
 
 	var avgLatency int64
 	if totalRequests > 0 {
@@ -1206,17 +1278,25 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 	}
 
 	modelStatsArgs := append([]interface{}{}, args...)
+	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
 	rows, err := s.db.Query(`SELECT model, COUNT(*) as requests, COALESCE(SUM(tokens), 0) as tokens
 		FROM usage_logs WHERE `+whereClause+` GROUP BY model`, modelStatsArgs...)
 	modelStats := make(map[string]map[string]int64)
-	if err == nil && rows != nil {
+	if err != nil {
+		sqliteLogger.WithError(err).Warn("query model usage stats failed")
+	} else {
 		defer rows.Close()
 		for rows.Next() {
 			var model string
 			var requests, tokens int64
-			if err := rows.Scan(&model, &requests, &tokens); err == nil {
-				modelStats[model] = map[string]int64{"requests": requests, "tokens": tokens}
+			if scanErr := rows.Scan(&model, &requests, &tokens); scanErr != nil {
+				sqliteLogger.WithError(scanErr).Warn("scan model usage stats failed")
+				continue
 			}
+			modelStats[model] = map[string]int64{"requests": requests, "tokens": tokens}
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			sqliteLogger.WithError(rowsErr).Warn("iterate model usage stats failed")
 		}
 	}
 
@@ -1271,6 +1351,9 @@ func (s *SQLiteStorage) GetProviderUsageStats() ([]ProviderUsageStat, error) {
 			SuccessRate: successRate,
 			AvgLatency:  avgLatency,
 		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return stats, nil
@@ -1380,6 +1463,9 @@ func (s *SQLiteStorage) LoadDashboardModelStats() ([]DashboardModelStat, error) 
 		}
 		stats = append(stats, item)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return stats, nil
 }
 
@@ -1435,10 +1521,29 @@ func (s *SQLiteStorage) LoadDashboardTrends(limit int) ([]DashboardTrend, error)
 	for i, j := 0, len(trends)-1; i < j; i, j = i+1, j-1 {
 		trends[i], trends[j] = trends[j], trends[i]
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	return trends, nil
 }
 
+func (s *SQLiteStorage) UpdateDashboardAlertAcknowledged(alertID string, acknowledged bool) error {
+	if strings.TrimSpace(alertID) == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec(`UPDATE dashboard_alerts SET acknowledged = ? WHERE id = ?`,
+		boolToInt(acknowledged),
+		alertID,
+	)
+	return err
+}
+
+//nolint:gocritic // Keep value parameter for compatibility with existing callers.
 func (s *SQLiteStorage) SaveDashboardAlert(alert DashboardAlert) error {
 	if strings.TrimSpace(alert.ID) == "" {
 		return nil
@@ -1510,6 +1615,9 @@ func (s *SQLiteStorage) LoadDashboardAlerts(limit int) ([]DashboardAlert, error)
 		item.Acknowledged = intToBool(acknowledged)
 		alerts = append(alerts, item)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	for i, j := 0, len(alerts)-1; i < j; i, j = i+1, j-1 {
 		alerts[i], alerts[j] = alerts[j], alerts[i]
@@ -1518,22 +1626,7 @@ func (s *SQLiteStorage) LoadDashboardAlerts(limit int) ([]DashboardAlert, error)
 	return alerts, nil
 }
 
-func (s *SQLiteStorage) UpdateDashboardAlertAcknowledged(alertID string, acknowledged bool) error {
-	if strings.TrimSpace(alertID) == "" {
-		return nil
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	_, err := s.db.Exec(`UPDATE dashboard_alerts SET acknowledged = ? WHERE id = ?`,
-		boolToInt(acknowledged),
-		alertID,
-	)
-	return err
-}
-
-// GetDB returns the underlying database connection
+// GetDB returns the underlying database connection.
 func (s *SQLiteStorage) GetDB() *sql.DB {
 	return s.db
 }

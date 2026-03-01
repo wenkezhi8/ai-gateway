@@ -122,7 +122,7 @@ func TestNewMetrics(t *testing.T) {
 	assert.NotNil(t, m.ActiveConnections)
 }
 
-func TestMetrics_RecordRequest(t *testing.T) {
+func TestMetrics_RecordRequest(_ *testing.T) {
 	// Initialize global metrics if not already done
 	if GetMetrics() == nil {
 		Init()
@@ -141,7 +141,7 @@ func TestMetrics_RecordRequest(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordProviderRequest_Success(t *testing.T) {
+func TestMetrics_RecordProviderRequest_Success(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -152,7 +152,7 @@ func TestMetrics_RecordProviderRequest_Success(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordProviderRequest_Failed(t *testing.T) {
+func TestMetrics_RecordProviderRequest_Failed(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -164,7 +164,7 @@ func TestMetrics_RecordProviderRequest_Failed(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordTokenUsage(t *testing.T) {
+func TestMetrics_RecordTokenUsage(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -175,7 +175,7 @@ func TestMetrics_RecordTokenUsage(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordCacheHit(t *testing.T) {
+func TestMetrics_RecordCacheHit(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -187,7 +187,7 @@ func TestMetrics_RecordCacheHit(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordCacheMiss(t *testing.T) {
+func TestMetrics_RecordCacheMiss(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -199,7 +199,7 @@ func TestMetrics_RecordCacheMiss(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_SetCacheHitRate(t *testing.T) {
+func TestMetrics_SetCacheHitRate(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -211,7 +211,7 @@ func TestMetrics_SetCacheHitRate(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_RecordRateLimitExceeded(t *testing.T) {
+func TestMetrics_RecordRateLimitExceeded(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -223,7 +223,7 @@ func TestMetrics_RecordRateLimitExceeded(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_SetTokenUsagePercent(t *testing.T) {
+func TestMetrics_SetTokenUsagePercent(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -235,7 +235,7 @@ func TestMetrics_SetTokenUsagePercent(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_SetProviderFailureRate(t *testing.T) {
+func TestMetrics_SetProviderFailureRate(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}
@@ -247,7 +247,7 @@ func TestMetrics_SetProviderFailureRate(t *testing.T) {
 	// No assertion - just verify no panic
 }
 
-func TestMetrics_ActiveConnections(t *testing.T) {
+func TestMetrics_ActiveConnections(_ *testing.T) {
 	if GetMetrics() == nil {
 		Init()
 	}

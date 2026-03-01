@@ -229,6 +229,7 @@ func TestModelInfo_Fields(t *testing.T) {
 	assert.Equal(t, "gpt-4", info.ID)
 	assert.Equal(t, "model", info.Object)
 	assert.Equal(t, "openai", info.OwnedBy)
+	assert.Equal(t, "openai", info.Provider)
 	assert.True(t, info.Enabled)
 }
 
@@ -265,6 +266,9 @@ func TestStreamingResponse_Fields(t *testing.T) {
 	}
 
 	assert.Equal(t, "chatcmpl-123", resp.ID)
+	assert.Equal(t, "chat.completion.chunk", resp.Object)
+	assert.EqualValues(t, 1234567890, resp.Created)
+	assert.Equal(t, "gpt-4", resp.Model)
 	assert.Len(t, resp.Choices, 1)
 	assert.Equal(t, "stop", *resp.Choices[0].FinishReason)
 }

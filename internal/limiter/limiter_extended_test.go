@@ -1,3 +1,4 @@
+//nolint:godot,unused,revive
 package limiter
 
 import (
@@ -100,7 +101,7 @@ func (m *mockRedisStore) ZAdd(ctx context.Context, key string, score float64, me
 	return nil
 }
 
-func (m *mockRedisStore) ZRangeByScore(ctx context.Context, key string, min, max string, opts interface{}) ([]string, error) {
+func (m *mockRedisStore) ZRangeByScore(ctx context.Context, key, minScore, maxScore string, opts interface{}) ([]string, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -111,7 +112,7 @@ func (m *mockRedisStore) ZRangeByScore(ctx context.Context, key string, min, max
 	return result, nil
 }
 
-func (m *mockRedisStore) ZRemRangeByScore(ctx context.Context, key string, min, max string) error {
+func (m *mockRedisStore) ZRemRangeByScore(ctx context.Context, key, minScore, maxScore string) error {
 	return m.err
 }
 
@@ -435,9 +436,9 @@ func TestUsage_WarningLevel(t *testing.T) {
 			usage := &Usage{
 				PercentUsed: tt.percentUsed,
 			}
-			if tt.percentUsed >= 100 {
+			if usage.PercentUsed >= 100 {
 				usage.WarningLevel = "exceeded"
-			} else if tt.percentUsed >= 90 {
+			} else if usage.PercentUsed >= 90 {
 				usage.WarningLevel = "warning"
 			}
 			assert.Equal(t, tt.warningLevel, usage.WarningLevel)

@@ -58,8 +58,8 @@ func GenerateToken(user *User, config JWTConfig) (string, error) {
 	return token.SignedString([]byte(config.Secret))
 }
 
-func ParseToken(tokenString string, secret string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+func ParseToken(tokenString, secret string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(_ *jwt.Token) (interface{}, error) {
 		return []byte(secret), nil
 	})
 
@@ -145,13 +145,19 @@ func OptionalJWT(config JWTConfig) gin.HandlerFunc {
 
 func GetCurrentUser(c *gin.Context) (userID, username, role string) {
 	if v, exists := c.Get("user_id"); exists {
-		userID = v.(string)
+		if s, ok := v.(string); ok {
+			userID = s
+		}
 	}
 	if v, exists := c.Get("username"); exists {
-		username = v.(string)
+		if s, ok := v.(string); ok {
+			username = s
+		}
 	}
 	if v, exists := c.Get("role"); exists {
-		role = v.(string)
+		if s, ok := v.(string); ok {
+			role = s
+		}
 	}
 	return
 }

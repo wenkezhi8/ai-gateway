@@ -12,7 +12,7 @@ import (
 
 var mathExpressionPattern = regexp.MustCompile(`(?i)(\d+\s*[+\-*/x×÷＋－＊／]\s*\d+|\d+\s*\^\s*\d+|\d+\s*=\s*\d+|\b(sqrt|sin|cos|tan|log|ln)\s*\()`)
 
-// DifficultyLevel represents the difficulty level of a task
+// DifficultyLevel represents the difficulty level of a task.
 type DifficultyLevel string
 
 const (
@@ -21,7 +21,7 @@ const (
 	DifficultyHigh   DifficultyLevel = "high"
 )
 
-// TaskType represents the type of task
+// TaskType represents the type of task.
 type TaskType string
 
 const (
@@ -36,7 +36,7 @@ const (
 	TaskTypeUnknown   TaskType = "unknown"
 )
 
-// DifficultyAssessor assesses the difficulty of a prompt
+// DifficultyAssessor assesses the difficulty of a prompt.
 type DifficultyAssessor struct {
 	mu sync.RWMutex
 
@@ -52,13 +52,13 @@ type DifficultyAssessor struct {
 	ttlConfig *TTLConfig
 }
 
-// TTLConfig represents TTL configuration for different task types
+// TTLConfig represents TTL configuration for different task types.
 type TTLConfig struct {
 	TaskTypeDefaults      map[TaskType]time.Duration  `json:"task_type_defaults"`
 	DifficultyMultipliers map[DifficultyLevel]float64 `json:"difficulty_multipliers"`
 }
 
-// DefaultTTLConfig returns the default TTL configuration
+// DefaultTTLConfig returns the default TTL configuration.
 func DefaultTTLConfig() *TTLConfig {
 	return &TTLConfig{
 		TaskTypeDefaults: map[TaskType]time.Duration{
@@ -80,7 +80,7 @@ func DefaultTTLConfig() *TTLConfig {
 	}
 }
 
-// GetTTLConfig returns the current TTL configuration
+// GetTTLConfig returns the current TTL configuration.
 func (a *DifficultyAssessor) GetTTLConfig() *TTLConfig {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -90,19 +90,19 @@ func (a *DifficultyAssessor) GetTTLConfig() *TTLConfig {
 	return a.ttlConfig
 }
 
-// SetTTLConfig sets the TTL configuration
+// SetTTLConfig sets the TTL configuration.
 func (a *DifficultyAssessor) SetTTLConfig(config *TTLConfig) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.ttlConfig = config
 }
 
-// ParseDuration parses hours to time.Duration
+// ParseDuration parses hours to time.Duration.
 func ParseDuration(hours int) time.Duration {
 	return time.Duration(hours) * time.Hour
 }
 
-// NewDifficultyAssessor creates a new difficulty assessor
+// NewDifficultyAssessor creates a new difficulty assessor.
 func NewDifficultyAssessor() *DifficultyAssessor {
 	a := &DifficultyAssessor{
 		lengthThresholds: map[DifficultyLevel]int{
@@ -173,9 +173,8 @@ func (a *DifficultyAssessor) initTaskKeywords() {
 	}
 }
 
-// Assess evaluates the difficulty of a prompt
-// 改动点: 基于多维度评估难度
-func (a *DifficultyAssessor) Assess(prompt string, context string) DifficultyLevel {
+// 改动点: 基于多维度评估难度.
+func (a *DifficultyAssessor) Assess(prompt, context string) DifficultyLevel {
 	score := 0.0
 
 	// 1. 长度评估 (0-30分)
@@ -203,7 +202,7 @@ func (a *DifficultyAssessor) Assess(prompt string, context string) DifficultyLev
 	return DifficultyLow
 }
 
-func (a *DifficultyAssessor) assessLength(prompt string, context string) float64 {
+func (a *DifficultyAssessor) assessLength(prompt, context string) float64 {
 	totalLen := len(prompt) + len(context)
 
 	if totalLen > a.lengthThresholds[DifficultyHigh] {
@@ -269,6 +268,8 @@ func (a *DifficultyAssessor) assessByTaskType(prompt string) float64 {
 		return 40
 	case TaskTypeChat, TaskTypeFact:
 		return 20
+	case TaskTypeUnknown:
+		return 40
 	default:
 		return 40
 	}
@@ -292,7 +293,7 @@ func (a *DifficultyAssessor) assessByHistory(prompt string) float64 {
 	return 0
 }
 
-// DetectTaskType detects the type of task from prompt
+// DetectTaskType detects the type of task from prompt.
 func (a *DifficultyAssessor) DetectTaskType(prompt string) TaskType {
 	promptLower := strings.ToLower(prompt)
 
@@ -337,7 +338,7 @@ func looksLikeMathExpression(prompt string) bool {
 	return mathExpressionPattern.MatchString(trimmed)
 }
 
-// UpdateSuccessRate updates the historical success rate for a model and task type
+// UpdateSuccessRate updates the historical success rate for a model and task type.
 func (a *DifficultyAssessor) UpdateSuccessRate(model string, taskType TaskType, success bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -363,7 +364,7 @@ func (a *DifficultyAssessor) UpdateSuccessRate(model string, taskType TaskType, 
 	}
 }
 
-// GetSuccessRate returns the success rate for a model and task type
+// GetSuccessRate returns the success rate for a model and task type.
 func (a *DifficultyAssessor) GetSuccessRate(model string, taskType TaskType) float64 {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -375,7 +376,7 @@ func (a *DifficultyAssessor) GetSuccessRate(model string, taskType TaskType) flo
 	return 0.8 // 默认80%
 }
 
-// AssessmentResult represents the result of difficulty assessment
+// AssessmentResult represents the result of difficulty assessment.
 type AssessmentResult struct {
 	TaskType          TaskType             `json:"task_type"`
 	Difficulty        DifficultyLevel      `json:"difficulty"`
@@ -409,8 +410,8 @@ type ControlSignals struct {
 	DomainTag              string             `json:"domain_tag,omitempty"`
 }
 
-// AssessWithResult returns detailed assessment result
-func (a *DifficultyAssessor) AssessWithResult(prompt string, context string) *AssessmentResult {
+// AssessWithResult returns detailed assessment result.
+func (a *DifficultyAssessor) AssessWithResult(prompt, context string) *AssessmentResult {
 	taskType := a.DetectTaskType(prompt)
 	difficulty := a.Assess(prompt, context)
 
@@ -422,7 +423,7 @@ func (a *DifficultyAssessor) AssessWithResult(prompt string, context string) *As
 	if len(prompt) > 100 {
 		confidence += 0.1
 	}
-	if len(context) > 0 {
+	if context != "" {
 		confidence += 0.1
 	}
 

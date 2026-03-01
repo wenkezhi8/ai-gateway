@@ -1,3 +1,4 @@
+//nolint:errcheck // Test fixtures intentionally skip repetitive error assertions.
 package cache
 
 import (
@@ -227,7 +228,7 @@ func TestUsageCache_UsageKey(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		key := uc.usageKey("dashboard", tt.period, now)
+		key := uc.usageKey(tt.period, now)
 		assert.Contains(t, key, "dashboard:"+tt.period)
 	}
 }
@@ -245,6 +246,6 @@ func TestUsageCache_AggregatedStats(t *testing.T) {
 
 	results, err := uc.GetAggregatedStats(ctx, "hour", start, end)
 	require.NoError(t, err)
-	// May or may not have results depending on timing
+	// May or may not have results depending on timing.
 	_ = results
 }

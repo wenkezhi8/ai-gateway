@@ -2,6 +2,7 @@ package alert
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,7 +17,9 @@ import (
 	"time"
 )
 
-// AlertLevel represents the severity level of an alert
+// AlertLevel represents the severity level of an alert.
+//
+//nolint:revive // Kept for package API compatibility.
 type AlertLevel string
 
 const (
@@ -25,7 +28,7 @@ const (
 	AlertLevelInfo     AlertLevel = "info"
 )
 
-// Alert represents an alert event
+// Alert represents an alert event.
 type Alert struct {
 	Name        string                 `json:"name"`
 	Level       AlertLevel             `json:"level"`
@@ -37,7 +40,7 @@ type Alert struct {
 	Extra       map[string]interface{} `json:"extra,omitempty"`
 }
 
-// NotifierConfig holds configuration for alert notifiers
+// NotifierConfig holds configuration for alert notifiers.
 type NotifierConfig struct {
 	// DingTalk configuration
 	DingTalkWebhook string `json:"dingtalk_webhook"`
@@ -55,13 +58,13 @@ type NotifierConfig struct {
 	EnabledLevels []AlertLevel `json:"enabled_levels"`
 }
 
-// Notifier handles alert notifications
+// Notifier handles alert notifications.
 type Notifier struct {
 	config *NotifierConfig
 	client *http.Client
 }
 
-// NewNotifier creates a new alert notifier
+// NewNotifier creates a new alert notifier.
 func NewNotifier(cfg *NotifierConfig) *Notifier {
 	if cfg.EnabledLevels == nil {
 		cfg.EnabledLevels = []AlertLevel{AlertLevelCritical, AlertLevelWarning, AlertLevelInfo}
@@ -73,8 +76,15 @@ func NewNotifier(cfg *NotifierConfig) *Notifier {
 	}
 }
 
-// Send sends an alert through all configured channels
+// Send sends an alert through all configured channels.
+//
+//nolint:gocritic // Kept by-value for API compatibility.
 func (n *Notifier) Send(alert Alert) error {
+	alertCopy := alert
+	return n.send(&alertCopy)
+}
+
+func (n *Notifier) send(alert *Alert) error {
 	if !n.isLevelEnabled(alert.Level) {
 		log.Printf("[Alert] Level %s not enabled, skipping: %s", alert.Level, alert.Name)
 		return nil
@@ -103,7 +113,7 @@ func (n *Notifier) Send(alert Alert) error {
 	return nil
 }
 
-// isLevelEnabled checks if an alert level is enabled
+// isLevelEnabled checks if an alert level is enabled.
 func (n *Notifier) isLevelEnabled(level AlertLevel) bool {
 	for _, l := range n.config.EnabledLevels {
 		if l == level {
@@ -113,26 +123,26 @@ func (n *Notifier) isLevelEnabled(level AlertLevel) bool {
 	return false
 }
 
-// DingTalkMessage represents a DingTalk webhook message
+// DingTalkMessage represents a DingTalk webhook message.
 type DingTalkMessage struct {
 	MsgType  string                   `json:"msgtype"`
 	Markdown *DingTalkMarkdownContent `json:"markdown,omitempty"`
 	Text     *DingTalkTextContent     `json:"text,omitempty"`
 }
 
-// DingTalkMarkdownContent represents markdown content for DingTalk
+// DingTalkMarkdownContent represents markdown content for DingTalk.
 type DingTalkMarkdownContent struct {
 	Title string `json:"title"`
 	Text  string `json:"text"`
 }
 
-// DingTalkTextContent represents text content for DingTalk
+// DingTalkTextContent represents text content for DingTalk.
 type DingTalkTextContent struct {
 	Content string `json:"content"`
 }
 
-// sendDingTalk sends an alert to DingTalk
-func (n *Notifier) sendDingTalk(alert Alert) error {
+// sendDingTalk sends an alert to DingTalk.
+func (n *Notifier) sendDingTalk(alert *Alert) error {
 	levelEmoji := n.getLevelEmoji(alert.Level)
 	title := fmt.Sprintf("%s [%s] %s", levelEmoji, strings.ToUpper(string(alert.Level)), alert.Name)
 
@@ -178,7 +188,7 @@ func (n *Notifier) sendDingTalk(alert Alert) error {
 		return err
 	}
 
-	req, err := http.NewRequest("POST", webhookURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("failed to create dingtalk request: %w", err)
 	}
@@ -236,8 +246,8 @@ func buildDingTalkWebhookURL(webhook, secret string, ts time.Time) (string, erro
 	return parsed.String(), nil
 }
 
-// sendEmail sends an alert via email
-func (n *Notifier) sendEmail(alert Alert) error {
+// sendEmail sends an alert via email.
+func (n *Notifier) sendEmail(alert *Alert) error {
 	subject := fmt.Sprintf("[%s] %s - AI Gateway Alert", strings.ToUpper(string(alert.Level)), alert.Name)
 
 	var bodyBuilder strings.Builder
@@ -286,7 +296,7 @@ func (n *Notifier) sendEmail(alert Alert) error {
 	return nil
 }
 
-// getLevelEmoji returns an emoji for the alert level
+// getLevelEmoji returns an emoji for the alert level.
 func (n *Notifier) getLevelEmoji(level AlertLevel) string {
 	switch level {
 	case AlertLevelCritical:
@@ -300,81 +310,106 @@ func (n *Notifier) getLevelEmoji(level AlertLevel) string {
 	}
 }
 
-// FormatAlertFromPrometheus formats a Prometheus alert manager webhook payload
+// FormatAlertFromPrometheus formats a Prometheus alert manager webhook payload.
 func FormatAlertFromPrometheus(payload map[string]interface{}) ([]Alert, error) {
-	alerts := make([]Alert, 0)
-
-	status, _ := payload["status"].(string)
+	status := extractString(payload, "status")
 	alertsRaw, ok := payload["alerts"].([]interface{})
 	if !ok {
 		return nil, fmt.Errorf("invalid alerts format in payload")
 	}
+	alerts := make([]Alert, 0, len(alertsRaw))
+	now := time.Now()
 
 	for _, alertRaw := range alertsRaw {
 		alertMap, ok := alertRaw.(map[string]interface{})
 		if !ok {
 			continue
 		}
-
-		alert := Alert{
-			Labels:      make(map[string]string),
-			Annotations: make(map[string]string),
-		}
-
-		if name, ok := alertMap["labels"].(map[string]interface{}); ok {
-			if alertname, ok := name["alertname"].(string); ok {
-				alert.Name = alertname
-			}
-			for k, v := range name {
-				if str, ok := v.(string); ok {
-					alert.Labels[k] = str
-				}
-			}
-		}
-
-		if annotations, ok := alertMap["annotations"].(map[string]interface{}); ok {
-			for k, v := range annotations {
-				if str, ok := v.(string); ok {
-					alert.Annotations[k] = str
-				}
-			}
-		}
-
-		if message, ok := alert.Annotations["message"]; ok {
-			alert.Message = message
-		} else if summary, ok := alert.Annotations["summary"]; ok {
-			alert.Message = summary
-		}
-
-		if severity, ok := alert.Labels["severity"]; ok {
-			switch severity {
-			case "critical":
-				alert.Level = AlertLevelCritical
-			case "warning":
-				alert.Level = AlertLevelWarning
-			default:
-				alert.Level = AlertLevelInfo
-			}
-		} else {
-			alert.Level = AlertLevelInfo
-		}
-
-		if startsAt, ok := alertMap["startsAt"].(string); ok {
-			if t, err := time.Parse(time.RFC3339, startsAt); err == nil {
-				alert.StartsAt = t
-			}
-		}
-		if alert.StartsAt.IsZero() {
-			alert.StartsAt = time.Now()
-		}
-
-		if status == "resolved" {
-			now := time.Now()
-			alert.EndsAt = &now
-		}
-
-		alerts = append(alerts, alert)
+		alerts = append(alerts, buildAlert(alertMap, status, now))
 	}
 
 	return alerts, nil
+}
+
+func buildAlert(alertMap map[string]interface{}, status string, now time.Time) Alert {
+	labels := convertStringMap(alertMap["labels"])
+	annotations := convertStringMap(alertMap["annotations"])
+
+	alert := Alert{
+		Name:        labels["alertname"],
+		Level:       parseAlertLevel(labels["severity"]),
+		Message:     firstNonEmpty(annotations["message"], annotations["summary"]),
+		Labels:      labels,
+		Annotations: annotations,
+		StartsAt:    parseStartsAt(alertMap["startsAt"], now),
+	}
+
+	if status == "resolved" {
+		resolvedAt := now
+		alert.EndsAt = &resolvedAt
+	}
+
+	return alert
+}
+
+func convertStringMap(raw interface{}) map[string]string {
+	result := make(map[string]string)
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return result
+	}
+
+	for k, v := range rawMap {
+		if str, ok := v.(string); ok {
+			result[k] = str
+		}
+	}
+
+	return result
+}
+
+func parseAlertLevel(severity string) AlertLevel {
+	switch severity {
+	case "critical":
+		return AlertLevelCritical
+	case "warning":
+		return AlertLevelWarning
+	default:
+		return AlertLevelInfo
+	}
+}
+
+func parseStartsAt(raw interface{}, fallback time.Time) time.Time {
+	startsAt, ok := raw.(string)
+	if !ok {
+		return fallback
+	}
+
+	parsed, err := time.Parse(time.RFC3339, startsAt)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func extractString(values map[string]interface{}, key string) string {
+	raw, ok := values[key]
+	if !ok {
+		return ""
+	}
+	result, ok := raw.(string)
+	if !ok {
+		return ""
+	}
+	return result
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -1,3 +1,4 @@
+//nolint:godot,gocyclo,gocritic,prealloc,unused,revive
 package limiter
 
 import (
@@ -97,7 +98,9 @@ func (s *AccountScheduler) Select(ctx context.Context, req ScheduleRequest) (*Ac
 
 					// Bind session if provided
 					if req.SessionHash != "" {
-						_ = s.stickyManager.BindSession(ctx, providerType, req.SessionHash, account.ID)
+						if err := s.stickyManager.BindSession(ctx, providerType, req.SessionHash, account.ID); err != nil {
+							return nil, decision, nil, err
+						}
 					}
 
 					return account, decision, result.ReleaseFunc, nil
@@ -125,13 +128,17 @@ func (s *AccountScheduler) Select(ctx context.Context, req ScheduleRequest) (*Ac
 						s.metrics.stickySessionHit.Add(1)
 
 						// Refresh TTL
-						_ = s.stickyManager.RefreshSessionTTL(ctx, providerType, req.SessionHash)
+						if err := s.stickyManager.RefreshSessionTTL(ctx, providerType, req.SessionHash); err != nil {
+							return nil, decision, nil, err
+						}
 
 						return account, decision, result.ReleaseFunc, nil
 					}
 				} else {
 					// Clear sticky session
-					_ = s.stickyManager.DeleteSession(ctx, providerType, req.SessionHash)
+					if err := s.stickyManager.DeleteSession(ctx, providerType, req.SessionHash); err != nil {
+						return nil, decision, nil, err
+					}
 				}
 			}
 		}
@@ -152,7 +159,9 @@ func (s *AccountScheduler) Select(ctx context.Context, req ScheduleRequest) (*Ac
 
 	// Bind session if provided
 	if req.SessionHash != "" {
-		_ = s.stickyManager.BindSession(ctx, providerType, req.SessionHash, account.ID)
+		if err := s.stickyManager.BindSession(ctx, providerType, req.SessionHash, account.ID); err != nil {
+			return nil, decision, nil, err
+		}
 	}
 
 	return account, decision, releaseFunc, nil

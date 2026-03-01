@@ -1,14 +1,16 @@
+//nolint:godot
 package strategies
 
 import (
-	"ai-gateway/internal/router"
 	"errors"
 	"sync/atomic"
+
+	"ai-gateway/internal/router"
 )
 
 // RoundRobinStrategy implements round-robin load balancing
 type RoundRobinStrategy struct {
-	name   string
+	name    string
 	counter uint64
 }
 
@@ -26,7 +28,7 @@ func (s *RoundRobinStrategy) Name() string {
 }
 
 // Select chooses a provider using round-robin algorithm
-func (s *RoundRobinStrategy) Select(providers []*router.ProviderInfo, req *router.Request) (*router.ProviderInfo, error) {
+func (s *RoundRobinStrategy) Select(providers []*router.ProviderInfo, _ *router.Request) (*router.ProviderInfo, error) {
 	if len(providers) == 0 {
 		return nil, errors.New("no providers available")
 	}
@@ -45,7 +47,11 @@ func (s *RoundRobinStrategy) Select(providers []*router.ProviderInfo, req *route
 
 	// Get next index using atomic increment for thread safety
 	idx := atomic.AddUint64(&s.counter, 1) - 1
-	selectedIdx := int(idx % uint64(len(available)))
+	selectedIdx64 := idx % uint64(len(available))
+	if selectedIdx64 > uint64(^uint(0)>>1) {
+		return nil, errors.New("selected index overflow")
+	}
+	selectedIdx := int(selectedIdx64)
 
 	return available[selectedIdx], nil
 }

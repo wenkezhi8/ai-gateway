@@ -1,10 +1,12 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (
-	"ai-gateway/internal/metrics"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ai-gateway/internal/metrics"
 )
 
 // MetricsMiddleware returns a Gin middleware that records Prometheus metrics

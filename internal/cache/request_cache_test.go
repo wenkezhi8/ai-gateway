@@ -35,17 +35,17 @@ func TestRequestCache_CacheKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, key1, "req:openai:gpt-4:")
 
-	// Same inputs should produce same key
+	// Same inputs should produce same key.
 	key2, err := rc.CacheKey("openai", "gpt-4", "Hello", nil)
 	require.NoError(t, err)
 	assert.Equal(t, key1, key2)
 
-	// Different prompt should produce different key
+	// Different prompt should produce different key.
 	key3, err := rc.CacheKey("openai", "gpt-4", "World", nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, key1, key3)
 
-	// Different model should produce different key
+	// Different model should produce different key.
 	key4, err := rc.CacheKey("anthropic", "claude-3", "Hello", nil)
 	require.NoError(t, err)
 	assert.NotEqual(t, key1, key4)
@@ -63,12 +63,12 @@ func TestRequestCache_CacheKey_WithParams(t *testing.T) {
 	key1, err := rc.CacheKey("openai", "gpt-4", "Hello", params)
 	require.NoError(t, err)
 
-	// Same params should produce same key
+	// Same params should produce same key.
 	key2, err := rc.CacheKey("openai", "gpt-4", "Hello", params)
 	require.NoError(t, err)
 	assert.Equal(t, key1, key2)
 
-	// Different params should produce different key
+	// Different params should produce different key.
 	params2 := map[string]interface{}{
 		"temperature": 0.9,
 		"max_tokens":  1000,
@@ -98,7 +98,7 @@ func TestRequestCache_SetAndGet(t *testing.T) {
 	err := rc.Set(ctx, req)
 	require.NoError(t, err)
 
-	// Retrieve cached request
+	// Retrieve cached request.
 	cached, err := rc.Get(ctx, key)
 	require.NoError(t, err)
 	assert.Equal(t, "openai", cached.Provider)
@@ -120,20 +120,20 @@ func TestRequestCache_IsCacheable(t *testing.T) {
 	memCache := NewMemoryCache()
 	rc := NewRequestCache(memCache, DefaultRequestCacheConfig())
 
-	// Empty response is not cacheable
+	// Empty response is not cacheable.
 	req1 := &CachedRequest{
 		Response: json.RawMessage{},
 	}
 	assert.False(t, rc.IsCacheable(req1))
 
-	// Response too large is not cacheable
+	// Response too large is not cacheable.
 	largeResponse := make([]byte, 2*1024*1024) // 2MB
 	req2 := &CachedRequest{
 		Response: largeResponse,
 	}
 	assert.False(t, rc.IsCacheable(req2))
 
-	// Normal response is cacheable
+	// Normal response is cacheable.
 	req3 := &CachedRequest{
 		Response: json.RawMessage(`{"result":"ok"}`),
 	}
@@ -145,7 +145,7 @@ func TestRequestCache_Stats(t *testing.T) {
 	rc := NewRequestCache(memCache, DefaultRequestCacheConfig())
 	ctx := context.Background()
 
-	// Cache a request
+	// Cache a request.
 	key := "req:test:stats:unique"
 	req := &CachedRequest{
 		Key:        key,
@@ -158,16 +158,16 @@ func TestRequestCache_Stats(t *testing.T) {
 	err := rc.Set(ctx, req)
 	require.NoError(t, err)
 
-	// Get from cache (should record hit)
+	// Get from cache (should record hit).
 	_, err = rc.Get(ctx, key)
 	require.NoError(t, err)
 
-	// Try to get nonexistent key (should record miss)
+	// Try to get nonexistent key (should record miss).
 	_, err = rc.Get(ctx, "nonexistent-key-unique")
 	assert.Equal(t, ErrNotFound, err)
 
-	// Check stats - note that stats may include data from other tests due to global collector
-	// So we just verify the stats are non-zero
+	// Check stats - note that stats may include data from other tests due to global collector.
+	// So we just verify the stats are non-zero.
 	stats := rc.GetStats()
 	assert.GreaterOrEqual(t, stats.Hits, int64(1))
 	assert.GreaterOrEqual(t, stats.Misses, int64(1))
@@ -178,7 +178,7 @@ func TestRequestCache_Invalidate(t *testing.T) {
 	rc := NewRequestCache(memCache, DefaultRequestCacheConfig())
 	ctx := context.Background()
 
-	// Cache multiple requests with unique keys
+	// Cache multiple requests with unique keys.
 	req1 := &CachedRequest{
 		Key:      "req:openai:gpt-4:invalidate-test-1",
 		Provider: "openai",
@@ -197,22 +197,22 @@ func TestRequestCache_Invalidate(t *testing.T) {
 	err = rc.Set(ctx, req2)
 	require.NoError(t, err)
 
-	// Verify both are cached
+	// Verify both are cached.
 	_, err = rc.Get(ctx, req1.Key)
 	require.NoError(t, err)
 	_, err = rc.Get(ctx, req2.Key)
 	require.NoError(t, err)
 
-	// Invalidate openai gpt-4
-	// Note: Memory cache does not support pattern-based invalidation
-	// This is a limitation - for full invalidation support, use Redis cache
+	// Invalidate openai gpt-4.
+	// Note: Memory cache does not support pattern-based invalidation.
+	// This is a limitation - for full invalidation support, use Redis cache.
 	err = rc.Invalidate(ctx, "openai", "gpt-4")
 	require.NoError(t, err)
 
-	// For memory cache, Invalidate is a no-op, so entries still exist
-	// This test documents the current behavior
+	// For memory cache, Invalidate is a no-op, so entries still exist.
+	// This test documents the current behavior.
 	_, err = rc.Get(ctx, req1.Key)
-	// Memory cache doesn't support invalidation, so entry still exists
+	// Memory cache doesn't support invalidation, so entry still exists.
 	require.NoError(t, err)
 }
 
@@ -234,14 +234,14 @@ func TestRequestCache_TTL(t *testing.T) {
 	err := rc.Set(ctx, req)
 	require.NoError(t, err)
 
-	// Should exist immediately
+	// Should exist immediately.
 	_, err = rc.Get(ctx, key)
 	require.NoError(t, err)
 
-	// Wait for TTL to expire
+	// Wait for TTL to expire.
 	time.Sleep(150 * time.Millisecond)
 
-	// Should be expired
+	// Should be expired.
 	_, err = rc.Get(ctx, key)
 	assert.Equal(t, ErrNotFound, err)
 }

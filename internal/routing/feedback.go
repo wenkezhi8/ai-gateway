@@ -12,7 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// FeedbackType represents the type of feedback
+// FeedbackType represents the type of feedback.
 type FeedbackType string
 
 const (
@@ -21,7 +21,7 @@ const (
 	FeedbackNeutral  FeedbackType = "neutral"
 )
 
-// Feedback represents user feedback on a response
+// Feedback represents user feedback on a response.
 type Feedback struct {
 	ID           string          `json:"id"`
 	RequestID    string          `json:"request_id"`
@@ -38,7 +38,7 @@ type Feedback struct {
 	UserID       string          `json:"user_id,omitempty"`
 }
 
-// ModelPerformance tracks performance metrics for a model
+// ModelPerformance tracks performance metrics for a model.
 type ModelPerformance struct {
 	Model            string                   `json:"model"`
 	Provider         string                   `json:"provider"`
@@ -53,7 +53,7 @@ type ModelPerformance struct {
 	LastUpdated      time.Time                `json:"last_updated"`
 }
 
-// TaskTypeStat tracks stats for a specific task type
+// TaskTypeStat tracks stats for a specific task type.
 type TaskTypeStat struct {
 	TotalRequests int64   `json:"total_requests"`
 	SuccessCount  int64   `json:"success_count"`
@@ -62,7 +62,7 @@ type TaskTypeStat struct {
 	SuccessRate   float64 `json:"success_rate"`
 }
 
-// FeedbackCollector collects and analyzes feedback
+// FeedbackCollector collects and analyzes feedback.
 type FeedbackCollector struct {
 	mu          sync.RWMutex
 	feedback    []Feedback
@@ -73,7 +73,7 @@ type FeedbackCollector struct {
 	persistFile string
 }
 
-// OptimizationResult describes one optimization run outcome
+// OptimizationResult describes one optimization run outcome.
 type OptimizationResult struct {
 	ModelsScanned      int `json:"models_scanned"`
 	ModelsEligible     int `json:"models_eligible"`
@@ -83,7 +83,7 @@ type OptimizationResult struct {
 
 var feedbackLogger = logrus.WithField("component", "feedback_collector")
 
-// NewFeedbackCollector creates a new feedback collector
+// NewFeedbackCollector creates a new feedback collector.
 func NewFeedbackCollector(assessor *DifficultyAssessor, smartRouter *SmartRouter) *FeedbackCollector {
 	fc := &FeedbackCollector{
 		feedback:    make([]Feedback, 0),
@@ -100,8 +100,9 @@ func NewFeedbackCollector(assessor *DifficultyAssessor, smartRouter *SmartRouter
 	return fc
 }
 
-// RecordFeedback records user feedback
-// 改动点: 记录用户反馈并更新模型评分
+// 改动点: 记录用户反馈并更新模型评分.
+//
+//nolint:gocritic // keep value receiver semantics for API compatibility.
 func (fc *FeedbackCollector) RecordFeedback(feedback Feedback) {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -132,13 +133,11 @@ func (fc *FeedbackCollector) RecordFeedback(feedback Feedback) {
 	}).Info("Recorded feedback")
 }
 
-// RecordRequestResult records a request result
+// RecordRequestResult records a request result.
 func (fc *FeedbackCollector) RecordRequestResult(model, provider string, taskType TaskType, difficulty DifficultyLevel, success bool, latencyMs int64, tokensUsed int) {
-	feedbackType := FeedbackNeutral
+	feedbackType := FeedbackNegative
 	if success {
 		feedbackType = FeedbackPositive
-	} else {
-		feedbackType = FeedbackNegative
 	}
 
 	fc.RecordFeedback(Feedback{
@@ -152,7 +151,9 @@ func (fc *FeedbackCollector) RecordRequestResult(model, provider string, taskTyp
 	})
 }
 
-// updatePerformance updates performance metrics
+// updatePerformance updates performance metrics.
+//
+//nolint:gocritic // keep value receiver semantics for API compatibility.
 func (fc *FeedbackCollector) updatePerformance(feedback Feedback) {
 	perf, ok := fc.performance[feedback.Model]
 	if !ok {
@@ -212,14 +213,14 @@ func (fc *FeedbackCollector) updatePerformance(feedback Feedback) {
 	}
 }
 
-// GetPerformance returns performance metrics for a model
+// GetPerformance returns performance metrics for a model.
 func (fc *FeedbackCollector) GetPerformance(model string) *ModelPerformance {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
 	return fc.performance[model]
 }
 
-// GetAllPerformance returns all performance metrics
+// GetAllPerformance returns all performance metrics.
 func (fc *FeedbackCollector) GetAllPerformance() map[string]*ModelPerformance {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -231,7 +232,7 @@ func (fc *FeedbackCollector) GetAllPerformance() map[string]*ModelPerformance {
 	return result
 }
 
-// GetTopModels returns top performing models
+// GetTopModels returns top performing models.
 func (fc *FeedbackCollector) GetTopModels(taskType TaskType, limit int) []string {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -241,7 +242,7 @@ func (fc *FeedbackCollector) GetTopModels(taskType TaskType, limit int) []string
 		score float64
 	}
 
-	var scored []scoredModel
+	scored := make([]scoredModel, 0, len(fc.performance))
 	for model, perf := range fc.performance {
 		score := fc.calculatePerformanceScore(perf, taskType)
 		scored = append(scored, scoredModel{model: model, score: score})
@@ -264,14 +265,14 @@ func (fc *FeedbackCollector) GetTopModels(taskType TaskType, limit int) []string
 	return result
 }
 
-// TaskTypeDistribution represents the distribution of task types
+// TaskTypeDistribution represents the distribution of task types.
 type TaskTypeDistribution struct {
 	TaskType string `json:"task_type"`
 	Count    int64  `json:"count"`
 	Percent  int    `json:"percent"`
 }
 
-// GetTaskTypeDistribution returns the distribution of task types from feedback
+// GetTaskTypeDistribution returns the distribution of task types from feedback.
 func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -290,8 +291,8 @@ func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
 
 	// Fallback for legacy data: if no performance stats, derive from feedback only.
 	if total == 0 {
-		for _, f := range fc.feedback {
-			taskType := string(f.TaskType)
+		for i := range fc.feedback {
+			taskType := string(fc.feedback[i].TaskType)
 			if taskType == "" {
 				taskType = "other"
 			}
@@ -325,7 +326,7 @@ func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
 	return result
 }
 
-// calculatePerformanceScore calculates a performance score for a model
+// calculatePerformanceScore calculates a performance score for a model.
 func (fc *FeedbackCollector) calculatePerformanceScore(perf *ModelPerformance, taskType TaskType) float64 {
 	score := 0.0
 
@@ -358,13 +359,12 @@ func (fc *FeedbackCollector) calculatePerformanceScore(perf *ModelPerformance, t
 	return score
 }
 
-// OptimizeScores optimizes model scores based on feedback
-// 改动点: 基于反馈自动优化模型评分
+// 改动点: 基于反馈自动优化模型评分.
 func (fc *FeedbackCollector) OptimizeScores() {
 	fc.OptimizeScoresWithResult()
 }
 
-// OptimizeScoresWithResult optimizes scores and returns detailed summary
+// OptimizeScoresWithResult optimizes scores and returns detailed summary.
 func (fc *FeedbackCollector) OptimizeScoresWithResult() OptimizationResult {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -441,7 +441,9 @@ func (fc *FeedbackCollector) OptimizeScoresWithResult() OptimizationResult {
 	}
 
 	if updated > 0 {
-		fc.smartRouter.SaveToFile()
+		if err := fc.smartRouter.SaveToFile(); err != nil {
+			feedbackLogger.WithError(err).Warn("Failed to persist router scores after optimization")
+		}
 		feedbackLogger.WithField("models_updated", updated).Info("Feedback-based optimization completed")
 	}
 
@@ -450,18 +452,20 @@ func (fc *FeedbackCollector) OptimizeScoresWithResult() OptimizationResult {
 	return result
 }
 
-// periodicOptimize runs periodic optimization
+// periodicOptimize runs periodic optimization.
 func (fc *FeedbackCollector) periodicOptimize() {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		fc.OptimizeScores()
-		fc.SaveToFile()
+		if err := fc.SaveToFile(); err != nil {
+			feedbackLogger.WithError(err).Warn("Failed to persist feedback data")
+		}
 	}
 }
 
-// SaveToFile saves feedback and performance data to file
+// SaveToFile saves feedback and performance data to file.
 func (fc *FeedbackCollector) SaveToFile() error {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -484,10 +488,10 @@ func (fc *FeedbackCollector) SaveToFile() error {
 		return err
 	}
 
-	return os.WriteFile(fc.persistFile, jsonData, 0644)
+	return os.WriteFile(fc.persistFile, jsonData, 0640)
 }
 
-// loadFromFile loads feedback and performance data from file
+// loadFromFile loads feedback and performance data from file.
 func (fc *FeedbackCollector) loadFromFile() {
 	data, err := os.ReadFile(fc.persistFile)
 	if err != nil {
@@ -513,7 +517,7 @@ func (fc *FeedbackCollector) loadFromFile() {
 	}).Info("Loaded feedback data from file")
 }
 
-// GetFeedbackStats returns overall feedback statistics
+// GetFeedbackStats returns overall feedback statistics.
 func (fc *FeedbackCollector) GetFeedbackStats() map[string]interface{} {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -522,8 +526,8 @@ func (fc *FeedbackCollector) GetFeedbackStats() map[string]interface{} {
 	var totalRating float64
 	var ratingCount int64
 
-	for _, f := range fc.feedback {
-		switch f.FeedbackType {
+	for i := range fc.feedback {
+		switch fc.feedback[i].FeedbackType {
 		case FeedbackPositive:
 			totalPositive++
 		case FeedbackNegative:
@@ -531,8 +535,8 @@ func (fc *FeedbackCollector) GetFeedbackStats() map[string]interface{} {
 		case FeedbackNeutral:
 			totalNeutral++
 		}
-		if f.Rating > 0 {
-			totalRating += float64(f.Rating)
+		if fc.feedback[i].Rating > 0 {
+			totalRating += float64(fc.feedback[i].Rating)
 			ratingCount++
 		}
 	}
@@ -552,7 +556,7 @@ func (fc *FeedbackCollector) GetFeedbackStats() map[string]interface{} {
 	}
 }
 
-// GetRecentFeedback returns recent feedback entries
+// GetRecentFeedback returns recent feedback entries.
 func (fc *FeedbackCollector) GetRecentFeedback(limit int) []Feedback {
 	fc.mu.RLock()
 	defer fc.mu.RUnlock()
@@ -569,7 +573,7 @@ func (fc *FeedbackCollector) GetRecentFeedback(limit int) []Feedback {
 	return result
 }
 
-// ClearOldFeedback clears feedback older than specified duration
+// ClearOldFeedback clears feedback older than specified duration.
 func (fc *FeedbackCollector) ClearOldFeedback(olderThan time.Duration) int {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -578,9 +582,9 @@ func (fc *FeedbackCollector) ClearOldFeedback(olderThan time.Duration) int {
 	newFeedback := make([]Feedback, 0)
 	cleared := 0
 
-	for _, f := range fc.feedback {
-		if f.Timestamp.After(cutoff) {
-			newFeedback = append(newFeedback, f)
+	for i := range fc.feedback {
+		if fc.feedback[i].Timestamp.After(cutoff) {
+			newFeedback = append(newFeedback, fc.feedback[i])
 		} else {
 			cleared++
 		}

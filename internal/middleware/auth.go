@@ -1,3 +1,4 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (
@@ -86,7 +87,9 @@ func extractAPIKey(c *gin.Context) string {
 // GetUserID gets user ID from context
 func GetUserID(c *gin.Context) string {
 	if userID, exists := c.Get("user_id"); exists {
-		return userID.(string)
+		if id, ok := userID.(string); ok {
+			return id
+		}
 	}
 	return ""
 }
@@ -94,7 +97,9 @@ func GetUserID(c *gin.Context) string {
 // GetAPIKey gets API key from context
 func GetAPIKey(c *gin.Context) string {
 	if apiKey, exists := c.Get("api_key"); exists {
-		return apiKey.(string)
+		if key, ok := apiKey.(string); ok {
+			return key
+		}
 	}
 	return ""
 }

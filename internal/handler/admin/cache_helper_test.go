@@ -3,8 +3,9 @@ package admin
 import (
 	"testing"
 
-	"ai-gateway/internal/cache"
 	"time"
+
+	"ai-gateway/internal/cache"
 )
 
 func TestExtractAIFromBody(t *testing.T) {
@@ -391,16 +392,16 @@ func TestEnrichEntryFromDetail(t *testing.T) {
 	now := time.Now()
 	expiresAt := now.Add(time.Hour)
 
-	t.Run("nil entry", func(t *testing.T) {
+	t.Run("nil entry", func(_ *testing.T) {
 		enrichEntryFromDetail(nil, &cache.CacheEntryDetail{})
 	})
 
-	t.Run("nil detail", func(t *testing.T) {
+	t.Run("nil detail", func(_ *testing.T) {
 		entry := &cache.CacheEntryInfo{}
 		enrichEntryFromDetail(entry, nil)
 	})
 
-	t.Run("with detail data", func(t *testing.T) {
+	t.Run("with detail data", func(_ *testing.T) {
 		entry := &cache.CacheEntryInfo{}
 		detail := &cache.CacheEntryDetail{
 			Hits:      10,
@@ -580,7 +581,6 @@ func TestMergeModelStats(t *testing.T) {
 
 func TestCacheEntryInfoValueField(t *testing.T) {
 	entry := &cache.CacheEntryInfo{
-		Key: "test-key",
 		Value: map[string]interface{}{
 			"choices": []interface{}{
 				map[string]interface{}{

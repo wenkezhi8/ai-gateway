@@ -52,7 +52,8 @@ func TestNotifier_SendDingTalk(t *testing.T) {
 		assert.NotNil(t, msg.Markdown)
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 0, "errmsg": "ok"})
+		err = json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 0, "errmsg": "ok"})
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -71,7 +72,7 @@ func TestNotifier_SendDingTalk(t *testing.T) {
 		Annotations: map[string]string{"detail": "test detail"},
 	}
 
-	err := notifier.sendDingTalk(alert)
+	err := notifier.sendDingTalk(&alert)
 	assert.NoError(t, err)
 }
 
@@ -97,7 +98,8 @@ func TestNotifier_SendDingTalk_WithSecretAddsSignatureQuery(t *testing.T) {
 		assert.NotEmpty(t, q.Get("sign"))
 
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 0, "errmsg": "ok"})
+		err := json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 0, "errmsg": "ok"})
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -115,14 +117,15 @@ func TestNotifier_SendDingTalk_WithSecretAddsSignatureQuery(t *testing.T) {
 		StartsAt: time.Now(),
 	}
 
-	err := notifier.sendDingTalk(alert)
+	err := notifier.sendDingTalk(&alert)
 	assert.NoError(t, err)
 }
 
 func TestNotifier_SendDingTalk_Error(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 1, "errmsg": "error"})
+		err := json.NewEncoder(w).Encode(map[string]interface{}{"errcode": 1, "errmsg": "error"})
+		require.NoError(t, err)
 	}))
 	defer server.Close()
 
@@ -139,7 +142,7 @@ func TestNotifier_SendDingTalk_Error(t *testing.T) {
 		StartsAt: time.Now(),
 	}
 
-	err := notifier.sendDingTalk(alert)
+	err := notifier.sendDingTalk(&alert)
 	assert.Error(t, err)
 }
 
@@ -270,7 +273,7 @@ func TestNotifier_SendDingTalk_InvalidURL(t *testing.T) {
 		StartsAt: time.Now(),
 	}
 
-	err := notifier.sendDingTalk(alert)
+	err := notifier.sendDingTalk(&alert)
 	assert.Error(t, err)
 }
 
@@ -308,6 +311,9 @@ func TestAlert_WithExtra(t *testing.T) {
 
 	assert.Equal(t, "TestAlert", alert.Name)
 	assert.Equal(t, AlertLevelCritical, alert.Level)
+	assert.Equal(t, "Test message", alert.Message)
+	assert.Equal(t, map[string]string{"env": "prod"}, alert.Labels)
+	assert.Equal(t, map[string]string{"detail": "test"}, alert.Annotations)
 	assert.Equal(t, now, alert.StartsAt)
 	assert.Equal(t, &endTime, alert.EndsAt)
 	assert.NotNil(t, alert.Extra)

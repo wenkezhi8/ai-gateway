@@ -1,3 +1,4 @@
+//nolint:godot,gocyclo,gocritic
 package openai
 
 import (

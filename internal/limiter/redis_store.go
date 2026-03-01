@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,revive
 package limiter
 
 import (
@@ -232,8 +233,14 @@ func (s *RedisStore) TryAcquireSlot(ctx context.Context, accountID string, maxCo
 
 	// Parse result [currentCount, acquired]
 	if arr, ok := result.([]interface{}); ok && len(arr) >= 2 {
-		count, _ := arr[0].(int64)
-		acquired, _ := arr[1].(int64)
+		count, ok := arr[0].(int64)
+		if !ok {
+			return 0, false, nil
+		}
+		acquired, ok := arr[1].(int64)
+		if !ok {
+			return count, false, nil
+		}
 		return count, acquired == 1, nil
 	}
 

@@ -70,7 +70,7 @@ func main() {
 		EnableSwagger: true,
 	}
 
-	r := router.NewFullWithConfig(cfg, routerCfg, accountManager, cacheManager, registry)
+	r := router.NewFullWithConfig(cfg, &routerCfg, accountManager, cacheManager, registry)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -136,8 +136,8 @@ func main() {
 	logger.Info("AI Gateway stopped")
 }
 
-func loadServerRuntimeConfig(getenv func(string) string) (serverRuntimeConfig, []string) {
-	cfg := serverRuntimeConfig{
+func loadServerRuntimeConfig(getenv func(string) string) (cfg serverRuntimeConfig, warnings []string) {
+	cfg = serverRuntimeConfig{
 		readTimeout:       15 * time.Second,
 		readHeaderTimeout: 10 * time.Second,
 		writeTimeout:      30 * time.Second,
@@ -145,7 +145,7 @@ func loadServerRuntimeConfig(getenv func(string) string) (serverRuntimeConfig, [
 		shutdownTimeout:   30 * time.Second,
 		maxHeaderBytes:    1 << 20,
 	}
-	warnings := make([]string, 0)
+	warnings = make([]string, 0)
 
 	cfg.readTimeout, warnings = parseEnvDuration(getenv, "SERVER_READ_TIMEOUT", cfg.readTimeout, warnings)
 	cfg.readHeaderTimeout, warnings = parseEnvDuration(getenv, "SERVER_READ_HEADER_TIMEOUT", cfg.readHeaderTimeout, warnings)
@@ -157,7 +157,7 @@ func loadServerRuntimeConfig(getenv func(string) string) (serverRuntimeConfig, [
 	return cfg, warnings
 }
 
-func parseEnvDuration(getenv func(string) string, key string, fallback time.Duration, warnings []string) (time.Duration, []string) {
+func parseEnvDuration(getenv func(string) string, key string, fallback time.Duration, warnings []string) (duration time.Duration, updatedWarnings []string) {
 	raw := strings.TrimSpace(getenv(key))
 	if raw == "" {
 		return fallback, warnings
@@ -170,7 +170,7 @@ func parseEnvDuration(getenv func(string) string, key string, fallback time.Dura
 	return v, warnings
 }
 
-func parseEnvInt(getenv func(string) string, key string, fallback int, warnings []string) (int, []string) {
+func parseEnvInt(getenv func(string) string, key string, fallback int, warnings []string) (value int, updatedWarnings []string) {
 	raw := strings.TrimSpace(getenv(key))
 	if raw == "" {
 		return fallback, warnings

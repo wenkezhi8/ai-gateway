@@ -99,10 +99,10 @@ func (h *SettingsHandler) saveLocked() error {
 	if err := os.MkdirAll(filepath.Dir(h.filePath), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(h.filePath, raw, 0644)
+	return os.WriteFile(h.filePath, raw, 0640)
 }
 
-// GetUISettings handles GET /api/admin/settings/ui
+// GetUISettings handles GET /api/admin/settings/ui.
 func (h *SettingsHandler) GetUISettings(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -124,7 +124,7 @@ func (h *SettingsHandler) GetUISettings(c *gin.Context) {
 	})
 }
 
-// UpdateUISettings handles PUT /api/admin/settings/ui
+// UpdateUISettings handles PUT /api/admin/settings/ui.
 func (h *SettingsHandler) UpdateUISettings(c *gin.Context) {
 	var req updateUISettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

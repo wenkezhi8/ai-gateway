@@ -15,7 +15,7 @@ func NewUploadHandler() *UploadHandler {
 	return &UploadHandler{}
 }
 
-// UploadLogo handles logo file upload
+// UploadLogo handles logo file upload.
 func (h *UploadHandler) UploadLogo(c *gin.Context) {
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -38,15 +38,18 @@ func (h *UploadHandler) UploadLogo(c *gin.Context) {
 
 	// Determine logos directory
 	logosDir := "./web/dist/logos"
-	if _, err := os.Stat(logosDir); os.IsNotExist(err) {
+	if _, statErr := os.Stat(logosDir); os.IsNotExist(statErr) {
 		logosDir = "./dist/logos"
 	}
-	if _, err := os.Stat(logosDir); os.IsNotExist(err) {
+	if _, statErr := os.Stat(logosDir); os.IsNotExist(statErr) {
 		logosDir = "./logos"
 	}
 
 	// Create directory if not exists
-	os.MkdirAll(logosDir, 0755)
+	if mkdirErr := os.MkdirAll(logosDir, 0755); mkdirErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
+		return
+	}
 
 	// Create destination file
 	dst := filepath.Join(logosDir, filename)

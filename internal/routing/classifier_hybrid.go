@@ -17,6 +17,7 @@ type HybridTaskClassifier struct {
 	stats      ClassifierStats
 }
 
+//nolint:gocritic // keep value-type config API for compatibility.
 func NewHybridTaskClassifier(assessor *DifficultyAssessor, cfg ClassifierConfig) *HybridTaskClassifier {
 	cfg = clampClassifierConfig(cfg)
 	return &HybridTaskClassifier{
@@ -26,6 +27,7 @@ func NewHybridTaskClassifier(assessor *DifficultyAssessor, cfg ClassifierConfig)
 	}
 }
 
+//nolint:gocritic // keep value-type config API for compatibility.
 func (h *HybridTaskClassifier) UpdateConfig(cfg ClassifierConfig) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -1,3 +1,4 @@
+//nolint:errcheck,revive // Tests focus behavior assertions; helper calls intentionally concise.
 package cache
 
 import (

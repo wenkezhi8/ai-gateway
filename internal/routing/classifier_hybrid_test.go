@@ -10,15 +10,16 @@ type stubTaskClassifier struct {
 	err    error
 }
 
-func (s *stubTaskClassifier) Classify(ctx context.Context, prompt, contextText string) (*AssessmentResult, error) {
+func (s *stubTaskClassifier) Classify(_ context.Context, _, _ string) (*AssessmentResult, error) {
 	return s.result, s.err
 }
 
-func (s *stubTaskClassifier) Health(ctx context.Context) *ClassifierHealth {
+func (s *stubTaskClassifier) Health(_ context.Context) *ClassifierHealth {
 	return &ClassifierHealth{Healthy: true}
 }
 
-func (s *stubTaskClassifier) UpdateConfig(cfg ClassifierConfig) {}
+//nolint:gocritic // method signature follows TaskClassifier interface.
+func (s *stubTaskClassifier) UpdateConfig(_ ClassifierConfig) {}
 
 func (s *stubTaskClassifier) GetConfig() ClassifierConfig { return DefaultClassifierConfig() }
 

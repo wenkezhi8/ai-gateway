@@ -7,21 +7,12 @@ run:
   timeout: 5m
   issues-exit-code: 1
   tests: true
-  skip-dirs:
-    - vendor
-    - web
-    - node_modules
-    - data
-    - monitoring
-  skip-files:
-    - ".*\\.generated\\.go$"
 
 output:
   formats:
     - format: colored-line-number
   print-issued-lines: true
   print-linter-name: true
-  uniq-by-line: true
   sort-results: true
 
 linters:
@@ -36,9 +27,9 @@ linters:
     
     # Additional linters for enterprise
     - bodyclose
+    - copyloopvar
     - dogsled
     - dupl
-    - exportloopref
     - exhaustive
     - gochecknoinits
     - goconst
@@ -147,6 +138,15 @@ linters-settings:
     checks: ["-ST1000", "-ST1003"]
 
 issues:
+  exclude-dirs:
+    - vendor
+    - web
+    - node_modules
+    - data
+    - monitoring
+  exclude-files:
+    - ".*\\.generated\\.go$"
+  uniq-by-line: true
   exclude-rules:
     # Exclude some linters from test files
     - path: _test\.go

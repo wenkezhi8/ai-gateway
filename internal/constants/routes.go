@@ -1,66 +1,65 @@
 package constants
 
-// API 路径常量 - 统一管理所有 API 路径
-// 修改接口时只需改这里
+// 修改接口时只需改这里.
 const (
-	// API v1 前缀
-	ApiV1Prefix = "/api/v1"
+	// API v1 前缀.
+	ApiV1Prefix = "/api/v1" //nolint:revive // Keep legacy exported name for compatibility.
 
-	// Anthropic API 前缀
-	ApiAnthropicBasePrefix = "/api/anthropic"
+	// Anthropic API 前缀.
+	ApiAnthropicBasePrefix = "/api/anthropic" //nolint:revive // Keep legacy exported name for compatibility.
 
-	// Anthropic API v1 前缀
-	ApiAnthropicPrefix = "/api/anthropic/v1"
+	// Anthropic API v1 前缀.
+	ApiAnthropicPrefix = "/api/anthropic/v1" //nolint:revive // Keep legacy exported name for compatibility.
 
-	// Chat Completions
+	// Chat Completions.
 	ChatCompletions = ApiV1Prefix + "/chat/completions"
 
-	// Completions
+	// Completions.
 	Completions = ApiV1Prefix + "/completions"
 
-	// Embeddings
+	// Embeddings.
 	Embeddings = ApiV1Prefix + "/embeddings"
 
-	// Providers
+	// Providers.
 	Providers = ApiV1Prefix + "/providers"
 
-	// Models
+	// Models.
 	Models = ApiV1Prefix + "/models"
 
-	// Config Providers
+	// Config Providers.
 	ConfigProviders = ApiV1Prefix + "/config/providers"
 )
 
-// Admin API 路径
+// Admin API 路径.
 const (
 	AdminPrefix = "/api/admin"
 
-	// Accounts
+	// Accounts.
 	Accounts = AdminPrefix + "/accounts"
 
-	// Providers
+	// Providers.
 	AdminProviders = AdminPrefix + "/providers"
 
-	// Router
+	// Router.
 	Router = AdminPrefix + "/router"
 
-	// Dashboard
+	// Dashboard.
 	Dashboard = AdminPrefix + "/dashboard"
 
-	// Cache
+	// Cache.
 	Cache = AdminPrefix + "/cache"
 
-	// API Keys
-	ApiKeys = AdminPrefix + "/api-keys"
+	// API Keys.
+	ApiKeys = AdminPrefix + "/api-keys" //nolint:revive // Keep legacy exported name for compatibility.
 
-	// Upload
+	// Upload.
 	UploadLogo = AdminPrefix + "/upload/logo"
 
-	// UI settings
+	// UI settings.
 	AdminSettingsUI = AdminPrefix + "/settings/ui"
 )
 
-// Auth API 路径
+// Auth API 路径.
 const (
 	AuthPrefix = "/api/auth"
 

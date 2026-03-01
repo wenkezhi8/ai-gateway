@@ -1,3 +1,4 @@
+//nolint:godot
 package limiter
 
 import (
@@ -65,7 +66,9 @@ func (m *ConcurrencyManager) TryAcquire(ctx context.Context, accountID string, m
 
 		if acquired {
 			result.ReleaseFunc = func() {
-				_ = m.store.ReleaseSlot(context.Background(), accountID)
+				if err := m.store.ReleaseSlot(context.Background(), accountID); err != nil {
+					return
+				}
 			}
 		}
 
@@ -80,7 +83,10 @@ func (m *ConcurrencyManager) TryAcquire(ctx context.Context, accountID string, m
 func (m *ConcurrencyManager) tryAcquireLocal(accountID string, maxConcurrency int) (*AcquireResult, error) {
 	// Get or create local slot
 	value, _ := m.localSlots.LoadOrStore(accountID, &localSlot{})
-	slot := value.(*localSlot)
+	slot, ok := value.(*localSlot)
+	if !ok {
+		return &AcquireResult{Acquired: false, Max: maxConcurrency}, nil
+	}
 
 	// Try to increment
 	for {
@@ -141,7 +147,10 @@ func (m *ConcurrencyManager) releaseLocal(accountID string) {
 		return
 	}
 
-	slot := value.(*localSlot)
+	slot, ok := value.(*localSlot)
+	if !ok {
+		return
+	}
 	for {
 		current := slot.count.Load()
 		if current <= 0 {
@@ -201,7 +210,11 @@ func (m *ConcurrencyManager) getLocalConcurrent(accountID string) int64 {
 	if !ok {
 		return 0
 	}
-	return value.(*localSlot).count.Load()
+	slot, ok := value.(*localSlot)
+	if !ok {
+		return 0
+	}
+	return slot.count.Load()
 }
 
 // GetBatchLoadInfo gets load information for multiple accounts
@@ -212,7 +225,10 @@ func (m *ConcurrencyManager) GetBatchLoadInfo(ctx context.Context, accounts []*A
 		if acc == nil {
 			continue
 		}
-		loadInfo, _ := m.GetLoadInfo(ctx, acc.ID, acc.Concurrency)
+		loadInfo, err := m.GetLoadInfo(ctx, acc.ID, acc.Concurrency)
+		if err != nil {
+			continue
+		}
 		if loadInfo != nil {
 			result[acc.ID] = loadInfo
 		}

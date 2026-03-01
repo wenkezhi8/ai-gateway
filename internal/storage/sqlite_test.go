@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"ai-gateway/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"ai-gateway/internal/models"
 )
 
 func TestSQLiteStorage_Accounts(t *testing.T) {
@@ -42,12 +43,13 @@ func TestSQLiteStorage_Accounts(t *testing.T) {
 	})
 
 	t.Run("Get All Accounts", func(t *testing.T) {
-		store.SaveAccount(&models.AccountRecord{
+		err := store.SaveAccount(&models.AccountRecord{
 			ID:       "test-2",
 			Provider: "anthropic",
 			APIKey:   "sk-ant",
 			Enabled:  true,
 		})
+		require.NoError(t, err)
 
 		accounts, err := store.GetAllAccounts()
 		require.NoError(t, err)
@@ -107,7 +109,7 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 	})
 
 	t.Run("Get All Model Scores", func(t *testing.T) {
-		store.SaveModelScore("claude-3", &models.ModelScoreRecord{
+		err := store.SaveModelScore("claude-3", &models.ModelScoreRecord{
 			Model:        "claude-3",
 			Provider:     "anthropic",
 			QualityScore: 80,
@@ -115,6 +117,7 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 			CostScore:    75,
 			Enabled:      true,
 		})
+		require.NoError(t, err)
 
 		scores, err := store.GetAllModelScores()
 		require.NoError(t, err)
@@ -122,7 +125,7 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 	})
 
 	t.Run("Get Enabled Model Scores", func(t *testing.T) {
-		store.SaveModelScore("gpt-3.5", &models.ModelScoreRecord{
+		err := store.SaveModelScore("gpt-3.5", &models.ModelScoreRecord{
 			Model:        "gpt-3.5",
 			Provider:     "openai",
 			QualityScore: 70,
@@ -130,6 +133,7 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 			CostScore:    80,
 			Enabled:      true,
 		})
+		require.NoError(t, err)
 
 		enabledScores, err := store.GetEnabledModelScores()
 		require.NoError(t, err)
@@ -141,7 +145,7 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 	})
 
 	t.Run("Delete Model Score", func(t *testing.T) {
-		store.SaveModelScore("delete-model", &models.ModelScoreRecord{
+		err := store.SaveModelScore("delete-model", &models.ModelScoreRecord{
 			Model:        "delete-model",
 			Provider:     "openai",
 			QualityScore: 75,
@@ -149,8 +153,9 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 			CostScore:    75,
 			Enabled:      true,
 		})
+		require.NoError(t, err)
 
-		err := store.DeleteModelScore("delete-model")
+		err = store.DeleteModelScore("delete-model")
 		require.NoError(t, err)
 
 		_, err = store.GetModelScore("delete-model")
@@ -167,8 +172,9 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 	})
 
 	t.Run("Restore Model", func(t *testing.T) {
-		store.MarkModelDeleted("restore-model")
-		err := store.RestoreModel("restore-model")
+		err := store.MarkModelDeleted("restore-model")
+		require.NoError(t, err)
+		err = store.RestoreModel("restore-model")
 		require.NoError(t, err)
 
 		deleted, err := store.IsModelDeleted("restore-model")
@@ -177,8 +183,10 @@ func TestSQLiteStorage_ModelScores(t *testing.T) {
 	})
 
 	t.Run("Get All Deleted Models", func(t *testing.T) {
-		store.MarkModelDeleted("deleted-1")
-		store.MarkModelDeleted("deleted-2")
+		err := store.MarkModelDeleted("deleted-1")
+		require.NoError(t, err)
+		err = store.MarkModelDeleted("deleted-2")
+		require.NoError(t, err)
 
 		deleted, err := store.GetAllDeletedModels()
 		require.NoError(t, err)
@@ -216,11 +224,12 @@ func TestSQLiteStorage_Users(t *testing.T) {
 	})
 
 	t.Run("Get All Users", func(t *testing.T) {
-		store.SaveUser("user1", &models.UserRecord{
+		err := store.SaveUser("user1", &models.UserRecord{
 			Username:     "user1",
 			PasswordHash: "hash1",
 			Role:         "user",
 		})
+		require.NoError(t, err)
 
 		users, err := store.GetAllUsers()
 		require.NoError(t, err)
@@ -228,13 +237,14 @@ func TestSQLiteStorage_Users(t *testing.T) {
 	})
 
 	t.Run("Delete User", func(t *testing.T) {
-		store.SaveUser("delete-user", &models.UserRecord{
+		err := store.SaveUser("delete-user", &models.UserRecord{
 			Username:     "delete-user",
 			PasswordHash: "hash",
 			Role:         "user",
 		})
+		require.NoError(t, err)
 
-		err := store.DeleteUser("delete-user")
+		err = store.DeleteUser("delete-user")
 		require.NoError(t, err)
 
 		_, err = store.GetUser("delete-user")
@@ -274,12 +284,13 @@ func TestSQLiteStorage_APIKeys(t *testing.T) {
 	})
 
 	t.Run("Get All API Keys", func(t *testing.T) {
-		store.SaveAPIKey("key-2", &models.APIKeyRecord{
+		err := store.SaveAPIKey("key-2", &models.APIKeyRecord{
 			Name:        "Key 2",
 			Key:         "sk-2",
 			Permissions: "read",
 			Enabled:     true,
 		})
+		require.NoError(t, err)
 
 		keys, err := store.GetAllAPIKeys()
 		require.NoError(t, err)
@@ -287,14 +298,15 @@ func TestSQLiteStorage_APIKeys(t *testing.T) {
 	})
 
 	t.Run("Delete API Key", func(t *testing.T) {
-		store.SaveAPIKey("delete-key", &models.APIKeyRecord{
+		err := store.SaveAPIKey("delete-key", &models.APIKeyRecord{
 			Name:        "Delete Key",
 			Key:         "sk-delete",
 			Permissions: "admin",
 			Enabled:     true,
 		})
+		require.NoError(t, err)
 
-		err := store.DeleteAPIKey("delete-key")
+		err = store.DeleteAPIKey("delete-key")
 		require.NoError(t, err)
 
 		_, err = store.GetAPIKey("delete-key")
@@ -324,8 +336,10 @@ func TestSQLiteStorage_Config(t *testing.T) {
 	})
 
 	t.Run("Get All Provider Defaults", func(t *testing.T) {
-		store.SetProviderDefault("anthropic", "claude-3")
-		store.SetProviderDefault("deepseek", "deepseek-chat")
+		err := store.SetProviderDefault("anthropic", "claude-3")
+		require.NoError(t, err)
+		err = store.SetProviderDefault("deepseek", "deepseek-chat")
+		require.NoError(t, err)
 
 		defaults, err := store.GetAllProviderDefaults()
 		require.NoError(t, err)
@@ -374,6 +388,7 @@ func TestSQLiteStorage_Concurrent(t *testing.T) {
 	defer store.Close()
 
 	done := make(chan bool)
+	errCh := make(chan error, 20)
 
 	t.Run("Concurrent Account Operations", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
@@ -386,13 +401,23 @@ func TestSQLiteStorage_Concurrent(t *testing.T) {
 					APIKey:   "sk-test",
 					Enabled:  true,
 				}
-				store.SaveAccount(acc)
-				store.GetAccount(acc.ID)
+				if err := store.SaveAccount(acc); err != nil {
+					errCh <- err
+					return
+				}
+				if _, err := store.GetAccount(acc.ID); err != nil {
+					errCh <- err
+				}
 			}(i)
 		}
 
 		for i := 0; i < 10; i++ {
 			<-done
+		}
+		select {
+		case err := <-errCh:
+			require.NoError(t, err)
+		default:
 		}
 	})
 
@@ -409,13 +434,23 @@ func TestSQLiteStorage_Concurrent(t *testing.T) {
 					CostScore:    80 + idx,
 					Enabled:      true,
 				}
-				store.SaveModelScore(score.Model, score)
-				store.GetModelScore(score.Model)
+				if err := store.SaveModelScore(score.Model, score); err != nil {
+					errCh <- err
+					return
+				}
+				if _, err := store.GetModelScore(score.Model); err != nil {
+					errCh <- err
+				}
 			}(i)
 		}
 
 		for i := 0; i < 10; i++ {
 			<-done
+		}
+		select {
+		case err := <-errCh:
+			require.NoError(t, err)
+		default:
 		}
 	})
 }
@@ -455,7 +490,7 @@ func TestSQLiteStorage_Feedback(t *testing.T) {
 	})
 
 	t.Run("Get Feedback Stats", func(t *testing.T) {
-		store.SaveFeedback(&models.FeedbackRecord{
+		err := store.SaveFeedback(&models.FeedbackRecord{
 			RequestID:  "req-2",
 			Model:      "gpt-4",
 			Provider:   "openai",
@@ -463,6 +498,7 @@ func TestSQLiteStorage_Feedback(t *testing.T) {
 			LatencyMs:  800,
 			TokensUsed: 800,
 		})
+		require.NoError(t, err)
 
 		stats, err := store.GetFeedbackStats()
 		require.NoError(t, err)
@@ -477,12 +513,13 @@ func TestSQLiteStorage_Export(t *testing.T) {
 	defer store.Close()
 
 	t.Run("Export data", func(t *testing.T) {
-		store.SaveAccount(&models.AccountRecord{
+		err := store.SaveAccount(&models.AccountRecord{
 			ID:       "export-1",
 			Provider: "openai",
 			APIKey:   "sk-export",
 			Enabled:  true,
 		})
+		require.NoError(t, err)
 
 		data, err := store.Export()
 		require.NoError(t, err)

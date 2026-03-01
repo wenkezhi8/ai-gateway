@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"ai-gateway/internal/cache"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"ai-gateway/internal/cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,18 +23,18 @@ type tierTestHotStore struct {
 	memoryIdx      int
 }
 
-func (s *tierTestHotStore) EnsureIndex(ctx context.Context) error  { return nil }
-func (s *tierTestHotStore) RebuildIndex(ctx context.Context) error { return nil }
-func (s *tierTestHotStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (s *tierTestHotStore) EnsureIndex(_ context.Context) error  { return nil }
+func (s *tierTestHotStore) RebuildIndex(_ context.Context) error { return nil }
+func (s *tierTestHotStore) GetExact(_ context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
 	if s.exactDocs == nil {
 		return nil, nil
 	}
 	return s.exactDocs[cacheKey], nil
 }
-func (s *tierTestHotStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (s *tierTestHotStore) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return nil, nil
 }
-func (s *tierTestHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+func (s *tierTestHotStore) Upsert(_ context.Context, doc *cache.VectorCacheDocument) error {
 	if doc != nil {
 		if s.exactDocs == nil {
 			s.exactDocs = map[string]*cache.VectorCacheDocument{}
@@ -43,19 +44,19 @@ func (s *tierTestHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDoc
 	}
 	return nil
 }
-func (s *tierTestHotStore) Delete(ctx context.Context, cacheKey string) error {
+func (s *tierTestHotStore) Delete(_ context.Context, cacheKey string) error {
 	if s.exactDocs != nil {
 		delete(s.exactDocs, cacheKey)
 	}
 	return nil
 }
-func (s *tierTestHotStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+func (s *tierTestHotStore) TouchTTL(_ context.Context, _ string, _ int64) error {
 	return nil
 }
-func (s *tierTestHotStore) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+func (s *tierTestHotStore) Stats(_ context.Context) (cache.VectorStoreStats, error) {
 	return cache.VectorStoreStats{Enabled: true, IndexName: "hot-test"}, nil
 }
-func (s *tierTestHotStore) MemoryUsagePercent(ctx context.Context) (float64, error) {
+func (s *tierTestHotStore) MemoryUsagePercent(_ context.Context) (float64, error) {
 	if len(s.memorySequence) == 0 {
 		return 0, nil
 	}
@@ -66,7 +67,7 @@ func (s *tierTestHotStore) MemoryUsagePercent(ctx context.Context) (float64, err
 	s.memoryIdx++
 	return s.memorySequence[idx], nil
 }
-func (s *tierTestHotStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*cache.VectorCacheDocument, error) {
+func (s *tierTestHotStore) ListMigrationCandidates(_ context.Context, batchSize int) ([]*cache.VectorCacheDocument, error) {
 	if len(s.migrationDocs) == 0 {
 		return nil, nil
 	}
@@ -80,8 +81,8 @@ type tierTestColdStore struct {
 	docs map[string]*cache.VectorCacheDocument
 }
 
-func (s *tierTestColdStore) EnsureSchema(ctx context.Context) error { return nil }
-func (s *tierTestColdStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+func (s *tierTestColdStore) EnsureSchema(_ context.Context) error { return nil }
+func (s *tierTestColdStore) Upsert(_ context.Context, doc *cache.VectorCacheDocument) error {
 	if doc == nil {
 		return nil
 	}
@@ -92,22 +93,22 @@ func (s *tierTestColdStore) Upsert(ctx context.Context, doc *cache.VectorCacheDo
 	s.docs[doc.CacheKey] = &cp
 	return nil
 }
-func (s *tierTestColdStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (s *tierTestColdStore) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return nil, nil
 }
-func (s *tierTestColdStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (s *tierTestColdStore) GetExact(_ context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
 	if s.docs == nil {
 		return nil, nil
 	}
 	return s.docs[cacheKey], nil
 }
-func (s *tierTestColdStore) Delete(ctx context.Context, cacheKey string) error {
+func (s *tierTestColdStore) Delete(_ context.Context, cacheKey string) error {
 	if s.docs != nil {
 		delete(s.docs, cacheKey)
 	}
 	return nil
 }
-func (s *tierTestColdStore) Stats(ctx context.Context) (cache.ColdVectorStoreStats, error) {
+func (s *tierTestColdStore) Stats(_ context.Context) (cache.ColdVectorStoreStats, error) {
 	return cache.ColdVectorStoreStats{
 		Backend:   cache.ColdVectorBackendSQLite,
 		Available: true,
@@ -154,7 +155,10 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T
 		"cold_vector_qdrant_collection":     "cache_v22",
 		"cold_vector_qdrant_timeout_ms":     1900,
 	}
-	raw, _ := json.Marshal(body)
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/cache/config", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -218,14 +222,14 @@ func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
 	router.POST("/api/admin/cache/vector/tier/migrate", handler.TriggerVectorTierMigrate)
 	router.POST("/api/admin/cache/vector/tier/promote", handler.PromoteVectorTierEntry)
 
-	statsReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", nil)
+	statsReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", http.NoBody)
 	statsW := httptest.NewRecorder()
 	router.ServeHTTP(statsW, statsReq)
 	if statsW.Code != http.StatusOK {
 		t.Fatalf("expected stats 200, got %d body=%s", statsW.Code, statsW.Body.String())
 	}
 
-	migrateReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/vector/tier/migrate", nil)
+	migrateReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/vector/tier/migrate", http.NoBody)
 	migrateW := httptest.NewRecorder()
 	router.ServeHTTP(migrateW, migrateReq)
 	if migrateW.Code != http.StatusOK {
@@ -273,29 +277,32 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
 
 	body := map[string]any{
-		"vector_pipeline_enabled":           true,
-		"vector_standard_key_version":       "v2",
-		"vector_embedding_provider":         "ollama",
-		"vector_ollama_base_url":            "http://127.0.0.1:11434",
-		"vector_ollama_embedding_model":     "nomic-embed-text",
-		"vector_ollama_embedding_dimension": 1024,
+		"vector_pipeline_enabled":            true,
+		"vector_standard_key_version":        "v2",
+		"vector_embedding_provider":          "ollama",
+		"vector_ollama_base_url":             "http://127.0.0.1:11434",
+		"vector_ollama_embedding_model":      "nomic-embed-text",
+		"vector_ollama_embedding_dimension":  1024,
 		"vector_ollama_embedding_timeout_ms": 1600,
-		"vector_ollama_endpoint_mode":       "auto",
-		"vector_writeback_enabled":          true,
-		"cold_vector_enabled":               true,
-		"cold_vector_query_enabled":         false,
-		"cold_vector_backend":               "qdrant",
-		"cold_vector_similarity_threshold":  0.9,
-		"cold_vector_top_k":                 3,
-		"hot_memory_high_watermark_percent": 79,
-		"hot_memory_relief_percent":         68,
-		"hot_to_cold_batch_size":            256,
-		"hot_to_cold_interval_seconds":      22,
-		"cold_vector_qdrant_url":            "http://127.0.0.1:6333",
-		"cold_vector_qdrant_collection":     "tier_v22",
-		"cold_vector_qdrant_timeout_ms":     1800,
+		"vector_ollama_endpoint_mode":        "auto",
+		"vector_writeback_enabled":           true,
+		"cold_vector_enabled":                true,
+		"cold_vector_query_enabled":          false,
+		"cold_vector_backend":                "qdrant",
+		"cold_vector_similarity_threshold":   0.9,
+		"cold_vector_top_k":                  3,
+		"hot_memory_high_watermark_percent":  79,
+		"hot_memory_relief_percent":          68,
+		"hot_to_cold_batch_size":             256,
+		"hot_to_cold_interval_seconds":       22,
+		"cold_vector_qdrant_url":             "http://127.0.0.1:6333",
+		"cold_vector_qdrant_collection":      "tier_v22",
+		"cold_vector_qdrant_timeout_ms":      1800,
 	}
-	raw, _ := json.Marshal(body)
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPut, "/api/admin/cache/config", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -317,22 +324,28 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 		t.Fatalf("expected vector_cache object in saved config, got %#v", saved["vector_cache"])
 	}
 
-	if enabled, _ := vectorCache["cold_vector_enabled"].(bool); !enabled {
+	enabled, ok := vectorCache["cold_vector_enabled"].(bool)
+	if !ok || !enabled {
 		t.Fatalf("expected cold_vector_enabled=true in persisted config, got %#v", vectorCache["cold_vector_enabled"])
 	}
-	if backend, _ := vectorCache["cold_vector_backend"].(string); backend != "qdrant" {
+	backend, ok := vectorCache["cold_vector_backend"].(string)
+	if !ok || backend != "qdrant" {
 		t.Fatalf("expected backend=qdrant in persisted config, got %#v", vectorCache["cold_vector_backend"])
 	}
-	if baseURL, _ := vectorCache["ollama_base_url"].(string); baseURL != "http://127.0.0.1:11434" {
+	baseURL, ok := vectorCache["ollama_base_url"].(string)
+	if !ok || baseURL != "http://127.0.0.1:11434" {
 		t.Fatalf("expected ollama_base_url persisted, got %#v", vectorCache["ollama_base_url"])
 	}
-	if model, _ := vectorCache["ollama_embedding_model"].(string); model != "nomic-embed-text" {
+	model, ok := vectorCache["ollama_embedding_model"].(string)
+	if !ok || model != "nomic-embed-text" {
 		t.Fatalf("expected ollama_embedding_model persisted, got %#v", vectorCache["ollama_embedding_model"])
 	}
-	if endpointMode, _ := vectorCache["ollama_endpoint_mode"].(string); endpointMode != "auto" {
+	endpointMode, ok := vectorCache["ollama_endpoint_mode"].(string)
+	if !ok || endpointMode != "auto" {
 		t.Fatalf("expected ollama_endpoint_mode persisted, got %#v", vectorCache["ollama_endpoint_mode"])
 	}
-	if enabled, _ := vectorCache["writeback_enabled"].(bool); !enabled {
+	writebackEnabled, ok := vectorCache["writeback_enabled"].(bool)
+	if !ok || !writebackEnabled {
 		t.Fatalf("expected writeback_enabled=true in persisted config, got %#v", vectorCache["writeback_enabled"])
 	}
 	if topK, ok := vectorCache["cold_vector_top_k"].(float64); !ok || int(topK) != 3 {
@@ -344,20 +357,22 @@ type vectorPipelineTestStore struct {
 	hits []cache.VectorSearchHit
 }
 
-func (s *vectorPipelineTestStore) EnsureIndex(ctx context.Context) error  { return nil }
-func (s *vectorPipelineTestStore) RebuildIndex(ctx context.Context) error { return nil }
-func (s *vectorPipelineTestStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (s *vectorPipelineTestStore) EnsureIndex(_ context.Context) error  { return nil }
+func (s *vectorPipelineTestStore) RebuildIndex(_ context.Context) error { return nil }
+func (s *vectorPipelineTestStore) GetExact(_ context.Context, _ string) (*cache.VectorCacheDocument, error) {
 	return nil, nil
 }
-func (s *vectorPipelineTestStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (s *vectorPipelineTestStore) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return s.hits, nil
 }
-func (s *vectorPipelineTestStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error { return nil }
-func (s *vectorPipelineTestStore) Delete(ctx context.Context, cacheKey string) error                 { return nil }
-func (s *vectorPipelineTestStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+func (s *vectorPipelineTestStore) Upsert(_ context.Context, _ *cache.VectorCacheDocument) error {
 	return nil
 }
-func (s *vectorPipelineTestStore) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+func (s *vectorPipelineTestStore) Delete(_ context.Context, _ string) error { return nil }
+func (s *vectorPipelineTestStore) TouchTTL(_ context.Context, _ string, _ int64) error {
+	return nil
+}
+func (s *vectorPipelineTestStore) Stats(_ context.Context) (cache.VectorStoreStats, error) {
 	return cache.VectorStoreStats{Enabled: true, Dimension: 3, IndexName: "idx_ai_cache_v2"}, nil
 }
 
@@ -367,9 +382,11 @@ func TestCacheHandler_VectorPipelineEndpoints_ShouldWork(t *testing.T) {
 	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/embed":
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			if err := json.NewEncoder(w).Encode(map[string]any{
 				"embeddings": [][]float64{{0.1, 0.2, 0.3}},
-			})
+			}); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -401,7 +418,7 @@ func TestCacheHandler_VectorPipelineEndpoints_ShouldWork(t *testing.T) {
 	router.GET("/api/admin/cache/vector/pipeline/health", handler.GetVectorPipelineHealth)
 	router.POST("/api/admin/cache/vector/pipeline/test", handler.TestVectorPipeline)
 
-	healthReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/pipeline/health", nil)
+	healthReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/pipeline/health", http.NoBody)
 	healthW := httptest.NewRecorder()
 	router.ServeHTTP(healthW, healthReq)
 	if healthW.Code != http.StatusOK {

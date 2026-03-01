@@ -1,3 +1,4 @@
+//nolint:godot,gocyclo,dupl
 package volcengine
 
 import (

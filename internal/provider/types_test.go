@@ -88,9 +88,12 @@ func TestChatResponse_FieldsWithExtra(t *testing.T) {
 	}
 
 	assert.Equal(t, "resp-123", resp.ID)
+	assert.Equal(t, "chat.completion", resp.Object)
+	assert.Equal(t, int64(1234567890), resp.Created)
 	assert.Equal(t, "claude-3", resp.Model)
 	assert.Len(t, resp.Choices, 1)
 	assert.Equal(t, 15, resp.Usage.TotalTokens)
+	assert.Equal(t, "field", resp.Extra["custom"])
 }
 
 func TestStreamChunk_Fields(t *testing.T) {
@@ -113,6 +116,9 @@ func TestStreamChunk_Fields(t *testing.T) {
 	}
 
 	assert.Equal(t, "chunk-123", chunk.ID)
+	assert.Equal(t, "chat.completion.chunk", chunk.Object)
+	assert.Equal(t, int64(1234567890), chunk.Created)
+	assert.Equal(t, "gpt-4", chunk.Model)
 	assert.False(t, chunk.Done)
 	assert.Len(t, chunk.Choices, 1)
 	assert.Equal(t, "Hello", chunk.Choices[0].Delta.Content)
@@ -132,8 +138,10 @@ func TestProviderConfig_Fields(t *testing.T) {
 
 	assert.Equal(t, "openai", cfg.Name)
 	assert.Equal(t, "sk-test", cfg.APIKey)
+	assert.Equal(t, "https://api.openai.com", cfg.BaseURL)
 	assert.Len(t, cfg.Models, 2)
 	assert.True(t, cfg.Enabled)
+	assert.Equal(t, "org-123", cfg.Extra["organization"])
 }
 
 func TestBaseProvider_Methods(t *testing.T) {
@@ -182,6 +190,8 @@ func TestChatResponse_WithError(t *testing.T) {
 	}
 
 	assert.NotNil(t, resp.Error)
+	assert.Equal(t, "resp-error", resp.ID)
+	assert.Equal(t, "gpt-4", resp.Model)
 	assert.Equal(t, 429, resp.Error.Code)
 }
 

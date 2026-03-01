@@ -12,6 +12,7 @@ import (
 
 type ReloadCallback func(*Config)
 
+//nolint:revive // Keep exported name for explicit package usage and API stability.
 type ConfigWatcher struct {
 	configPath string
 	config     *Config

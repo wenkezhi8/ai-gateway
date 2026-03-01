@@ -6,6 +6,9 @@ import (
 	"strings"
 	"sync"
 	"text/template"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 type Template struct {
@@ -120,8 +123,8 @@ func (m *Manager) loadDefaults() {
 		},
 	}
 
-	for _, t := range defaults {
-		m.templates[t.ID] = &t
+	for i := range defaults {
+		m.templates[defaults[i].ID] = &defaults[i]
 	}
 }
 
@@ -220,6 +223,12 @@ type Message struct {
 	Content string
 }
 
+const (
+	roleSystem    = "system"
+	roleUser      = "user"
+	roleAssistant = "assistant"
+)
+
 func RenderMessages(messages []Message, templateID string) (string, error) {
 	mgr := NewManager()
 	tmpl, err := mgr.Get(templateID)
@@ -236,12 +245,12 @@ func RenderMessages(messages []Message, templateID string) (string, error) {
 	return tmpl.Render(data)
 }
 
-func RenderSimpleChat(system, user string, templateID string) (string, error) {
+func RenderSimpleChat(system, user, templateID string) (string, error) {
 	messages := []Message{}
 	if system != "" {
-		messages = append(messages, Message{Role: "system", Content: system})
+		messages = append(messages, Message{Role: roleSystem, Content: system})
 	}
-	messages = append(messages, Message{Role: "user", Content: user})
+	messages = append(messages, Message{Role: roleUser, Content: user})
 	return RenderMessages(messages, templateID)
 }
 
@@ -268,11 +277,11 @@ func convertLlama(messages []Message) string {
 	var sb strings.Builder
 	for _, m := range messages {
 		switch m.Role {
-		case "system":
+		case roleSystem:
 			sb.WriteString(fmt.Sprintf("<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n%s<|eot_id|>", m.Content))
-		case "user":
+		case roleUser:
 			sb.WriteString(fmt.Sprintf("<|start_header_id|>user<|end_header_id|>\n\n%s<|eot_id|>", m.Content))
-		case "assistant":
+		case roleAssistant:
 			sb.WriteString(fmt.Sprintf("<|start_header_id|>assistant<|end_header_id|>\n\n%s<|eot_id|>", m.Content))
 		}
 	}
@@ -283,13 +292,13 @@ func convertLlama(messages []Message) string {
 func convertChatGLM(messages []Message) string {
 	var sb strings.Builder
 	for i, m := range messages {
-		if m.Role == "system" {
+		if m.Role == roleSystem {
 			sb.WriteString(m.Content)
 			continue
 		}
-		if m.Role == "user" {
+		if m.Role == roleUser {
 			sb.WriteString(fmt.Sprintf("[Round %d]\n问：%s\n答：", i, m.Content))
-		} else if m.Role == "assistant" {
+		} else if m.Role == roleAssistant {
 			sb.WriteString(m.Content)
 		}
 	}
@@ -308,11 +317,11 @@ func convertChatML(messages []Message) string {
 func convertMistral(messages []Message) string {
 	var sb strings.Builder
 	for _, m := range messages {
-		if m.Role == "user" {
+		if m.Role == roleUser {
 			sb.WriteString(fmt.Sprintf("[INST] %s [/INST]", m.Content))
-		} else if m.Role == "assistant" {
+		} else if m.Role == roleAssistant {
 			sb.WriteString(m.Content)
-		} else if m.Role == "system" {
+		} else if m.Role == roleSystem {
 			sb.WriteString(fmt.Sprintf("[INST] %s [/INST]", m.Content))
 		}
 	}
@@ -333,9 +342,10 @@ func convertYi(messages []Message) string {
 }
 
 func convertGeneric(messages []Message) string {
+	titler := cases.Title(language.Und)
 	var sb strings.Builder
 	for _, m := range messages {
-		sb.WriteString(fmt.Sprintf("%s: %s\n", strings.Title(m.Role), m.Content))
+		sb.WriteString(fmt.Sprintf("%s: %s\n", titler.String(m.Role), m.Content))
 	}
 	sb.WriteString("Assistant: ")
 	return sb.String()

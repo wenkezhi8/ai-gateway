@@ -18,7 +18,7 @@ func TestSettingsUI_GetDefault(t *testing.T) {
 	router := gin.New()
 	router.GET("/api/admin/settings/ui", handler.GetUISettings)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/admin/settings/ui", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/settings/ui", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -80,7 +80,7 @@ func TestSettingsUI_PutAndPersist(t *testing.T) {
 	router2 := gin.New()
 	router2.GET("/api/admin/settings/ui", handler2.GetUISettings)
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/settings/ui", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/settings/ui", http.NoBody)
 	getW := httptest.NewRecorder()
 	router2.ServeHTTP(getW, getReq)
 	if getW.Code != http.StatusOK {

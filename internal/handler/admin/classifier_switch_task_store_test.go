@@ -27,7 +27,8 @@ func TestClassifierSwitchTaskStore_CreateGetUpdate_Reopen(t *testing.T) {
 		Attempts:      0,
 	}
 
-	if err := store.Create(task); err != nil {
+	err = store.Create(task)
+	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
 
@@ -46,7 +47,8 @@ func TestClassifierSwitchTaskStore_CreateGetUpdate_Reopen(t *testing.T) {
 	loaded.Attempts = 2
 	loaded.LastError = ""
 	loaded.UpdatedAt = time.Now().UnixMilli()
-	if err := store.Update(loaded); err != nil {
+	err = store.Update(loaded)
+	if err != nil {
 		t.Fatalf("update task failed: %v", err)
 	}
 
@@ -58,7 +60,8 @@ func TestClassifierSwitchTaskStore_CreateGetUpdate_Reopen(t *testing.T) {
 		t.Fatalf("status = %v, want %v", updated.Status, ClassifierSwitchTaskStatusRunning)
 	}
 
-	if err := store.Close(); err != nil {
+	err = store.Close()
+	if err != nil {
 		t.Fatalf("close store failed: %v", err)
 	}
 

@@ -1,14 +1,14 @@
 package intent
 
-// IntentEmbeddingRequest is the payload sent to local intent-engine.
-type IntentEmbeddingRequest struct {
+// EmbeddingRequest is the payload sent to local intent-engine.
+type EmbeddingRequest struct {
 	Query   string `json:"query"`
 	Context string `json:"context,omitempty"`
 	Lang    string `json:"lang,omitempty"`
 }
 
-// IntentEmbeddingResult is the inference output from intent-engine.
-type IntentEmbeddingResult struct {
+// EmbeddingResult is the inference output from intent-engine.
+type EmbeddingResult struct {
 	Intent         string            `json:"intent"`
 	Slots          map[string]string `json:"slots"`
 	StandardKey    string            `json:"standard_key"`
@@ -18,4 +18,3 @@ type IntentEmbeddingResult struct {
 	EngineVersion  string            `json:"engine_version"`
 	NormalizedText string            `json:"normalized_text,omitempty"`
 }
-

@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"ai-gateway/internal/constants"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ai-gateway/internal/constants"
 )
 
 type ollamaTagsResponse struct {
@@ -59,6 +60,7 @@ type OllamaTaskClassifier struct {
 	client *http.Client
 }
 
+//nolint:gocritic // keep value-type config API for compatibility.
 func NewOllamaTaskClassifier(cfg ClassifierConfig) *OllamaTaskClassifier {
 	cfg = clampClassifierConfig(cfg)
 	return &OllamaTaskClassifier{
@@ -69,6 +71,7 @@ func NewOllamaTaskClassifier(cfg ClassifierConfig) *OllamaTaskClassifier {
 	}
 }
 
+//nolint:gocritic // keep value-type config API for compatibility.
 func (o *OllamaTaskClassifier) UpdateConfig(cfg ClassifierConfig) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -131,6 +134,7 @@ func (o *OllamaTaskClassifier) Classify(ctx context.Context, prompt, contextText
 	return parsed, nil
 }
 
+//nolint:gocritic // unnamed results keep signature concise for callers.
 func (o *OllamaTaskClassifier) chat(ctx context.Context, model, content string) (string, int, error) {
 	cfg := o.GetConfig()
 	endpoint := strings.TrimRight(cfg.BaseURL, "/") + "/api/chat"
@@ -318,6 +322,7 @@ func parseClassifierOutput(raw string) (*AssessmentResult, error) {
 	return result, nil
 }
 
+//nolint:gocyclo // parsing fields directly keeps mapping explicit and stable.
 func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityScore float64, cacheable *bool, cacheReason, ttlBand, riskLevel string, riskTags []string, toolNeeded, ragNeeded *bool, contextLoad string, modelFit map[string]float64, recommendedTemperature, recommendedTopP *float64, recommendedMaxTokens *int, experimentTag, domainTag string) *ControlSignals {
 	controlVersion = strings.TrimSpace(controlVersion)
 	normalizedQuery = strings.TrimSpace(normalizedQuery)
@@ -332,17 +337,17 @@ func parseControlSignals(controlVersion, normalizedQuery string, queryStabilityS
 		queryStabilityScore = 0
 	}
 	switch ttlBand {
-	case "short", "medium", "long", "":
+	case "short", string(DifficultyMedium), "long", "":
 	default:
 		ttlBand = ""
 	}
 	switch riskLevel {
-	case "none", "low", "medium", "high", "":
+	case "none", string(DifficultyLow), string(DifficultyMedium), string(DifficultyHigh), "":
 	default:
 		riskLevel = ""
 	}
 	switch contextLoad {
-	case "low", "medium", "high", "":
+	case string(DifficultyLow), string(DifficultyMedium), string(DifficultyHigh), "":
 	default:
 		contextLoad = ""
 	}
@@ -472,7 +477,7 @@ func ListOllamaModels(ctx context.Context, baseURL string, timeout time.Duration
 	}
 
 	endpoint := strings.TrimRight(baseURL, "/") + "/api/tags"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create ollama tags request: %w", err)
 	}
@@ -533,7 +538,7 @@ func ListOllamaRunningModelDetails(ctx context.Context, baseURL string, timeout 
 	}
 
 	endpoint := strings.TrimRight(baseURL, "/") + "/api/ps"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create ollama ps request: %w", err)
 	}

@@ -1,11 +1,12 @@
 package admin
 
 import (
-	"ai-gateway/internal/storage"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"ai-gateway/internal/storage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -59,6 +60,7 @@ type ModelUsage struct {
 	Tokens   int64 `json:"tokens"`
 }
 
+//nolint:gocyclo
 func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 	limit := 100
 	offset := 0

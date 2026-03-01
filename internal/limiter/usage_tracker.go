@@ -1,7 +1,7 @@
+//nolint:godot,gocritic,revive
 package limiter
 
 import (
-	logpkg "ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	logpkg "ai-gateway/pkg/logger"
 )
 
 // UsageTracker tracks usage across all accounts with real-time statistics and alerts

@@ -60,6 +60,7 @@ func TestProviderPool_Size(t *testing.T) {
 }
 
 func TestProviderPool_RecordError(t *testing.T) {
+	_ = t
 	config := ProviderPoolConfig{
 		MaxIdleTime:         10 * time.Minute,
 		MaxUseCount:         1000,
@@ -74,6 +75,7 @@ func TestProviderPool_RecordError(t *testing.T) {
 }
 
 func TestProviderPool_RecordSuccess(t *testing.T) {
+	_ = t
 	config := ProviderPoolConfig{
 		MaxIdleTime:         10 * time.Minute,
 		MaxUseCount:         1000,
@@ -140,6 +142,7 @@ func TestPooledProvider(t *testing.T) {
 
 	assert.Equal(t, int64(0), pooled.useCount)
 	assert.Equal(t, int64(0), pooled.errorCount)
+	assert.False(t, pooled.lastUsed.IsZero())
 }
 
 func TestProviderPool_Stop_StopsGoroutines(t *testing.T) {

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
+//nolint:revive // Kept for package API compatibility.
 type AuditMiddleware struct {
 	logger          *Logger
 	skipPaths       map[string]bool
@@ -40,27 +42,13 @@ func (am *AuditMiddleware) Middleware() gin.HandlerFunc {
 			return
 		}
 
-		for path := range am.skipPaths {
-			if len(path) > 0 && path[len(path)-1] == '*' {
-				prefix := path[:len(path)-1]
-				if len(c.Request.URL.Path) >= len(prefix) && c.Request.URL.Path[:len(prefix)] == prefix {
-					c.Next()
-					return
-				}
-			}
-			if c.Request.URL.Path == path {
-				c.Next()
-				return
-			}
+		if am.shouldSkipPath(c.Request.URL.Path) {
+			c.Next()
+			return
 		}
 
 		start := time.Now()
-
-		var requestBody []byte
-		if c.Request.Body != nil && (c.Request.Method == "POST" || c.Request.Method == "PUT" || c.Request.Method == "PATCH") {
-			requestBody, _ = io.ReadAll(c.Request.Body)
-			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-		}
+		requestBody := readRequestBody(c)
 
 		blw := &bodyLogWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
 		c.Writer = blw
@@ -70,44 +58,90 @@ func (am *AuditMiddleware) Middleware() gin.HandlerFunc {
 		latency := time.Since(start)
 
 		if c.Writer.Status() >= 400 || am.shouldAudit(c) {
-			userID, username, _ := getUserFromContext(c)
-
-			action := am.detectAction(c)
-			resource := am.detectResource(c)
-			resourceID := am.detectResourceID(c)
-
-			detail := am.buildDetail(c, latency)
-
-			var oldData, newData interface{}
-			if len(requestBody) > 0 {
-				var data map[string]interface{}
-				if json.Unmarshal(requestBody, &data) == nil {
-					newData = am.sanitizeData(data)
-				}
-			}
-
-			status := "success"
-			if c.Writer.Status() >= 400 {
-				status = "failed"
-			}
-
-			am.logger.Log(LogEntry{
-				Timestamp:  time.Now(),
-				UserID:     userID,
-				Username:   username,
-				IP:         c.ClientIP(),
-				UserAgent:  c.Request.UserAgent(),
-				Action:     action,
-				Resource:   resource,
-				ResourceID: resourceID,
-				Detail:     detail,
-				OldData:    oldData,
-				NewData:    newData,
-				Status:     status,
-				Error:      c.Errors.String(),
-			})
+			am.logger.Log(am.buildAuditLogEntry(c, requestBody, latency))
 		}
 	}
+}
+
+func (am *AuditMiddleware) shouldSkipPath(path string) bool {
+	for skipPath := range am.skipPaths {
+		if strings.HasSuffix(skipPath, "*") {
+			prefix := strings.TrimSuffix(skipPath, "*")
+			if strings.HasPrefix(path, prefix) {
+				return true
+			}
+			continue
+		}
+
+		if path == skipPath {
+			return true
+		}
+	}
+
+	return false
+}
+
+func readRequestBody(c *gin.Context) []byte {
+	if c.Request.Body == nil || !shouldReadBody(c.Request.Method) {
+		return nil
+	}
+
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil
+	}
+
+	c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
+	return body
+}
+
+func shouldReadBody(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch:
+		return true
+	default:
+		return false
+	}
+}
+
+func (am *AuditMiddleware) buildAuditLogEntry(c *gin.Context, requestBody []byte, latency time.Duration) LogEntry {
+	userID, username, _ := getUserFromContext(c)
+
+	return LogEntry{
+		Timestamp:  time.Now(),
+		UserID:     userID,
+		Username:   username,
+		IP:         c.ClientIP(),
+		UserAgent:  c.Request.UserAgent(),
+		Action:     am.detectAction(c),
+		Resource:   am.detectResource(c),
+		ResourceID: am.detectResourceID(c),
+		Detail:     am.buildDetail(c, latency),
+		OldData:    nil,
+		NewData:    am.extractNewData(requestBody),
+		Status:     requestStatus(c.Writer.Status()),
+		Error:      c.Errors.String(),
+	}
+}
+
+func requestStatus(statusCode int) string {
+	if statusCode >= http.StatusBadRequest {
+		return "failed"
+	}
+	return "success"
+}
+
+func (am *AuditMiddleware) extractNewData(requestBody []byte) interface{} {
+	if len(requestBody) == 0 {
+		return nil
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(requestBody, &data); err != nil {
+		return nil
+	}
+
+	return am.sanitizeData(data)
 }
 
 func (am *AuditMiddleware) shouldAudit(c *gin.Context) bool {
@@ -232,30 +266,32 @@ func (w bodyLogWriter) Write(b []byte) (int, error) {
 
 func getUserFromContext(c *gin.Context) (userID, username, role string) {
 	if v, exists := c.Get("user_id"); exists {
-		userID = v.(string)
+		if id, ok := v.(string); ok {
+			userID = id
+		}
 	}
 	if v, exists := c.Get("username"); exists {
-		username = v.(string)
+		if name, ok := v.(string); ok {
+			username = name
+		}
 	}
 	if v, exists := c.Get("role"); exists {
-		role = v.(string)
+		if value, ok := v.(string); ok {
+			role = value
+		}
 	}
 	return
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s[:len(substr)] == substr || containsMiddle(s, substr))
+	return strings.Contains(s, substr)
 }
 
 func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, substr)
 }
 
+//nolint:revive // Kept for package API compatibility.
 func AuditHandler(logger *Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {

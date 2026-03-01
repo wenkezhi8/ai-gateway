@@ -1,3 +1,4 @@
+//nolint:godot
 package openai
 
 import (
@@ -76,7 +77,10 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 
 	// Handle error responses
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		if shouldUseResponsesFallback(resp.StatusCode, body) {
 			return a.chatWithResponses(ctx, req)
 		}
@@ -124,7 +128,7 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	openaiReq.Stream = true
 
 	// Make the streaming API call
-	resp, err := a.client.DoStreamRequest(ctx, "POST", "/chat/completions", openaiReq)
+	resp, err := a.client.DoStreamRequest(ctx, "POST", "/chat/completions", openaiReq) //nolint:bodyclose
 	if err != nil {
 		close(chunkChan)
 		return chunkChan, &provider.ProviderError{
@@ -136,7 +140,10 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 
 	// Some OpenAI-compatible backends only support /v1/responses.
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		_ = resp.Body.Close()
 		if shouldUseResponsesFallback(resp.StatusCode, body) {
 			return a.streamViaResponses(ctx, req)
@@ -318,7 +325,14 @@ func (a *Adapter) callResponsesAPI(ctx context.Context, req *provider.ChatReques
 	}
 	defer resp.Body.Close()
 
-	respBytes, _ := io.ReadAll(resp.Body)
+	respBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, &provider.ProviderError{
+			Code:     http.StatusInternalServerError,
+			Message:  fmt.Sprintf("failed to read responses body: %v", readErr),
+			Provider: "openai",
+		}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, providerErrorFromBody(resp.StatusCode, respBytes)
 	}

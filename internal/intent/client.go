@@ -57,12 +57,12 @@ func (c *Client) Enabled() bool {
 }
 
 // Infer sends one-shot query to local intent engine and validates output.
-func (c *Client) Infer(ctx context.Context, query, contextText string) (*IntentEmbeddingResult, error) {
+func (c *Client) Infer(ctx context.Context, query, contextText string) (*EmbeddingResult, error) {
 	if c == nil || !c.cfg.Enabled {
 		return nil, ErrClientDisabled
 	}
 
-	payload := IntentEmbeddingRequest{
+	payload := EmbeddingRequest{
 		Query:   strings.TrimSpace(query),
 		Context: strings.TrimSpace(contextText),
 		Lang:    c.cfg.Language,
@@ -86,35 +86,16 @@ func (c *Client) Infer(ctx context.Context, query, contextText string) (*IntentE
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	result, err := decodeInferResponse(resp)
 	if err != nil {
-		return nil, fmt.Errorf("read intent response: %w", err)
+		return nil, err
 	}
 
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("intent engine status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	if err := c.validateEmbeddingResult(result); err != nil {
+		return nil, err
 	}
 
-	var result IntentEmbeddingResult
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("decode intent response: %w", err)
-	}
-
-	if result.EmbeddingDim <= 0 {
-		result.EmbeddingDim = len(result.Embedding)
-	}
-	if result.Slots == nil {
-		result.Slots = map[string]string{}
-	}
-
-	if c.cfg.ExpectedDimension > 0 && result.EmbeddingDim != c.cfg.ExpectedDimension {
-		return nil, fmt.Errorf("intent embedding dimension mismatch: expected %d got %d", c.cfg.ExpectedDimension, result.EmbeddingDim)
-	}
-	if result.EmbeddingDim > 0 && len(result.Embedding) != result.EmbeddingDim {
-		return nil, fmt.Errorf("intent embedding payload invalid: dim=%d len=%d", result.EmbeddingDim, len(result.Embedding))
-	}
-
-	return &result, nil
+	return result, nil
 }
 
 // Health checks intent-engine health endpoint.
@@ -124,7 +105,7 @@ func (c *Client) Health(ctx context.Context) (map[string]any, error) {
 	}
 
 	endpoint := strings.TrimRight(c.cfg.BaseURL, "/") + "/health"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create health request: %w", err)
 	}
@@ -135,7 +116,10 @@ func (c *Client) Health(ctx context.Context) (map[string]any, error) {
 	}
 	defer resp.Body.Close()
 
-	payload, _ := io.ReadAll(resp.Body)
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read health response: %w", err)
+	}
 	result := map[string]any{
 		"enabled": true,
 		"healthy": resp.StatusCode >= 200 && resp.StatusCode < 300,
@@ -155,3 +139,38 @@ func (c *Client) Health(ctx context.Context) (map[string]any, error) {
 	return result, nil
 }
 
+func decodeInferResponse(resp *http.Response) (*EmbeddingResult, error) {
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read intent response: %w", err)
+	}
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("intent engine status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var result EmbeddingResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decode intent response: %w", err)
+	}
+
+	if result.EmbeddingDim <= 0 {
+		result.EmbeddingDim = len(result.Embedding)
+	}
+	if result.Slots == nil {
+		result.Slots = map[string]string{}
+	}
+
+	return &result, nil
+}
+
+func (c *Client) validateEmbeddingResult(result *EmbeddingResult) error {
+	if c.cfg.ExpectedDimension > 0 && result.EmbeddingDim != c.cfg.ExpectedDimension {
+		return fmt.Errorf("intent embedding dimension mismatch: expected %d got %d", c.cfg.ExpectedDimension, result.EmbeddingDim)
+	}
+	if result.EmbeddingDim > 0 && len(result.Embedding) != result.EmbeddingDim {
+		return fmt.Errorf("intent embedding payload invalid: dim=%d len=%d", result.EmbeddingDim, len(result.Embedding))
+	}
+
+	return nil
+}

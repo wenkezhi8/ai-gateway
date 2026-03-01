@@ -102,49 +102,9 @@ func InitProviderRegistry(cfg *config.Config, logger *logrus.Logger) *provider.R
 
 func InitAccountManager(cfg *config.Config, logger *logrus.Logger) *limiter.AccountManager {
 	accountManager := limiter.NewAccountManager(nil, nil)
-	for _, acc := range cfg.Accounts {
-		accountConfig := &limiter.AccountConfig{
-			ID:       acc.ID,
-			Name:     acc.Name,
-			Provider: acc.Provider,
-			APIKey:   acc.APIKey,
-			BaseURL:  acc.BaseURL,
-			Enabled:  acc.Enabled,
-			Priority: acc.Priority,
-			Limits:   make(map[limiter.LimitType]*limiter.LimitConfig),
-		}
-		for _, limitCfg := range acc.Limits {
-			var limitType limiter.LimitType
-			switch limitCfg.Type {
-			case "token":
-				limitType = limiter.LimitTypeToken
-			case "rpm":
-				limitType = limiter.LimitTypeRPM
-			default:
-				continue
-			}
-
-			var period limiter.Period
-			switch limitCfg.Period {
-			case "minute":
-				period = limiter.PeriodMinute
-			case "hour":
-				period = limiter.PeriodHour
-			case "day":
-				period = limiter.PeriodDay
-			case "month":
-				period = limiter.PeriodMonth
-			default:
-				period = limiter.PeriodDay
-			}
-
-			accountConfig.Limits[limitType] = &limiter.LimitConfig{
-				Type:    limitType,
-				Period:  period,
-				Limit:   limitCfg.Limit,
-				Warning: limitCfg.Warning,
-			}
-		}
+	for i := range cfg.Accounts {
+		acc := &cfg.Accounts[i]
+		accountConfig := buildAccountConfig(acc)
 
 		if err := accountManager.AddAccount(accountConfig); err != nil {
 			logger.WithError(err).Warnf("Failed to add account %s", acc.ID)
@@ -158,19 +118,7 @@ func InitAccountManager(cfg *config.Config, logger *logrus.Logger) *limiter.Acco
 		logger.WithError(err).Warn("Failed to load persisted accounts")
 	} else {
 		for _, acc := range persistedAccounts {
-			if _, err := accountManager.GetAccount(acc.ID); err == nil {
-				if err := accountManager.UpdateAccount(acc); err != nil {
-					logger.WithError(err).Warnf("Failed to update persisted account %s", acc.ID)
-				} else {
-					logger.Infof("Updated account from persistence: %s (enabled: %v)", acc.ID, acc.Enabled)
-				}
-			} else {
-				if err := accountManager.AddAccount(acc); err != nil {
-					logger.WithError(err).Warnf("Failed to add persisted account %s", acc.ID)
-				} else {
-					logger.Infof("Loaded persisted account: %s (%s)", acc.ID, acc.Provider)
-				}
-			}
+			upsertPersistedAccount(accountManager, acc, logger)
 		}
 	}
 
@@ -249,7 +197,9 @@ func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager 
 
 			tieredCfg := cache.TieredConfigFromSettings(cacheManager.GetSettings())
 			tieredStore := cache.NewTieredVectorStore(hotStore, coldStores, tieredCfg)
-			_ = tieredStore.EnsureIndex(context.Background())
+			if err := tieredStore.EnsureIndex(context.Background()); err != nil {
+				logger.WithError(err).Warn("Failed to ensure tiered vector store index")
+			}
 			tieredStore.StartHotToColdWorker(context.Background())
 			cacheManager.SetTieredVectorStore(tieredStore)
 
@@ -266,6 +216,78 @@ func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager 
 	}
 
 	return cacheManager
+}
+
+func buildAccountConfig(acc *config.AccountConfig) *limiter.AccountConfig {
+	accountConfig := &limiter.AccountConfig{
+		ID:       acc.ID,
+		Name:     acc.Name,
+		Provider: acc.Provider,
+		APIKey:   acc.APIKey,
+		BaseURL:  acc.BaseURL,
+		Enabled:  acc.Enabled,
+		Priority: acc.Priority,
+		Limits:   make(map[limiter.LimitType]*limiter.LimitConfig),
+	}
+
+	for _, limitCfg := range acc.Limits {
+		limitType, ok := mapLimitType(limitCfg.Type)
+		if !ok {
+			continue
+		}
+
+		accountConfig.Limits[limitType] = &limiter.LimitConfig{
+			Type:    limitType,
+			Period:  mapLimitPeriod(limitCfg.Period),
+			Limit:   limitCfg.Limit,
+			Warning: limitCfg.Warning,
+		}
+	}
+
+	return accountConfig
+}
+
+func mapLimitType(limitType string) (limiter.LimitType, bool) {
+	switch limitType {
+	case "token":
+		return limiter.LimitTypeToken, true
+	case "rpm":
+		return limiter.LimitTypeRPM, true
+	default:
+		return "", false
+	}
+}
+
+func mapLimitPeriod(period string) limiter.Period {
+	switch period {
+	case "minute":
+		return limiter.PeriodMinute
+	case "hour":
+		return limiter.PeriodHour
+	case "day":
+		return limiter.PeriodDay
+	case "month":
+		return limiter.PeriodMonth
+	default:
+		return limiter.PeriodDay
+	}
+}
+
+func upsertPersistedAccount(accountManager *limiter.AccountManager, acc *limiter.AccountConfig, logger *logrus.Logger) {
+	if _, getErr := accountManager.GetAccount(acc.ID); getErr == nil {
+		if err := accountManager.UpdateAccount(acc); err != nil {
+			logger.WithError(err).Warnf("Failed to update persisted account %s", acc.ID)
+		} else {
+			logger.Infof("Updated account from persistence: %s (enabled: %v)", acc.ID, acc.Enabled)
+		}
+		return
+	}
+
+	if err := accountManager.AddAccount(acc); err != nil {
+		logger.WithError(err).Warnf("Failed to add persisted account %s", acc.ID)
+	} else {
+		logger.Infof("Loaded persisted account: %s (%s)", acc.ID, acc.Provider)
+	}
 }
 
 func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Config) {

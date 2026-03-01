@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ApiKey struct {
+type APIKey struct {
 	ID          string     `json:"id"`
 	Name        string     `json:"name"`
 	Key         string     `json:"key"`
@@ -23,39 +23,39 @@ type ApiKey struct {
 	Enabled     bool       `json:"enabled"`
 }
 
-type ApiKeyCreateRequest struct {
+type APIKeyCreateRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 }
 
-type ApiKeyUpdateRequest struct {
+type APIKeyUpdateRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Enabled     *bool  `json:"enabled"`
 }
 
-type ApiKeyHandler struct {
+type APIKeyHandler struct {
 	mu       sync.RWMutex
-	store    map[string]*ApiKey
+	store    map[string]*APIKey
 	dataFile string
 }
 
-func NewApiKeyHandler() *ApiKeyHandler {
-	h := &ApiKeyHandler{
-		store:    make(map[string]*ApiKey),
+func NewAPIKeyHandler() *APIKeyHandler {
+	h := &APIKeyHandler{
+		store:    make(map[string]*APIKey),
 		dataFile: "./data/api_keys.json",
 	}
 	h.loadFromFile()
 	return h
 }
 
-func (h *ApiKeyHandler) loadFromFile() {
+func (h *APIKeyHandler) loadFromFile() {
 	data, err := os.ReadFile(h.dataFile)
 	if err != nil {
 		return
 	}
 
-	var keys []*ApiKey
+	var keys []*APIKey
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return
 	}
@@ -65,8 +65,8 @@ func (h *ApiKeyHandler) loadFromFile() {
 	}
 }
 
-func (h *ApiKeyHandler) saveToFile() error {
-	keys := make([]*ApiKey, 0, len(h.store))
+func (h *APIKeyHandler) saveToFile() error {
+	keys := make([]*APIKey, 0, len(h.store))
 	for _, k := range h.store {
 		keys = append(keys, k)
 	}
@@ -81,33 +81,30 @@ func (h *ApiKeyHandler) saveToFile() error {
 		return err
 	}
 
-	return os.WriteFile(h.dataFile, data, 0644)
+	return os.WriteFile(h.dataFile, data, 0640)
 }
 
-func generateApiKey() string {
+func generateAPIKey() (string, error) {
 	b := make([]byte, 24)
-	rand.Read(b)
-	return "sk-" + hex.EncodeToString(b)
-}
-
-func randomString(n int) string {
-	b := make([]byte, n)
-	rand.Read(b)
-	return hex.EncodeToString(b)[:n]
-}
-
-func maskKey(key string) string {
-	if len(key) <= 12 {
-		return "****"
+	if _, err := rand.Read(b); err != nil {
+		return "", err
 	}
-	return key[:8] + "..." + key[len(key)-4:]
+	return "sk-" + hex.EncodeToString(b), nil
 }
 
-func (h *ApiKeyHandler) ListApiKeys(c *gin.Context) {
+func randomString(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b)[:n], nil
+}
+
+func (h *APIKeyHandler) ListAPIKeys(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	keys := make([]*ApiKey, 0, len(h.store))
+	keys := make([]*APIKey, 0, len(h.store))
 	for _, k := range h.store {
 		keyCopy := *k
 		keys = append(keys, &keyCopy)
@@ -120,7 +117,7 @@ func (h *ApiKeyHandler) ListApiKeys(c *gin.Context) {
 }
 
 // FindNameByKey returns the API key name for display purposes.
-func (h *ApiKeyHandler) FindNameByKey(apiKey string) string {
+func (h *APIKeyHandler) FindNameByKey(apiKey string) string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -132,7 +129,7 @@ func (h *ApiKeyHandler) FindNameByKey(apiKey string) string {
 	return ""
 }
 
-func (h *ApiKeyHandler) GetApiKey(c *gin.Context) {
+func (h *APIKeyHandler) GetAPIKey(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -153,8 +150,8 @@ func (h *ApiKeyHandler) GetApiKey(c *gin.Context) {
 	})
 }
 
-func (h *ApiKeyHandler) CreateApiKey(c *gin.Context) {
-	var req ApiKeyCreateRequest
+func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
+	var req APIKeyCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -167,17 +164,42 @@ func (h *ApiKeyHandler) CreateApiKey(c *gin.Context) {
 	defer h.mu.Unlock()
 
 	now := time.Now()
-	key := &ApiKey{
-		ID:          "key_" + now.Format("20060102150405") + "_" + randomString(4),
+	randomSuffix, err := randomString(4)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "generate_failed", "message": "Failed to generate key id"},
+		})
+		return
+	}
+
+	apiKey, err := generateAPIKey()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "generate_failed", "message": "Failed to generate API key"},
+		})
+		return
+	}
+
+	key := &APIKey{
+		ID:          "key_" + now.Format("20060102150405") + "_" + randomSuffix,
 		Name:        req.Name,
-		Key:         generateApiKey(),
+		Key:         apiKey,
 		Description: req.Description,
 		CreatedAt:   now,
 		Enabled:     true,
 	}
 
 	h.store[key.ID] = key
-	h.saveToFile()
+	if err := h.saveToFile(); err != nil {
+		delete(h.store, key.ID)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "persist_failed", "message": "Failed to persist API key"},
+		})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"success": true,
@@ -190,7 +212,7 @@ func (h *ApiKeyHandler) CreateApiKey(c *gin.Context) {
 	})
 }
 
-func (h *ApiKeyHandler) UpdateApiKey(c *gin.Context) {
+func (h *APIKeyHandler) UpdateAPIKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -205,7 +227,7 @@ func (h *ApiKeyHandler) UpdateApiKey(c *gin.Context) {
 		return
 	}
 
-	var req ApiKeyUpdateRequest
+	var req APIKeyUpdateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -224,7 +246,13 @@ func (h *ApiKeyHandler) UpdateApiKey(c *gin.Context) {
 		key.Enabled = *req.Enabled
 	}
 
-	h.saveToFile()
+	if err := h.saveToFile(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "persist_failed", "message": "Failed to persist API key"},
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -236,7 +264,7 @@ func (h *ApiKeyHandler) UpdateApiKey(c *gin.Context) {
 	})
 }
 
-func (h *ApiKeyHandler) DeleteApiKey(c *gin.Context) {
+func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -250,8 +278,16 @@ func (h *ApiKeyHandler) DeleteApiKey(c *gin.Context) {
 		return
 	}
 
+	key := h.store[id]
 	delete(h.store, id)
-	h.saveToFile()
+	if err := h.saveToFile(); err != nil {
+		h.store[id] = key
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "persist_failed", "message": "Failed to persist API key"},
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -259,7 +295,7 @@ func (h *ApiKeyHandler) DeleteApiKey(c *gin.Context) {
 	})
 }
 
-func (h *ApiKeyHandler) ValidateApiKey(apiKey string) bool {
+func (h *APIKeyHandler) ValidateAPIKey(apiKey string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -267,7 +303,9 @@ func (h *ApiKeyHandler) ValidateApiKey(apiKey string) bool {
 		if k.Key == apiKey && k.Enabled {
 			now := time.Now()
 			k.LastUsed = &now
-			h.saveToFile()
+			if err := h.saveToFile(); err != nil {
+				return false
+			}
 			return true
 		}
 	}

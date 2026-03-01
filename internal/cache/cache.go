@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Cache defines the interface for caching
+// Cache defines the interface for caching.
 type Cache interface {
 	Get(ctx context.Context, key string, dest interface{}) error
 	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
@@ -18,7 +18,7 @@ type Cache interface {
 	Keys(pattern string) []string
 }
 
-// ResponseCache provides caching for AI responses
+// ResponseCache provides caching for AI responses.
 type ResponseCache struct {
 	cache  Cache
 	ttl    time.Duration
@@ -26,7 +26,7 @@ type ResponseCache struct {
 	stats  *Stats
 }
 
-// NewResponseCache creates a new response cache
+// NewResponseCache creates a new response cache.
 func NewResponseCache(cache Cache, ttl time.Duration) *ResponseCache {
 	return &ResponseCache{
 		cache:  cache,
@@ -36,7 +36,7 @@ func NewResponseCache(cache Cache, ttl time.Duration) *ResponseCache {
 	}
 }
 
-// CachedResponse represents a cached AI response
+// CachedResponse represents a cached AI response.
 type CachedResponse struct {
 	StatusCode     int               `json:"status_code"`
 	Headers        map[string]string `json:"headers"`
@@ -51,7 +51,7 @@ type CachedResponse struct {
 	TaskTypeSource string            `json:"task_type_source,omitempty"`
 }
 
-// GenerateKey creates a cache key from request parameters
+// GenerateKey creates a cache key from request parameters.
 func (c *ResponseCache) GenerateKey(provider, model string, request interface{}) (string, error) {
 	data, err := json.Marshal(request)
 	if err != nil {
@@ -64,7 +64,7 @@ func (c *ResponseCache) GenerateKey(provider, model string, request interface{})
 	return c.prefix + provider + ":" + model + ":" + hashStr, nil
 }
 
-// Get retrieves a cached response
+// Get retrieves a cached response.
 func (c *ResponseCache) Get(ctx context.Context, key string) (*CachedResponse, error) {
 	start := time.Now()
 	var cached CachedResponse
@@ -81,36 +81,36 @@ func (c *ResponseCache) Get(ctx context.Context, key string) (*CachedResponse, e
 	return &cached, nil
 }
 
-// Set stores a response in cache
+// Set stores a response in cache.
 func (c *ResponseCache) Set(ctx context.Context, key string, response *CachedResponse) error {
 	return c.cache.Set(ctx, key, response, c.ttl)
 }
 
-// SetWithTTL stores a response in cache with a custom TTL
+// SetWithTTL stores a response in cache with a custom TTL.
 func (c *ResponseCache) SetWithTTL(ctx context.Context, key string, response *CachedResponse, ttl time.Duration) error {
 	return c.cache.Set(ctx, key, response, ttl)
 }
 
-// SetDefaultTTL updates the default TTL for response cache
+// SetDefaultTTL updates the default TTL for response cache.
 func (c *ResponseCache) SetDefaultTTL(ttl time.Duration) {
 	if ttl > 0 {
 		c.ttl = ttl
 	}
 }
 
-// GetStats returns response cache statistics
+// GetStats returns response cache statistics.
 func (c *ResponseCache) GetStats() StatsSnapshot {
 	return c.stats.Snapshot()
 }
 
-// Delete removes a cached response
+// Delete removes a cached response.
 func (c *ResponseCache) Delete(ctx context.Context, key string) error {
 	return c.cache.Delete(ctx, key)
 }
 
-// IsCacheable checks if a request is cacheable
+// IsCacheable checks if a request is cacheable.
 func (c *ResponseCache) IsCacheable(request interface{}) bool {
-	// Non-streaming requests with deterministic parameters are cacheable
+	// Non-streaming requests with deterministic parameters are cacheable.
 	type cacheable interface {
 		IsStream() bool
 	}

@@ -1,3 +1,4 @@
+//nolint:godot
 package provider
 
 import (

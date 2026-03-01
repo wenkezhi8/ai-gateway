@@ -16,7 +16,7 @@ func TestHealthHandler_CheckReady_Ready(t *testing.T) {
 	r.GET("/ready", h.CheckReady)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -31,7 +31,7 @@ func TestHealthHandler_CheckReady_NotReady(t *testing.T) {
 	r.GET("/ready", h.CheckReady)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ready", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusServiceUnavailable {

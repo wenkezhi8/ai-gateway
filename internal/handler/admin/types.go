@@ -4,7 +4,7 @@ import "time"
 
 // Account management types
 
-// AccountRequest represents a request to create/update an account
+// AccountRequest represents a request to create/update an account.
 type AccountRequest struct {
 	ID                string                 `json:"id"`
 	Name              string                 `json:"name"`
@@ -17,7 +17,7 @@ type AccountRequest struct {
 	CodingPlanEnabled *bool                  `json:"coding_plan_enabled,omitempty"`
 }
 
-// LimitConfig represents a limit configuration
+// LimitConfig represents a limit configuration.
 type LimitConfig struct {
 	Type    string  `json:"type"`    // token, rpm, concurrent, request
 	Period  string  `json:"period"`  // minute, hour, 5hour, day, week, month
@@ -25,10 +25,10 @@ type LimitConfig struct {
 	Warning float64 `json:"warning"` // warning threshold
 }
 
-// LimitConfigMap is a map of limit type to config (for JSON serialization)
+// LimitConfigMap is a map of limit type to config (for JSON serialization).
 type LimitConfigMap map[string]LimitConfig
 
-// AccountResponse represents an account in responses
+// AccountResponse represents an account in responses.
 type AccountResponse struct {
 	ID                string                 `json:"id"`
 	Name              string                 `json:"name"`
@@ -45,7 +45,7 @@ type AccountResponse struct {
 	CodingPlanEnabled bool                   `json:"coding_plan_enabled,omitempty"`
 }
 
-// AccountUsageResponse represents account usage data
+// AccountUsageResponse represents account usage data.
 type AccountUsageResponse struct {
 	TokensUsed    int64   `json:"tokens_used"`
 	TokenLimit    int64   `json:"token_limit"`
@@ -68,7 +68,7 @@ type AccountUsageResponse struct {
 
 // Provider management types
 
-// ProviderRequest represents a request to add/update a provider
+// ProviderRequest represents a request to add/update a provider.
 type ProviderRequest struct {
 	Name    string                 `json:"name"`
 	APIKey  string                 `json:"api_key"`
@@ -78,7 +78,7 @@ type ProviderRequest struct {
 	Extra   map[string]interface{} `json:"extra,omitempty"`
 }
 
-// ProviderResponse represents a provider in responses
+// ProviderResponse represents a provider in responses.
 type ProviderResponse struct {
 	Name         string    `json:"name"`
 	BaseURL      string    `json:"base_url"`
@@ -89,7 +89,7 @@ type ProviderResponse struct {
 	LastCheck    time.Time `json:"last_check,omitempty"`
 }
 
-// ProviderTestResult represents provider connectivity test result
+// ProviderTestResult represents provider connectivity test result.
 type ProviderTestResult struct {
 	Success      bool      `json:"success"`
 	Message      string    `json:"message"`
@@ -99,7 +99,7 @@ type ProviderTestResult struct {
 
 // Routing types
 
-// RoutingConfig represents routing strategy configuration
+// RoutingConfig represents routing strategy configuration.
 type RoutingConfig struct {
 	DefaultStrategy string            `json:"default_strategy"`
 	ModelStrategies map[string]string `json:"model_strategies,omitempty"`
@@ -107,7 +107,7 @@ type RoutingConfig struct {
 	FailoverConfig  *FailoverConfig   `json:"failover_config,omitempty"`
 }
 
-// FailoverConfig represents failover settings
+// FailoverConfig represents failover settings.
 type FailoverConfig struct {
 	MaxRetries       int  `json:"max_retries"`
 	RetryDelayMs     int  `json:"retry_delay_ms"`
@@ -118,7 +118,7 @@ type FailoverConfig struct {
 
 // Cache types
 
-// CacheStatsResponse represents cache statistics
+// CacheStatsResponse represents cache statistics.
 type CacheStatsResponse struct {
 	RequestCache  CacheStatDetail `json:"request_cache"`
 	ContextCache  CacheStatDetail `json:"context_cache"`
@@ -131,7 +131,7 @@ type CacheStatsResponse struct {
 	RedisHitRate  float64         `json:"redis_hit_rate,omitempty"`
 }
 
-// CacheStatDetail represents detailed cache statistics
+// CacheStatDetail represents detailed cache statistics.
 type CacheStatDetail struct {
 	Hits         int64   `json:"hits"`
 	Misses       int64   `json:"misses"`
@@ -143,42 +143,42 @@ type CacheStatDetail struct {
 	Evictions    int64   `json:"evictions"`
 }
 
-// CacheConfigRequest represents cache configuration update
+// CacheConfigRequest represents cache configuration update.
 type CacheConfigRequest struct {
-	Enabled                       *bool              `json:"enabled"`
-	Strategy                      *string            `json:"strategy"`
-	SimilarityThreshold           *float64           `json:"similarity_threshold"`
-	DefaultTTLSeconds             *int               `json:"default_ttl_seconds"`
-	MaxEntries                    *int               `json:"max_entries"`
-	EvictionPolicy                *string            `json:"eviction_policy"`
-	VectorEnabled                 *bool              `json:"vector_enabled"`
-	VectorDimension               *int               `json:"vector_dimension"`
-	VectorQueryTimeoutMs          *int               `json:"vector_query_timeout_ms"`
-	VectorThresholds              map[string]float64 `json:"vector_thresholds"`
-	VectorPipelineEnabled         *bool              `json:"vector_pipeline_enabled"`
-	VectorStandardKeyVersion      *string            `json:"vector_standard_key_version"`
-	VectorEmbeddingProvider       *string            `json:"vector_embedding_provider"`
-	VectorOllamaBaseURL           *string            `json:"vector_ollama_base_url"`
-	VectorOllamaEmbeddingModel    *string            `json:"vector_ollama_embedding_model"`
-	VectorOllamaEmbeddingDimension *int              `json:"vector_ollama_embedding_dimension"`
-	VectorOllamaEmbeddingTimeoutMs *int              `json:"vector_ollama_embedding_timeout_ms"`
-	VectorOllamaEndpointMode      *string            `json:"vector_ollama_endpoint_mode"`
-	VectorWritebackEnabled        *bool              `json:"vector_writeback_enabled"`
-	ColdVectorEnabled             *bool              `json:"cold_vector_enabled"`
-	ColdVectorQueryEnabled        *bool              `json:"cold_vector_query_enabled"`
-	ColdVectorBackend             *string            `json:"cold_vector_backend"`
-	ColdVectorDualWriteEnabled    *bool              `json:"cold_vector_dual_write_enabled"`
-	ColdVectorSimilarityThreshold *float64           `json:"cold_vector_similarity_threshold"`
-	ColdVectorTopK                *int               `json:"cold_vector_top_k"`
-	HotMemoryHighWatermarkPercent *float64           `json:"hot_memory_high_watermark_percent"`
-	HotMemoryReliefPercent        *float64           `json:"hot_memory_relief_percent"`
-	HotToColdBatchSize            *int               `json:"hot_to_cold_batch_size"`
-	HotToColdIntervalSeconds      *int               `json:"hot_to_cold_interval_seconds"`
-	ColdVectorQdrantURL           *string            `json:"cold_vector_qdrant_url"`
-	ColdVectorQdrantAPIKey        *string            `json:"cold_vector_qdrant_api_key"`
-	ColdVectorQdrantCollection    *string            `json:"cold_vector_qdrant_collection"`
-	ColdVectorQdrantTimeoutMs     *int               `json:"cold_vector_qdrant_timeout_ms"`
-	Dedup                         *struct {
+	Enabled                        *bool              `json:"enabled"`
+	Strategy                       *string            `json:"strategy"`
+	SimilarityThreshold            *float64           `json:"similarity_threshold"`
+	DefaultTTLSeconds              *int               `json:"default_ttl_seconds"`
+	MaxEntries                     *int               `json:"max_entries"`
+	EvictionPolicy                 *string            `json:"eviction_policy"`
+	VectorEnabled                  *bool              `json:"vector_enabled"`
+	VectorDimension                *int               `json:"vector_dimension"`
+	VectorQueryTimeoutMs           *int               `json:"vector_query_timeout_ms"`
+	VectorThresholds               map[string]float64 `json:"vector_thresholds"`
+	VectorPipelineEnabled          *bool              `json:"vector_pipeline_enabled"`
+	VectorStandardKeyVersion       *string            `json:"vector_standard_key_version"`
+	VectorEmbeddingProvider        *string            `json:"vector_embedding_provider"`
+	VectorOllamaBaseURL            *string            `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel     *string            `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension *int               `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs *int               `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode       *string            `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled         *bool              `json:"vector_writeback_enabled"`
+	ColdVectorEnabled              *bool              `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled         *bool              `json:"cold_vector_query_enabled"`
+	ColdVectorBackend              *string            `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled     *bool              `json:"cold_vector_dual_write_enabled"`
+	ColdVectorSimilarityThreshold  *float64           `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                 *int               `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent  *float64           `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent         *float64           `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize             *int               `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds       *int               `json:"hot_to_cold_interval_seconds"`
+	ColdVectorQdrantURL            *string            `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey         *string            `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection     *string            `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs      *int               `json:"cold_vector_qdrant_timeout_ms"`
+	Dedup                          *struct {
 		Enabled               *bool `json:"enabled"`
 		MaxPending            *int  `json:"max_pending"`
 		RequestTimeoutSeconds *int  `json:"request_timeout_seconds"`
@@ -191,7 +191,7 @@ type CacheConfigRequest struct {
 
 // Dashboard types
 
-// DashboardStats represents dashboard overview statistics
+// DashboardStats represents dashboard overview statistics.
 type DashboardStats struct {
 	TotalRequests   int64          `json:"total_requests"`
 	RequestsToday   int64          `json:"requests_today"`
@@ -205,7 +205,7 @@ type DashboardStats struct {
 	TopModels       []ModelStat    `json:"top_models"`
 }
 
-// ProviderStat represents provider statistics
+// ProviderStat represents provider statistics.
 type ProviderStat struct {
 	Name        string  `json:"name"`
 	Requests    int64   `json:"requests"`
@@ -214,14 +214,14 @@ type ProviderStat struct {
 	AvgLatency  int64   `json:"avg_latency_ms"`
 }
 
-// ModelStat represents model usage statistics
+// ModelStat represents model usage statistics.
 type ModelStat struct {
 	Name     string `json:"name"`
 	Requests int64  `json:"requests"`
 	Tokens   int64  `json:"tokens"`
 }
 
-// RequestTrend represents request trend data point
+// RequestTrend represents request trend data point.
 type RequestTrend struct {
 	Timestamp time.Time `json:"timestamp"`
 	Requests  int64     `json:"requests"`
@@ -230,7 +230,7 @@ type RequestTrend struct {
 	Latency   int64     `json:"avg_latency_ms"`
 }
 
-// AlertListItem represents an alert in list responses
+// AlertListItem represents an alert in list responses.
 type AlertListItem struct {
 	ID           string    `json:"id"`
 	Type         string    `json:"type"`
@@ -244,7 +244,7 @@ type AlertListItem struct {
 
 // Gateway management types
 
-// GatewayRequest represents a request to create/update a gateway
+// GatewayRequest represents a request to create/update a gateway.
 type GatewayRequest struct {
 	ID                  string `json:"id"`
 	Name                string `json:"name"`
@@ -259,7 +259,7 @@ type GatewayRequest struct {
 	HealthCheckInterval int    `json:"health_check_interval"`
 }
 
-// GatewayResponse represents a gateway in responses
+// GatewayResponse represents a gateway in responses.
 type GatewayResponse struct {
 	ID                  string    `json:"id"`
 	Name                string    `json:"name"`
@@ -280,7 +280,7 @@ type GatewayResponse struct {
 	UpdatedAt           time.Time `json:"updated_at"`
 }
 
-// GatewayTestResult represents gateway connectivity test result
+// GatewayTestResult represents gateway connectivity test result.
 type GatewayTestResult struct {
 	Success   bool      `json:"success"`
 	Latency   int64     `json:"latency"`
@@ -288,7 +288,7 @@ type GatewayTestResult struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// GatewayHealthHistory represents gateway health check history
+// GatewayHealthHistory represents gateway health check history.
 type GatewayHealthHistory struct {
 	Timestamp time.Time `json:"timestamp"`
 	Healthy   bool      `json:"healthy"`

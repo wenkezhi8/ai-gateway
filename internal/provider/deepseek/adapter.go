@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"ai-gateway/internal/provider"
@@ -17,7 +16,6 @@ import (
 type Adapter struct {
 	*provider.BaseProvider
 	client *Client
-	mu     sync.RWMutex
 }
 
 func NewAdapter(cfg *provider.ProviderConfig) *Adapter {
@@ -61,7 +59,10 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		var errResp ChatResponse
 		if json.Unmarshal(body, &errResp) == nil && errResp.Error != nil {
 			errResp.Error.StatusCode = resp.StatusCode
@@ -102,13 +103,28 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	dsReq := ConvertRequest(req)
 	dsReq.Stream = true
 
-	resp, err := a.client.DoStreamRequest(ctx, "POST", "/v1/chat/completions", dsReq)
+	resp, err := a.client.DoStreamRequest(ctx, "POST", "/v1/chat/completions", dsReq) //nolint:bodyclose
 	if err != nil {
 		close(chunkChan)
 		return chunkChan, &provider.ProviderError{
 			Code:     http.StatusInternalServerError,
 			Message:  fmt.Sprintf("failed to make stream request: %v", err),
 			Provider: "deepseek",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
+		close(chunkChan)
+		return chunkChan, &provider.ProviderError{
+			Code:      resp.StatusCode,
+			Message:   string(body),
+			Provider:  "deepseek",
+			Retryable: isRetryableError(resp.StatusCode),
 		}
 	}
 

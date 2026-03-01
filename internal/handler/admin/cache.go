@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"ai-gateway/internal/cache"
-	"ai-gateway/internal/routing"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,13 +13,16 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/routing"
+
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
 var cacheTaskTypeAssessor = routing.NewDifficultyAssessor()
 
-// CacheHandler handles cache management requests
+// CacheHandler handles cache management requests.
 type CacheHandler struct {
 	manager           *cache.Manager
 	settings          cache.CacheSettings
@@ -32,7 +33,13 @@ type CacheHandler struct {
 const emptyResponseCleanupInterval = 15 * time.Minute
 const defaultRuntimeConfigPath = "./configs/config.json"
 
-// NewCacheHandler creates a new cache handler
+const (
+	vectorEmbeddingProviderOllama = "ollama"
+	taskTypeUnknown               = "unknown"
+	taskTypeSourceHeuristic       = "heuristic"
+)
+
+// NewCacheHandler creates a new cache handler.
 func NewCacheHandler(manager *cache.Manager) *CacheHandler {
 	h := &CacheHandler{
 		manager:  manager,
@@ -42,7 +49,7 @@ func NewCacheHandler(manager *cache.Manager) *CacheHandler {
 	return h
 }
 
-// SetModelMappingCache sets the model mapping cache
+// SetModelMappingCache sets the model mapping cache.
 func (h *CacheHandler) SetModelMappingCache(mmc *cache.ModelMappingCache) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -75,8 +82,7 @@ func (h *CacheHandler) startEmptyResponseCleaner() {
 	}()
 }
 
-// GetCacheStats returns cache statistics
-// GET /api/admin/cache/stats
+// GET /api/admin/cache/stats.
 func (h *CacheHandler) GetCacheStats(c *gin.Context) {
 	allStats := h.manager.GetAllStats()
 
@@ -167,23 +173,25 @@ func (h *CacheHandler) GetCacheStats(c *gin.Context) {
 	})
 }
 
-func parseRedisHitStats(info string) (int64, int64) {
-	var hits int64
-	var misses int64
+func parseRedisHitStats(info string) (hits, misses int64) {
 	lines := strings.Split(info, "\n")
 	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(line, "keyspace_hits:") {
-			fmt.Sscanf(strings.TrimSpace(line), "keyspace_hits:%d", &hits)
+			if _, err := fmt.Sscanf(trimmed, "keyspace_hits:%d", &hits); err != nil {
+				continue
+			}
 		}
 		if strings.HasPrefix(line, "keyspace_misses:") {
-			fmt.Sscanf(strings.TrimSpace(line), "keyspace_misses:%d", &misses)
+			if _, err := fmt.Sscanf(trimmed, "keyspace_misses:%d", &misses); err != nil {
+				continue
+			}
 		}
 	}
 	return hits, misses
 }
 
-// ClearCache clears all caches
-// DELETE /api/admin/cache
+// DELETE /api/admin/cache.
 func (h *CacheHandler) ClearCache(c *gin.Context) {
 	cacheType := c.Query("type") // request, context, route, usage, response, all
 
@@ -234,8 +242,9 @@ func (h *CacheHandler) ClearCache(c *gin.Context) {
 	})
 }
 
-// UpdateCacheConfig updates cache configuration
-// PUT /api/admin/cache/config
+// PUT /api/admin/cache/config.
+//
+//nolint:gocyclo // Backward-compatible field-by-field validation/update for many optional settings.
 func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	var req CacheConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -276,7 +285,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		value := *req.SimilarityThreshold
 		// Allow 0-100 input from UI
 		if value > 1 {
-			value = value / 100
+			value /= 100
 		}
 		if value < 0 {
 			value = 0
@@ -333,7 +342,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	}
 	if req.VectorEmbeddingProvider != nil {
 		value := strings.ToLower(strings.TrimSpace(*req.VectorEmbeddingProvider))
-		if value != "ollama" {
+		if value != vectorEmbeddingProviderOllama {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"success": false,
 				"error": gin.H{
@@ -442,7 +451,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	if req.ColdVectorSimilarityThreshold != nil {
 		value := *req.ColdVectorSimilarityThreshold
 		if value > 1 {
-			value = value / 100
+			value /= 100
 		}
 		if value < 0 {
 			value = 0
@@ -536,7 +545,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		h.manager.RouteCache.SetDefaultTTL(time.Duration(*req.RouteTTL) * time.Second)
 	}
 
-	if err := persistVectorCacheSettings(settings); err != nil {
+	if err := persistVectorCacheSettings(&settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -558,41 +567,51 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	})
 }
 
-// GetVectorTierStats returns hot/cold tier runtime stats.
-// GET /api/admin/cache/vector/tier/stats
+// GET /api/admin/cache/vector/tier/stats.
 func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"enabled": false,
-				"message": "tiered vector store is not initialized",
-			},
-		})
+		respondVectorStoreUnavailable(c, "tiered vector store is not initialized")
 		return
 	}
 
 	stats, err := store.TierStats(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "vector_tier_stats_failed",
-				"message": err.Error(),
-			},
-		})
+		respondVectorStoreStatsError(c, "vector_tier_stats_failed", err)
 		return
 	}
 
+	respondVectorStoreStatsSuccess(c, stats)
+}
+
+func respondVectorStoreUnavailable(c *gin.Context, message string) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"enabled": false,
+			"message": message,
+		},
+	})
+}
+
+func respondVectorStoreStatsError(c *gin.Context, code string, err error) {
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"success": false,
+		"error": gin.H{
+			"code":    code,
+			"message": err.Error(),
+		},
+	})
+}
+
+func respondVectorStoreStatsSuccess(c *gin.Context, stats any) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    stats,
 	})
 }
 
-// TriggerVectorTierMigrate triggers one hot->cold migration round.
-// POST /api/admin/cache/vector/tier/migrate
+// POST /api/admin/cache/vector/tier/migrate.
 func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -624,8 +643,7 @@ func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 	})
 }
 
-// PromoteVectorTierEntry promotes one cold cache document back into hot tier.
-// POST /api/admin/cache/vector/tier/promote
+// POST /api/admin/cache/vector/tier/promote.
 func (h *CacheHandler) PromoteVectorTierEntry(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -684,8 +702,7 @@ func (h *CacheHandler) PromoteVectorTierEntry(c *gin.Context) {
 	})
 }
 
-// GetCacheConfig returns current cache configuration
-// GET /api/admin/cache/config
+// GET /api/admin/cache/config.
 func (h *CacheHandler) GetCacheConfig(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -702,8 +719,7 @@ func (h *CacheHandler) GetCacheConfig(c *gin.Context) {
 	})
 }
 
-// InvalidateProvider invalidates cache for a specific provider
-// DELETE /api/admin/cache/provider/:provider
+// DELETE /api/admin/cache/provider/:provider.
 func (h *CacheHandler) InvalidateProvider(c *gin.Context) {
 	provider := c.Param("provider")
 
@@ -728,8 +744,7 @@ func (h *CacheHandler) InvalidateProvider(c *gin.Context) {
 	})
 }
 
-// InvalidateModel invalidates cache for a specific model
-// DELETE /api/admin/cache/model/:model
+// DELETE /api/admin/cache/model/:model.
 func (h *CacheHandler) InvalidateModel(c *gin.Context) {
 	model := c.Param("model")
 	provider := c.Query("provider")
@@ -759,8 +774,7 @@ func (h *CacheHandler) InvalidateModel(c *gin.Context) {
 	})
 }
 
-// GetCacheHealth returns cache health status
-// GET /api/admin/cache/health
+// GET /api/admin/cache/health.
 func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 	ctx := context.Background()
 	start := time.Now()
@@ -798,7 +812,7 @@ func (h *CacheHandler) GetCacheHealth(c *gin.Context) {
 	})
 }
 
-func persistVectorCacheSettings(settings cache.CacheSettings) error {
+func persistVectorCacheSettings(settings *cache.CacheSettings) error {
 	configPath := strings.TrimSpace(os.Getenv("CONFIG_PATH"))
 	if configPath == "" {
 		configPath = defaultRuntimeConfigPath
@@ -861,7 +875,7 @@ func loadConfigMap(path string) (map[string]any, error) {
 		return nil, err
 	}
 	root := map[string]any{}
-	if len(strings.TrimSpace(string(data))) == 0 {
+	if strings.TrimSpace(string(data)) == "" {
 		return root, nil
 	}
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -896,8 +910,7 @@ func writeConfigMapAtomic(path string, root map[string]any) error {
 	return nil
 }
 
-// GetCacheSummary returns a summary of cache state
-// GET /api/admin/cache/summary
+// GET /api/admin/cache/summary.
 func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 	summary := h.manager.Summary()
 
@@ -911,7 +924,7 @@ type vectorPipelineTestRequest struct {
 	MinSimilarity float64 `json:"min_similarity"`
 }
 
-func (h *CacheHandler) newOllamaEmbeddingServiceFromSettings(settings cache.CacheSettings) *cache.OllamaEmbeddingService {
+func (h *CacheHandler) newOllamaEmbeddingServiceFromSettings(settings *cache.CacheSettings) *cache.OllamaEmbeddingService {
 	return cache.NewOllamaEmbeddingService(cache.OllamaEmbeddingConfig{
 		BaseURL:      settings.VectorOllamaBaseURL,
 		Model:        settings.VectorOllamaEmbeddingModel,
@@ -920,7 +933,7 @@ func (h *CacheHandler) newOllamaEmbeddingServiceFromSettings(settings cache.Cach
 	})
 }
 
-func (h *CacheHandler) resolveVectorThreshold(taskType string, settings cache.CacheSettings) float64 {
+func (h *CacheHandler) resolveVectorThreshold(taskType string, settings *cache.CacheSettings) float64 {
 	key := strings.ToLower(strings.TrimSpace(taskType))
 	switch key {
 	case "math":
@@ -939,8 +952,7 @@ func (h *CacheHandler) resolveVectorThreshold(taskType string, settings cache.Ca
 	return 0.92
 }
 
-// GetVectorPipelineHealth returns ollama embedding pipeline status.
-// GET /api/admin/cache/vector/pipeline/health
+// GET /api/admin/cache/vector/pipeline/health.
 func (h *CacheHandler) GetVectorPipelineHealth(c *gin.Context) {
 	settings := h.manager.GetSettings()
 	store := h.manager.GetVectorStore()
@@ -965,7 +977,7 @@ func (h *CacheHandler) GetVectorPipelineHealth(c *gin.Context) {
 	}
 
 	start := time.Now()
-	embedder := h.newOllamaEmbeddingServiceFromSettings(settings)
+	embedder := h.newOllamaEmbeddingServiceFromSettings(&settings)
 	embedding, err := embedder.GetEmbedding(c.Request.Context(), "vector pipeline health check")
 	latency := time.Since(start).Milliseconds()
 	data["embedding_latency_ms"] = latency
@@ -1006,8 +1018,7 @@ func (h *CacheHandler) GetVectorPipelineHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
-// TestVectorPipeline performs a vector pipeline dry-run.
-// POST /api/admin/cache/vector/pipeline/test
+// POST /api/admin/cache/vector/pipeline/test.
 func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 	var req vectorPipelineTestRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1035,7 +1046,7 @@ func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 
 	taskType := strings.ToLower(strings.TrimSpace(req.TaskType))
 	if taskType == "" {
-		taskType = "unknown"
+		taskType = taskTypeUnknown
 	}
 	normalizer := cache.NewTextNormalizer()
 	normalizedQuery := normalizer.Normalize(req.Query)
@@ -1044,7 +1055,7 @@ func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 	}
 	standardKey := cache.BuildTaskTypeStandardKey(taskType, normalizedQuery)
 
-	embedder := h.newOllamaEmbeddingServiceFromSettings(settings)
+	embedder := h.newOllamaEmbeddingServiceFromSettings(&settings)
 	embedStart := time.Now()
 	embedding, err := embedder.GetEmbedding(c.Request.Context(), normalizedQuery)
 	embedLatency := time.Since(embedStart).Milliseconds()
@@ -1072,7 +1083,7 @@ func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 		}
 		minSimilarity := req.MinSimilarity
 		if minSimilarity <= 0 || minSimilarity > 1 {
-			minSimilarity = h.resolveVectorThreshold(taskType, settings)
+			minSimilarity = h.resolveVectorThreshold(taskType, &settings)
 		}
 
 		searchStart := time.Now()
@@ -1115,41 +1126,24 @@ func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 	})
 }
 
-// GetVectorStats returns Redis Stack vector cache status.
-// GET /api/admin/cache/vector/stats
+// GET /api/admin/cache/vector/stats.
 func (h *CacheHandler) GetVectorStats(c *gin.Context) {
 	store := h.manager.GetVectorStore()
 	if store == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"enabled": false,
-				"message": "vector store is not initialized",
-			},
-		})
+		respondVectorStoreUnavailable(c, "vector store is not initialized")
 		return
 	}
 
 	stats, err := store.Stats(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "vector_stats_failed",
-				"message": err.Error(),
-			},
-		})
+		respondVectorStoreStatsError(c, "vector_stats_failed", err)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    stats,
-	})
+	respondVectorStoreStatsSuccess(c, stats)
 }
 
-// RebuildVectorIndex rebuilds Redis Stack vector index.
-// POST /api/admin/cache/vector/rebuild
+// POST /api/admin/cache/vector/rebuild.
 func (h *CacheHandler) RebuildVectorIndex(c *gin.Context) {
 	store := h.manager.GetVectorStore()
 	if store == nil {
@@ -1191,8 +1185,7 @@ type SemanticSignatureItem struct {
 	Quality   float64 `json:"quality_score"`
 }
 
-// GetSemanticSignatures returns top semantic signatures for cache auditing
-// GET /api/admin/cache/semantic-signatures
+// GET /api/admin/cache/semantic-signatures.
 func (h *CacheHandler) GetSemanticSignatures(c *gin.Context) {
 	semanticCache := h.manager.GetSemanticCache()
 	if semanticCache == nil {
@@ -1242,8 +1235,7 @@ func (h *CacheHandler) GetSemanticSignatures(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": items})
 }
 
-// GetCacheQualityConfig returns cache quality configuration
-// GET /api/admin/cache/quality-config
+// GET /api/admin/cache/quality-config.
 func (h *CacheHandler) GetCacheQualityConfig(c *gin.Context) {
 	// 获取语义缓存的质量配置
 	semanticCache := h.manager.GetSemanticCache()
@@ -1271,13 +1263,12 @@ func (h *CacheHandler) GetCacheQualityConfig(c *gin.Context) {
 	})
 }
 
-// UpdateCacheQualityConfigRequest represents quality config update request
+// UpdateCacheQualityConfigRequest represents quality config update request.
 type UpdateCacheQualityConfigRequest struct {
 	MinQualityScore *float64 `json:"min_quality_score"`
 }
 
-// UpdateCacheQualityConfig updates cache quality configuration
-// PUT /api/admin/cache/quality-config
+// PUT /api/admin/cache/quality-config.
 func (h *CacheHandler) UpdateCacheQualityConfig(c *gin.Context) {
 	var req UpdateCacheQualityConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1316,8 +1307,7 @@ func (h *CacheHandler) UpdateCacheQualityConfig(c *gin.Context) {
 	})
 }
 
-// InvalidateLowQualityCache removes low quality cache entries
-// POST /api/admin/cache/invalidate-low-quality
+// POST /api/admin/cache/invalidate-low-quality.
 func (h *CacheHandler) InvalidateLowQualityCache(c *gin.Context) {
 	semanticCache := h.manager.GetSemanticCache()
 	if semanticCache == nil {
@@ -1342,8 +1332,7 @@ func (h *CacheHandler) InvalidateLowQualityCache(c *gin.Context) {
 	})
 }
 
-// GetCacheRules returns all cache rules
-// GET /api/admin/cache/rules
+// GET /api/admin/cache/rules.
 func (h *CacheHandler) GetCacheRules(c *gin.Context) {
 	rules := cache.GetRuleStore().List()
 
@@ -1353,7 +1342,7 @@ func (h *CacheHandler) GetCacheRules(c *gin.Context) {
 	})
 }
 
-// CreateCacheRuleRequest represents create cache rule request
+// CreateCacheRuleRequest represents create cache rule request.
 type CreateCacheRuleRequest struct {
 	Pattern     string `json:"pattern" binding:"required"`
 	ModelFilter string `json:"model_filter"`
@@ -1362,8 +1351,7 @@ type CreateCacheRuleRequest struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-// CreateCacheRule creates a new cache rule
-// POST /api/admin/cache/rules
+// POST /api/admin/cache/rules.
 func (h *CacheHandler) CreateCacheRule(c *gin.Context) {
 	var req CreateCacheRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1393,7 +1381,7 @@ func (h *CacheHandler) CreateCacheRule(c *gin.Context) {
 	})
 }
 
-// UpdateCacheRuleRequest represents update cache rule request
+// UpdateCacheRuleRequest represents update cache rule request.
 type UpdateCacheRuleRequest struct {
 	Pattern     *string `json:"pattern"`
 	ModelFilter *string `json:"model_filter"`
@@ -1402,8 +1390,7 @@ type UpdateCacheRuleRequest struct {
 	Enabled     *bool   `json:"enabled"`
 }
 
-// UpdateCacheRule updates a cache rule
-// PUT /api/admin/cache/rules/:id
+// PUT /api/admin/cache/rules/:id.
 func (h *CacheHandler) UpdateCacheRule(c *gin.Context) {
 	id := c.Param("id")
 	ruleID := 0
@@ -1464,8 +1451,7 @@ func (h *CacheHandler) UpdateCacheRule(c *gin.Context) {
 	})
 }
 
-// DeleteCacheRule deletes a cache rule
-// DELETE /api/admin/cache/rules/:id
+// DELETE /api/admin/cache/rules/:id.
 func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
 	id := c.Param("id")
 	ruleID := 0
@@ -1497,7 +1483,7 @@ func (h *CacheHandler) DeleteCacheRule(c *gin.Context) {
 	})
 }
 
-// CacheEntry represents a cache entry for display
+// CacheEntry represents a cache entry for display.
 type CacheEntry struct {
 	Key       string     `json:"key"`
 	Type      string     `json:"type"`
@@ -1511,8 +1497,9 @@ type CacheEntry struct {
 	Provider  string     `json:"provider,omitempty"`
 }
 
-// GetCacheEntries returns paginated cache entries
-// GET /api/admin/cache/entries
+// GET /api/admin/cache/entries.
+//
+//nolint:gocyclo // Supports many query options and response shaping for admin UI.
 func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	cacheType := c.Query("type")
 	search := c.Query("search")
@@ -1523,10 +1510,16 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	pageSize := 20
 
 	if p := c.Query("page"); p != "" {
-		fmt.Sscanf(p, "%d", &page)
+		parsedPage, err := strconv.Atoi(p)
+		if err == nil {
+			page = parsedPage
+		}
 	}
 	if ps := c.Query("page_size"); ps != "" {
-		fmt.Sscanf(ps, "%d", &pageSize)
+		parsedPageSize, err := strconv.Atoi(ps)
+		if err == nil {
+			pageSize = parsedPageSize
+		}
 	}
 
 	entries := h.manager.ListEntries(cacheType, search)
@@ -1595,8 +1588,7 @@ func (h *CacheHandler) GetCacheEntries(c *gin.Context) {
 	})
 }
 
-// GetCacheEntryDetail returns detail of a cache entry
-// GET /api/admin/cache/entries/*
+// GET /api/admin/cache/entries/*.
 func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 	key := c.Param("key")
 	// Gin 的 *key 通配符会包含前导斜杠，需要去掉
@@ -1648,8 +1640,7 @@ func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 	})
 }
 
-// DeleteCacheEntry deletes a cache entry
-// DELETE /api/admin/cache/entries/*
+// DELETE /api/admin/cache/entries/*.
 func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
 	key := c.Param("key")
 	// Gin 的 *key 通配符会包含前导斜杠，需要去掉
@@ -1677,8 +1668,7 @@ func (h *CacheHandler) DeleteCacheEntry(c *gin.Context) {
 	})
 }
 
-// DeleteCacheEntryGroup deletes all cache entries in the same aggregated group.
-// POST /api/admin/cache/entries/delete-group
+// POST /api/admin/cache/entries/delete-group.
 func (h *CacheHandler) DeleteCacheEntryGroup(c *gin.Context) {
 	type reqBody struct {
 		TaskType    string `json:"task_type"`
@@ -1752,8 +1742,7 @@ func (h *CacheHandler) DeleteCacheEntryGroup(c *gin.Context) {
 	})
 }
 
-// CleanupInvalidEntries removes unreadable legacy cache entries.
-// POST /api/admin/cache/entries/cleanup-invalid
+// POST /api/admin/cache/entries/cleanup-invalid.
 func (h *CacheHandler) CleanupInvalidEntries(c *gin.Context) {
 	ctx := context.Background()
 	entries := h.manager.ListEntries("", "")
@@ -1797,8 +1786,7 @@ func (h *CacheHandler) CleanupInvalidEntries(c *gin.Context) {
 	})
 }
 
-// CleanupEmptyResponseEntries removes response cache entries whose assistant content is empty.
-// POST /api/admin/cache/entries/cleanup-empty
+// POST /api/admin/cache/entries/cleanup-empty.
 func (h *CacheHandler) CleanupEmptyResponseEntries(c *gin.Context) {
 	ctx := context.Background()
 	deleted, failed := h.cleanupEmptyResponseEntries(ctx)
@@ -1812,7 +1800,7 @@ func (h *CacheHandler) CleanupEmptyResponseEntries(c *gin.Context) {
 	})
 }
 
-func (h *CacheHandler) cleanupEmptyResponseEntries(ctx context.Context) (deleted int, failed int) {
+func (h *CacheHandler) cleanupEmptyResponseEntries(ctx context.Context) (deleted, failed int) {
 	entries := h.manager.ListEntries("response", "")
 	for _, entry := range entries {
 		if entry == nil {
@@ -1840,7 +1828,7 @@ func (h *CacheHandler) cleanupEmptyResponseEntries(ctx context.Context) (deleted
 	return deleted, failed
 }
 
-// AddTestCacheEntryRequest represents request for adding test cache
+// AddTestCacheEntryRequest represents request for adding test cache.
 type AddTestCacheEntryRequest struct {
 	TaskType    string `json:"task_type" binding:"required"`
 	UserMessage string `json:"user_message" binding:"required"`
@@ -1850,8 +1838,20 @@ type AddTestCacheEntryRequest struct {
 	TTL         int    `json:"ttl"` // hours
 }
 
-// AddTestCacheEntry adds a test cache entry for warmup
-// POST /api/admin/cache/test-entry
+func (h *CacheHandler) setTestCacheValue(
+	ctx context.Context,
+	key string,
+	value interface{},
+	ttl time.Duration,
+	req *AddTestCacheEntryRequest,
+) error {
+	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
+		return mc.SetWithTaskType(ctx, key, value, ttl, req.Model, req.Provider, req.TaskType, "manual")
+	}
+	return h.manager.Cache().Set(ctx, key, value, ttl)
+}
+
+// POST /api/admin/cache/test-entry.
 func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 	var req AddTestCacheEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1899,18 +1899,22 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 
 	// Store request cache
 	reqKey := "req:test:" + key
-	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
-		mc.SetWithTaskType(ctx, reqKey, requestData, ttl, req.Model, req.Provider, req.TaskType, "manual")
-	} else {
-		h.manager.Cache().Set(ctx, reqKey, requestData, ttl)
+	if err := h.setTestCacheValue(ctx, reqKey, requestData, ttl, &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "set_request_cache_failed", "message": err.Error()},
+		})
+		return
 	}
 
 	// Store response cache
 	respKey := "ai-response:test:" + key
-	if mc, ok := h.manager.Cache().(*cache.MemoryCache); ok {
-		mc.SetWithTaskType(ctx, respKey, responseData, ttl, req.Model, req.Provider, req.TaskType, "manual")
-	} else {
-		h.manager.Cache().Set(ctx, respKey, responseData, ttl)
+	if err := h.setTestCacheValue(ctx, respKey, responseData, ttl, &req); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "set_response_cache_failed", "message": err.Error()},
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1925,8 +1929,7 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 	})
 }
 
-// ExportCacheEntries exports all cache entries
-// GET /api/admin/cache/export
+// GET /api/admin/cache/export.
 func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 	taskType := normalizeTaskType(c.Query("task_type"))
 
@@ -1946,16 +1949,16 @@ func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 	for _, entry := range filtered {
 		detail, err := h.manager.GetEntryDetail(ctx, entry.Key)
 		if err == nil {
-			taskType := entry.TaskType
-			if taskType == "" {
+			entryTaskType := entry.TaskType
+			if entryTaskType == "" {
 				if extracted, _, _, _ := extractCacheSummary(detail.Value); extracted != "" {
-					taskType = extracted
+					entryTaskType = extracted
 				}
 			}
 			exportData = append(exportData, map[string]interface{}{
 				"key":        entry.Key,
 				"type":       entry.Type,
-				"task_type":  taskType,
+				"task_type":  entryTaskType,
 				"model":      entry.Model,
 				"provider":   entry.Provider,
 				"size":       entry.Size,
@@ -1976,8 +1979,7 @@ func (h *CacheHandler) ExportCacheEntries(c *gin.Context) {
 	})
 }
 
-// GetCacheTrend returns cache usage trend data
-// GET /api/admin/cache/trend
+// GET /api/admin/cache/trend.
 func (h *CacheHandler) GetCacheTrend(c *gin.Context) {
 	// Generate mock trend data for demonstration
 	// In production, this would query actual historical data
@@ -2010,47 +2012,58 @@ func (h *CacheHandler) GetCacheTrend(c *gin.Context) {
 	})
 }
 
-func extractCacheSummary(value interface{}) (string, string, string, string) {
-	// taskType, userMessage, aiResponse, taskTypeSource
-	var taskType string
-	var userMsg string
-	var aiResp string
-	var taskTypeSource string
-
+//nolint:gocyclo // Handles legacy cache payload variants across multiple schema versions.
+func extractCacheSummary(value interface{}) (taskType, userMsg, aiResp, taskTypeSource string) {
 	switch v := value.(type) {
 	case map[string]interface{}:
 		// task type
 		if tt, ok := v["task_type"]; ok {
-			taskType, _ = tt.(string)
+			if parsed, ok := tt.(string); ok {
+				taskType = parsed
+			}
 		}
 		if tt, ok := v["TaskType"]; ok && taskType == "" {
-			taskType, _ = tt.(string)
+			if parsed, ok := tt.(string); ok {
+				taskType = parsed
+			}
 		}
 		if ts, ok := v["task_type_source"]; ok {
-			taskTypeSource, _ = ts.(string)
+			if parsed, ok := ts.(string); ok {
+				taskTypeSource = parsed
+			}
 		}
 		if ts, ok := v["TaskTypeSource"]; ok && taskTypeSource == "" {
-			taskTypeSource, _ = ts.(string)
+			if parsed, ok := ts.(string); ok {
+				taskTypeSource = parsed
+			}
 		}
 		// prompt / user message
 		if p, ok := v["prompt"]; ok {
-			userMsg, _ = p.(string)
+			if parsed, ok := p.(string); ok {
+				userMsg = parsed
+			}
 		}
 		if p, ok := v["Prompt"]; ok && userMsg == "" {
-			userMsg, _ = p.(string)
+			if parsed, ok := p.(string); ok {
+				userMsg = parsed
+			}
 		}
 		if p, ok := v["user_message"]; ok && userMsg == "" {
-			userMsg, _ = p.(string)
+			if parsed, ok := p.(string); ok {
+				userMsg = parsed
+			}
 		}
 		if p, ok := v["userMessage"]; ok && userMsg == "" {
-			userMsg, _ = p.(string)
+			if parsed, ok := p.(string); ok {
+				userMsg = parsed
+			}
 		}
 		// messages
 		if userMsg == "" {
 			if msgs, ok := v["messages"].([]interface{}); ok {
 				for _, msg := range msgs {
 					if msgMap, ok := msg.(map[string]interface{}); ok {
-						if role, _ := msgMap["role"].(string); role == "user" {
+						if role, ok := msgMap["role"].(string); ok && role == "user" {
 							if content, ok := msgMap["content"].(string); ok {
 								userMsg = content
 								break
@@ -2102,25 +2115,25 @@ func resolveTaskType(metaTaskType, payloadTaskType, userMsg string) string {
 	normalizedMeta := normalizeTaskType(metaTaskType)
 	normalizedPayload := normalizeTaskType(payloadTaskType)
 
-	if normalizedMeta != "" && normalizedMeta != "unknown" {
+	if normalizedMeta != "" && normalizedMeta != taskTypeUnknown {
 		return normalizedMeta
 	}
-	if normalizedPayload != "" && normalizedPayload != "unknown" {
+	if normalizedPayload != "" && normalizedPayload != taskTypeUnknown {
 		return normalizedPayload
 	}
 
 	if strings.TrimSpace(userMsg) != "" {
 		inferred := normalizeTaskType(string(cacheTaskTypeAssessor.DetectTaskType(userMsg)))
-		if inferred != "" && inferred != "unknown" {
+		if inferred != "" && inferred != taskTypeUnknown {
 			return inferred
 		}
 	}
 
-	if normalizedMeta == "unknown" || normalizedPayload == "unknown" {
-		return "unknown"
+	if normalizedMeta == taskTypeUnknown || normalizedPayload == taskTypeUnknown {
+		return taskTypeUnknown
 	}
 
-	return "unknown"
+	return taskTypeUnknown
 }
 
 func normalizeTaskType(taskType string) string {
@@ -2129,7 +2142,7 @@ func normalizeTaskType(taskType string) string {
 	case "":
 		return ""
 	case "other":
-		return "unknown"
+		return taskTypeUnknown
 	case "long_context":
 		return "long_text"
 	default:
@@ -2148,14 +2161,14 @@ func resolveTaskTypeSource(metaSource, payloadSource, resolvedTaskType, userMsg 
 		return normalizedPayload
 	}
 
-	if normalizeTaskType(resolvedTaskType) == "unknown" {
-		return "unknown"
+	if normalizeTaskType(resolvedTaskType) == taskTypeUnknown {
+		return taskTypeUnknown
 	}
 
 	if strings.TrimSpace(userMsg) != "" {
 		inferred := cacheTaskTypeAssessor.DetectTaskType(userMsg)
 		if inferred != routing.TaskTypeUnknown {
-			return "heuristic"
+			return taskTypeSourceHeuristic
 		}
 	}
 
@@ -2167,10 +2180,10 @@ func normalizeTaskTypeSource(source string) string {
 	switch normalized {
 	case "":
 		return ""
-	case "llm", "model", "ollama", "classifier":
-		return "ollama"
+	case "llm", "model", vectorEmbeddingProviderOllama, "classifier":
+		return vectorEmbeddingProviderOllama
 	case "heuristic", "rule", "keyword":
-		return "heuristic"
+		return taskTypeSourceHeuristic
 	case "fallback":
 		return "fallback"
 	case "manual":
@@ -2227,6 +2240,7 @@ func truncatePreview(input string) string {
 	return input
 }
 
+//nolint:gocyclo // Merges metadata from heterogeneous cache entry shapes.
 func enrichEntryFromDetail(entry *cache.CacheEntryInfo, detail *cache.CacheEntryDetail) {
 	if entry == nil || detail == nil {
 		return
@@ -2321,10 +2335,7 @@ func parseHitModels(value interface{}) (map[string]int, bool) {
 	return result, true
 }
 
-func extractModelProvider(value interface{}) (string, string) {
-	model := ""
-	provider := ""
-
+func extractModelProvider(value interface{}) (model, provider string) {
 	switch v := value.(type) {
 	case map[string]interface{}:
 		if m, ok := v["model"].(string); ok {
@@ -2499,7 +2510,7 @@ func aggregateCacheEntries(entries []*cache.CacheEntryInfo) []*cache.CacheEntryI
 	return result
 }
 
-func mergeModelStats(base map[string]int, incoming map[string]int, fallbackModel string) map[string]int {
+func mergeModelStats(base, incoming map[string]int, fallbackModel string) map[string]int {
 	if base == nil {
 		base = map[string]int{}
 	}
@@ -2536,12 +2547,7 @@ func selectPrimaryModel(stats map[string]int) string {
 	return bestModel
 }
 
-func selectPrimaryModelInt64(stats map[string]int) string {
-	return selectPrimaryModel(stats)
-}
-
-// GetModelMappings returns all model name mappings
-// GET /api/admin/cache/model-mappings
+// GET /api/admin/cache/model-mappings.
 func (h *CacheHandler) GetModelMappings(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -2565,8 +2571,7 @@ func (h *CacheHandler) GetModelMappings(c *gin.Context) {
 	})
 }
 
-// ClearModelMappings clears all model name mappings
-// DELETE /api/admin/cache/model-mappings
+// DELETE /api/admin/cache/model-mappings.
 func (h *CacheHandler) ClearModelMappings(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -2586,8 +2591,7 @@ func (h *CacheHandler) ClearModelMappings(c *gin.Context) {
 	})
 }
 
-// CleanupModelMappings cleans up expired model name mappings
-// POST /api/admin/cache/model-mappings/cleanup
+// POST /api/admin/cache/model-mappings/cleanup.
 func (h *CacheHandler) CleanupModelMappings(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

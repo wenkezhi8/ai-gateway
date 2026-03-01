@@ -1,3 +1,4 @@
+//nolint:godot
 package provider
 
 import (
@@ -12,20 +13,22 @@ type mockProviderForTest struct {
 	*BaseProvider
 }
 
-func (m *mockProviderForTest) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+var _ Provider = (*mockProviderForTest)(nil)
+
+func (m *mockProviderForTest) Chat(_ context.Context, req *ChatRequest) (*ChatResponse, error) {
 	return &ChatResponse{
 		ID:    "test-response",
 		Model: req.Model,
 	}, nil
 }
 
-func (m *mockProviderForTest) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *StreamChunk, error) {
+func (m *mockProviderForTest) StreamChat(_ context.Context, _ *ChatRequest) (<-chan *StreamChunk, error) {
 	ch := make(chan *StreamChunk)
 	close(ch)
 	return ch, nil
 }
 
-func (m *mockProviderForTest) ValidateKey(ctx context.Context) bool {
+func (m *mockProviderForTest) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -102,6 +105,7 @@ func TestChatResponse_Fields(t *testing.T) {
 
 	assert.Equal(t, "chatcmpl-123", resp.ID)
 	assert.Equal(t, "chat.completion", resp.Object)
+	assert.Equal(t, int64(1234567890), resp.Created)
 	assert.Equal(t, "gpt-4", resp.Model)
 	assert.Len(t, resp.Choices, 1)
 	assert.Equal(t, 30, resp.Usage.TotalTokens)

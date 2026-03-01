@@ -1,3 +1,4 @@
+//nolint:godot
 package router
 
 import (
@@ -11,52 +12,52 @@ import (
 
 // StrategyConfig holds configuration for a single strategy
 type StrategyConfig struct {
-	Name     string         `json:"name" yaml:"name"`
-	Type     StrategyType   `json:"type" yaml:"type"`
-	Enabled  bool           `json:"enabled" yaml:"enabled"`
-	Params   map[string]interface{} `json:"params" yaml:"params"`
+	Name    string                 `json:"name" yaml:"name"`
+	Type    StrategyType           `json:"type" yaml:"type"`
+	Enabled bool                   `json:"enabled" yaml:"enabled"`
+	Params  map[string]interface{} `json:"params" yaml:"params"`
 }
 
 // ProviderRoutingConfig holds routing configuration for a provider
 type ProviderRoutingConfig struct {
-	Name     string  `json:"name" yaml:"name"`
-	Weight   int     `json:"weight" yaml:"weight"`
-	Priority int     `json:"priority" yaml:"priority"`
-	Cost     float64 `json:"cost" yaml:"cost"`
-	IsPrimary bool   `json:"is_primary" yaml:"is_primary"`
+	Name      string  `json:"name" yaml:"name"`
+	Weight    int     `json:"weight" yaml:"weight"`
+	Priority  int     `json:"priority" yaml:"priority"`
+	Cost      float64 `json:"cost" yaml:"cost"`
+	IsPrimary bool    `json:"is_primary" yaml:"is_primary"`
 }
 
 // RoutingConfig holds all routing configuration
 type RoutingConfig struct {
-	DefaultStrategy StrategyType              `json:"default_strategy" yaml:"default_strategy"`
-	Strategies      []StrategyConfig          `json:"strategies" yaml:"strategies"`
-	Providers       []ProviderRoutingConfig   `json:"providers" yaml:"providers"`
-	Rules           []RoutingRule             `json:"rules" yaml:"rules"`
+	DefaultStrategy StrategyType            `json:"default_strategy" yaml:"default_strategy"`
+	Strategies      []StrategyConfig        `json:"strategies" yaml:"strategies"`
+	Providers       []ProviderRoutingConfig `json:"providers" yaml:"providers"`
+	Rules           []RoutingRule           `json:"rules" yaml:"rules"`
 }
 
 // RoutingRule defines routing rules based on conditions
 type RoutingRule struct {
-	Name       string       `json:"name" yaml:"name"`
-	Condition  RuleCondition `json:"condition" yaml:"condition"`
-	Strategy   StrategyType `json:"strategy" yaml:"strategy"`
-	Providers  []string     `json:"providers" yaml:"providers"`
-	Priority   int          `json:"priority" yaml:"priority"`
+	Name      string        `json:"name" yaml:"name"`
+	Condition RuleCondition `json:"condition" yaml:"condition"`
+	Strategy  StrategyType  `json:"strategy" yaml:"strategy"`
+	Providers []string      `json:"providers" yaml:"providers"`
+	Priority  int           `json:"priority" yaml:"priority"`
 }
 
 // RuleCondition defines conditions for routing rules
 type RuleCondition struct {
-	Model    string            `json:"model" yaml:"model"`
-	UserID   string            `json:"user_id" yaml:"user_id"`
-	Headers  map[string]string `json:"headers" yaml:"headers"`
-	Extra    map[string]interface{} `json:"extra" yaml:"extra"`
+	Model   string                 `json:"model" yaml:"model"`
+	UserID  string                 `json:"user_id" yaml:"user_id"`
+	Headers map[string]string      `json:"headers" yaml:"headers"`
+	Extra   map[string]interface{} `json:"extra" yaml:"extra"`
 }
 
 // ConfigManager manages routing configuration
 type ConfigManager struct {
-	config    *RoutingConfig
+	config     *RoutingConfig
 	configPath string
-	mu        sync.RWMutex
-	onChange  []func(*RoutingConfig)
+	mu         sync.RWMutex
+	onChange   []func(*RoutingConfig)
 }
 
 // NewConfigManager creates a new config manager
@@ -123,7 +124,7 @@ func (m *ConfigManager) Save(path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0640)
 }
 
 // Get returns the current configuration

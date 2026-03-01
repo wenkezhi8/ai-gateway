@@ -1,11 +1,12 @@
 package config
 
 import (
-	"ai-gateway/internal/constants"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ai-gateway/internal/constants"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -198,6 +199,8 @@ func TestProviderConfig_Fields(t *testing.T) {
 	}
 
 	assert.Equal(t, "anthropic", cfg.Name)
+	assert.Equal(t, "sk-ant-test", cfg.APIKey)
+	assert.Equal(t, "https://api.anthropic.com", cfg.BaseURL)
 	assert.True(t, cfg.Enabled)
 }
 
@@ -215,6 +218,9 @@ func TestLimiterConfig_Fields(t *testing.T) {
 	assert.True(t, cfg.Enabled)
 	assert.Equal(t, 100, cfg.Rate)
 	assert.Equal(t, 200, cfg.Burst)
+	assert.True(t, cfg.PerUser)
+	assert.Equal(t, 0.9, cfg.WarningThreshold)
+	assert.Equal(t, 5000, cfg.CheckIntervalMs)
 	assert.Equal(t, 3000, cfg.SwitchTimeoutMs)
 }
 
@@ -233,6 +239,11 @@ func TestAccountConfig_Fields(t *testing.T) {
 	}
 
 	assert.Equal(t, "acc-123", cfg.ID)
+	assert.Equal(t, "Primary Account", cfg.Name)
+	assert.Equal(t, "openai", cfg.Provider)
+	assert.Equal(t, "sk-test", cfg.APIKey)
+	assert.Equal(t, "https://api.openai.com", cfg.BaseURL)
+	assert.True(t, cfg.Enabled)
 	assert.Equal(t, 10, cfg.Priority)
 	assert.Len(t, cfg.Limits, 1)
 }
@@ -248,6 +259,7 @@ func TestLimitConfig_Fields(t *testing.T) {
 	assert.Equal(t, "token", cfg.Type)
 	assert.Equal(t, "day", cfg.Period)
 	assert.Equal(t, int64(100000), cfg.Limit)
+	assert.Equal(t, 0.9, cfg.Warning)
 }
 
 func TestConfig_JSONMarshal(t *testing.T) {

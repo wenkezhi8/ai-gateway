@@ -1,10 +1,6 @@
 package handler
 
 import (
-	"ai-gateway/internal/cache"
-	"ai-gateway/internal/config"
-	"ai-gateway/internal/intent"
-	"ai-gateway/internal/routing"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -12,6 +8,11 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/config"
+	"ai-gateway/internal/intent"
+	"ai-gateway/internal/routing"
 )
 
 func TestApplyControlTTLBand(t *testing.T) {
@@ -263,7 +264,7 @@ func TestIntentTTLSeconds(t *testing.T) {
 			},
 		},
 	}
-	result := &intent.IntentEmbeddingResult{Intent: "calc"}
+	result := &intent.EmbeddingResult{Intent: "calc"}
 	if got := h.intentTTLSeconds(result); got != 2592000 {
 		t.Fatalf("expected configured ttl, got %d", got)
 	}
@@ -287,7 +288,7 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 			},
 		},
 	}
-	h.processCacheV2Write(context.Background(), &intent.IntentEmbeddingResult{
+	h.processCacheV2Write(context.Background(), &intent.EmbeddingResult{
 		Intent:        "unknown",
 		StandardKey:   "intent:unknown",
 		Embedding:     []float64{0.1},
@@ -304,15 +305,15 @@ type proxyTierHotStore struct {
 	upsertDocs []*cache.VectorCacheDocument
 }
 
-func (s *proxyTierHotStore) EnsureIndex(ctx context.Context) error  { return nil }
-func (s *proxyTierHotStore) RebuildIndex(ctx context.Context) error { return nil }
-func (s *proxyTierHotStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (s *proxyTierHotStore) EnsureIndex(_ context.Context) error  { return nil }
+func (s *proxyTierHotStore) RebuildIndex(_ context.Context) error { return nil }
+func (s *proxyTierHotStore) GetExact(_ context.Context, _ string) (*cache.VectorCacheDocument, error) {
 	return nil, nil
 }
-func (s *proxyTierHotStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (s *proxyTierHotStore) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return nil, nil
 }
-func (s *proxyTierHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+func (s *proxyTierHotStore) Upsert(_ context.Context, doc *cache.VectorCacheDocument) error {
 	if doc != nil {
 		cp := *doc
 		s.mu.Lock()
@@ -321,17 +322,17 @@ func (s *proxyTierHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDo
 	}
 	return nil
 }
-func (s *proxyTierHotStore) Delete(ctx context.Context, cacheKey string) error { return nil }
-func (s *proxyTierHotStore) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+func (s *proxyTierHotStore) Delete(_ context.Context, _ string) error { return nil }
+func (s *proxyTierHotStore) TouchTTL(_ context.Context, _ string, _ int64) error {
 	return nil
 }
-func (s *proxyTierHotStore) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+func (s *proxyTierHotStore) Stats(_ context.Context) (cache.VectorStoreStats, error) {
 	return cache.VectorStoreStats{Enabled: true}, nil
 }
-func (s *proxyTierHotStore) MemoryUsagePercent(ctx context.Context) (float64, error) {
+func (s *proxyTierHotStore) MemoryUsagePercent(_ context.Context) (float64, error) {
 	return 0, nil
 }
-func (s *proxyTierHotStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*cache.VectorCacheDocument, error) {
+func (s *proxyTierHotStore) ListMigrationCandidates(_ context.Context, _ int) ([]*cache.VectorCacheDocument, error) {
 	return nil, nil
 }
 
@@ -346,21 +347,21 @@ type proxyTierColdStore struct {
 	hits []cache.VectorSearchHit
 }
 
-func (s *proxyTierColdStore) EnsureSchema(ctx context.Context) error { return nil }
-func (s *proxyTierColdStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+func (s *proxyTierColdStore) EnsureSchema(_ context.Context) error { return nil }
+func (s *proxyTierColdStore) Upsert(_ context.Context, _ *cache.VectorCacheDocument) error {
 	return nil
 }
-func (s *proxyTierColdStore) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (s *proxyTierColdStore) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return s.hits, nil
 }
-func (s *proxyTierColdStore) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (s *proxyTierColdStore) GetExact(_ context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
 	if s.doc != nil && s.doc.CacheKey == cacheKey {
 		return s.doc, nil
 	}
 	return nil, nil
 }
-func (s *proxyTierColdStore) Delete(ctx context.Context, cacheKey string) error { return nil }
-func (s *proxyTierColdStore) Stats(ctx context.Context) (cache.ColdVectorStoreStats, error) {
+func (s *proxyTierColdStore) Delete(_ context.Context, _ string) error { return nil }
+func (s *proxyTierColdStore) Stats(_ context.Context) (cache.ColdVectorStoreStats, error) {
 	return cache.ColdVectorStoreStats{Backend: cache.ColdVectorBackendSQLite, Available: true}, nil
 }
 
@@ -370,11 +371,13 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"embeddings": [][]float64{
 				{0.1, 0.2},
 			},
-		})
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
 	}))
 	defer ollamaServer.Close()
 
@@ -395,7 +398,10 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 		},
 		TTLSec: 3600,
 	}
-	responseRaw, _ := json.Marshal(coldDoc.Response)
+	responseRaw, err := json.Marshal(coldDoc.Response)
+	if err != nil {
+		t.Fatalf("marshal cold response: %v", err)
+	}
 	cold := &proxyTierColdStore{
 		doc: coldDoc,
 		hits: []cache.VectorSearchHit{
@@ -463,23 +469,23 @@ type mockVectorStoreForProxy struct {
 	upsertCalled bool
 }
 
-func (m *mockVectorStoreForProxy) EnsureIndex(ctx context.Context) error  { return nil }
-func (m *mockVectorStoreForProxy) RebuildIndex(ctx context.Context) error { return nil }
-func (m *mockVectorStoreForProxy) GetExact(ctx context.Context, cacheKey string) (*cache.VectorCacheDocument, error) {
+func (m *mockVectorStoreForProxy) EnsureIndex(_ context.Context) error  { return nil }
+func (m *mockVectorStoreForProxy) RebuildIndex(_ context.Context) error { return nil }
+func (m *mockVectorStoreForProxy) GetExact(_ context.Context, _ string) (*cache.VectorCacheDocument, error) {
 	return nil, nil
 }
-func (m *mockVectorStoreForProxy) VectorSearch(ctx context.Context, intent string, vector []float64, topK int, minSimilarity float64) ([]cache.VectorSearchHit, error) {
+func (m *mockVectorStoreForProxy) VectorSearch(_ context.Context, _ string, _ []float64, _ int, _ float64) ([]cache.VectorSearchHit, error) {
 	return nil, nil
 }
-func (m *mockVectorStoreForProxy) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
+func (m *mockVectorStoreForProxy) Upsert(_ context.Context, _ *cache.VectorCacheDocument) error {
 	m.upsertCalled = true
 	return nil
 }
-func (m *mockVectorStoreForProxy) Delete(ctx context.Context, cacheKey string) error { return nil }
-func (m *mockVectorStoreForProxy) TouchTTL(ctx context.Context, cacheKey string, ttlSec int64) error {
+func (m *mockVectorStoreForProxy) Delete(_ context.Context, _ string) error { return nil }
+func (m *mockVectorStoreForProxy) TouchTTL(_ context.Context, _ string, _ int64) error {
 	return nil
 }
-func (m *mockVectorStoreForProxy) Stats(ctx context.Context) (cache.VectorStoreStats, error) {
+func (m *mockVectorStoreForProxy) Stats(_ context.Context) (cache.VectorStoreStats, error) {
 	return cache.VectorStoreStats{}, nil
 }
 

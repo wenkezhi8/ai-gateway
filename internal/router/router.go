@@ -1,3 +1,4 @@
+//nolint:godot
 package router
 
 import (
@@ -33,6 +34,8 @@ func NewWithAuth(cfg *config.Config, authCfg middleware.AuthConfig) *gin.Engine 
 }
 
 // RouterConfig holds all configuration for the router
+//
+//nolint:revive // kept for compatibility with existing API naming.
 type RouterConfig struct {
 	AuthCfg       middleware.AuthConfig
 	JWTConfig     middleware.JWTConfig
@@ -48,7 +51,7 @@ func NewFull(
 	cacheManager *cache.Manager,
 	registry *provider.Registry,
 ) *gin.Engine {
-	return NewFullWithConfig(cfg, RouterConfig{
+	return NewFullWithConfig(cfg, &RouterConfig{
 		AuthCfg:       authCfg,
 		JWTConfig:     middleware.JWTConfig{},
 		AuditLogger:   nil,
@@ -57,9 +60,11 @@ func NewFull(
 }
 
 // NewFullWithConfig creates and configures a new Gin router with extended options
+//
+//nolint:gocyclo
 func NewFullWithConfig(
 	cfg *config.Config,
-	routerCfg RouterConfig,
+	routerCfg *RouterConfig,
 	accountManager *limiter.AccountManager,
 	cacheManager *cache.Manager,
 	registry *provider.Registry,
@@ -95,20 +100,18 @@ func NewFullWithConfig(
 	// 改动点: 仅在调试模式或显式启用时暴露 pprof
 	if cfg.Server.Mode == "debug" || os.Getenv("PPROF_ENABLED") == "1" {
 		pprofGroup := r.Group("/debug/pprof")
-		{
-			pprofGroup.GET("/", gin.WrapF(pprof.Index))
-			pprofGroup.GET("/cmdline", gin.WrapF(pprof.Cmdline))
-			pprofGroup.GET("/profile", gin.WrapF(pprof.Profile))
-			pprofGroup.POST("/symbol", gin.WrapF(pprof.Symbol))
-			pprofGroup.GET("/symbol", gin.WrapF(pprof.Symbol))
-			pprofGroup.GET("/trace", gin.WrapF(pprof.Trace))
-			pprofGroup.GET("/allocs", gin.WrapH(pprof.Handler("allocs")))
-			pprofGroup.GET("/block", gin.WrapH(pprof.Handler("block")))
-			pprofGroup.GET("/goroutine", gin.WrapH(pprof.Handler("goroutine")))
-			pprofGroup.GET("/heap", gin.WrapH(pprof.Handler("heap")))
-			pprofGroup.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
-			pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
-		}
+		pprofGroup.GET("/", gin.WrapF(pprof.Index))
+		pprofGroup.GET("/cmdline", gin.WrapF(pprof.Cmdline))
+		pprofGroup.GET("/profile", gin.WrapF(pprof.Profile))
+		pprofGroup.POST("/symbol", gin.WrapF(pprof.Symbol))
+		pprofGroup.GET("/symbol", gin.WrapF(pprof.Symbol))
+		pprofGroup.GET("/trace", gin.WrapF(pprof.Trace))
+		pprofGroup.GET("/allocs", gin.WrapH(pprof.Handler("allocs")))
+		pprofGroup.GET("/block", gin.WrapH(pprof.Handler("block")))
+		pprofGroup.GET("/goroutine", gin.WrapH(pprof.Handler("goroutine")))
+		pprofGroup.GET("/heap", gin.WrapH(pprof.Handler("heap")))
+		pprofGroup.GET("/mutex", gin.WrapH(pprof.Handler("mutex")))
+		pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
 	}
 
 	// Docs alias for Swagger UI
@@ -121,44 +124,38 @@ func NewFullWithConfig(
 	r.POST(constants.ApiV1Prefix, proxyHandler.ChatCompletions)
 	r.GET(constants.ChatCompletions, proxyHandler.APIv1ChatCompletionsInfo)
 	apiV1 := r.Group(constants.ApiV1Prefix)
-	{
-		apiV1.POST("/chat/completions", proxyHandler.ChatCompletions)
-		apiV1.POST("/completions", proxyHandler.Completions)
-		apiV1.POST("/embeddings", proxyHandler.Embeddings)
-		apiV1.GET("/providers", proxyHandler.ListProviders)
-		apiV1.GET("/models", proxyHandler.ListModels)
-		apiV1.GET("/config/providers", proxyHandler.ListConfiguredProviders)
-		apiV1.POST("/search", searchHandler.Search)
-	}
+	apiV1.POST("/chat/completions", proxyHandler.ChatCompletions)
+	apiV1.POST("/completions", proxyHandler.Completions)
+	apiV1.POST("/embeddings", proxyHandler.Embeddings)
+	apiV1.GET("/providers", proxyHandler.ListProviders)
+	apiV1.GET("/models", proxyHandler.ListModels)
+	apiV1.GET("/config/providers", proxyHandler.ListConfiguredProviders)
+	apiV1.POST("/search", searchHandler.Search)
 
 	// Anthropic-compatible routes
 	r.GET(constants.ApiAnthropicBasePrefix, proxyHandler.AnthropicRoot)
 	r.POST(constants.ApiAnthropicBasePrefix, proxyHandler.AnthropicMessages)
 	r.GET(constants.ApiAnthropicPrefix+"/messages", proxyHandler.AnthropicMessagesInfo)
 	anthropicV1 := r.Group(constants.ApiAnthropicPrefix)
-	{
-		anthropicV1.POST("/messages", proxyHandler.AnthropicMessages)
-	}
+	anthropicV1.POST("/messages", proxyHandler.AnthropicMessages)
 
 	if routerCfg.JWTConfig.Secret != "" {
 		authH := authHandler.NewAuthHandler(routerCfg.JWTConfig, routerCfg.AuditLogger)
 
 		authGroup := r.Group(constants.AuthPrefix)
-		{
-			authGroup.POST("/login", authH.Login)
-			authGroup.POST("/logout", middleware.JWTAuth(routerCfg.JWTConfig), authH.Logout)
-			authGroup.GET("/me", middleware.JWTAuth(routerCfg.JWTConfig), authH.GetCurrentUser)
-			authGroup.POST("/change-password", middleware.JWTAuth(routerCfg.JWTConfig), authH.ChangePassword)
-			authGroup.PUT("/profile", middleware.JWTAuth(routerCfg.JWTConfig), authH.UpdateProfile)
-			authGroup.POST("/refresh", middleware.JWTAuth(routerCfg.JWTConfig), authH.RefreshToken)
-			authGroup.POST("/validate", authH.ValidateToken)
+		authGroup.POST("/login", authH.Login)
+		authGroup.POST("/logout", middleware.JWTAuth(routerCfg.JWTConfig), authH.Logout)
+		authGroup.GET("/me", middleware.JWTAuth(routerCfg.JWTConfig), authH.GetCurrentUser)
+		authGroup.POST("/change-password", middleware.JWTAuth(routerCfg.JWTConfig), authH.ChangePassword)
+		authGroup.PUT("/profile", middleware.JWTAuth(routerCfg.JWTConfig), authH.UpdateProfile)
+		authGroup.POST("/refresh", middleware.JWTAuth(routerCfg.JWTConfig), authH.RefreshToken)
+		authGroup.POST("/validate", authH.ValidateToken)
 
-			adminAuth := authGroup.Group("")
-			adminAuth.Use(middleware.JWTAuth(routerCfg.JWTConfig), middleware.RequireRole("admin"))
-			adminAuth.GET("/users", authH.ListUsers)
-			adminAuth.POST("/users", authH.CreateUser)
-			adminAuth.DELETE("/users/:username", authH.DeleteUser)
-		}
+		adminAuth := authGroup.Group("")
+		adminAuth.Use(middleware.JWTAuth(routerCfg.JWTConfig), middleware.RequireRole("admin"))
+		adminAuth.GET("/users", authH.ListUsers)
+		adminAuth.POST("/users", authH.CreateUser)
+		adminAuth.DELETE("/users/:username", authH.DeleteUser)
 	}
 
 	if routerCfg.AuditLogger != nil {
@@ -166,12 +163,10 @@ func NewFullWithConfig(
 		if routerCfg.JWTConfig.Secret != "" {
 			auditGroup.Use(middleware.JWTAuth(routerCfg.JWTConfig))
 		}
-		{
-			auditGroup.GET("/logs", audit.AuditHandler(routerCfg.AuditLogger))
-		}
+		auditGroup.GET("/logs", audit.AuditHandler(routerCfg.AuditLogger))
 	}
 
-	if accountManager != nil && registry != nil {
+	if accountManager != nil {
 		if registry == nil {
 			registry = provider.GetRegistry()
 		}
@@ -184,12 +179,10 @@ func NewFullWithConfig(
 		}
 
 		adminGroup := r.Group(constants.AdminPrefix)
-		{
-			if routerCfg.JWTConfig.Secret != "" {
-				adminGroup.Use(middleware.JWTAuth(routerCfg.JWTConfig))
-			}
-			admin.RegisterRoutes(adminGroup, adminHandlers)
+		if routerCfg.JWTConfig.Secret != "" {
+			adminGroup.Use(middleware.JWTAuth(routerCfg.JWTConfig))
 		}
+		admin.RegisterRoutes(adminGroup, adminHandlers)
 	}
 
 	// Serve frontend static files
@@ -208,7 +201,10 @@ func NewFullWithConfig(
 
 	var staticDir string
 	for _, dir := range staticDirs {
-		absDir, _ := filepath.Abs(dir)
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
 		if _, err := os.Stat(absDir); err == nil {
 			staticDir = absDir
 			break

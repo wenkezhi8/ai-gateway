@@ -1,9 +1,10 @@
 package bootstrap
 
 import (
+	"testing"
+
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/provider"
-	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
