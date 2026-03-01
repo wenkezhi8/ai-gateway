@@ -1,6 +1,7 @@
 package audit
 
 import (
+	cryptorand "crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -263,9 +264,23 @@ func generateID() string {
 
 func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	if n <= 0 {
+		return ""
+	}
+
+	raw := make([]byte, n)
+	if _, err := cryptorand.Read(raw); err != nil {
+		// Fallback keeps behavior available even if secure RNG is unavailable.
+		seed := time.Now().UnixNano()
+		for i := range raw {
+			shift := uint((i % 8) * 8)
+			raw[i] = byte(seed>>shift) + byte(i*31)
+		}
+	}
+
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
+		b[i] = letters[int(raw[i])%len(letters)]
 	}
 	return string(b)
 }

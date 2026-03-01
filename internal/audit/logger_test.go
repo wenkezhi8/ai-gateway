@@ -266,6 +266,19 @@ func TestGenerateID(t *testing.T) {
 	assert.NotEqual(t, id1, id2)
 }
 
+func TestGenerateID_BurstShouldBeUnique(t *testing.T) {
+	const total = 200
+	seen := make(map[string]struct{}, total)
+
+	for i := 0; i < total; i++ {
+		id := generateID()
+		if _, exists := seen[id]; exists {
+			t.Fatalf("expected generated IDs to be unique, duplicated id: %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+}
+
 func TestRandomString(t *testing.T) {
 	s := randomString(16)
 	assert.Len(t, s, 16)
