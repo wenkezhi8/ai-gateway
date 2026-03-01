@@ -577,3 +577,32 @@ func TestMergeModelStats(t *testing.T) {
 		}
 	})
 }
+
+func TestCacheEntryInfoValueField(t *testing.T) {
+	entry := &cache.CacheEntryInfo{
+		Key: "test-key",
+		Value: map[string]interface{}{
+			"choices": []interface{}{
+				map[string]interface{}{
+					"message": map[string]interface{}{
+						"content": "test response",
+					},
+				},
+			},
+		},
+	}
+
+	if entry.Value == nil {
+		t.Error("CacheEntryInfo.Value should be populated")
+	}
+
+	valueMap, ok := entry.Value.(map[string]interface{})
+	if !ok {
+		t.Error("CacheEntryInfo.Value should be a map")
+	}
+
+	choices, ok := valueMap["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		t.Error("CacheEntryInfo.Value should contain choices array")
+	}
+}

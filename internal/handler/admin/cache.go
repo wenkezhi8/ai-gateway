@@ -1093,10 +1093,10 @@ func (h *CacheHandler) TestVectorPipeline(c *gin.Context) {
 	resultHits := make([]gin.H, 0, len(hits))
 	for _, hit := range hits {
 		resultHits = append(resultHits, gin.H{
-			"cache_key":   hit.CacheKey,
-			"intent":      hit.Intent,
-			"similarity":  hit.Similarity,
-			"score":       hit.Score,
+			"cache_key":    hit.CacheKey,
+			"intent":       hit.Intent,
+			"similarity":   hit.Similarity,
+			"score":        hit.Score,
 			"response_raw": string(hit.Response),
 		})
 	}
@@ -1622,6 +1622,7 @@ func (h *CacheHandler) GetCacheEntryDetail(c *gin.Context) {
 	entry := &cache.CacheEntryInfo{
 		Key:       detail.Key,
 		Type:      detail.Type,
+		Value:     detail.Value,
 		Size:      detail.Size,
 		Hits:      detail.Hits,
 		CreatedAt: detail.CreatedAt,

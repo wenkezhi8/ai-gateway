@@ -361,6 +361,7 @@ func (m *Manager) Close() error {
 type CacheEntryInfo struct {
 	Key            string         `json:"key"`
 	Type           string         `json:"type"`
+	Value          interface{}    `json:"value,omitempty"`
 	Size           int            `json:"size"`
 	Hits           int            `json:"hits"`
 	HitRecorded    bool           `json:"hit_recorded"`
