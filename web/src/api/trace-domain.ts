@@ -32,10 +32,16 @@ export async function getTraces(params?: {
   end_time?: string
 }): Promise<RequestTrace[]> {
   const res = await request.get(API.TRACES.LIST, { params })
-  return res.data || []
+  if (res.data?.success && Array.isArray(res.data.data)) {
+    return res.data.data
+  }
+  return []
 }
 
 export async function getTraceDetail(requestId: string): Promise<RequestTrace[]> {
   const res = await request.get(API.TRACES.DETAIL.replace(':request_id', requestId))
-  return res.data || []
+  if (res.data?.success && Array.isArray(res.data.data)) {
+    return res.data.data
+  }
+  return []
 }
