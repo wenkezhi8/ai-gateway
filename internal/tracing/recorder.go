@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,8 +87,8 @@ func (r *SpanRecorder) saveToDB(trace *RequestTrace) error {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		trace.ID, trace.RequestID, trace.TraceID, trace.SpanID, trace.ParentSpanID,
-		trace.Operation, trace.Status, trace.StartTime.Format(time.RFC3339), trace.EndTime.Format(time.RFC3339), trace.DurationMs,
-		string(attrsJSON), string(eventsJSON), trace.UserID, trace.Method, trace.Path, trace.Model, trace.Provider, trace.Error, trace.CreatedAt.Format(time.RFC3339),
+		trace.Operation, trace.Status, trace.StartTime.Format(time.RFC3339Nano), trace.EndTime.Format(time.RFC3339Nano), trace.DurationMs,
+		string(attrsJSON), string(eventsJSON), trace.UserID, trace.Method, trace.Path, trace.Model, trace.Provider, trace.Error, trace.CreatedAt.Format(time.RFC3339Nano),
 	)
 
 	return err
@@ -230,12 +231,79 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 		traceRecord.UserID = userID
 	}
 
-	// 异步保存
-	go r.saveToDB(traceRecord)
+	if err := r.saveToDB(traceRecord); err != nil {
+		fmt.Printf("Failed to save trace record: %v\n", err)
+	}
 }
 
 // RecordSpanWithResult 记录带结果的 Span（用于缓存命中/未命中等）
 func (r *SpanRecorder) RecordSpanWithResult(ctx context.Context, spanName string, result string, attrs map[string]interface{}) {
 	attrs["result"] = result
 	r.RecordSimpleSpan(ctx, spanName, attrs)
+}
+
+func ExtractResponseTextPreview(body []byte, previewLimit int, fullLimit int) (string, string, bool) {
+	if len(body) == 0 {
+		return "", "", false
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		text := strings.TrimSpace(string(body))
+		if text == "" {
+			return "", "", false
+		}
+		full, truncated := trimWithLimit(text, fullLimit)
+		preview, _ := trimWithLimit(full, previewLimit)
+		return preview, full, truncated
+	}
+
+	text := extractTextFromPayload(payload)
+	if text == "" {
+		text = strings.TrimSpace(string(body))
+	}
+
+	full, truncated := trimWithLimit(text, fullLimit)
+	preview, _ := trimWithLimit(full, previewLimit)
+	return preview, full, truncated
+}
+
+func extractTextFromPayload(payload map[string]interface{}) string {
+	choices, ok := payload["choices"].([]interface{})
+	if !ok || len(choices) == 0 {
+		return ""
+	}
+
+	first, ok := choices[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	if msg, ok := first["message"].(map[string]interface{}); ok {
+		if content, ok := msg["content"].(string); ok {
+			return strings.TrimSpace(content)
+		}
+	}
+
+	if content, ok := first["text"].(string); ok {
+		return strings.TrimSpace(content)
+	}
+
+	if delta, ok := first["delta"].(map[string]interface{}); ok {
+		if content, ok := delta["content"].(string); ok {
+			return strings.TrimSpace(content)
+		}
+	}
+
+	return ""
+}
+
+func trimWithLimit(text string, limit int) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if limit <= 0 || len([]rune(trimmed)) <= limit {
+		return trimmed, false
+	}
+
+	runes := []rune(trimmed)
+	return string(runes[:limit]), true
 }

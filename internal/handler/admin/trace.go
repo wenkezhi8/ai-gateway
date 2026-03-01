@@ -3,6 +3,7 @@ package admin
 import (
 	"ai-gateway/internal/tracing"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -81,9 +82,11 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 			continue
 		}
 
-		trace.StartTime, _ = time.Parse(time.RFC3339, startTimeStr)
-		trace.EndTime, _ = time.Parse(time.RFC3339, endTimeStr)
-		trace.CreatedAt, _ = time.Parse(time.RFC3339, createdAtStr)
+		trace.StartTime = parseRFC3339Flexible(startTimeStr)
+		trace.EndTime = parseRFC3339Flexible(endTimeStr)
+		trace.CreatedAt = parseRFC3339Flexible(createdAtStr)
+		_ = json.Unmarshal([]byte(attrsJSON), &trace.Attributes)
+		_ = json.Unmarshal([]byte(eventsJSON), &trace.Events)
 		traces = append(traces, trace)
 	}
 
@@ -103,7 +106,7 @@ func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 		       start_time, end_time, duration_ms, attributes, events, user_id, method, path, model, provider, error, created_at
 		FROM request_traces
 		WHERE request_id = ?
-		ORDER BY start_time ASC
+		ORDER BY rowid ASC
 	`
 
 	rows, err := h.db.Query(query, requestID)
@@ -131,9 +134,11 @@ func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 			continue
 		}
 
-		trace.StartTime, _ = time.Parse(time.RFC3339, startTimeStr)
-		trace.EndTime, _ = time.Parse(time.RFC3339, endTimeStr)
-		trace.CreatedAt, _ = time.Parse(time.RFC3339, createdAtStr)
+		trace.StartTime = parseRFC3339Flexible(startTimeStr)
+		trace.EndTime = parseRFC3339Flexible(endTimeStr)
+		trace.CreatedAt = parseRFC3339Flexible(createdAtStr)
+		_ = json.Unmarshal([]byte(attrsJSON), &trace.Attributes)
+		_ = json.Unmarshal([]byte(eventsJSON), &trace.Events)
 		traces = append(traces, trace)
 	}
 
@@ -149,4 +154,14 @@ func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 		"success": true,
 		"data":    traces,
 	})
+}
+
+func parseRFC3339Flexible(v string) time.Time {
+	if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
+		return t
+	}
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t
+	}
+	return time.Time{}
 }

@@ -116,3 +116,33 @@ func TestRecordSpanWithResult_WritesResultAttribute(t *testing.T) {
 		t.Fatalf("result attr = %v, want hit", attrs["result"])
 	}
 }
+
+func TestExtractResponseTextPreview_OpenAIResponse(t *testing.T) {
+	body := []byte(`{"choices":[{"message":{"content":"这是一个很长的命中答案"}}]}`)
+	preview, full, truncated := ExtractResponseTextPreview(body, 5, 50)
+
+	if preview != "这是一个很" {
+		t.Fatalf("preview = %q", preview)
+	}
+	if full != "这是一个很长的命中答案" {
+		t.Fatalf("full = %q", full)
+	}
+	if truncated {
+		t.Fatalf("truncated should be false")
+	}
+}
+
+func TestExtractResponseTextPreview_FallbackPlainBody(t *testing.T) {
+	body := []byte("plain text body")
+	preview, full, truncated := ExtractResponseTextPreview(body, 5, 8)
+
+	if preview != "plain" {
+		t.Fatalf("preview = %q", preview)
+	}
+	if full != "plain te" {
+		t.Fatalf("full = %q", full)
+	}
+	if !truncated {
+		t.Fatalf("truncated should be true")
+	}
+}

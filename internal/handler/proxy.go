@@ -370,11 +370,15 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if v2CacheHit {
 			result = "hit"
 		}
+		preview, full, truncated := tracing.ExtractResponseTextPreview(v2CachedBody, 200, 4000)
 		h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-v2", result, map[string]interface{}{
-			"duration_ms": time.Since(cacheV2Start).Milliseconds(),
-			"hit":         v2CacheHit,
-			"layer":       v2HitLayer,
-			"task_type":   string(assessment.TaskType),
+			"duration_ms":      time.Since(cacheV2Start).Milliseconds(),
+			"hit":              v2CacheHit,
+			"layer":            v2HitLayer,
+			"task_type":        string(assessment.TaskType),
+			"answer_preview":   preview,
+			"answer_full":      full,
+			"answer_truncated": truncated,
 		})
 	}
 	if v2CacheHit && len(v2CachedBody) > 0 {
@@ -417,11 +421,20 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				if semanticEntry != nil {
 					result = "hit"
 				}
+				preview, full, truncated := tracing.ExtractResponseTextPreview(func() []byte {
+					if semanticEntry == nil {
+						return nil
+					}
+					return semanticEntry.Response
+				}(), 200, 4000)
 				h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-semantic", result, map[string]interface{}{
-					"duration_ms": time.Since(cacheSemStart).Milliseconds(),
-					"hit":         semanticEntry != nil,
-					"similarity":  similarity,
-					"threshold":   similarityThreshold,
+					"duration_ms":      time.Since(cacheSemStart).Milliseconds(),
+					"hit":              semanticEntry != nil,
+					"similarity":       similarity,
+					"threshold":        similarityThreshold,
+					"answer_preview":   preview,
+					"answer_full":      full,
+					"answer_truncated": truncated,
 				})
 			}
 			if semanticEntry == nil || similarity < similarityThreshold {
@@ -471,10 +484,19 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			if err == nil && cached != nil {
 				result = "hit"
 			}
+			preview, full, truncated := tracing.ExtractResponseTextPreview(func() []byte {
+				if cached == nil {
+					return nil
+				}
+				return cached.Body
+			}(), 200, 4000)
 			h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-exact", result, map[string]interface{}{
-				"duration_ms": time.Since(cacheExactStart).Milliseconds(),
-				"hit":         err == nil && cached != nil,
-				"cache_key":   cacheKey,
+				"duration_ms":      time.Since(cacheExactStart).Milliseconds(),
+				"hit":              err == nil && cached != nil,
+				"cache_key":        cacheKey,
+				"answer_preview":   preview,
+				"answer_full":      full,
+				"answer_truncated": truncated,
 			})
 		}
 		if err == nil && cached != nil {

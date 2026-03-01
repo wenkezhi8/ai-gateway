@@ -34,10 +34,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="operation" label="操作" width="220" show-overflow-tooltip>
+        <el-table-column prop="step_count" label="步骤" width="90">
           <template #default="{ row }">
-            <div class="op-name">{{ getOperationLabel(row.operation) }}</div>
-            <div class="op-desc">{{ getOperationDesc(row.operation) }}</div>
+            <el-tag size="small" effect="plain">{{ row.step_count }}步</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="80">
@@ -74,17 +73,17 @@
 
     <!-- 详情对话框 -->
     <el-dialog v-model="detailVisible" title="请求链路详情" width="900px">
-      <div v-if="detailTraces.length > 0 && detailTraces[0]">
+      <div v-if="detailTraces.length > 0 && detailSummary">
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="Request ID">{{ detailTraces[0]?.request_id }}</el-descriptions-item>
-          <el-descriptions-item label="方法">{{ detailTraces[0]?.method }}</el-descriptions-item>
-          <el-descriptions-item label="路径" :span="2">{{ detailTraces[0]?.path }}</el-descriptions-item>
+          <el-descriptions-item label="Request ID">{{ detailSummary.request_id }}</el-descriptions-item>
+          <el-descriptions-item label="方法">{{ detailSummary.method || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="路径" :span="2">{{ detailSummary.path || '-' }}</el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag :type="detailTraces[0]?.status === 'success' ? 'success' : 'danger'">
-              {{ detailTraces[0]?.status === 'success' ? '成功' : '失败' }}
+            <el-tag :type="detailSummary.status === 'success' ? 'success' : 'danger'">
+              {{ detailSummary.status === 'success' ? '成功' : '失败' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="总耗时">{{ detailTraces[0]?.duration_ms }}ms</el-descriptions-item>
+          <el-descriptions-item label="总耗时">{{ detailSummary.duration_ms }}ms</el-descriptions-item>
         </el-descriptions>
 
         <h4 style="margin-top: 20px">处理步骤</h4>
@@ -108,6 +107,22 @@
                 <div v-if="trace.error" class="step-error">{{ trace.error }}</div>
                 <div v-if="trace.model" class="step-attr">模型: {{ trace.model }}</div>
                 <div v-if="trace.provider" class="step-attr">服务商: {{ trace.provider }}</div>
+                <div v-if="trace.attributes?.task_type" class="step-attr">任务类型: {{ trace.attributes.task_type }}</div>
+                <div v-if="trace.attributes?.difficulty" class="step-attr">任务难度: {{ trace.attributes.difficulty }}</div>
+                <div v-if="trace.attributes?.recommended_ttl" class="step-attr">推荐TTL: {{ formatTTL(trace.attributes.recommended_ttl) }}</div>
+                <div v-if="trace.attributes?.answer_preview" class="step-answer">
+                  <div class="step-answer-title">命中答案预览</div>
+                  <div class="step-answer-content">{{ trace.attributes.answer_preview }}</div>
+                  <el-button
+                    v-if="trace.attributes?.answer_full"
+                    type="primary"
+                    link
+                    size="small"
+                    @click="showFullAnswer(trace)"
+                  >
+                    查看完整命中答案
+                  </el-button>
+                </div>
                 <div v-if="getTraceHighlights(trace).length" class="step-highlights">
                   <el-tag
                     v-for="item in getTraceHighlights(trace)"
@@ -128,18 +143,45 @@
         <el-button @click="detailVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="answerVisible" title="命中答案详情" width="900px">
+      <div class="answer-full" v-if="activeAnswerTrace">
+        <div class="answer-meta">
+          <el-tag size="small" effect="plain">{{ getOperationLabel(activeAnswerTrace.operation) }}</el-tag>
+          <el-tag size="small" :type="activeAnswerTrace.attributes?.result === 'hit' ? 'success' : 'info'">
+            {{ activeAnswerTrace.attributes?.result || '-' }}
+          </el-tag>
+        </div>
+        <pre>{{ activeAnswerTrace.attributes?.answer_full || activeAnswerTrace.attributes?.answer_preview || '-' }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="answerVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { getTraces, getTraceDetail, type RequestTrace } from '@/api/trace-domain'
 import { handleApiError } from '@/utils/errorHandler'
 
-const traces = ref<RequestTrace[]>([])
+type TraceSummary = {
+  request_id: string
+  method: string
+  path: string
+  status: string
+  duration_ms: number
+  created_at: string
+  step_count: number
+}
+
+const traces = ref<TraceSummary[]>([])
 const detailTraces = ref<RequestTrace[]>([])
 const detailVisible = ref(false)
+const answerVisible = ref(false)
+const activeAnswerTrace = ref<RequestTrace | null>(null)
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
@@ -167,6 +209,22 @@ onMounted(() => {
   loadTraces()
 })
 
+const detailSummary = computed(() => {
+  if (!detailTraces.value.length) return null
+
+  const entry = detailTraces.value.find(t => t.operation === 'http.entry')
+  const response = detailTraces.value.find(t => t.operation === 'http.response')
+  const hasError = detailTraces.value.some(t => t.status === 'error')
+
+  return {
+    request_id: detailTraces.value[0]?.request_id || '-',
+    method: entry?.method || '-',
+    path: entry?.path || '-',
+    status: hasError ? 'error' : 'success',
+    duration_ms: response?.duration_ms || Math.max(...detailTraces.value.map(t => t.duration_ms || 0)),
+  }
+})
+
 async function loadTraces() {
   try {
     loading.value = true
@@ -178,8 +236,31 @@ async function loadTraces() {
     if (filter.value.operation) params.operation = filter.value.operation
 
     const data = await getTraces(params)
-    traces.value = data
-    total.value = data.length
+    const grouped = new Map<string, RequestTrace[]>()
+    for (const item of data) {
+      const key = item.request_id || item.id
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(item)
+    }
+
+    const rows: TraceSummary[] = []
+    for (const [requestID, items] of grouped.entries()) {
+      const entry = items.find(i => i.operation === 'http.entry')
+      const response = items.find(i => i.operation === 'http.response')
+      const hasError = items.some(i => i.status === 'error')
+      rows.push({
+        request_id: requestID,
+        method: entry?.method || '',
+        path: entry?.path || '',
+        status: hasError ? 'error' : 'success',
+        duration_ms: response?.duration_ms || Math.max(...items.map(i => i.duration_ms || 0)),
+        created_at: entry?.created_at || items[0]?.created_at || '',
+        step_count: items.length,
+      })
+    }
+
+    traces.value = rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    total.value = traces.value.length
   } catch (e) {
     handleApiError(e, '加载链路数据失败')
   } finally {
@@ -237,6 +318,21 @@ function getTraceHighlights(trace: RequestTrace) {
   if (attrs.status_code !== undefined) result.push(`状态码: ${attrs.status_code}`)
 
   return result.slice(0, 6)
+}
+
+function formatTTL(raw: number | string) {
+  const ttl = Number(raw)
+  if (!Number.isFinite(ttl) || ttl <= 0) return '-'
+  if (ttl > 1e12) {
+    const sec = Math.floor(ttl / 1e9)
+    return `${sec}s`
+  }
+  return `${Math.floor(ttl)}s`
+}
+
+function showFullAnswer(trace: RequestTrace) {
+  activeAnswerTrace.value = trace
+  answerVisible.value = true
 }
 </script>
 
@@ -341,6 +437,44 @@ function getTraceHighlights(trace: RequestTrace) {
 
 .highlight-tag {
   margin-right: 0;
+}
+
+.step-answer {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.step-answer-title {
+  font-size: 12px;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.step-answer-content {
+  white-space: pre-wrap;
+  line-height: 1.5;
+  color: #111827;
+  margin-bottom: 6px;
+}
+
+.answer-full pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 14px;
+  border-radius: 8px;
+  max-height: 520px;
+  overflow: auto;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.answer-meta {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .step-error {
