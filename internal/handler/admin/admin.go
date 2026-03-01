@@ -19,6 +19,7 @@ type Handlers struct {
 	Provider    *ProviderHandler
 	Routing     *RoutingHandler
 	Cache       *CacheHandler
+	Knowledge   *KnowledgeHandler
 	Dashboard   *DashboardHandler
 	SmartRouter *RouterHandler
 	APIKey      *APIKeyHandler
@@ -52,6 +53,7 @@ func NewHandlers(
 		Provider:    NewProviderHandler(registry, accountManager),
 		Routing:     NewRoutingHandler(),
 		Cache:       NewCacheHandler(cacheManager),
+		Knowledge:   NewKnowledgeHandler(storage.GetSQLiteStorage().GetDB()),
 		Dashboard:   NewDashboardHandler(registry, accountManager, cacheManager),
 		SmartRouter: NewRouterHandler(smartRouter),
 		APIKey:      NewAPIKeyHandler(),
@@ -202,6 +204,27 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	cacheGroup.GET("/model-mappings", handlers.Cache.GetModelMappings)
 	cacheGroup.DELETE("/model-mappings", handlers.Cache.ClearModelMappings)
 	cacheGroup.POST("/model-mappings/cleanup", handlers.Cache.CleanupModelMappings)
+
+	knowledgeGroup := r.Group("/knowledge")
+	{
+		documents := knowledgeGroup.Group("/documents")
+		documents.GET("", handlers.Knowledge.ListDocuments)
+		documents.POST("/upload", handlers.Knowledge.UploadDocument)
+		documents.GET("/:id", handlers.Knowledge.GetDocument)
+		documents.DELETE("/:id", handlers.Knowledge.DeleteDocument)
+		documents.POST("/:id/vectorize", handlers.Knowledge.VectorizeDocument)
+
+		chunks := knowledgeGroup.Group("/chunks")
+		chunks.GET("", handlers.Knowledge.ListChunks)
+		chunks.GET("/:id", handlers.Knowledge.GetChunk)
+
+		chat := knowledgeGroup.Group("/chat")
+		chat.POST("/message", handlers.Knowledge.ChatMessage)
+
+		config := knowledgeGroup.Group("/config")
+		config.GET("", handlers.Knowledge.GetConfig)
+		config.PUT("", handlers.Knowledge.UpdateConfig)
+	}
 
 	// Trace routes
 	traceGroup := r.Group("/traces")
