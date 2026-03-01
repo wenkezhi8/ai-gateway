@@ -70,6 +70,11 @@
           <template #default="{ row }">
             <el-button link type="primary" @click="openEditDialog(row)">编辑</el-button>
             <el-button link type="warning" @click="openIndexDialog(row)">索引配置</el-button>
+            <el-popconfirm title="确认清空该 Collection 的全部向量吗？" @confirm="handleEmpty(row)">
+              <template #reference>
+                <el-button link type="warning">清空</el-button>
+              </template>
+            </el-popconfirm>
             <el-popconfirm title="确认删除该 Collection 吗？" @confirm="handleDelete(row)">
               <template #reference>
                 <el-button link type="danger">删除</el-button>
@@ -332,6 +337,7 @@ import IndexSettingsDialog from './IndexSettingsDialog.vue'
 import {
   createImportJob,
   createVectorCollection,
+  emptyVectorCollection,
   deleteVectorCollection,
   getImportJobErrors,
   getImportJobSummary,
@@ -554,6 +560,16 @@ async function handleDelete(row: VectorCollection) {
     await loadCollections()
   } catch {
     ElMessage.error('删除失败，请重试')
+  }
+}
+
+async function handleEmpty(row: VectorCollection) {
+  try {
+    await emptyVectorCollection(row.name)
+    ElMessage.success('清空成功')
+    await loadCollections()
+  } catch {
+    ElMessage.error('清空失败，请重试')
   }
 }
 

@@ -9,6 +9,8 @@ const (
 	VectorPermissionRecommend VectorPermission = "vector.recommend"
 	VectorPermissionRead      VectorPermission = "vector.read"
 	VectorPermissionManage    VectorPermission = "vector.manage"
+	VectorPermissionImport    VectorPermission = "import.execute"
+	VectorPermissionMonitor   VectorPermission = "monitoring.read"
 )
 
 type VectorAPIKey struct {

@@ -22,6 +22,18 @@
           <el-button type="primary" :loading="creating" @click="handleCreate">创建备份</el-button>
         </el-form-item>
       </el-form>
+
+      <el-form :model="policyForm" inline>
+        <el-form-item label="策略Collection">
+          <el-input v-model="policyForm.collection_name" placeholder="如 docs" style="width: 200px" />
+        </el-form-item>
+        <el-form-item label="保留份数">
+          <el-input-number v-model="policyForm.retention_count" :min="1" :max="365" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="warning" plain :loading="policyRunning" @click="handleRunPolicy">执行备份策略</el-button>
+        </el-form-item>
+      </el-form>
     </el-card>
 
     <el-card shadow="never" class="content-card">
@@ -64,6 +76,7 @@ import { ElMessage } from 'element-plus'
 import {
   createBackupTask,
   listBackupTasks,
+  runBackupPolicy,
   retryBackupTask,
   triggerBackupRestore,
   type BackupTask
@@ -71,12 +84,18 @@ import {
 
 const loading = ref(false)
 const creating = ref(false)
+const policyRunning = ref(false)
 const error = ref(false)
 const tasks = ref<BackupTask[]>([])
 
 const createForm = reactive({
   collection_name: '',
   snapshot_name: ''
+})
+
+const policyForm = reactive({
+  collection_name: '',
+  retention_count: 30
 })
 
 async function loadTasks() {
@@ -130,6 +149,26 @@ async function handleRetry(id: number) {
     await loadTasks()
   } catch {
     ElMessage.error('任务重试失败')
+  }
+}
+
+async function handleRunPolicy() {
+  if (!policyForm.collection_name.trim()) {
+    ElMessage.warning('请输入策略 Collection 名称')
+    return
+  }
+  policyRunning.value = true
+  try {
+    const data = await runBackupPolicy({
+      collection_name: policyForm.collection_name,
+      retention_count: policyForm.retention_count
+    })
+    ElMessage.success(`策略执行成功，清理旧备份 ${data.deleted_count || 0} 条`)
+    await loadTasks()
+  } catch {
+    ElMessage.error('策略执行失败')
+  } finally {
+    policyRunning.value = false
   }
 }
 

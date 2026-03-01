@@ -96,6 +96,24 @@ export interface ImportJobErrorLog {
   created_at: string
 }
 
+export interface AuditLogItem {
+  id: number
+  user_id: string
+  action: string
+  resource_type: string
+  resource_id: string
+  details: string
+  created_at: string
+}
+
+export interface ListAuditLogsParams {
+  resource_type?: string
+  resource_id?: string
+  action?: string
+  limit?: number
+  offset?: number
+}
+
 export interface ImportJobSummary {
   pending: number
   running: number
@@ -289,6 +307,11 @@ export async function deleteVectorCollection(name: string) {
   return unwrapEnvelope(raw, { allowPlain: true })
 }
 
+export async function emptyVectorCollection(name: string) {
+  const raw = await request.post(`/admin/vector-db/collections/${encodeURIComponent(name)}/empty`)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
 export async function createImportJob(payload: CreateImportJobPayload) {
   const raw = await request.post('/admin/vector-db/import-jobs', payload)
   return unwrapEnvelope<ImportJob>(raw, { allowPlain: true })
@@ -341,6 +364,18 @@ export async function getImportJobSummary(collectionName?: string) {
   const suffix = query.toString() ? `?${query.toString()}` : ''
   const raw = await request.get(`/admin/vector-db/import-jobs/summary${suffix}`)
   return unwrapEnvelope<ImportJobSummary>(raw, { allowPlain: true })
+}
+
+export async function listVectorAuditLogs(params: ListAuditLogsParams = {}) {
+  const query = new URLSearchParams()
+  if (params.resource_type) query.set('resource_type', params.resource_type)
+  if (params.resource_id) query.set('resource_id', params.resource_id)
+  if (params.action) query.set('action', params.action)
+  if (typeof params.limit === 'number') query.set('limit', String(params.limit))
+  if (typeof params.offset === 'number') query.set('offset', String(params.offset))
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  const raw = await request.get(`/admin/vector-db/audit/logs${suffix}`)
+  return unwrapEnvelope<{ items: AuditLogItem[]; total: number }>(raw, { allowPlain: true })
 }
 
 export async function searchVectorCollection(collectionName: string, payload: VectorSearchPayload) {
@@ -429,6 +464,15 @@ export async function triggerBackupRestore(id: number) {
 export async function retryBackupTask(id: number) {
   const raw = await request.post(`/admin/vector-db/backups/${encodeURIComponent(String(id))}/retry`)
   return unwrapEnvelope<BackupTask>(raw, { allowPlain: true })
+}
+
+export async function runBackupPolicy(payload: {
+  collection_name: string
+  retention_count?: number
+  created_by?: string
+}) {
+  const raw = await request.post('/admin/vector-db/backups/policy/run', payload)
+  return unwrapEnvelope<{ created_task: BackupTask; deleted_count: number }>(raw, { allowPlain: true })
 }
 
 export async function getVectorScatterData(collectionName: string, sampleSize = 200) {

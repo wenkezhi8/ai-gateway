@@ -25,8 +25,15 @@ func (s *Service) SearchVectors(ctx context.Context, req *SearchVectorsRequest) 
 	if req.TopK <= 0 {
 		return nil, fmt.Errorf("top_k must be positive")
 	}
-	if strings.TrimSpace(req.Text) != "" {
-		return nil, ErrTextSearchNotSupported
+	if len(req.Vector) == 0 && strings.TrimSpace(req.Text) != "" {
+		if s.embedder == nil {
+			return nil, fmt.Errorf("text embedder is required")
+		}
+		vector, err := s.embedder.Embed(ctx, req.Text)
+		if err != nil {
+			return nil, fmt.Errorf("embed text failed: %w", err)
+		}
+		req.Vector = vector
 	}
 	if len(req.Vector) == 0 {
 		return nil, fmt.Errorf("vector is required")

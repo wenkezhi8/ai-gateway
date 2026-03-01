@@ -112,6 +112,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '向量检索', icon: 'Search' }
       },
       {
+        path: '/vector-db/import',
+        name: 'VectorDBImport',
+        component: () => import('@/views/vector-db/import/index.vue'),
+        meta: { title: '向量导入', icon: 'Upload' }
+      },
+      {
         path: '/vector-db/monitoring',
         name: 'VectorDBMonitoring',
         component: () => import('@/views/vector-db/monitoring/index.vue'),
@@ -128,6 +134,12 @@ const routes: RouteRecordRaw[] = [
         name: 'VectorDBBackup',
         component: () => import('@/views/vector-db/backup/index.vue'),
         meta: { title: '备份恢复', icon: 'Folder' }
+      },
+      {
+        path: '/vector-db/audit',
+        name: 'VectorDBAudit',
+        component: () => import('@/views/vector-db/audit/index.vue'),
+        meta: { title: '向量审计', icon: 'Tickets' }
       },
       {
         path: '/vector-db/visualization',

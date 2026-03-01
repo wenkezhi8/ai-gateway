@@ -40,6 +40,7 @@ type CollectionRepository interface {
 	Get(ctx context.Context, name string) (*Collection, error)
 	List(ctx context.Context, query *ListCollectionsQuery) ([]Collection, error)
 	Update(ctx context.Context, name string, req *UpdateCollectionRequest) error
+	UpdateCollectionStats(ctx context.Context, name string, vectorCount, indexedCount, sizeBytes int64) error
 	Delete(ctx context.Context, name string) error
 	CreateImportJob(ctx context.Context, job *ImportJob) error
 	GetImportJob(ctx context.Context, id string) (*ImportJob, error)
@@ -60,6 +61,7 @@ type CollectionRepository interface {
 	GetBackupTask(ctx context.Context, id int64) (*BackupTask, error)
 	ListBackupTasks(ctx context.Context, query *ListBackupsQuery) ([]BackupTask, error)
 	UpdateBackupTask(ctx context.Context, id int64, req *UpdateBackupTaskRequest) error
+	DeleteOldBackupTasks(ctx context.Context, collectionName string, keepLatest int) (int64, error)
 }
 
 // CollectionBackend manages vector collection lifecycle.
@@ -138,8 +140,9 @@ func (b *qdrantBackend) GetByID(ctx context.Context, collectionName, id string) 
 
 // Service handles collection CRUD.
 type Service struct {
-	repo    CollectionRepository
-	backend CollectionBackend
+	repo     CollectionRepository
+	backend  CollectionBackend
+	embedder TextEmbedder
 }
 
 type ServiceConfig struct {
@@ -180,7 +183,7 @@ func NewServiceWithConfig(cfg ServiceConfig) *Service {
 
 // NewServiceWithDeps creates service with explicit dependencies.
 func NewServiceWithDeps(repo CollectionRepository, backend CollectionBackend) *Service {
-	return &Service{repo: repo, backend: backend}
+	return &Service{repo: repo, backend: backend, embedder: newDeterministicTextEmbedder()}
 }
 
 func (s *Service) GetRepository() CollectionRepository {
@@ -340,6 +343,52 @@ func (s *Service) DeleteCollection(ctx context.Context, name string) error {
 		return fmt.Errorf("delete metadata failed: %w", err)
 	}
 	logrus.WithField("name", key).Info("vector db collection deleted")
+	return nil
+}
+
+// EmptyCollection clears all vectors in one collection while preserving metadata.
+func (s *Service) EmptyCollection(ctx context.Context, name string) error {
+	if s.repo == nil {
+		return fmt.Errorf("repository is required")
+	}
+	if s.backend == nil {
+		return ErrBackendUnavailable
+	}
+
+	key := strings.TrimSpace(name)
+	if key == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	collection, err := s.repo.Get(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	if err := s.backend.DeleteCollection(ctx, key); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+			return errors.Join(ErrBackendUnavailable, fmt.Errorf("empty collection delete backend failed: %w", err))
+		}
+	}
+
+	if err := s.backend.CreateCollection(ctx, key, collection.Dimension, defaultString(collection.DistanceMetric, "cosine")); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			if retryErr := s.backend.DeleteCollection(ctx, key); retryErr != nil {
+				return errors.Join(ErrBackendUnavailable, fmt.Errorf("empty collection delete backend retry failed: %w", retryErr))
+			}
+			if retryErr := s.backend.CreateCollection(ctx, key, collection.Dimension, defaultString(collection.DistanceMetric, "cosine")); retryErr != nil {
+				return errors.Join(ErrBackendUnavailable, fmt.Errorf("empty collection recreate backend failed: %w", retryErr))
+			}
+		} else {
+			return errors.Join(ErrBackendUnavailable, fmt.Errorf("empty collection create backend failed: %w", err))
+		}
+	}
+
+	if err := s.repo.UpdateCollectionStats(ctx, key, 0, 0, 0); err != nil {
+		return fmt.Errorf("reset collection stats failed: %w", err)
+	}
+
+	logrus.WithField("name", key).Info("vector db collection emptied")
 	return nil
 }
 

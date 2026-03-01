@@ -13,6 +13,7 @@ func RegisterBackupRoutes(r *gin.RouterGroup, handler *CollectionHandler) {
 	group := r.Group("/vector-db/backups")
 	group.POST("", handler.CreateBackup)
 	group.GET("", handler.ListBackups)
+	group.POST("/policy/run", handler.RunBackupPolicy)
 	group.POST("/:id/restore", handler.TriggerRestore)
 	group.POST("/:id/retry", handler.RetryBackupTask)
 }
@@ -33,6 +34,7 @@ func (h *CollectionHandler) CreateBackup(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"success": true, "data": item})
 }
 
+//nolint:dupl // Query bind + list response pattern intentionally mirrors audit list handler.
 func (h *CollectionHandler) ListBackups(c *gin.Context) {
 	query := &ListBackupsQuery{
 		CollectionName: strings.TrimSpace(c.Query("collection_name")),
@@ -75,4 +77,20 @@ func (h *CollectionHandler) RetryBackupTask(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": item})
+}
+
+//nolint:dupl // Request bind + execute pattern intentionally mirrors create handlers.
+func (h *CollectionHandler) RunBackupPolicy(c *gin.Context) {
+	var req RunBackupPolicyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logrus.WithError(err).Warn("invalid backup policy run request")
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	result, err := h.service.RunBackupPolicy(c.Request.Context(), &req)
+	if err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }

@@ -2,6 +2,8 @@ package vectordb
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -306,6 +308,22 @@ func (s *Service) GetImportJobErrors(ctx context.Context, id, action string, lim
 	return logs, nil
 }
 
+func (s *Service) ListAuditLogs(ctx context.Context, query *ListAuditLogsQuery) ([]AuditLog, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository is required")
+	}
+	if query == nil {
+		query = &ListAuditLogsQuery{}
+	}
+	if query.Limit <= 0 {
+		query.Limit = 50
+	}
+	if query.Offset < 0 {
+		query.Offset = 0
+	}
+	return s.repo.ListAuditLogs(ctx, query)
+}
+
 func defaultMaxRetries(v int) int {
 	if v <= 0 {
 		return 3
@@ -350,6 +368,8 @@ func executeImportFile(filePath string) (points []internalqdrant.UpsertPoint, pr
 		return processJSONImport(content)
 	case ".csv":
 		return processCSVImport(content)
+	case ".pdf":
+		return processPDFImport(content)
 	default:
 		return nil, 0, 0, fmt.Errorf("unsupported import file type: %s", ext)
 	}
@@ -538,4 +558,50 @@ func extractRecordID(value any, idx int) string {
 		return strings.TrimSpace(s)
 	}
 	return fmt.Sprintf("row_%d", idx+1)
+}
+
+func processPDFImport(content []byte) (points []internalqdrant.UpsertPoint, processed, failed int64, err error) {
+	text := strings.TrimSpace(string(content))
+	if text == "" {
+		return nil, 0, 0, fmt.Errorf("pdf import file has no text")
+	}
+
+	lines := strings.Split(text, "\n")
+	points = make([]internalqdrant.UpsertPoint, 0, len(lines))
+	for idx := range lines {
+		line := strings.TrimSpace(lines[idx])
+		if line == "" {
+			continue
+		}
+		processed++
+		vector := embedTextToVector(line)
+		if len(vector) == 0 {
+			failed++
+			continue
+		}
+		points = append(points, internalqdrant.UpsertPoint{
+			ID:      fmt.Sprintf("pdf_line_%d", idx+1),
+			Vector:  vector,
+			Payload: map[string]any{"text": line, "source_type": "pdf"},
+		})
+	}
+	if processed == 0 {
+		return nil, 0, 0, fmt.Errorf("pdf import file has no valid lines")
+	}
+	failed += processed - int64(len(points))
+	return points, processed, failed, nil
+}
+
+func embedTextToVector(text string) []float32 {
+	normalized := strings.TrimSpace(text)
+	if normalized == "" {
+		return nil
+	}
+	hash := sha256.Sum256([]byte(normalized))
+	vector := make([]float32, 8)
+	for i := 0; i < 8; i++ {
+		chunk := binary.BigEndian.Uint32(hash[i*4 : (i+1)*4])
+		vector[i] = float32(chunk%10000) / 10000
+	}
+	return vector
 }

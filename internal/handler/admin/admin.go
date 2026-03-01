@@ -322,6 +322,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	vectorDBCollectionsGroup.GET("", handlers.VectorDB.ListCollections)
 	vectorDBCollectionsGroup.GET("/:name", handlers.VectorDB.GetCollection)
 	vectorDBCollectionsGroup.PUT("/:name", handlers.VectorDB.UpdateCollection)
+	vectorDBCollectionsGroup.POST("/:name/empty", handlers.VectorDB.EmptyCollection)
 	vectorDBCollectionsGroup.DELETE("/:name", handlers.VectorDB.DeleteCollection)
 
 	vectorDBImportJobsGroup := r.Group("/vector-db/import-jobs")
@@ -338,6 +339,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	vectordb.RegisterMonitoringRoutes(r, handlers.VectorDB)
 	vectordb.RegisterIndexConfigRoutes(r, handlers.VectorDB)
 	vectordb.RegisterRBACRoutes(r, handlers.VectorDB.RBACService())
+	vectordb.RegisterAuditRoutes(r, handlers.VectorDB)
 	vectordb.RegisterBackupRoutes(r, handlers.VectorDB)
 	vectordb.RegisterVisualizationRoutes(r, handlers.VectorDB)
 }

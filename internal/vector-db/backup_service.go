@@ -103,3 +103,35 @@ func (s *Service) markBackupTaskCompleted(ctx context.Context, id int64) error {
 	}
 	return s.repo.UpdateBackupTask(ctx, id, &UpdateBackupTaskRequest{Status: BackupStatusCompleted, CompletedAt: &now})
 }
+
+func (s *Service) RunBackupPolicy(ctx context.Context, req *RunBackupPolicyRequest) (*BackupPolicyResult, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository is required")
+	}
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	collectionName := strings.TrimSpace(req.CollectionName)
+	if collectionName == "" {
+		return nil, fmt.Errorf("collection_name is required")
+	}
+	retention := req.RetentionCount
+	if retention <= 0 {
+		retention = 30
+	}
+
+	created, err := s.CreateBackup(ctx, &CreateBackupRequest{
+		CollectionName: collectionName,
+		CreatedBy:      defaultString(req.CreatedBy, "system"),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	deletedCount, err := s.repo.DeleteOldBackupTasks(ctx, collectionName, retention)
+	if err != nil {
+		return nil, err
+	}
+
+	return &BackupPolicyResult{CreatedTask: created, DeletedCount: deletedCount}, nil
+}

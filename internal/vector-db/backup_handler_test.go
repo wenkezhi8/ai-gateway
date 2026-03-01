@@ -39,4 +39,16 @@ func TestBackupHandler_Routes_ShouldWork(t *testing.T) {
 	if listResp.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want %d", listResp.Code, http.StatusOK)
 	}
+
+	policyBody, err := json.Marshal(map[string]any{"collection_name": "docs", "retention_count": 7})
+	if err != nil {
+		t.Fatalf("json.Marshal(policyBody) error = %v", err)
+	}
+	policyReq := httptest.NewRequest(http.MethodPost, "/api/admin/vector-db/backups/policy/run", bytes.NewReader(policyBody))
+	policyReq.Header.Set("Content-Type", "application/json")
+	policyResp := httptest.NewRecorder()
+	r.ServeHTTP(policyResp, policyReq)
+	if policyResp.Code != http.StatusOK {
+		t.Fatalf("POST policy status = %d, want %d", policyResp.Code, http.StatusOK)
+	}
 }

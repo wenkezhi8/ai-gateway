@@ -510,6 +510,35 @@ func (r *SQLiteRepository) Delete(ctx context.Context, name string) error {
 	return nil
 }
 
+func (r *SQLiteRepository) UpdateCollectionStats(ctx context.Context, name string, vectorCount, indexedCount, sizeBytes int64) error {
+	if r == nil || r.db == nil {
+		return fmt.Errorf("sqlite database is required")
+	}
+	if r.initErr != nil {
+		return r.initErr
+	}
+	if err := r.ensureSchema(ctx); err != nil {
+		return err
+	}
+
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE vector_collections
+		SET vector_count = ?, indexed_count = ?, size_bytes = ?, updated_at = ?
+		WHERE name = ?
+	`, vectorCount, indexedCount, sizeBytes, time.Now().UTC().Format(time.RFC3339), strings.TrimSpace(name))
+	if err != nil {
+		return fmt.Errorf("update collection stats failed: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read update stats affected rows failed: %w", err)
+	}
+	if affected == 0 {
+		return ErrCollectionNotFound
+	}
+	return nil
+}
+
 func (r *SQLiteRepository) CreateImportJob(ctx context.Context, job *ImportJob) error {
 	if r == nil || r.db == nil {
 		return fmt.Errorf("sqlite database is required")
@@ -1424,6 +1453,42 @@ func (r *SQLiteRepository) UpdateBackupTask(ctx context.Context, id int64, req *
 		return ErrBackupTaskNotFound
 	}
 	return nil
+}
+
+func (r *SQLiteRepository) DeleteOldBackupTasks(ctx context.Context, collectionName string, keepLatest int) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, fmt.Errorf("sqlite database is required")
+	}
+	if r.initErr != nil {
+		return 0, r.initErr
+	}
+	if err := r.ensureSchema(ctx); err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(collectionName) == "" {
+		return 0, fmt.Errorf("collection_name is required")
+	}
+	if keepLatest < 1 {
+		keepLatest = 1
+	}
+
+	result, err := r.db.ExecContext(ctx, `
+		DELETE FROM vector_backup_tasks
+		WHERE id IN (
+			SELECT id FROM vector_backup_tasks
+			WHERE collection_name = ? AND action = ?
+			ORDER BY created_at DESC
+			LIMIT -1 OFFSET ?
+		)
+	`, strings.TrimSpace(collectionName), string(BackupActionBackup), keepLatest)
+	if err != nil {
+		return 0, fmt.Errorf("delete old backup tasks failed: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read delete old backup tasks affected rows failed: %w", err)
+	}
+	return affected, nil
 }
 
 type backupTaskScanner interface {

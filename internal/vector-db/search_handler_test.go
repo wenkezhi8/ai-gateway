@@ -95,7 +95,7 @@ func TestSearchHandler_GetVectorByID_ShouldReturn200(t *testing.T) {
 	}
 }
 
-func TestSearchHandler_SearchRoute_WhenTextQueryProvided_ShouldReturn400(t *testing.T) {
+func TestSearchHandler_SearchRoute_WhenTextQueryProvided_ShouldReturn200(t *testing.T) {
 	t.Parallel()
 
 	gin.SetMode(gin.TestMode)
@@ -119,8 +119,8 @@ func TestSearchHandler_SearchRoute_WhenTextQueryProvided_ShouldReturn400(t *test
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("POST search status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST search status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 
@@ -182,7 +182,7 @@ func TestSearchHandler_SearchRoute_WhenCollectionNotFound_ShouldReturn404(t *tes
 	}
 }
 
-func TestSearchHandler_RecommendRoute_WhenTextQueryProvided_ShouldReturn400(t *testing.T) {
+func TestSearchHandler_RecommendRoute_WhenTextQueryProvided_ShouldReturn200(t *testing.T) {
 	t.Parallel()
 
 	gin.SetMode(gin.TestMode)
@@ -206,8 +206,8 @@ func TestSearchHandler_RecommendRoute_WhenTextQueryProvided_ShouldReturn400(t *t
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("POST recommend status = %d, want %d", w.Code, http.StatusBadRequest)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST recommend status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 

@@ -49,6 +49,26 @@ func TestRBACService_CheckPermission_ShouldMatchRole(t *testing.T) {
 	if !allowed {
 		t.Fatal("CheckPermission(admin manage) = false, want true")
 	}
+
+	editorKey := "rbac-editor-key"
+	createEditorErr := service.CreateAPIKey(context.Background(), editorKey, "editor")
+	if createEditorErr != nil {
+		t.Fatalf("CreateAPIKey(editor) error = %v", createEditorErr)
+	}
+	allowed, err = service.CheckPermission(context.Background(), editorKey, VectorPermissionImport)
+	if err != nil {
+		t.Fatalf("CheckPermission(editor import) error = %v", err)
+	}
+	if !allowed {
+		t.Fatal("CheckPermission(editor import) = false, want true")
+	}
+	allowed, err = service.CheckPermission(context.Background(), editorKey, VectorPermissionManage)
+	if err != nil {
+		t.Fatalf("CheckPermission(editor manage) error = %v", err)
+	}
+	if allowed {
+		t.Fatal("CheckPermission(editor manage) = true, want false")
+	}
 }
 
 func TestRBACService_CheckPermission_WhenKeyDisabled_ShouldDeny(t *testing.T) {

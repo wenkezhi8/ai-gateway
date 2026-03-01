@@ -124,17 +124,24 @@ func TestVectorDBService_SearchVectors_WhenBackendSuccess_ShouldReturnResults(t 
 	}
 }
 
-func TestVectorDBService_SearchVectors_WhenTextSearchProvided_ShouldReturnUnsupportedError(t *testing.T) {
+func TestVectorDBService_SearchVectors_WhenTextSearchProvided_ShouldEmbedAndSearch(t *testing.T) {
 	t.Parallel()
 
-	svc := NewServiceWithDeps(&mockRepo{}, &mockSearchBackend{})
-	_, err := svc.SearchVectors(context.Background(), &SearchVectorsRequest{
+	backend := &mockSearchBackend{searchResp: []SearchResult{{ID: "vec-1", Score: 0.9}}}
+	svc := NewServiceWithDeps(&mockRepo{}, backend)
+	resp, err := svc.SearchVectors(context.Background(), &SearchVectorsRequest{
 		CollectionName: "docs",
 		TopK:           5,
 		Text:           "hello",
 	})
-	if !errors.Is(err, ErrTextSearchNotSupported) {
-		t.Fatalf("SearchVectors() err=%v, want ErrTextSearchNotSupported", err)
+	if err != nil {
+		t.Fatalf("SearchVectors() error = %v", err)
+	}
+	if resp.Total != 1 {
+		t.Fatalf("SearchVectors() total=%d, want 1", resp.Total)
+	}
+	if len(backend.lastVector) == 0 {
+		t.Fatal("SearchVectors() should pass embedded vector to backend")
 	}
 }
 
@@ -202,8 +209,8 @@ func TestVectorDBService_RecommendVectors_WhenInvalidRequest_ShouldFail(t *testi
 	t.Run("text provided", func(t *testing.T) {
 		t.Parallel()
 		_, err := svc.RecommendVectors(context.Background(), &RecommendVectorsRequest{CollectionName: "docs", TopK: 1, Text: "hello"})
-		if !errors.Is(err, ErrTextSearchNotSupported) {
-			t.Fatalf("RecommendVectors() err=%v, want ErrTextSearchNotSupported", err)
+		if err != nil {
+			t.Fatalf("RecommendVectors() error = %v", err)
 		}
 	})
 }
@@ -319,12 +326,14 @@ type mockSearchBackend struct {
 	searchCalls int
 	searchResp  []SearchResult
 	searchErr   error
+	lastVector  []float32
 	getByIDResp *SearchResult
 	getByIDErr  error
 }
 
-func (m *mockSearchBackend) Search(_ context.Context, _ string, _ []float32, _ int, _ float32) ([]SearchResult, error) {
+func (m *mockSearchBackend) Search(_ context.Context, _ string, vector []float32, _ int, _ float32) ([]SearchResult, error) {
 	m.searchCalls++
+	m.lastVector = append([]float32{}, vector...)
 	if m.searchErr != nil {
 		return nil, m.searchErr
 	}

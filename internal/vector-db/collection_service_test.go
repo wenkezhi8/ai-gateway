@@ -86,6 +86,44 @@ func TestVectorDBService_GetCollectionStats_WhenBackendFails_ShouldFallbackToMet
 	}
 }
 
+func TestVectorDBService_EmptyCollection_ShouldResetStatsAndRecreateBackendCollection(t *testing.T) {
+	t.Parallel()
+
+	backend := &mockBackend{}
+	repo := &mockRepo{getResp: &Collection{Name: "docs", Dimension: 768, DistanceMetric: "cosine"}}
+	svc := NewServiceWithDeps(repo, backend)
+
+	if err := svc.EmptyCollection(context.Background(), "docs"); err != nil {
+		t.Fatalf("EmptyCollection() error = %v", err)
+	}
+
+	if backend.deleteCalls != 1 {
+		t.Fatalf("EmptyCollection() backend deleteCalls=%d, want 1", backend.deleteCalls)
+	}
+	if backend.createCalls != 1 {
+		t.Fatalf("EmptyCollection() backend createCalls=%d, want 1", backend.createCalls)
+	}
+	if repo.updateStatsCalls != 1 {
+		t.Fatalf("EmptyCollection() updateStatsCalls=%d, want 1", repo.updateStatsCalls)
+	}
+	if repo.lastStatsVectorCount != 0 || repo.lastStatsIndexedCount != 0 || repo.lastStatsSizeBytes != 0 {
+		t.Fatalf("EmptyCollection() unexpected reset stats: vector=%d indexed=%d size=%d", repo.lastStatsVectorCount, repo.lastStatsIndexedCount, repo.lastStatsSizeBytes)
+	}
+}
+
+func TestVectorDBService_EmptyCollection_WhenCollectionNotFound_ShouldReturnErrCollectionNotFound(t *testing.T) {
+	t.Parallel()
+
+	backend := &mockBackend{}
+	repo := &mockRepo{getErr: ErrCollectionNotFound}
+	svc := NewServiceWithDeps(repo, backend)
+
+	err := svc.EmptyCollection(context.Background(), "missing")
+	if !errors.Is(err, ErrCollectionNotFound) {
+		t.Fatalf("EmptyCollection() err=%v, want ErrCollectionNotFound", err)
+	}
+}
+
 func TestSQLiteRepository_CreateAndGet_ShouldPersistCollection(t *testing.T) {
 	t.Parallel()
 
@@ -222,16 +260,24 @@ func setupTestSQLite(t *testing.T) *sql.DB {
 }
 
 type mockRepo struct {
-	createCalls     int
-	createErr       error
-	getResp         *Collection
-	getErr          error
-	importJobs      map[string]*ImportJob
-	getImportJobErr error
-	auditLogs       []AuditLog
-	alertRules      map[int64]*AlertRule
-	vectorAPIKeys   map[string]*VectorAPIKey
-	backupTasks     map[int64]*BackupTask
+	createCalls           int
+	createErr             error
+	getResp               *Collection
+	getErr                error
+	importJobs            map[string]*ImportJob
+	getImportJobErr       error
+	auditLogs             []AuditLog
+	alertRules            map[int64]*AlertRule
+	vectorAPIKeys         map[string]*VectorAPIKey
+	backupTasks           map[int64]*BackupTask
+	updateStatsCalls      int
+	updateStatsErr        error
+	lastStatsVectorCount  int64
+	lastStatsIndexedCount int64
+	lastStatsSizeBytes    int64
+	deleteOldBackupCalls  int
+	deleteOldBackupResult int64
+	deleteOldBackupErr    error
 }
 
 func (m *mockRepo) Create(_ context.Context, _ *Collection) error {
@@ -256,6 +302,14 @@ func (m *mockRepo) List(_ context.Context, _ *ListCollectionsQuery) ([]Collectio
 
 func (m *mockRepo) Update(_ context.Context, _ string, _ *UpdateCollectionRequest) error {
 	return nil
+}
+
+func (m *mockRepo) UpdateCollectionStats(_ context.Context, _ string, vectorCount, indexedCount, sizeBytes int64) error {
+	m.updateStatsCalls++
+	m.lastStatsVectorCount = vectorCount
+	m.lastStatsIndexedCount = indexedCount
+	m.lastStatsSizeBytes = sizeBytes
+	return m.updateStatsErr
 }
 
 func (m *mockRepo) Delete(_ context.Context, _ string) error {
@@ -582,6 +636,11 @@ func (m *mockRepo) UpdateBackupTask(_ context.Context, id int64, req *UpdateBack
 	}
 	item.UpdatedAt = time.Now().UTC()
 	return nil
+}
+
+func (m *mockRepo) DeleteOldBackupTasks(_ context.Context, _ string, _ int) (int64, error) {
+	m.deleteOldBackupCalls++
+	return m.deleteOldBackupResult, m.deleteOldBackupErr
 }
 
 type mockBackend struct {

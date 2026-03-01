@@ -53,3 +53,14 @@ type UpdateBackupTaskRequest struct {
 	StartedAt    *time.Time
 	CompletedAt  *time.Time
 }
+
+type RunBackupPolicyRequest struct {
+	CollectionName string `json:"collection_name"`
+	RetentionCount int    `json:"retention_count"`
+	CreatedBy      string `json:"created_by"`
+}
+
+type BackupPolicyResult struct {
+	CreatedTask  *BackupTask `json:"created_task"`
+	DeletedCount int64       `json:"deleted_count"`
+}

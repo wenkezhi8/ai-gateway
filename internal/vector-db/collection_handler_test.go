@@ -170,6 +170,48 @@ func TestCollectionHandler_Create_WhenCollectionExists_ShouldReturn409(t *testin
 	}
 }
 
+func TestCollectionHandler_EmptyCollection_ShouldReturn200(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	h := NewCollectionHandler(NewServiceWithDeps(&mockRepo{getResp: &Collection{Name: "team-docs", Dimension: 1536, DistanceMetric: "cosine"}}, &mockBackend{}))
+
+	group := r.Group("/api/admin")
+	RegisterCollectionRoutes(group, h)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/vector-db/collections/team-docs/empty", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST empty status = %d, want %d", w.Code, http.StatusOK)
+	}
+	resp := decodeJSONBody(t, w)
+	if ok, _ := resp["success"].(bool); !ok {
+		t.Fatalf("POST empty success = %v, want true", resp["success"])
+	}
+}
+
+func TestCollectionHandler_EmptyCollection_WhenNotFound_ShouldReturn404(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	h := NewCollectionHandler(NewServiceWithDeps(&mockRepo{getErr: ErrCollectionNotFound}, &mockBackend{}))
+
+	group := r.Group("/api/admin")
+	RegisterCollectionRoutes(group, h)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/vector-db/collections/missing/empty", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("POST empty status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
 func decodeJSONBody(t *testing.T, recorder *httptest.ResponseRecorder) map[string]any {
 	t.Helper()
 	resp := map[string]any{}

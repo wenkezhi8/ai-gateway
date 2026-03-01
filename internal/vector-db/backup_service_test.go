@@ -64,3 +64,28 @@ func TestBackupService_CreateListRestoreRetry_ShouldWork(t *testing.T) {
 		t.Fatalf("RetryBackupTask() error = %v", err)
 	}
 }
+
+func TestBackupService_RunBackupPolicy_ShouldCreateAndCleanup(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{getResp: &Collection{Name: "docs"}, deleteOldBackupResult: 2}
+	svc := NewServiceWithDeps(repo, &mockBackend{})
+
+	result, err := svc.RunBackupPolicy(context.Background(), &RunBackupPolicyRequest{
+		CollectionName: "docs",
+		RetentionCount: 7,
+		CreatedBy:      "tester",
+	})
+	if err != nil {
+		t.Fatalf("RunBackupPolicy() error = %v", err)
+	}
+	if result == nil || result.CreatedTask == nil {
+		t.Fatal("RunBackupPolicy() should return created task")
+	}
+	if result.DeletedCount != 2 {
+		t.Fatalf("RunBackupPolicy() deleted_count=%d, want 2", result.DeletedCount)
+	}
+	if repo.deleteOldBackupCalls != 1 {
+		t.Fatalf("RunBackupPolicy() deleteOldBackupCalls=%d, want 1", repo.deleteOldBackupCalls)
+	}
+}

@@ -38,6 +38,7 @@ func RegisterCollectionRoutes(r *gin.RouterGroup, handler *CollectionHandler) {
 	collections.GET("", handler.ListCollections)
 	collections.GET("/:name", handler.GetCollection)
 	collections.PUT("/:name", handler.UpdateCollection)
+	collections.POST("/:name/empty", handler.EmptyCollection)
 	collections.DELETE("/:name", handler.DeleteCollection)
 }
 
@@ -173,6 +174,16 @@ func (h *CollectionHandler) DeleteCollection(c *gin.Context) {
 	}
 
 	logrus.WithFields(logrus.Fields{"name": name, "force": req.Force}).Info("delete collection request completed")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// EmptyCollection handles POST /api/admin/vector-db/collections/:name/empty.
+func (h *CollectionHandler) EmptyCollection(c *gin.Context) {
+	if err := h.service.EmptyCollection(c.Request.Context(), c.Param("name")); err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 

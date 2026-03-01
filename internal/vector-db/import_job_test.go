@@ -167,6 +167,38 @@ func TestVectorDBService_RunImportJob_WithCSV_ShouldCountProcessedAndFailed(t *t
 	}
 }
 
+func TestVectorDBService_RunImportJob_WithPDF_ShouldBeSupported(t *testing.T) {
+	t.Parallel()
+
+	filePath := writeTempFile(t, "pdf", "first line\nsecond line\n")
+
+	repo := &mockRepo{
+		importJobs: map[string]*ImportJob{
+			"job_1": {
+				ID:             "job_1",
+				CollectionID:   "col_1",
+				CollectionName: "docs",
+				FilePath:       filePath,
+				TotalRecords:   2,
+				Status:         ImportJobStatusPending,
+			},
+		},
+	}
+	backend := &mockBackend{}
+	svc := NewServiceWithDeps(repo, backend)
+
+	job, err := svc.RunImportJob(context.Background(), "job_1")
+	if err != nil {
+		t.Fatalf("RunImportJob() error = %v", err)
+	}
+	if job.Status != ImportJobStatusCompleted {
+		t.Fatalf("RunImportJob() status=%s, want completed", job.Status)
+	}
+	if backend.upsertCalls == 0 {
+		t.Fatalf("RunImportJob() should call backend upsert for pdf")
+	}
+}
+
 func TestVectorDBService_RunImportJob_WithJSONVectors_ShouldUpsertBackend(t *testing.T) {
 	t.Parallel()
 

@@ -94,11 +94,27 @@ var permissionSetByRole = map[string]map[VectorPermission]struct{}{
 		VectorPermissionRecommend: {},
 		VectorPermissionRead:      {},
 		VectorPermissionManage:    {},
+		VectorPermissionImport:    {},
+		VectorPermissionMonitor:   {},
+	},
+	"editor": {
+		VectorPermissionSearch:    {},
+		VectorPermissionRecommend: {},
+		VectorPermissionRead:      {},
+		VectorPermissionImport:    {},
+		VectorPermissionMonitor:   {},
+	},
+	"viewer": {
+		VectorPermissionSearch:    {},
+		VectorPermissionRecommend: {},
+		VectorPermissionRead:      {},
+		VectorPermissionMonitor:   {},
 	},
 	"reader": {
 		VectorPermissionSearch:    {},
 		VectorPermissionRecommend: {},
 		VectorPermissionRead:      {},
+		VectorPermissionMonitor:   {},
 	},
 }
 
