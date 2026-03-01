@@ -124,11 +124,11 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 2. 每个 AI 必须在独立 worktree + 独立分支开发；分支与工作区必须按工具名命名，禁止共用同一工作目录。
 3. 命名规则（强制）：
    - 分支：`<tool>/<task>`（示例：`codex/routing-cache`、`opencode/provider-retry`、`claude/frontend-guard`）
-   - worktree：`.worktrees/<tool>-<task>`（示例：`.worktrees/codex-routing-cache`）
+   - worktree：`.worktrees/codex-<会话id>`（示例：`.worktrees/codex-20260301-0954`）
    - `tool` 统一小写，仅允许当前使用的开发工具标识（如 `codex`/`opencode`/`claude`）。
 4. 创建模板（按工具名）：
 ```bash
-git worktree add .worktrees/codex-<task> -b codex/<task>
+git worktree add .worktrees/codex-<会话id> -b codex/<task>
 git worktree add .worktrees/opencode-<task> -b opencode/<task>
 git worktree add .worktrees/claude-<task> -b claude/<task>
 ```
