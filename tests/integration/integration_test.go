@@ -1,12 +1,6 @@
 package integration
 
 import (
-	"ai-gateway/internal/cache"
-	"ai-gateway/internal/config"
-	"ai-gateway/internal/handler"
-	"ai-gateway/internal/limiter"
-	"ai-gateway/internal/provider"
-	"ai-gateway/internal/router"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,17 +9,21 @@ import (
 	"testing"
 	"time"
 
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/config"
+	"ai-gateway/internal/handler"
+	"ai-gateway/internal/limiter"
+	"ai-gateway/internal/provider"
+	"ai-gateway/internal/router"
+
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
-// TestIntegration_FullRequestFlow tests a complete request flow through the gateway
 func TestIntegration_FullRequestFlow(t *testing.T) {
+	setGinTestMode()
+
 	// Clear global registry before test
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
@@ -65,7 +63,7 @@ func TestIntegration_FullRequestFlow(t *testing.T) {
 
 	// Test health check
 	t.Run("HealthCheck", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/health", nil)
+		req := httptest.NewRequest("GET", "/health", http.NoBody)
 		w := httptest.NewRecorder()
 		ginRouter.ServeHTTP(w, req)
 
@@ -75,7 +73,7 @@ func TestIntegration_FullRequestFlow(t *testing.T) {
 
 	// Test list providers
 	t.Run("ListProviders", func(t *testing.T) {
-		req := httptest.NewRequest("GET", "/api/v1/providers", nil)
+		req := httptest.NewRequest("GET", "/api/v1/providers", http.NoBody)
 		w := httptest.NewRecorder()
 		ginRouter.ServeHTTP(w, req)
 
@@ -91,7 +89,8 @@ func TestIntegration_FullRequestFlow(t *testing.T) {
 				{"role": "user", "content": "Hello"},
 			},
 		}
-		jsonBody, _ := json.Marshal(body)
+		jsonBody, err := json.Marshal(body)
+		require.NoError(t, err)
 
 		req := httptest.NewRequest("POST", "/api/v1/chat/completions", bytes.NewBuffer(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
@@ -102,8 +101,9 @@ func TestIntegration_FullRequestFlow(t *testing.T) {
 	})
 }
 
-// TestIntegration_CacheWithRequests tests caching with actual requests
 func TestIntegration_CacheWithRequests(t *testing.T) {
+	setGinTestMode()
+
 	memCache := cache.NewMemoryCache()
 	responseCache := cache.NewResponseCache(memCache, time.Hour)
 	ctx := context.Background()
@@ -139,8 +139,9 @@ func TestIntegration_CacheWithRequests(t *testing.T) {
 	assert.Equal(t, cachedResp.Model, retrieved.Model)
 }
 
-// TestIntegration_QuotaManagement tests quota management flow
 func TestIntegration_QuotaManagement(t *testing.T) {
+	setGinTestMode()
+
 	// Setup mock store
 	store := newMockStore()
 	tracker := limiter.NewLegacyUsageTracker(store)
@@ -172,8 +173,9 @@ func TestIntegration_QuotaManagement(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// TestIntegration_RouterStrategy tests routing strategy selection
 func TestIntegration_RouterStrategy(t *testing.T) {
+	setGinTestMode()
+
 	// Test strategy parsing
 	strategies := []struct {
 		input    string
@@ -191,18 +193,17 @@ func TestIntegration_RouterStrategy(t *testing.T) {
 	}
 }
 
-// mockProviderForIntegration implements provider.Provider interface for testing
 type mockProviderForIntegration struct {
 	name    string
 	enabled bool
 }
 
-func (m *mockProviderForIntegration) Name() string                         { return m.name }
-func (m *mockProviderForIntegration) Models() []string                     { return []string{"gpt-4", "gpt-3.5-turbo"} }
-func (m *mockProviderForIntegration) IsEnabled() bool                      { return m.enabled }
-func (m *mockProviderForIntegration) SetEnabled(enabled bool)              { m.enabled = enabled }
-func (m *mockProviderForIntegration) ValidateKey(ctx context.Context) bool { return true }
-func (m *mockProviderForIntegration) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (m *mockProviderForIntegration) Name() string                       { return m.name }
+func (m *mockProviderForIntegration) Models() []string                   { return []string{"gpt-4", "gpt-3.5-turbo"} }
+func (m *mockProviderForIntegration) IsEnabled() bool                    { return m.enabled }
+func (m *mockProviderForIntegration) SetEnabled(enabled bool)            { m.enabled = enabled }
+func (m *mockProviderForIntegration) ValidateKey(_ context.Context) bool { return true }
+func (m *mockProviderForIntegration) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return &provider.ChatResponse{
 		ID:      "test-response-id",
 		Object:  "chat.completion",
@@ -225,7 +226,7 @@ func (m *mockProviderForIntegration) Chat(ctx context.Context, req *provider.Cha
 		},
 	}, nil
 }
-func (m *mockProviderForIntegration) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+func (m *mockProviderForIntegration) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	ch := make(chan *provider.StreamChunk, 1)
 	go func() {
 		defer close(ch)
@@ -249,8 +250,9 @@ func (m *mockProviderForIntegration) StreamChat(ctx context.Context, req *provid
 	return ch, nil
 }
 
-// TestIntegration_ProviderAvailability tests provider availability checks
 func TestIntegration_ProviderAvailability(t *testing.T) {
+	setGinTestMode()
+
 	// This would test with actual provider instances in a real integration test
 	// For now, we test the routing logic
 
@@ -291,7 +293,6 @@ func TestIntegration_ProviderAvailability(t *testing.T) {
 	assert.Equal(t, 1, availableCount)
 }
 
-// mockStore for integration tests
 type mockStore struct {
 	data map[string]int64
 }
@@ -300,15 +301,16 @@ func newMockStore() *mockStore {
 	return &mockStore{data: make(map[string]int64)}
 }
 
-func (m *mockStore) Get(ctx context.Context, key string) (int64, error) {
+func (m *mockStore) Get(_ context.Context, key string) (int64, error) {
 	return m.data[key], nil
 }
 
-func (m *mockStore) Incr(ctx context.Context, key string) (int64, error) {
+func (m *mockStore) Incr(_ context.Context, key string) (int64, error) {
 	m.data[key]++
 	return m.data[key], nil
 }
 
-func (m *mockStore) Expire(ctx context.Context, key string, expiration time.Duration) error {
+func (m *mockStore) Expire(_ context.Context, key string, _ time.Duration) error {
+	_ = key
 	return nil
 }

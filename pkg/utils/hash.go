@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 )
 
-// GenerateRandomString generates a random string of the specified length
+// GenerateRandomString generates a random string of the specified length.
 func GenerateRandomString(length int) (string, error) {
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
@@ -14,7 +14,7 @@ func GenerateRandomString(length int) (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// Contains checks if a string is in a slice
+// Contains checks if a string is in a slice.
 func Contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
@@ -24,7 +24,7 @@ func Contains(slice []string, item string) bool {
 	return false
 }
 
-// Unique removes duplicates from a string slice
+// Unique removes duplicates from a string slice.
 func Unique(slice []string) []string {
 	keys := make(map[string]bool)
 	result := []string{}

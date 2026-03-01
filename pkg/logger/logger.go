@@ -6,16 +6,16 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var Log *logrus.Logger
+var Log = newLogger()
 
-func init() {
-	Log = logrus.New()
+func newLogger() *logrus.Logger {
+	logger := logrus.New()
 
 	// Set output
-	Log.SetOutput(os.Stdout)
+	logger.SetOutput(os.Stdout)
 
 	// Set format
-	Log.SetFormatter(&logrus.JSONFormatter{
+	logger.SetFormatter(&logrus.JSONFormatter{
 		FieldMap: logrus.FieldMap{
 			logrus.FieldKeyTime:  "timestamp",
 			logrus.FieldKeyLevel: "level",
@@ -27,47 +27,49 @@ func init() {
 	level := os.Getenv("LOG_LEVEL")
 	switch level {
 	case "debug":
-		Log.SetLevel(logrus.DebugLevel)
+		logger.SetLevel(logrus.DebugLevel)
 	case "warn":
-		Log.SetLevel(logrus.WarnLevel)
+		logger.SetLevel(logrus.WarnLevel)
 	case "error":
-		Log.SetLevel(logrus.ErrorLevel)
+		logger.SetLevel(logrus.ErrorLevel)
 	default:
-		Log.SetLevel(logrus.InfoLevel)
+		logger.SetLevel(logrus.InfoLevel)
 	}
+
+	return logger
 }
 
-// WithField creates an entry with a single field
+// WithField creates an entry with a single field.
 func WithField(key string, value interface{}) *logrus.Entry {
 	return Log.WithField(key, value)
 }
 
-// WithFields creates an entry with multiple fields
+// WithFields creates an entry with multiple fields.
 func WithFields(fields logrus.Fields) *logrus.Entry {
 	return Log.WithFields(fields)
 }
 
-// Debug logs a debug message
+// Debug logs a debug message.
 func Debug(args ...interface{}) {
 	Log.Debug(args...)
 }
 
-// Info logs an info message
+// Info logs an info message.
 func Info(args ...interface{}) {
 	Log.Info(args...)
 }
 
-// Warn logs a warning message
+// Warn logs a warning message.
 func Warn(args ...interface{}) {
 	Log.Warn(args...)
 }
 
-// Error logs an error message
+// Error logs an error message.
 func Error(args ...interface{}) {
 	Log.Error(args...)
 }
 
-// Fatal logs a fatal message and exits
+// Fatal logs a fatal message and exits.
 func Fatal(args ...interface{}) {
 	Log.Fatal(args...)
 }
