@@ -51,8 +51,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      intent-engine:
-        condition: service_healthy
+      # intent-engine 是可选服务，当 INTENT_ENGINE_ENABLED=true 时才会真正需要
+      # 如果使用 intent-engine，请先启动：docker compose --profile intent-engine up -d intent-engine
     restart: always
     networks:
       - ai-gateway-network
@@ -121,8 +121,18 @@ services:
         max-file: "3"
 
   intent-engine:
-    image: ${INTENT_ENGINE_IMAGE:-ghcr.io/openclaw/intent-engine:latest}
+    # 意图识别引擎（可选）。默认不启动，避免依赖私有镜像。
+    # 使用方式：
+    #   1. 设置环境变量 INTENT_ENGINE_ENABLED=true 启用该服务
+    #   2. 设置环境变量 INTENT_ENGINE_IMAGE 指定镜像地址
+    #   3. 或者修改下方 image 为公开镜像地址（如 Docker Hub 公开镜像）
+    # 公开镜像示例（如存在）：
+    #   image: ${INTENT_ENGINE_IMAGE:-docker.io/library/python:3.11}
+    #   image: ${INTENT_ENGINE_IMAGE:-}  # 默认空，需手动指定镜像
+    image: ${INTENT_ENGINE_IMAGE:-}
     container_name: ai-gateway-intent-engine-prod
+    profiles:
+      - intent-engine  # 需要通过 profile 启动：docker compose --profile intent-engine up
     ports:
       - "${INTENT_ENGINE_PORT:-18566}:18566"
     restart: always
