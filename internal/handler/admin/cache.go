@@ -191,7 +191,20 @@ func parseRedisHitStats(info string) (hits, misses int64) {
 	return hits, misses
 }
 
-// DELETE /api/admin/cache.
+type vectorTierValidationError struct {
+	code    string
+	message string
+}
+
+func (e *vectorTierValidationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+// ClearCache clears all caches
+// DELETE /api/admin/cache
 func (h *CacheHandler) ClearCache(c *gin.Context) {
 	cacheType := c.Query("type") // request, context, route, usage, response, all
 
@@ -425,6 +438,184 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	if req.VectorWritebackEnabled != nil {
 		settings.VectorWritebackEnabled = *req.VectorWritebackEnabled
 	}
+	tierReq := VectorTierConfigRequest{
+		ColdVectorEnabled:             req.ColdVectorEnabled,
+		ColdVectorQueryEnabled:        req.ColdVectorQueryEnabled,
+		ColdVectorBackend:             req.ColdVectorBackend,
+		ColdVectorDualWriteEnabled:    req.ColdVectorDualWriteEnabled,
+		ColdVectorSimilarityThreshold: req.ColdVectorSimilarityThreshold,
+		ColdVectorTopK:                req.ColdVectorTopK,
+		HotMemoryHighWatermarkPercent: req.HotMemoryHighWatermarkPercent,
+		HotMemoryReliefPercent:        req.HotMemoryReliefPercent,
+		HotToColdBatchSize:            req.HotToColdBatchSize,
+		HotToColdIntervalSeconds:      req.HotToColdIntervalSeconds,
+		ColdVectorQdrantURL:           req.ColdVectorQdrantURL,
+		ColdVectorQdrantAPIKey:        req.ColdVectorQdrantAPIKey,
+		ColdVectorQdrantCollection:    req.ColdVectorQdrantCollection,
+		ColdVectorQdrantTimeoutMs:     req.ColdVectorQdrantTimeoutMs,
+	}
+	if err := h.applyVectorTierConfigToSettings(&settings, tierReq); err != nil {
+		code := "invalid_vector_tier_config"
+		message := err.Error()
+		if vErr, ok := err.(*vectorTierValidationError); ok {
+			code = vErr.code
+			message = vErr.message
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    code,
+				"message": message,
+			},
+		})
+		return
+	}
+	if req.Dedup != nil {
+		if req.Dedup.Enabled != nil {
+			settings.Dedup.Enabled = *req.Dedup.Enabled
+		}
+		if req.Dedup.MaxPending != nil {
+			settings.Dedup.MaxPending = *req.Dedup.MaxPending
+		}
+		if req.Dedup.RequestTimeoutSeconds != nil {
+			settings.Dedup.RequestTimeoutSeconds = *req.Dedup.RequestTimeoutSeconds
+		}
+	}
+
+	// Apply base cache settings
+	h.manager.UpdateSettings(settings)
+	h.applyTieredStoreRuntimeSettings(settings)
+
+	// Optional per-cache TTL overrides
+	if req.RequestTTL != nil && h.manager.RequestCache != nil {
+		h.manager.RequestCache.SetDefaultTTL(time.Duration(*req.RequestTTL) * time.Second)
+	}
+	if req.ContextTTL != nil && h.manager.ContextCache != nil {
+		h.manager.ContextCache.SetDefaultTTL(time.Duration(*req.ContextTTL) * time.Second)
+	}
+	if req.RouteTTL != nil && h.manager.RouteCache != nil {
+		h.manager.RouteCache.SetDefaultTTL(time.Duration(*req.RouteTTL) * time.Second)
+	}
+
+	if err := persistVectorCacheSettings(&settings); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "persist_config_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	h.settings = settings
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"message": "Cache configuration updated",
+			"config":  settings,
+		},
+	})
+}
+
+// GetVectorTierConfig returns vector hot/cold tier configuration.
+// GET /api/admin/router/vector/tier/config
+func (h *CacheHandler) GetVectorTierConfig(c *gin.Context) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	settings := h.manager.GetSettings()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    h.buildVectorTierConfigResponse(settings),
+	})
+}
+
+// UpdateVectorTierConfig updates vector hot/cold tier configuration.
+// PUT /api/admin/router/vector/tier/config
+func (h *CacheHandler) UpdateVectorTierConfig(c *gin.Context) {
+	var req VectorTierConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	settings := h.manager.GetSettings()
+	if err := h.applyVectorTierConfigToSettings(&settings, req); err != nil {
+		code := "invalid_vector_tier_config"
+		message := err.Error()
+		if vErr, ok := err.(*vectorTierValidationError); ok {
+			code = vErr.code
+			message = vErr.message
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    code,
+				"message": message,
+			},
+		})
+		return
+	}
+
+	h.manager.UpdateSettings(settings)
+	h.applyTieredStoreRuntimeSettings(settings)
+	if err := persistVectorCacheSettings(&settings); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "persist_config_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	h.settings = settings
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    h.buildVectorTierConfigResponse(settings),
+	})
+}
+
+func (h *CacheHandler) buildVectorTierConfigResponse(settings cache.CacheSettings) gin.H {
+	return gin.H{
+		"cold_vector_enabled":               settings.ColdVectorEnabled,
+		"cold_vector_query_enabled":         settings.ColdVectorQueryEnabled,
+		"cold_vector_backend":               settings.ColdVectorBackend,
+		"cold_vector_dual_write_enabled":    settings.ColdVectorDualWriteEnabled,
+		"cold_vector_similarity_threshold":  settings.ColdVectorSimilarityThreshold,
+		"cold_vector_top_k":                 settings.ColdVectorTopK,
+		"hot_memory_high_watermark_percent": settings.HotMemoryHighWatermarkPercent,
+		"hot_memory_relief_percent":         settings.HotMemoryReliefPercent,
+		"hot_to_cold_batch_size":            settings.HotToColdBatchSize,
+		"hot_to_cold_interval_seconds":      settings.HotToColdIntervalSeconds,
+		"cold_vector_qdrant_url":            settings.ColdVectorQdrantURL,
+		"cold_vector_qdrant_api_key":        settings.ColdVectorQdrantAPIKey,
+		"cold_vector_qdrant_collection":     settings.ColdVectorQdrantCollection,
+		"cold_vector_qdrant_timeout_ms":     settings.ColdVectorQdrantTimeoutMs,
+	}
+}
+
+func (h *CacheHandler) applyVectorTierConfigToSettings(settings *cache.CacheSettings, req VectorTierConfigRequest) error {
+	if settings == nil {
+		return &vectorTierValidationError{
+			code:    "invalid_settings",
+			message: "cache settings is nil",
+		}
+	}
+
 	if req.ColdVectorEnabled != nil {
 		settings.ColdVectorEnabled = *req.ColdVectorEnabled
 	}
@@ -434,14 +625,10 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	if req.ColdVectorBackend != nil {
 		backend := strings.ToLower(strings.TrimSpace(*req.ColdVectorBackend))
 		if backend != cache.ColdVectorBackendSQLite && backend != cache.ColdVectorBackendQdrant {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"error": gin.H{
-					"code":    "invalid_cold_backend",
-					"message": "cold_vector_backend must be sqlite or qdrant",
-				},
-			})
-			return
+			return &vectorTierValidationError{
+				code:    "invalid_cold_backend",
+				message: "cold_vector_backend must be sqlite or qdrant",
+			}
 		}
 		settings.ColdVectorBackend = backend
 	}
@@ -508,20 +695,11 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 	if req.ColdVectorQdrantTimeoutMs != nil && *req.ColdVectorQdrantTimeoutMs > 0 {
 		settings.ColdVectorQdrantTimeoutMs = *req.ColdVectorQdrantTimeoutMs
 	}
-	if req.Dedup != nil {
-		if req.Dedup.Enabled != nil {
-			settings.Dedup.Enabled = *req.Dedup.Enabled
-		}
-		if req.Dedup.MaxPending != nil {
-			settings.Dedup.MaxPending = *req.Dedup.MaxPending
-		}
-		if req.Dedup.RequestTimeoutSeconds != nil {
-			settings.Dedup.RequestTimeoutSeconds = *req.Dedup.RequestTimeoutSeconds
-		}
-	}
 
-	// Apply base cache settings
-	h.manager.UpdateSettings(settings)
+	return nil
+}
+
+func (h *CacheHandler) applyTieredStoreRuntimeSettings(settings cache.CacheSettings) {
 	if tiered := h.manager.GetTieredVectorStore(); tiered != nil {
 		tiered.UpdateConfig(cache.TieredConfigFromSettings(settings))
 		qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
@@ -533,41 +711,10 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		})
 		tiered.SetColdStore(cache.ColdVectorBackendQdrant, qdrantStore)
 	}
-
-	// Optional per-cache TTL overrides
-	if req.RequestTTL != nil && h.manager.RequestCache != nil {
-		h.manager.RequestCache.SetDefaultTTL(time.Duration(*req.RequestTTL) * time.Second)
-	}
-	if req.ContextTTL != nil && h.manager.ContextCache != nil {
-		h.manager.ContextCache.SetDefaultTTL(time.Duration(*req.ContextTTL) * time.Second)
-	}
-	if req.RouteTTL != nil && h.manager.RouteCache != nil {
-		h.manager.RouteCache.SetDefaultTTL(time.Duration(*req.RouteTTL) * time.Second)
-	}
-
-	if err := persistVectorCacheSettings(&settings); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "persist_config_failed",
-				"message": err.Error(),
-			},
-		})
-		return
-	}
-
-	h.settings = settings
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"message": "Cache configuration updated",
-			"config":  settings,
-		},
-	})
 }
 
-// GET /api/admin/cache/vector/tier/stats.
+// GetVectorTierStats returns hot/cold tier runtime stats.
+// GET /api/admin/router/vector/tier/stats
 func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -611,7 +758,8 @@ func respondVectorStoreStatsSuccess(c *gin.Context, stats any) {
 	})
 }
 
-// POST /api/admin/cache/vector/tier/migrate.
+// TriggerVectorTierMigrate triggers one hot->cold migration round.
+// POST /api/admin/router/vector/tier/migrate
 func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -643,7 +791,8 @@ func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 	})
 }
 
-// POST /api/admin/cache/vector/tier/promote.
+// PromoteVectorTierEntry promotes one cold cache document back into hot tier.
+// POST /api/admin/router/vector/tier/promote
 func (h *CacheHandler) PromoteVectorTierEntry(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {

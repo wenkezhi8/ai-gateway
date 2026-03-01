@@ -189,6 +189,25 @@ type CacheConfigRequest struct {
 	RouteTTL   *int `json:"route_ttl_seconds"`
 }
 
+// VectorTierConfigRequest represents vector tier configuration update.
+// All fields are optional and support partial update.
+type VectorTierConfigRequest struct {
+	ColdVectorEnabled             *bool    `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled        *bool    `json:"cold_vector_query_enabled"`
+	ColdVectorBackend             *string  `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled    *bool    `json:"cold_vector_dual_write_enabled"`
+	ColdVectorSimilarityThreshold *float64 `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                *int     `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent *float64 `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent        *float64 `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize            *int     `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds      *int     `json:"hot_to_cold_interval_seconds"`
+	ColdVectorQdrantURL           *string  `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey        *string  `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection    *string  `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs     *int     `json:"cold_vector_qdrant_timeout_ms"`
+}
+
 // Dashboard types
 
 // DashboardStats represents dashboard overview statistics.

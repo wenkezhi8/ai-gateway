@@ -38,6 +38,7 @@
 | AI标识 | 工具 | 任务 | 分支 | Worktree | 锁定文件/目录 | 状态 | 开始时间 | 结束时间 | 备注 |
 |---|---|---|---|---|---|---|---|---|---|
 | opencode-1 | opencode | request-trace | opencode/cache-detail | .worktrees/opencode-cache-detail | internal/tracing/**, internal/storage/sqlite.go, internal/handler/admin/trace*.go, internal/handler/proxy.go, web/src/views/trace/**, web/src/api/trace-domain.ts | RELEASED | 2026-03-01 08:30 | 2026-03-01 10:00 | OpenTelemetry链路追踪-完整实现（含10个关键Span） |
+| codex | codex | vector-tier-routing-migration | codex/vector-tier-routing-migration | .worktrees/codex-vector-tier-routing-migration | internal/handler/admin/{admin.go,cache.go,types.go,cache_tier_test.go}, web/src/api/{routing-domain.ts,cache-domain.ts,routing-domain-tier.test.ts,cache-domain-tier.test.ts}, web/src/views/routing/{composables/useRoutingConsole.ts,components/VectorManagementTab.vue,routing-vector-scope.test.ts}, web/src/views/cache/{index.vue,cache-cold-tier-controls.test.ts} | RELEASED | 2026-03-01 12:35 | 2026-03-01 12:50 | 冷热向量分层从 /cache 迁移到 /routing，tier API 路径切换到 /router/vector/tier/* |
 
 ## 4. 状态值说明
 

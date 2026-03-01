@@ -15,13 +15,18 @@ import {
   getRouterModels,
   getTaskModelMapping,
   getTaskTypeDistribution,
+  getVectorTierConfig,
+  getVectorTierStats,
   installOllama as installOllamaApi,
+  promoteVectorTierEntry,
   pullOllamaModel as pullOllamaModelApi,
   putTaskModelMapping,
   startOllama as startOllamaApi,
   stopOllama as stopOllamaApi,
   switchClassifierModelAsync,
+  triggerVectorTierMigrate,
   triggerFeedbackOptimization,
+  updateVectorTierConfig,
   updateIntentEngineConfig,
   updateModelScore,
   updateRouterConfig
@@ -30,7 +35,6 @@ import {
   getCacheConfig,
   getVectorPipelineHealth,
   getVectorStats,
-  getVectorTierStats,
   rebuildVectorIndex as rebuildVectorIndexApi,
   testVectorPipeline,
   updateCacheConfig
@@ -112,6 +116,10 @@ export function useRoutingConsole() {
   const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
   const vectorRefreshing = ref(false)
   const vectorRebuilding = ref(false)
+  const vectorTierConfigSaving = ref(false)
+  const tierMigrating = ref(false)
+  const tierPromoting = ref(false)
+  const promoteCacheKey = ref('')
 
   const classifierConfig = reactive(JSON.parse(JSON.stringify(DEFAULT_CLASSIFIER_CONFIG)))
 
@@ -171,6 +179,23 @@ export function useRoutingConsole() {
     promote_success: 0,
     promote_failed: 0,
     message: ''
+  })
+
+  const vectorTierConfig = reactive({
+    cold_vector_enabled: false,
+    cold_vector_query_enabled: true,
+    cold_vector_backend: 'sqlite',
+    cold_vector_dual_write_enabled: false,
+    cold_vector_similarity_threshold: 0.92,
+    cold_vector_top_k: 1,
+    hot_memory_high_watermark_percent: 75,
+    hot_memory_relief_percent: 65,
+    hot_to_cold_batch_size: 500,
+    hot_to_cold_interval_seconds: 30,
+    cold_vector_qdrant_url: '',
+    cold_vector_qdrant_api_key: '',
+    cold_vector_qdrant_collection: 'ai_gateway_cold_vectors',
+    cold_vector_qdrant_timeout_ms: 1500
   })
 
   const vectorPipelineSaving = ref(false)
@@ -913,6 +938,60 @@ export function useRoutingConsole() {
     }
   }
 
+  async function loadVectorTierConfigData() {
+    vectorRefreshing.value = true
+    try {
+      const configData: any = await getVectorTierConfig()
+      vectorTierConfig.cold_vector_enabled = Boolean(configData?.cold_vector_enabled)
+      vectorTierConfig.cold_vector_query_enabled = Boolean(configData?.cold_vector_query_enabled ?? true)
+      vectorTierConfig.cold_vector_backend = configData?.cold_vector_backend || 'sqlite'
+      vectorTierConfig.cold_vector_dual_write_enabled = Boolean(configData?.cold_vector_dual_write_enabled)
+      vectorTierConfig.cold_vector_similarity_threshold = Number(configData?.cold_vector_similarity_threshold || 0.92)
+      vectorTierConfig.cold_vector_top_k = Number(configData?.cold_vector_top_k || 1)
+      vectorTierConfig.hot_memory_high_watermark_percent = Number(configData?.hot_memory_high_watermark_percent || 75)
+      vectorTierConfig.hot_memory_relief_percent = Number(configData?.hot_memory_relief_percent || 65)
+      vectorTierConfig.hot_to_cold_batch_size = Number(configData?.hot_to_cold_batch_size || 500)
+      vectorTierConfig.hot_to_cold_interval_seconds = Number(configData?.hot_to_cold_interval_seconds || 30)
+      vectorTierConfig.cold_vector_qdrant_url = String(configData?.cold_vector_qdrant_url || '')
+      vectorTierConfig.cold_vector_qdrant_api_key = String(configData?.cold_vector_qdrant_api_key || '')
+      vectorTierConfig.cold_vector_qdrant_collection = String(configData?.cold_vector_qdrant_collection || '')
+      vectorTierConfig.cold_vector_qdrant_timeout_ms = Number(configData?.cold_vector_qdrant_timeout_ms || 1500)
+    } catch (e) {
+      console.warn('Failed to load vector tier config:', e)
+    } finally {
+      vectorRefreshing.value = false
+    }
+  }
+
+  async function saveVectorTierConfigPatch(patch: Record<string, unknown>) {
+    vectorTierConfigSaving.value = true
+    try {
+      const configData: any = await updateVectorTierConfig(patch)
+      if (configData && typeof configData === 'object') {
+        vectorTierConfig.cold_vector_enabled = Boolean(configData.cold_vector_enabled)
+        vectorTierConfig.cold_vector_query_enabled = Boolean(configData.cold_vector_query_enabled ?? true)
+        vectorTierConfig.cold_vector_backend = configData.cold_vector_backend || 'sqlite'
+        vectorTierConfig.cold_vector_dual_write_enabled = Boolean(configData.cold_vector_dual_write_enabled)
+        vectorTierConfig.cold_vector_similarity_threshold = Number(configData.cold_vector_similarity_threshold || 0.92)
+        vectorTierConfig.cold_vector_top_k = Number(configData.cold_vector_top_k || 1)
+        vectorTierConfig.hot_memory_high_watermark_percent = Number(configData.hot_memory_high_watermark_percent || 75)
+        vectorTierConfig.hot_memory_relief_percent = Number(configData.hot_memory_relief_percent || 65)
+        vectorTierConfig.hot_to_cold_batch_size = Number(configData.hot_to_cold_batch_size || 500)
+        vectorTierConfig.hot_to_cold_interval_seconds = Number(configData.hot_to_cold_interval_seconds || 30)
+        vectorTierConfig.cold_vector_qdrant_url = String(configData.cold_vector_qdrant_url || '')
+        vectorTierConfig.cold_vector_qdrant_api_key = String(configData.cold_vector_qdrant_api_key || '')
+        vectorTierConfig.cold_vector_qdrant_collection = String(configData.cold_vector_qdrant_collection || '')
+        vectorTierConfig.cold_vector_qdrant_timeout_ms = Number(configData.cold_vector_qdrant_timeout_ms || 1500)
+      }
+      await loadVectorTierStatsData()
+    } catch (e) {
+      handleApiError(e, '更新冷热分层配置失败')
+      await loadVectorTierConfigData()
+    } finally {
+      vectorTierConfigSaving.value = false
+    }
+  }
+
   async function loadVectorTierStatsData() {
     vectorRefreshing.value = true
     try {
@@ -936,6 +1015,38 @@ export function useRoutingConsole() {
       console.warn('Failed to load vector tier stats:', e)
     } finally {
       vectorRefreshing.value = false
+    }
+  }
+
+  async function migrateHotToCold() {
+    tierMigrating.value = true
+    try {
+      await triggerVectorTierMigrate()
+      handleSuccess('冷热迁移任务执行完成')
+      await loadVectorTierStatsData()
+    } catch (e) {
+      handleApiError(e, '执行冷热迁移失败')
+    } finally {
+      tierMigrating.value = false
+    }
+  }
+
+  async function promoteToHotTier() {
+    const cacheKey = promoteCacheKey.value.trim()
+    if (!cacheKey) {
+      handleApiError(new Error('请输入 cache_key'), '执行手动回暖失败')
+      return
+    }
+    tierPromoting.value = true
+    try {
+      await promoteVectorTierEntry(cacheKey)
+      handleSuccess('回暖完成')
+      promoteCacheKey.value = ''
+      await loadVectorTierStatsData()
+    } catch (e) {
+      handleApiError(e, '执行手动回暖失败')
+    } finally {
+      tierPromoting.value = false
     }
   }
 
@@ -1012,6 +1123,7 @@ export function useRoutingConsole() {
         loadVectorPipelineConfigData(),
         loadVectorPipelineHealthData(),
         loadVectorStatsData(),
+        loadVectorTierConfigData(),
         loadVectorTierStatsData()
       ])
       panelState.vector = vectorStats.enabled || vectorTierStats.enabled || vectorPipelineHealth.enabled ? 'success' : 'empty'
@@ -1106,6 +1218,10 @@ export function useRoutingConsole() {
     ollamaModelInput,
     vectorRefreshing,
     vectorRebuilding,
+    vectorTierConfigSaving,
+    tierMigrating,
+    tierPromoting,
+    promoteCacheKey,
     vectorPipelineSaving,
     vectorPipelineTesting,
     classifierConfig,
@@ -1114,6 +1230,7 @@ export function useRoutingConsole() {
     intentEngineConfig,
     intentEngineHealth,
     vectorStats,
+    vectorTierConfig,
     vectorTierStats,
     vectorPipelineConfig,
     vectorPipelineHealth,
@@ -1159,6 +1276,9 @@ export function useRoutingConsole() {
     reloadVectorPanel,
     reloadAllPanels,
     rebuildVectorCacheIndex,
+    saveVectorTierConfigPatch,
+    migrateHotToCold,
+    promoteToHotTier,
     saveVectorPipelineConfigData,
     runVectorPipelineTest
   }

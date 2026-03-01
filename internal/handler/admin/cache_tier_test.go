@@ -116,7 +116,7 @@ func (s *tierTestColdStore) Stats(_ context.Context) (cache.ColdVectorStoreStats
 	}, nil
 }
 
-func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T) {
+func TestCacheHandler_VectorTierConfigEndpoints_ShouldGetAndUpdate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
 	handler := NewCacheHandler(manager)
@@ -137,7 +137,15 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T
 	_ = os.Setenv("CONFIG_PATH", configPath)
 
 	router := gin.New()
-	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
+	router.GET("/api/admin/router/vector/tier/config", handler.GetVectorTierConfig)
+	router.PUT("/api/admin/router/vector/tier/config", handler.UpdateVectorTierConfig)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/config", nil)
+	getW := httptest.NewRecorder()
+	router.ServeHTTP(getW, getReq)
+	if getW.Code != http.StatusOK {
+		t.Fatalf("expected GET 200, got %d body=%s", getW.Code, getW.Body.String())
+	}
 
 	body := map[string]any{
 		"cold_vector_enabled":               true,
@@ -159,7 +167,7 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T
 	if err != nil {
 		t.Fatalf("marshal request body: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "/api/admin/cache/config", bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/router/vector/tier/config", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -186,7 +194,7 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdTierFields(t *testing.T
 	}
 }
 
-func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
+func TestCacheHandler_VectorTierRouterEndpoints_ShouldWork(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
 	handler := NewCacheHandler(manager)
@@ -218,18 +226,18 @@ func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
 	manager.SetTieredVectorStore(tiered)
 
 	router := gin.New()
-	router.GET("/api/admin/cache/vector/tier/stats", handler.GetVectorTierStats)
-	router.POST("/api/admin/cache/vector/tier/migrate", handler.TriggerVectorTierMigrate)
-	router.POST("/api/admin/cache/vector/tier/promote", handler.PromoteVectorTierEntry)
+	router.GET("/api/admin/router/vector/tier/stats", handler.GetVectorTierStats)
+	router.POST("/api/admin/router/vector/tier/migrate", handler.TriggerVectorTierMigrate)
+	router.POST("/api/admin/router/vector/tier/promote", handler.PromoteVectorTierEntry)
 
-	statsReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", http.NoBody)
+	statsReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/stats", http.NoBody)
 	statsW := httptest.NewRecorder()
 	router.ServeHTTP(statsW, statsReq)
 	if statsW.Code != http.StatusOK {
 		t.Fatalf("expected stats 200, got %d body=%s", statsW.Code, statsW.Body.String())
 	}
 
-	migrateReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/vector/tier/migrate", http.NoBody)
+	migrateReq := httptest.NewRequest(http.MethodPost, "/api/admin/router/vector/tier/migrate", http.NoBody)
 	migrateW := httptest.NewRecorder()
 	router.ServeHTTP(migrateW, migrateReq)
 	if migrateW.Code != http.StatusOK {
@@ -237,7 +245,7 @@ func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
 	}
 
 	promoteBody := []byte(`{"cache_key":"intent:qa:key=1"}`)
-	promoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/cache/vector/tier/promote", bytes.NewReader(promoteBody))
+	promoteReq := httptest.NewRequest(http.MethodPost, "/api/admin/router/vector/tier/promote", bytes.NewReader(promoteBody))
 	promoteReq.Header.Set("Content-Type", "application/json")
 	promoteW := httptest.NewRecorder()
 	router.ServeHTTP(promoteW, promoteReq)
@@ -246,7 +254,34 @@ func TestCacheHandler_VectorTierEndpoints_ShouldWork(t *testing.T) {
 	}
 }
 
-func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *testing.T) {
+func TestCacheHandler_VectorTierRoutes_ShouldOnlyExistUnderRouterGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	handler := NewCacheHandler(manager)
+
+	router := gin.New()
+	adminGroup := router.Group("/api/admin")
+	routerGroup := adminGroup.Group("/router")
+	routerGroup.GET("/vector/tier/stats", handler.GetVectorTierStats)
+
+	// 新路径可用（即便 tier store 未初始化，也应由 handler 返回 200 + enabled=false）
+	newReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/stats", nil)
+	newW := httptest.NewRecorder()
+	router.ServeHTTP(newW, newReq)
+	if newW.Code != http.StatusOK {
+		t.Fatalf("expected new router path status 200, got %d body=%s", newW.Code, newW.Body.String())
+	}
+
+	// 旧路径未注册，应为 404
+	oldReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", nil)
+	oldW := httptest.NewRecorder()
+	router.ServeHTTP(oldW, oldReq)
+	if oldW.Code != http.StatusNotFound {
+		t.Fatalf("expected old cache path status 404, got %d body=%s", oldW.Code, oldW.Body.String())
+	}
+}
+
+func TestCacheHandler_VectorTierConfig_ShouldPersistToConfigFile(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
 	handler := NewCacheHandler(manager)
@@ -274,7 +309,7 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 	_ = os.Setenv("CONFIG_PATH", configPath)
 
 	router := gin.New()
-	router.PUT("/api/admin/cache/config", handler.UpdateCacheConfig)
+	router.PUT("/api/admin/router/vector/tier/config", handler.UpdateVectorTierConfig)
 
 	body := map[string]any{
 		"vector_pipeline_enabled":            true,
@@ -303,7 +338,7 @@ func TestCacheHandler_UpdateCacheConfig_ShouldPersistColdFieldsToConfigFile(t *t
 	if err != nil {
 		t.Fatalf("marshal request body: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPut, "/api/admin/cache/config", bytes.NewReader(raw))
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/router/vector/tier/config", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)

@@ -171,6 +171,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	routerGroup.POST("/ollama/start", handlers.SmartRouter.StartOllama)
 	routerGroup.POST("/ollama/stop", handlers.SmartRouter.StopOllama)
 	routerGroup.POST("/ollama/pull", handlers.SmartRouter.PullOllamaModel)
+	// Vector tier controls are owned by routing vector management page
+	routerGroup.GET("/vector/tier/config", handlers.Cache.GetVectorTierConfig)
+	routerGroup.PUT("/vector/tier/config", handlers.Cache.UpdateVectorTierConfig)
+	routerGroup.GET("/vector/tier/stats", handlers.Cache.GetVectorTierStats)
+	routerGroup.POST("/vector/tier/migrate", handlers.Cache.TriggerVectorTierMigrate)
+	routerGroup.POST("/vector/tier/promote", handlers.Cache.PromoteVectorTierEntry)
 
 	// Cache management routes
 	cacheGroup := r.Group("/cache")
@@ -186,9 +192,6 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	cacheGroup.POST("/vector/rebuild", handlers.Cache.RebuildVectorIndex)
 	cacheGroup.GET("/vector/pipeline/health", handlers.Cache.GetVectorPipelineHealth)
 	cacheGroup.POST("/vector/pipeline/test", handlers.Cache.TestVectorPipeline)
-	cacheGroup.GET("/vector/tier/stats", handlers.Cache.GetVectorTierStats)
-	cacheGroup.POST("/vector/tier/migrate", handlers.Cache.TriggerVectorTierMigrate)
-	cacheGroup.POST("/vector/tier/promote", handlers.Cache.PromoteVectorTierEntry)
 	cacheGroup.GET("/semantic-signatures", handlers.Cache.GetSemanticSignatures)
 	cacheGroup.GET("/quality-config", handlers.Cache.GetCacheQualityConfig)
 	cacheGroup.PUT("/quality-config", handlers.Cache.UpdateCacheQualityConfig)

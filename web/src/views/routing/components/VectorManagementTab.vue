@@ -41,9 +41,152 @@
         <el-card shadow="never" class="page-card">
           <template #header>
             <div class="card-header">
-              <span>冷热向量分层（只读）</span>
+              <span>冷热向量分层</span>
+              <div class="header-actions">
+                <el-button link :loading="ctx.vectorRefreshing" @click="ctx.reloadVectorPanel">刷新分层状态</el-button>
+                <el-button type="warning" size="small" plain :loading="ctx.tierMigrating" @click="ctx.migrateHotToCold">
+                  手动迁移
+                </el-button>
+              </div>
             </div>
           </template>
+
+          <el-form label-position="top" class="compact-form">
+            <el-form-item label="冷向量总开关">
+              <el-switch
+                :model-value="ctx.vectorTierConfig.cold_vector_enabled"
+                :loading="ctx.vectorTierConfigSaving"
+                @change="(value: boolean) => ctx.saveVectorTierConfigPatch({ cold_vector_enabled: value })"
+              />
+            </el-form-item>
+            <el-form-item label="冷层查询开关">
+              <el-switch
+                :model-value="ctx.vectorTierConfig.cold_vector_query_enabled"
+                :loading="ctx.vectorTierConfigSaving"
+                @change="(value: boolean) => ctx.saveVectorTierConfigPatch({ cold_vector_query_enabled: value })"
+              />
+            </el-form-item>
+            <el-form-item label="冷层后端">
+              <el-select
+                :model-value="ctx.vectorTierConfig.cold_vector_backend"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: string) => ctx.saveVectorTierConfigPatch({ cold_vector_backend: value })"
+              >
+                <el-option label="SQLite（默认）" value="sqlite" />
+                <el-option label="Qdrant" value="qdrant" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="冷层双写">
+              <el-switch
+                :model-value="ctx.vectorTierConfig.cold_vector_dual_write_enabled"
+                :loading="ctx.vectorTierConfigSaving"
+                @change="(value: boolean) => ctx.saveVectorTierConfigPatch({ cold_vector_dual_write_enabled: value })"
+              />
+            </el-form-item>
+            <el-form-item label="冷层相似阈值">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.cold_vector_similarity_threshold"
+                :min="0.5"
+                :max="1"
+                :step="0.01"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ cold_vector_similarity_threshold: Number(value || 0.92) })"
+              />
+            </el-form-item>
+            <el-form-item label="冷层 TopK">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.cold_vector_top_k"
+                :min="1"
+                :max="20"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ cold_vector_top_k: Number(value || 1) })"
+              />
+            </el-form-item>
+            <el-form-item label="热层高水位(%)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.hot_memory_high_watermark_percent"
+                :min="50"
+                :max="99"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ hot_memory_high_watermark_percent: Number(value || 75) })"
+              />
+            </el-form-item>
+            <el-form-item label="热层回落目标(%)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.hot_memory_relief_percent"
+                :min="30"
+                :max="95"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ hot_memory_relief_percent: Number(value || 65) })"
+              />
+            </el-form-item>
+            <el-form-item label="迁移批大小">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.hot_to_cold_batch_size"
+                :min="10"
+                :max="5000"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ hot_to_cold_batch_size: Number(value || 500) })"
+              />
+            </el-form-item>
+            <el-form-item label="扫描周期(s)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.hot_to_cold_interval_seconds"
+                :min="5"
+                :max="600"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ hot_to_cold_interval_seconds: Number(value || 30) })"
+              />
+            </el-form-item>
+            <el-form-item v-if="ctx.vectorTierConfig.cold_vector_backend === 'qdrant'" label="Qdrant URL">
+              <el-input
+                v-model="ctx.vectorTierConfig.cold_vector_qdrant_url"
+                :disabled="ctx.vectorTierConfigSaving"
+                placeholder="http://127.0.0.1:6333"
+                @change="(value: string) => ctx.saveVectorTierConfigPatch({ cold_vector_qdrant_url: value || '' })"
+              />
+            </el-form-item>
+            <el-form-item v-if="ctx.vectorTierConfig.cold_vector_backend === 'qdrant'" label="Qdrant API Key">
+              <el-input
+                v-model="ctx.vectorTierConfig.cold_vector_qdrant_api_key"
+                :disabled="ctx.vectorTierConfigSaving"
+                type="password"
+                show-password
+                @change="(value: string) => ctx.saveVectorTierConfigPatch({ cold_vector_qdrant_api_key: value || '' })"
+              />
+            </el-form-item>
+            <el-form-item v-if="ctx.vectorTierConfig.cold_vector_backend === 'qdrant'" label="Qdrant Collection">
+              <el-input
+                v-model="ctx.vectorTierConfig.cold_vector_qdrant_collection"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: string) => ctx.saveVectorTierConfigPatch({ cold_vector_qdrant_collection: value || '' })"
+              />
+            </el-form-item>
+            <el-form-item v-if="ctx.vectorTierConfig.cold_vector_backend === 'qdrant'" label="Qdrant 超时(ms)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.cold_vector_qdrant_timeout_ms"
+                :min="100"
+                :max="10000"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ cold_vector_qdrant_timeout_ms: Number(value || 1500) })"
+              />
+            </el-form-item>
+          </el-form>
 
           <el-descriptions :column="2" border size="small">
             <el-descriptions-item label="在线状态">
@@ -58,12 +201,16 @@
             <el-descriptions-item label="状态信息">{{ ctx.vectorTierStats.message || '-' }}</el-descriptions-item>
           </el-descriptions>
 
-          <el-alert
-            title="该页仅提供观测与索引重建操作，迁移/回暖管理请前往缓存管理页"
-            type="info"
-            :closable="false"
-            style="margin-top: 16px"
-          />
+          <div class="header-actions" style="margin-top: 16px">
+            <el-input
+              v-model="ctx.promoteCacheKey"
+              placeholder="输入 cache_key 手动回暖"
+              clearable
+            />
+            <el-button type="primary" :loading="ctx.tierPromoting" @click="ctx.promoteToHotTier">
+              手动回暖
+            </el-button>
+          </div>
         </el-card>
       </el-col>
     </el-row>
