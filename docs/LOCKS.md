@@ -29,7 +29,11 @@
 
 | AI标识 | 工具 | 任务 | 分支 | Worktree | 锁定文件/目录 | 状态 | 开始时间 | 结束时间 | 备注 |
 |---|---|---|---|---|---|---|---|---|---|
-| opencode-1 | opencode | request-trace | opencode/cache-detail | .worktrees/opencode-cache-detail | internal/tracing/**, internal/storage/sqlite.go, internal/handler/admin/trace*.go, web/src/views/trace/**, web/src/api/trace-domain.ts | LOCKED | 2026-03-01 08:30 |  | OpenTelemetry链路追踪 |
+| opencode-1 | opencode | request-trace | opencode/cache-detail | .worktrees/opencode-cache-detail | internal/tracing/**, internal/storage/sqlite.go, internal/handler/admin/trace*.go, web/src/views/trace/**, web/src/api/trace-domain.ts | RELEASED | 2026-03-01 08:30 | 2026-03-01 09:15 | OpenTelemetry链路追踪-阶段1完成 |
+
+## 5. 历史记录
+
+（已释放的锁会移动到这里）
 
 ## 4. 状态值说明
 
