@@ -47,6 +47,8 @@ type UsageStatsResponse struct {
 	TotalTokens   int64                 `json:"total_tokens"`
 	CacheHits     int64                 `json:"cache_hits"`
 	CacheMisses   int64                 `json:"cache_misses"`
+	SavedTokens   int64                 `json:"saved_tokens"`
+	SavedRequests int64                 `json:"saved_requests"`
 	CacheHitRate  float64               `json:"cache_hit_rate"`
 	AvgLatencyMs  int64                 `json:"avg_latency_ms"`
 	ModelStats    map[string]ModelUsage `json:"model_stats"`
@@ -79,6 +81,7 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 	filter := storage.UsageFilter{
 		Model:         c.Query("model"),
 		Provider:      c.Query("provider"),
+		TaskType:      c.Query("task_type"),
 		ExperimentTag: c.Query("experiment_tag"),
 		DomainTag:     c.Query("domain_tag"),
 	}
@@ -154,7 +157,39 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 }
 
 func (h *UsageHandler) GetUsageStats(c *gin.Context) {
-	stats := h.storage.GetUsageStats()
+	filter := storage.UsageFilter{
+		Model:         c.Query("model"),
+		Provider:      c.Query("provider"),
+		TaskType:      c.Query("task_type"),
+		ExperimentTag: c.Query("experiment_tag"),
+		DomainTag:     c.Query("domain_tag"),
+	}
+
+	if start := c.Query("start_time"); start != "" {
+		if parsed, err := strconv.ParseInt(start, 10, 64); err == nil {
+			filter.StartTime = parsed
+		}
+	}
+
+	if end := c.Query("end_time"); end != "" {
+		if parsed, err := strconv.ParseInt(end, 10, 64); err == nil {
+			filter.EndTime = parsed
+		}
+	}
+
+	if rangeParam := c.Query("range"); rangeParam != "" {
+		now := time.Now().UnixMilli()
+		switch rangeParam {
+		case "24h":
+			filter.StartTime = now - 24*60*60*1000
+		case "7d":
+			filter.StartTime = now - 7*24*60*60*1000
+		case "30d":
+			filter.StartTime = now - 30*24*60*60*1000
+		}
+	}
+
+	stats := h.storage.GetUsageStatsWithFilter(filter)
 
 	modelStats := make(map[string]ModelUsage)
 	if ms, ok := stats["model_stats"].(map[string]map[string]int64); ok {
@@ -171,6 +206,8 @@ func (h *UsageHandler) GetUsageStats(c *gin.Context) {
 		TotalTokens:   getInt64FromMap(stats, "total_tokens"),
 		CacheHits:     getInt64FromMap(stats, "cache_hits"),
 		CacheMisses:   getInt64FromMap(stats, "cache_misses"),
+		SavedTokens:   getInt64FromMap(stats, "saved_tokens"),
+		SavedRequests: getInt64FromMap(stats, "saved_requests"),
 		CacheHitRate:  getFloat64FromMap(stats, "cache_hit_rate"),
 		AvgLatencyMs:  getInt64FromMap(stats, "avg_latency_ms"),
 		ModelStats:    modelStats,

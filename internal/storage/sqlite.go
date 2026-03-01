@@ -202,6 +202,7 @@ func (s *SQLiteStorage) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_model ON usage_logs(model)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_provider ON usage_logs(provider)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_logs_task_type ON usage_logs(task_type)`,
 		`CREATE TABLE IF NOT EXISTS dashboard_summary (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			total_requests INTEGER DEFAULT 0,
@@ -858,6 +859,7 @@ func intFromInt64(i int64) int {
 type UsageFilter struct {
 	Model         string
 	Provider      string
+	TaskType      string
 	ExperimentTag string
 	DomainTag     string
 	StartTime     int64
@@ -974,35 +976,10 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	whereClause, args := buildUsageWhereClause(filter)
 	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
 		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
-		FROM usage_logs WHERE 1=1`
-	args := []interface{}{}
-
-	if filter.Model != "" {
-		query += " AND model = ?"
-		args = append(args, filter.Model)
-	}
-	if filter.Provider != "" {
-		query += " AND provider = ?"
-		args = append(args, filter.Provider)
-	}
-	if filter.ExperimentTag != "" {
-		query += " AND experiment_tag = ?"
-		args = append(args, filter.ExperimentTag)
-	}
-	if filter.DomainTag != "" {
-		query += " AND domain_tag = ?"
-		args = append(args, filter.DomainTag)
-	}
-	if filter.StartTime > 0 {
-		query += " AND created_at >= ?"
-		args = append(args, time.UnixMilli(filter.StartTime).Format(time.RFC3339))
-	}
-	if filter.EndTime > 0 {
-		query += " AND created_at <= ?"
-		args = append(args, time.UnixMilli(filter.EndTime).Format(time.RFC3339))
-	}
+		FROM usage_logs WHERE ` + whereClause
 
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
@@ -1053,6 +1030,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 
 func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 	required := map[string]string{
+		"task_type":      "TEXT",
 		"experiment_tag": "TEXT",
 		"domain_tag":     "TEXT",
 	}
@@ -1091,8 +1069,47 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_usage_logs_domain_tag ON usage_logs(domain_tag)`); err != nil {
 		return err
 	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_usage_logs_task_type ON usage_logs(task_type)`); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func buildUsageWhereClause(filter UsageFilter) (string, []interface{}) {
+	conditions := []string{"1=1"}
+	args := make([]interface{}, 0, 8)
+
+	if filter.Model != "" {
+		conditions = append(conditions, "model = ?")
+		args = append(args, filter.Model)
+	}
+	if filter.Provider != "" {
+		conditions = append(conditions, "provider = ?")
+		args = append(args, filter.Provider)
+	}
+	if filter.TaskType != "" {
+		conditions = append(conditions, "task_type = ?")
+		args = append(args, filter.TaskType)
+	}
+	if filter.ExperimentTag != "" {
+		conditions = append(conditions, "experiment_tag = ?")
+		args = append(args, filter.ExperimentTag)
+	}
+	if filter.DomainTag != "" {
+		conditions = append(conditions, "domain_tag = ?")
+		args = append(args, filter.DomainTag)
+	}
+	if filter.StartTime > 0 {
+		conditions = append(conditions, "created_at >= ?")
+		args = append(args, time.UnixMilli(filter.StartTime).Format(time.RFC3339))
+	}
+	if filter.EndTime > 0 {
+		conditions = append(conditions, "created_at <= ?")
+		args = append(args, time.UnixMilli(filter.EndTime).Format(time.RFC3339))
+	}
+
+	return strings.Join(conditions, " AND "), args
 }
 
 func usageStringValue(log map[string]interface{}, key string) string {
@@ -1145,15 +1162,37 @@ func usageBoolValue(log map[string]interface{}, key string) bool {
 }
 
 func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
+	return s.GetUsageStatsWithFilter(UsageFilter{})
+}
+
+func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	whereClause, args := buildUsageWhereClause(filter)
+
 	var totalRequests, totalTokens, cacheHits, cacheMisses int64
 	var totalLatency int64
+	var savedTokens, savedRequests int64
 
-	s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(tokens), 0), COALESCE(SUM(latency_ms), 0) FROM usage_logs`).Scan(&totalRequests, &totalTokens, &totalLatency)
-	s.db.QueryRow(`SELECT COUNT(*) FROM usage_logs WHERE cache_hit = 1`).Scan(&cacheHits)
-	s.db.QueryRow(`SELECT COUNT(*) FROM usage_logs WHERE cache_hit = 0`).Scan(&cacheMisses)
+	statsQuery := `SELECT
+		COUNT(*),
+		COALESCE(SUM(tokens), 0),
+		COALESCE(SUM(latency_ms), 0),
+		COALESCE(SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN cache_hit = 0 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN tokens ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN 1 ELSE 0 END), 0)
+	FROM usage_logs WHERE ` + whereClause
+	_ = s.db.QueryRow(statsQuery, args...).Scan(
+		&totalRequests,
+		&totalTokens,
+		&totalLatency,
+		&cacheHits,
+		&cacheMisses,
+		&savedTokens,
+		&savedRequests,
+	)
 
 	var avgLatency int64
 	if totalRequests > 0 {
@@ -1166,7 +1205,9 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 		cacheHitRate = float64(cacheHits) / float64(totalCache) * 100
 	}
 
-	rows, err := s.db.Query(`SELECT model, COUNT(*) as requests, COALESCE(SUM(tokens), 0) as tokens FROM usage_logs GROUP BY model`)
+	modelStatsArgs := append([]interface{}{}, args...)
+	rows, err := s.db.Query(`SELECT model, COUNT(*) as requests, COALESCE(SUM(tokens), 0) as tokens
+		FROM usage_logs WHERE `+whereClause+` GROUP BY model`, modelStatsArgs...)
 	modelStats := make(map[string]map[string]int64)
 	if err == nil && rows != nil {
 		defer rows.Close()
@@ -1184,6 +1225,8 @@ func (s *SQLiteStorage) GetUsageStats() map[string]interface{} {
 		"total_tokens":   totalTokens,
 		"cache_hits":     cacheHits,
 		"cache_misses":   cacheMisses,
+		"saved_tokens":   savedTokens,
+		"saved_requests": savedRequests,
 		"cache_hit_rate": cacheHitRate,
 		"avg_latency_ms": avgLatency,
 		"model_stats":    modelStats,

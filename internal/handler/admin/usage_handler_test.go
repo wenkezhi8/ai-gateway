@@ -79,3 +79,69 @@ func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
 	assert.Equal(t, "exp-a", resp.Data[0].ExperimentTag)
 	assert.Equal(t, "finance", resp.Data[0].DomainTag)
 }
+
+func TestUsageHandler_GetUsageStats_FilterByRangeModelAndTaskType(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := filepath.Join(t.TempDir(), "usage-handler-stats-test.db")
+	store, err := storage.NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	now := time.Now().UnixMilli()
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-stats-1",
+		"timestamp":  now - 15*60*1000,
+		"model":      "qwen2.5:3b",
+		"provider":   "ollama",
+		"tokens":     int64(180),
+		"latency_ms": int64(18),
+		"cache_hit":  true,
+		"success":    true,
+		"task_type":  "chat",
+	}))
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-stats-2",
+		"timestamp":  now - 30*60*1000,
+		"model":      "qwen2.5:3b",
+		"provider":   "ollama",
+		"tokens":     int64(100),
+		"latency_ms": int64(20),
+		"cache_hit":  true,
+		"success":    false,
+		"task_type":  "chat",
+	}))
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-stats-3",
+		"timestamp":  now - 12*24*60*60*1000,
+		"model":      "qwen2.5:3b",
+		"provider":   "ollama",
+		"tokens":     int64(220),
+		"latency_ms": int64(25),
+		"cache_hit":  true,
+		"success":    true,
+		"task_type":  "qa",
+	}))
+
+	handler := NewUsageHandler(store)
+	r := gin.New()
+	r.GET("/admin/usage/stats", handler.GetUsageStats)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?range=7d&model=qwen2.5:3b&task_type=chat", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool               `json:"success"`
+		Data    UsageStatsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+
+	assert.Equal(t, int64(2), resp.Data.TotalRequests)
+	assert.Equal(t, int64(280), resp.Data.TotalTokens)
+	assert.Equal(t, int64(180), resp.Data.SavedTokens)
+	assert.Equal(t, int64(1), resp.Data.SavedRequests)
+}

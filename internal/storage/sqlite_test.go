@@ -583,4 +583,91 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 		assert.Equal(t, 100.0, providerStats[0].SuccessRate)
 		assert.Equal(t, int64(385), providerStats[0].AvgLatency)
 	})
+
+	t.Run("Usage Stats With Filter Should Include SavedTokens", func(t *testing.T) {
+		now := time.Now().UnixMilli()
+
+		require.NoError(t, store.LogUsage(map[string]interface{}{
+			"request_id": "req-usage-3",
+			"timestamp":  now - 10*60*1000,
+			"model":      "qwen2.5:3b",
+			"provider":   "ollama",
+			"tokens":     int64(300),
+			"latency_ms": int64(20),
+			"cache_hit":  true,
+			"success":    true,
+			"task_type":  "chat",
+		}))
+
+		require.NoError(t, store.LogUsage(map[string]interface{}{
+			"request_id": "req-usage-4",
+			"timestamp":  now - 20*60*1000,
+			"model":      "qwen2.5:3b",
+			"provider":   "ollama",
+			"tokens":     int64(120),
+			"latency_ms": int64(35),
+			"cache_hit":  true,
+			"success":    false,
+			"task_type":  "chat",
+		}))
+
+		require.NoError(t, store.LogUsage(map[string]interface{}{
+			"request_id": "req-usage-5",
+			"timestamp":  now - 30*60*1000,
+			"model":      "qwen2.5:3b",
+			"provider":   "ollama",
+			"tokens":     int64(90),
+			"latency_ms": int64(45),
+			"cache_hit":  false,
+			"success":    true,
+			"task_type":  "qa",
+		}))
+
+		require.NoError(t, store.LogUsage(map[string]interface{}{
+			"request_id": "req-usage-6",
+			"timestamp":  now - 10*24*60*60*1000,
+			"model":      "qwen2.5:3b",
+			"provider":   "ollama",
+			"tokens":     int64(500),
+			"latency_ms": int64(60),
+			"cache_hit":  true,
+			"success":    true,
+			"task_type":  "qa",
+		}))
+
+		filteredStats := store.GetUsageStatsWithFilter(UsageFilter{
+			Model:     "qwen2.5:3b",
+			TaskType:  "chat",
+			StartTime: now - 24*60*60*1000,
+		})
+
+		assert.Equal(t, int64(2), filteredStats["total_requests"])
+		assert.Equal(t, int64(420), filteredStats["total_tokens"])
+		assert.Equal(t, int64(2), filteredStats["cache_hits"])
+		assert.Equal(t, int64(0), filteredStats["cache_misses"])
+		assert.Equal(t, int64(300), filteredStats["saved_tokens"])
+		assert.Equal(t, int64(1), filteredStats["saved_requests"])
+		assert.Equal(t, 100.0, filteredStats["cache_hit_rate"])
+	})
+}
+
+func TestSQLiteStorage_UsageStatsWithFilter_EmptyDataset(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test-empty-usage-stats.db")
+	store, err := NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	stats := store.GetUsageStatsWithFilter(UsageFilter{
+		Model:    "none",
+		TaskType: "none",
+	})
+
+	assert.Equal(t, int64(0), stats["total_requests"])
+	assert.Equal(t, int64(0), stats["total_tokens"])
+	assert.Equal(t, int64(0), stats["cache_hits"])
+	assert.Equal(t, int64(0), stats["cache_misses"])
+	assert.Equal(t, int64(0), stats["saved_tokens"])
+	assert.Equal(t, int64(0), stats["saved_requests"])
+	assert.Equal(t, float64(0), stats["cache_hit_rate"])
+	assert.Equal(t, int64(0), stats["avg_latency_ms"])
 }

@@ -6,7 +6,7 @@
     </div>
 
     <el-row :gutter="14" class="summary-row">
-      <el-col :xs="24" :sm="12" :lg="6">
+      <el-col :xs="24" :sm="12" :lg="4">
         <el-card shadow="never" class="summary-card">
           <div class="card-inner">
             <div class="icon-wrap icon-blue">R</div>
@@ -18,19 +18,21 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
+      <el-col :xs="24" :sm="12" :lg="4">
         <el-card shadow="never" class="summary-card">
           <div class="card-inner">
             <div class="icon-wrap icon-amber">T</div>
             <div>
               <div class="card-label">总 Token</div>
               <div class="card-value">{{ formatCompact(overview.total_tokens) }}</div>
-              <div class="card-hint">输入: {{ formatCompact(promptTokens) }} / 输出: {{ formatCompact(outputTokens) }}</div>
+              <div class="card-hint">
+                输入: {{ formatCompact(promptTokens) }} / 输出: {{ formatCompact(outputTokens) }}
+              </div>
             </div>
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
+      <el-col :xs="24" :sm="12" :lg="4">
         <el-card shadow="never" class="summary-card">
           <div class="card-inner">
             <div class="icon-wrap icon-green">$</div>
@@ -42,14 +44,30 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :xs="24" :sm="12" :lg="6">
+      <el-col :xs="24" :sm="12" :lg="4">
+        <el-card shadow="never" class="summary-card">
+          <div class="card-inner">
+            <div class="icon-wrap icon-cyan">S</div>
+            <div>
+              <div class="card-label">命中节省 Token</div>
+              <div class="card-value">{{ formatCompact(savedTokens) }}</div>
+              <div class="card-hint">
+                节省费用: ${{ savedCost.toFixed(4) }} · 命中请求 {{ formatNumber(savedRequests) }}
+              </div>
+            </div>
+          </div>
+        </el-card>
+      </el-col>
+      <el-col :xs="24" :sm="12" :lg="4">
         <el-card shadow="never" class="summary-card">
           <div class="card-inner">
             <div class="icon-wrap icon-violet">L</div>
             <div>
               <div class="card-label">缓存命中率</div>
               <div class="card-value">{{ cacheHitRate.toFixed(1) }}%</div>
-              <div class="card-hint">命中 {{ formatNumber(cacheHits) }} / 未命中 {{ formatNumber(cacheMisses) }}</div>
+              <div class="card-hint">
+                命中 {{ formatNumber(cacheHits) }} / 未命中 {{ formatNumber(cacheMisses) }}
+              </div>
             </div>
           </div>
         </el-card>
@@ -61,31 +79,31 @@
         <div class="filters-left">
           <div class="filter-item">
             <div class="filter-label">模型</div>
-            <el-select v-model="selectedModel" style="width: 220px" placeholder="全部模型" clearable>
+            <el-select
+              v-model="selectedModel"
+              style="width: 220px"
+              placeholder="全部模型"
+              clearable
+            >
               <el-option label="全部模型" value="" />
-              <el-option
-                v-for="model in modelOptions"
-                :key="model"
-                :label="model"
-                :value="model"
-              />
+              <el-option v-for="model in modelOptions" :key="model" :label="model" :value="model" />
             </el-select>
           </div>
           <div class="filter-item">
             <div class="filter-label">任务类型</div>
-            <el-select v-model="selectedTaskType" style="width: 180px" placeholder="全部类型" clearable>
+            <el-select
+              v-model="selectedTaskType"
+              style="width: 180px"
+              placeholder="全部类型"
+              clearable
+            >
               <el-option label="全部类型" value="" />
-              <el-option
-                v-for="tt in taskTypeOptions"
-                :key="tt"
-                :label="tt"
-                :value="tt"
-              />
+              <el-option v-for="tt in taskTypeOptions" :key="tt" :label="tt" :value="tt" />
             </el-select>
           </div>
           <div class="filter-item">
             <div class="filter-label">时间范围</div>
-            <el-select v-model="range" style="width: 140px" @change="refreshAll">
+            <el-select v-model="range" style="width: 140px">
               <el-option label="近 24 小时" value="24h" />
               <el-option label="近 7 天" value="7d" />
               <el-option label="近 30 天" value="30d" />
@@ -100,11 +118,22 @@
     </el-card>
 
     <el-card shadow="never" class="table-card">
-      <el-table :data="pagedRows" stripe class="usage-table" v-loading="loading" table-layout="auto">
+      <el-table
+        :data="pagedRows"
+        stripe
+        class="usage-table"
+        v-loading="loading"
+        table-layout="auto"
+      >
         <el-table-column prop="accountName" label="账号" min-width="160" show-overflow-tooltip />
         <el-table-column prop="provider" label="服务商" min-width="120" />
         <el-table-column prop="time" label="最近时间" min-width="180" />
-        <el-table-column prop="firstTokenLatency" label="首 Token 耗时" min-width="140" align="right" />
+        <el-table-column
+          prop="firstTokenLatency"
+          label="首 Token 耗时"
+          min-width="140"
+          align="right"
+        />
         <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
         <el-table-column prop="model" label="模型" min-width="170" />
         <el-table-column prop="taskType" label="任务类型" min-width="120" />
@@ -138,7 +167,9 @@
       <el-empty v-if="!loading && filteredRows.length === 0" description="暂无真实使用数据" />
 
       <div class="pager-wrap">
-        <div class="pager-text">显示 {{ pageStart }} 至 {{ pageEnd }} 共 {{ filteredRows.length }} 条结果</div>
+        <div class="pager-text">
+          显示 {{ pageStart }} 至 {{ pageEnd }} 共 {{ filteredRows.length }} 条结果
+        </div>
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
@@ -152,13 +183,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { getCacheStats } from '@/api/metrics'
+import { computed, onMounted, ref, watch } from 'vue'
 import { request } from '@/api/request'
 import { API } from '@/constants/api'
 import { filterUsageRows } from '@/utils/usage-filters'
 import { accountApi, type Account } from '@/api/account'
 import { USAGE_CSV_HEADER } from '@/constants/pages/usage'
+import { pickUsageOverview, TOKEN_PRICE_USD, type UsageStatsPayload } from './usage-overview'
 
 type RangeType = '24h' | '7d' | '30d'
 
@@ -177,6 +208,7 @@ interface UsageRow {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  success: boolean
   cacheHit: string
   cost: number
 }
@@ -189,7 +221,7 @@ const selectedModel = ref('')
 const selectedTaskType = ref('')
 
 const usageRows = ref<UsageRow[]>([])
-const cacheStats = ref({ hits: 0, misses: 0, hit_rate: 0 })
+const usageStats = ref<UsageStatsPayload | null>(null)
 const accounts = ref<Account[]>([])
 
 const accountNameMap = computed(() => {
@@ -201,29 +233,21 @@ const accountNameMap = computed(() => {
   })
   return map
 })
-const rangeStart = computed(() => {
-  const now = Date.now()
-  if (range.value === '24h') return now - 24 * 60 * 60 * 1000
-  if (range.value === '30d') return now - 30 * 24 * 60 * 60 * 1000
-  return now - 7 * 24 * 60 * 60 * 1000
-})
-
-const rangeRows = computed(() => usageRows.value.filter(row => row.timestamp >= rangeStart.value))
 
 const modelOptions = computed(() => {
   const set = new Set<string>()
-  rangeRows.value.forEach(row => set.add(row.model))
+  usageRows.value.forEach(row => set.add(row.model))
   return Array.from(set)
 })
 
 const taskTypeOptions = computed(() => {
   const set = new Set<string>()
-  rangeRows.value.forEach(row => set.add(row.taskType))
+  usageRows.value.forEach(row => set.add(row.taskType))
   return Array.from(set)
 })
 
 const filteredRows = computed(() => {
-  return filterUsageRows(rangeRows.value, {
+  return filterUsageRows(usageRows.value, {
     model: selectedModel.value,
     taskType: selectedTaskType.value
   })
@@ -244,51 +268,37 @@ const pageEnd = computed(() => {
   return Math.min(end, filteredRows.value.length)
 })
 
+const overviewSummary = computed(() =>
+  pickUsageOverview(
+    usageStats.value,
+    filteredRows.value.map(row => ({
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      totalTokens: row.totalTokens,
+      cacheHit: row.cacheHit,
+      success: row.success
+    }))
+  )
+)
+
 const overview = computed(() => ({
-  total_requests: rangeRows.value.length,
-  total_tokens: rangeRows.value.reduce((sum, row) => sum + row.totalTokens, 0)
+  total_requests: overviewSummary.value.totalRequests,
+  total_tokens: overviewSummary.value.totalTokens
 }))
 
-const promptTokens = computed(() => rangeRows.value.reduce((sum, row) => sum + row.inputTokens, 0))
-const outputTokens = computed(() => rangeRows.value.reduce((sum, row) => sum + row.outputTokens, 0))
-const totalCost = computed(() => rangeRows.value.reduce((sum, row) => sum + row.cost, 0))
-
-const rowCacheStats = computed(() => {
-  let hits = 0
-  let misses = 0
-  for (const row of rangeRows.value) {
-    if (row.cacheHit === '命中') {
-      hits++
-    } else if (row.cacheHit === '未命中') {
-      misses++
-    }
-  }
-  return { hits, misses }
-})
-
-const cacheHits = computed(() => {
-  const total = rowCacheStats.value.hits + rowCacheStats.value.misses
-  if (total > 0) return rowCacheStats.value.hits
-  return cacheStats.value.hits
-})
-
-const cacheMisses = computed(() => {
-  const total = rowCacheStats.value.hits + rowCacheStats.value.misses
-  if (total > 0) return rowCacheStats.value.misses
-  return cacheStats.value.misses
-})
-
-const cacheHitRate = computed(() => {
-  const rowTotal = rowCacheStats.value.hits + rowCacheStats.value.misses
-  if (rowTotal > 0) {
-    return (rowCacheStats.value.hits / rowTotal) * 100
-  }
-
-  const direct = cacheStats.value.hit_rate
-  if (direct > 0) return direct
-  const total = cacheStats.value.hits + cacheStats.value.misses
-  return total > 0 ? (cacheStats.value.hits / total) * 100 : 0
-})
+const promptTokens = computed(() =>
+  filteredRows.value.reduce((sum, row) => sum + row.inputTokens, 0)
+)
+const outputTokens = computed(() =>
+  filteredRows.value.reduce((sum, row) => sum + row.outputTokens, 0)
+)
+const totalCost = computed(() => overviewSummary.value.totalCost)
+const cacheHits = computed(() => overviewSummary.value.cacheHits)
+const cacheMisses = computed(() => overviewSummary.value.cacheMisses)
+const cacheHitRate = computed(() => overviewSummary.value.cacheHitRate)
+const savedTokens = computed(() => overviewSummary.value.savedTokens)
+const savedRequests = computed(() => overviewSummary.value.savedRequests)
+const savedCost = computed(() => overviewSummary.value.savedCost)
 
 const formatNumber = (value: number) => (Number.isFinite(value) ? value.toLocaleString() : '0')
 
@@ -311,32 +321,14 @@ const formatDateTime = (time: number) => {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
-const fetchCacheStats = async () => {
-  const res = await getCacheStats()
-  const data = (res as any)?.data || res || {}
-  const requestCache = data.request_cache || {}
-  const responseCache = data.response_cache || {}
-
-  const hits = Number(requestCache.hits || 0) + Number(responseCache.hits || 0)
-  const misses = Number(requestCache.misses || 0) + Number(responseCache.misses || 0)
-  const total = hits + misses
-  const hitRate = total > 0 ? (hits / total) * 100 : 0
-
-  cacheStats.value = {
-    hits,
-    misses,
-    hit_rate: hitRate
-  }
-}
-
 const fetchUsageLogs = async () => {
   try {
-    const rangeParam = range.value
     const res = await request.get(API.USAGE.LOGS, {
       params: {
-        range: rangeParam,
+        range: range.value,
         limit: 1000,
         model: selectedModel.value || undefined,
+        task_type: selectedTaskType.value || undefined
       }
     })
     const data = (res as any)?.data || []
@@ -345,10 +337,10 @@ const fetchUsageLogs = async () => {
       const totalTokens = Number(log.tokens || 0)
       const inputTokens = log.input_tokens ?? Math.round(totalTokens * 0.6)
       const outputTokens = log.output_tokens ?? Math.max(0, totalTokens - inputTokens)
-      // Backward compatibility: legacy rows had cache_hit incorrectly persisted as false.
-      const inferredCacheHit = Boolean(log.cache_hit) || (log.success === true && Number(log.latency_ms || 0) === 0 && totalTokens > 0)
       const providerValue = log.provider || ''
       const ttftMs = Number(log.ttft_ms || 0)
+      const latencyMs = Number(log.latency_ms || 0)
+      const success = Boolean(log.success)
       // 只使用账号自定义名称
       const accountName = (providerValue && accountNameMap.value.get(providerValue)) || '-'
       rows.push({
@@ -358,23 +350,40 @@ const fetchUsageLogs = async () => {
         time: log.timestamp ? formatDateTime(log.timestamp) : '-',
         timestamp: log.timestamp || 0,
         firstTokenLatency: ttftMs > 0 ? `${(ttftMs / 1000).toFixed(2)}s` : '0 ms',
-        totalLatency: `${(log.latency_ms / 1000).toFixed(2)}s`,
+        totalLatency: latencyMs > 0 ? `${(latencyMs / 1000).toFixed(2)}s` : '0 ms',
         firstTokenSeconds: ttftMs / 1000,
-        totalDurationSeconds: log.latency_ms / 1000,
+        totalDurationSeconds: latencyMs / 1000,
         model: log.model || '-',
         taskType: log.task_type || '-',
         inputTokens,
         outputTokens,
         totalTokens,
-        cacheHit: inferredCacheHit ? '命中' : '未命中',
-        cost: totalTokens * 0.00000035
+        success,
+        cacheHit: Boolean(log.cache_hit) ? '命中' : '未命中',
+        cost: totalTokens * TOKEN_PRICE_USD
       })
     }
-    
+
     usageRows.value = rows.sort((a, b) => b.timestamp - a.timestamp)
   } catch (e) {
     console.warn('Failed to fetch usage logs from API:', e)
     usageRows.value = []
+  }
+}
+
+const fetchUsageStats = async () => {
+  try {
+    const res = await request.get(API.USAGE.STATS, {
+      params: {
+        range: range.value,
+        model: selectedModel.value || undefined,
+        task_type: selectedTaskType.value || undefined
+      }
+    })
+    usageStats.value = ((res as any)?.data || null) as UsageStatsPayload | null
+  } catch (e) {
+    console.warn('Failed to fetch usage stats from API, fallback to local rows:', e)
+    usageStats.value = null
   }
 }
 
@@ -391,9 +400,7 @@ const fetchAccounts = async () => {
 const refreshAll = async () => {
   loading.value = true
   try {
-    await fetchAccounts()
-    await fetchCacheStats()
-    await fetchUsageLogs()
+    await Promise.all([fetchUsageLogs(), fetchUsageStats()])
     page.value = 1
   } finally {
     loading.value = false
@@ -401,10 +408,14 @@ const refreshAll = async () => {
 }
 
 const resetFilters = async () => {
+  const changed =
+    selectedModel.value !== '' || selectedTaskType.value !== '' || range.value !== '7d'
   selectedModel.value = ''
   selectedTaskType.value = ''
   range.value = '7d'
-  await refreshAll()
+  if (!changed) {
+    await refreshAll()
+  }
 }
 
 const exportCsv = () => {
@@ -440,7 +451,16 @@ const exportCsv = () => {
 }
 
 onMounted(() => {
-  refreshAll()
+  loading.value = true
+  fetchAccounts()
+    .then(refreshAll)
+    .finally(() => {
+      loading.value = false
+    })
+})
+
+watch([range, selectedModel, selectedTaskType], () => {
+  void refreshAll()
 })
 </script>
 
@@ -508,6 +528,11 @@ onMounted(() => {
 .icon-green {
   color: #16a34a;
   background: #dcfce7;
+}
+
+.icon-cyan {
+  color: #0891b2;
+  background: #cffafe;
 }
 
 .icon-violet {
