@@ -160,3 +160,70 @@ func AddAttribute(ctx context.Context, key string, value interface{}) {
 		span.SetAttributes(attribute.Bool(key, v))
 	}
 }
+
+// RecordSimpleSpan 简化版 Span 记录（不需要返回 error）
+func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, attrs map[string]interface{}) {
+	startTime := time.Now()
+
+	requestID := GetRequestIDFromContext(ctx)
+	traceID := ""
+	spanID := uuid.New().String()[:16]
+
+	// 尝试从 context 获取 trace 信息
+	if span := trace.SpanFromContext(ctx); span != nil {
+		if span.SpanContext().IsValid() {
+			traceID = span.SpanContext().TraceID().String()
+		}
+	}
+
+	if traceID == "" {
+		traceID = requestID // fallback
+	}
+
+	// 转换属性
+	attributes := JSONB{}
+	for k, v := range attrs {
+		attributes[k] = v
+	}
+
+	traceRecord := &RequestTrace{
+		ID:         uuid.New().String(),
+		RequestID:  requestID,
+		TraceID:    traceID,
+		SpanID:     spanID,
+		Operation:  spanName,
+		Status:     "success",
+		StartTime:  startTime,
+		EndTime:    time.Now(),
+		DurationMs: time.Since(startTime).Milliseconds(),
+		Attributes: attributes,
+		Events:     JSONB{},
+		CreatedAt:  time.Now(),
+	}
+
+	// 从属性中提取额外字段
+	if method, ok := attrs["method"].(string); ok {
+		traceRecord.Method = method
+	}
+	if path, ok := attrs["path"].(string); ok {
+		traceRecord.Path = path
+	}
+	if model, ok := attrs["model"].(string); ok {
+		traceRecord.Model = model
+	}
+	if provider, ok := attrs["provider"].(string); ok {
+		traceRecord.Provider = provider
+	}
+	if userID, ok := attrs["user_id"].(string); ok {
+		traceRecord.UserID = userID
+	}
+
+	// 异步保存
+	go r.saveToDB(traceRecord)
+}
+
+// RecordSpanWithResult 记录带结果的 Span（用于缓存命中/未命中等）
+func (r *SpanRecorder) RecordSpanWithResult(ctx context.Context, spanName string, result string, attrs map[string]interface{}) {
+	attrs["result"] = result
+	r.RecordSimpleSpan(ctx, spanName, attrs)
+}

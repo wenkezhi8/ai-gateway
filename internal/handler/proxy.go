@@ -10,6 +10,7 @@ import (
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
 	"ai-gateway/internal/storage"
+	"ai-gateway/internal/tracing"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -93,6 +94,7 @@ type ProxyHandler struct {
 	vectorStore       cache.VectorCacheStore
 	vectorPipeline    *VectorPipeline
 	textNormalizer    *cache.TextNormalizer
+	traceRecorder     *tracing.SpanRecorder
 }
 
 // NewProxyHandler creates a new proxy handler
@@ -144,6 +146,12 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 	textNormalizer := cache.NewTextNormalizer()
 	vectorPipeline := NewVectorPipeline(vectorStore, textNormalizer, settingsGetter)
 
+	// Initialize trace recorder
+	var traceRecorder *tracing.SpanRecorder
+	if db := storage.GetSQLiteStorage().GetDB(); db != nil {
+		traceRecorder = tracing.NewSpanRecorder(db)
+	}
+
 	return &ProxyHandler{
 		config:            cfg,
 		registry:          provider.GetRegistry(),
@@ -157,6 +165,7 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		vectorStore:       vectorStore,
 		vectorPipeline:    vectorPipeline,
 		textNormalizer:    textNormalizer,
+		traceRecorder:     traceRecorder,
 	}
 }
 
@@ -165,10 +174,29 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	startTime := time.Now()
 
+	// 生成 Request ID 并设置到 context
+	requestID := tracing.GenerateRequestID()
+	ctx := tracing.SetRequestIDToContext(c.Request.Context(), requestID)
+	c.Request = c.Request.WithContext(ctx)
+	c.Set("request_id", requestID)
+	c.Header("X-Request-ID", requestID)
+
+	// 记录 Span 0: HTTP 请求入口
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "http.entry", map[string]interface{}{
+			"method":     c.Request.Method,
+			"path":       c.Request.URL.Path,
+			"client_ip":  c.ClientIP(),
+			"user_agent": c.Request.UserAgent(),
+			"request_id": requestID,
+		})
+	}
+
 	// Limit request body size to prevent DoS attacks
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodySize)
 
-	// Parse request
+	// 记录 Span 1: 请求解析
+	parseStart := time.Now()
 	var req ChatCompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if err.Error() == "http: request body too large" {
@@ -177,6 +205,13 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 		BadRequest(c, "Invalid request body: "+err.Error())
 		return
+	}
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "handler.parse-request", map[string]interface{}{
+			"duration_ms": time.Since(parseStart).Milliseconds(),
+			"model":       req.Model,
+			"stream":      req.Stream,
+		})
 	}
 
 	// Validate request
@@ -200,8 +235,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// Assess difficulty and get recommended TTL
+	// 记录 Span 2: 分类器评估
+	assessStart := time.Now()
 	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "classifier.assess", map[string]interface{}{
+			"duration_ms":     time.Since(assessStart).Milliseconds(),
+			"task_type":       assessment.TaskType,
+			"difficulty":      assessment.Difficulty,
+			"recommended_ttl": assessment.SuggestedTTL,
+			"user_id":         userID,
+		})
+	}
 	recommendedTTL := assessment.SuggestedTTL
 	classifierCfg := h.smartRouter.GetClassifierConfig()
 	controlCfg := classifierCfg.Control
@@ -312,6 +357,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
 
 	// V2 cache read path: intent-engine + Redis Stack exact/vector retrieval.
+	cacheV2Start := time.Now()
 	intentResult, v2CachedBody, v2CacheHit, v2HitLayer, v2HitKey := h.processCacheV2Read(
 		c.Request.Context(),
 		prompt,
@@ -319,6 +365,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		string(assessment.TaskType),
 		cacheSettings,
 	)
+	if h.traceRecorder != nil {
+		result := "miss"
+		if v2CacheHit {
+			result = "hit"
+		}
+		h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-v2", result, map[string]interface{}{
+			"duration_ms": time.Since(cacheV2Start).Milliseconds(),
+			"hit":         v2CacheHit,
+			"layer":       v2HitLayer,
+			"task_type":   string(assessment.TaskType),
+		})
+	}
 	if v2CacheHit && len(v2CachedBody) > 0 {
 		tokens := extractTotalTokensFromBody(v2CachedBody)
 		h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokens, true, true, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
@@ -342,7 +400,20 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 		for _, candidateQuery := range semanticCandidates {
 			queryVector := cache.SimpleEmbedding(candidateQuery, 1536)
+			cacheSemStart := time.Now()
 			semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), candidateQuery, queryVector)
+			if h.traceRecorder != nil {
+				result := "miss"
+				if semanticEntry != nil {
+					result = "hit"
+				}
+				h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-semantic", result, map[string]interface{}{
+					"duration_ms": time.Since(cacheSemStart).Milliseconds(),
+					"hit":         semanticEntry != nil,
+					"similarity":  similarity,
+					"threshold":   similarityThreshold,
+				})
+			}
 			if semanticEntry == nil || similarity < similarityThreshold {
 				continue
 			}
@@ -373,7 +444,19 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Try exact cache
 	if cacheEnabled && h.cache.ResponseCache != nil {
 		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
+		cacheExactStart := time.Now()
 		cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
+		if h.traceRecorder != nil {
+			result := "miss"
+			if err == nil && cached != nil {
+				result = "hit"
+			}
+			h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-exact", result, map[string]interface{}{
+				"duration_ms": time.Since(cacheExactStart).Milliseconds(),
+				"hit":         err == nil && cached != nil,
+				"cache_key":   cacheKey,
+			})
+		}
 		if err == nil && cached != nil {
 			if !hasMeaningfulCachedResponse(cached.Body) {
 				logrus.WithFields(logrus.Fields{
@@ -428,8 +511,21 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Fallback to original logic if scheduler didn't work
 	if targetProvider == nil {
+		providerStart := time.Now()
 		var fallbackErr error
 		targetProvider, fallbackErr = h.getProviderForRequest(c, requestedModel, req.Provider)
+		if h.traceRecorder != nil {
+			providerName := req.Provider
+			if targetProvider != nil {
+				providerName = targetProvider.Name()
+			}
+			h.traceRecorder.RecordSimpleSpan(ctx, "provider.select", map[string]interface{}{
+				"duration_ms": time.Since(providerStart).Milliseconds(),
+				"model":       requestedModel,
+				"provider":    providerName,
+				"user_id":     userID,
+			})
+		}
 		if fallbackErr != nil {
 			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
@@ -550,9 +646,21 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		"max_tokens":  providerReq.MaxTokens,
 	})
 
+	// 记录 Span 7: 上游调用
+	upstreamStart := time.Now()
 	result, err := h.deduplicator.Do(c.Request.Context(), dedupKey, func() (interface{}, error) {
-		return targetProvider.Chat(c.Request.Context(), providerReq)
+		providerResult, providerErr := targetProvider.Chat(c.Request.Context(), providerReq)
+		return providerResult, providerErr
 	})
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+			"duration_ms": time.Since(upstreamStart).Milliseconds(),
+			"model":       providerReq.Model,
+			"provider":    targetProvider.Name(),
+			"stream":      providerReq.Stream,
+			"success":     err == nil,
+		})
+	}
 
 	if err != nil {
 		if isModelNotFoundError(err) {
@@ -747,8 +855,28 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}).Debug("Semantic cache entry stored")
 	}
 
+	// 记录 Span 8: 缓存写入
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "cache.write", map[string]interface{}{
+			"model":     req.Model,
+			"provider":  req.Provider,
+			"task_type": string(assessment.TaskType),
+			"ttl":       recommendedTTL,
+		})
+	}
+
 	// V2 cache async write path.
 	h.processCacheV2Write(c.Request.Context(), intentResult, req.Provider, req.Model, assessment.TaskType, response)
+
+	// 记录 Span 9: 响应返回
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+			"duration_ms": time.Since(startTime).Milliseconds(),
+			"model":       req.Model,
+			"provider":    req.Provider,
+			"success":     true,
+		})
+	}
 
 	// Return response in OpenAI-compatible format
 	c.Header("X-Local-Cache-Hit", "0")
