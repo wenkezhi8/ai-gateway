@@ -290,6 +290,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	{
 		usage.GET("/logs", handlers.Usage.GetUsageLogs)
 		usage.GET("/stats", handlers.Usage.GetUsageStats)
+		usage.DELETE("/logs", handlers.Usage.ClearUsageLogs)
 	}
 
 	// UI settings routes
