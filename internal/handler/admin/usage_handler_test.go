@@ -146,3 +146,56 @@ func TestUsageHandler_GetUsageStats_FilterByRangeModelAndTaskType(t *testing.T) 
 	assert.Equal(t, int64(180), resp.Data.SavedTokens)
 	assert.Equal(t, int64(1), resp.Data.SavedRequests)
 }
+
+func TestUsageHandler_ClearUsageLogs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := filepath.Join(t.TempDir(), "usage-handler-clear-test.db")
+	store, err := storage.NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	now := time.Now().UnixMilli()
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-clear-admin-1",
+		"timestamp":  now,
+		"model":      "qwen2.5:3b",
+		"provider":   "ollama",
+		"tokens":     int64(100),
+		"cache_hit":  true,
+		"success":    true,
+	}))
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-clear-admin-2",
+		"timestamp":  now - 1000,
+		"model":      "qwen2.5:3b",
+		"provider":   "ollama",
+		"tokens":     int64(70),
+		"cache_hit":  false,
+		"success":    true,
+	}))
+
+	handler := NewUsageHandler(store)
+	r := gin.New()
+	r.DELETE("/admin/usage/logs", handler.ClearUsageLogs)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/usage/logs", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Deleted int64 `json:"deleted"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	assert.Equal(t, int64(2), resp.Data.Deleted)
+
+	stats := store.GetUsageStats()
+	assert.Equal(t, int64(0), stats["total_requests"])
+	assert.Equal(t, int64(0), stats["total_tokens"])
+}

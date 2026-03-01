@@ -221,6 +221,24 @@ func (h *UsageHandler) GetUsageStats(c *gin.Context) {
 	})
 }
 
+func (h *UsageHandler) ClearUsageLogs(c *gin.Context) {
+	deleted, err := h.storage.ClearUsageLogs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"deleted": deleted,
+		},
+	})
+}
+
 func getInt64(m map[string]interface{}, key string) int64 {
 	if v, ok := m[key]; ok {
 		switch val := v.(type) {

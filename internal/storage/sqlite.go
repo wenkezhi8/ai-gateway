@@ -1082,6 +1082,21 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	return logs, nil
 }
 
+func (s *SQLiteStorage) ClearUsageLogs() (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.Exec(`DELETE FROM usage_logs`)
+	if err != nil {
+		return 0, err
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
 func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 	required := map[string]string{
 		"task_type":      "TEXT",

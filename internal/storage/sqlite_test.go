@@ -708,3 +708,40 @@ func TestSQLiteStorage_UsageStatsWithFilter_EmptyDataset(t *testing.T) {
 	assert.Equal(t, float64(0), stats["cache_hit_rate"])
 	assert.Equal(t, int64(0), stats["avg_latency_ms"])
 }
+
+func TestSQLiteStorage_ClearUsageLogs(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test-clear-usage-logs.db")
+	store, err := NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-clear-1",
+		"timestamp":  time.Now().UnixMilli(),
+		"model":      "gpt-4o-mini",
+		"provider":   "openai",
+		"tokens":     int64(120),
+		"cache_hit":  true,
+		"success":    true,
+	}))
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-clear-2",
+		"timestamp":  time.Now().UnixMilli(),
+		"model":      "gpt-4o-mini",
+		"provider":   "openai",
+		"tokens":     int64(80),
+		"cache_hit":  false,
+		"success":    true,
+	}))
+
+	statsBefore := store.GetUsageStats()
+	assert.Equal(t, int64(2), statsBefore["total_requests"])
+
+	deleted, err := store.ClearUsageLogs()
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), deleted)
+
+	statsAfter := store.GetUsageStats()
+	assert.Equal(t, int64(0), statsAfter["total_requests"])
+	assert.Equal(t, int64(0), statsAfter["total_tokens"])
+}

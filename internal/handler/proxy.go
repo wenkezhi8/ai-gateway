@@ -1705,6 +1705,33 @@ func (h *ProxyHandler) handleStreamResponse(
 			c.SSEvent("message", "[DONE]")
 			c.Writer.Flush()
 
+			if h.traceRecorder != nil {
+				responsePayload := map[string]interface{}{
+					"choices": []map[string]interface{}{
+						{
+							"index": 0,
+							"message": map[string]interface{}{
+								"role":    "assistant",
+								"content": fullContent.String(),
+							},
+						},
+					},
+				}
+				responseBody, _ := json.Marshal(responsePayload)
+				aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
+				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+					"duration_ms":          time.Since(startTime).Milliseconds(),
+					"model":                req.Model,
+					"provider":             providerName,
+					"status_code":          http.StatusOK,
+					"cache_hit":            false,
+					"ai_response_preview":  aiResponsePreview,
+					"ai_response_full":     aiResponseFull,
+					"user_message_preview": strings.TrimSpace(prompt),
+					"user_message_full":    strings.TrimSpace(prompt),
+				})
+			}
+
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
@@ -2032,6 +2059,33 @@ func (h *ProxyHandler) handleStreamResponse(
 		// CHANGED: include provider/user/api info and prompt tokens in usage logs for fallback success.
 		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, latency, resp.Usage.TotalTokens, true, false, 0, resp.Usage.PromptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resp.Usage.TotalTokens)
+
+		if h.traceRecorder != nil {
+			responsePayload := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": content,
+						},
+					},
+				},
+			}
+			responseBody, _ := json.Marshal(responsePayload)
+			aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+				"duration_ms":          time.Since(startTime).Milliseconds(),
+				"model":                req.Model,
+				"provider":             providerName,
+				"status_code":          http.StatusOK,
+				"cache_hit":            false,
+				"ai_response_preview":  aiResponsePreview,
+				"ai_response_full":     aiResponseFull,
+				"user_message_preview": strings.TrimSpace(prompt),
+				"user_message_full":    strings.TrimSpace(prompt),
+			})
+		}
 
 		// Record successful model name mapping if fallback used a different model
 		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != nonStreamReq.Model {
