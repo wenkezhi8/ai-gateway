@@ -553,6 +553,7 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 			"difficulty":     "medium",
 			"experiment_tag": "exp-a",
 			"domain_tag":     "finance",
+			"usage_source":   "actual",
 		})
 		require.NoError(t, err)
 
@@ -570,6 +571,7 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 			"success":        true,
 			"experiment_tag": "exp-b",
 			"domain_tag":     "general",
+			"usage_source":   "estimated",
 		})
 		require.NoError(t, err)
 
@@ -593,6 +595,7 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 		assert.Equal(t, true, logs[0]["success"])
 		assert.Equal(t, "exp-a", logs[0]["experiment_tag"])
 		assert.Equal(t, "finance", logs[0]["domain_tag"])
+		assert.Equal(t, "actual", logs[0]["usage_source"])
 
 		tagFiltered, err := store.GetUsageLogsWithFilter(UsageFilter{
 			ExperimentTag: "exp-b",
@@ -602,6 +605,7 @@ func TestSQLiteStorage_UsageLogs(t *testing.T) {
 		require.Len(t, tagFiltered, 1)
 		assert.Equal(t, "exp-b", tagFiltered[0]["experiment_tag"])
 		assert.Equal(t, "general", tagFiltered[0]["domain_tag"])
+		assert.Equal(t, "estimated", tagFiltered[0]["usage_source"])
 	})
 
 	t.Run("Usage Stats", func(t *testing.T) {

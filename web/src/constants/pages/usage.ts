@@ -9,6 +9,7 @@ export const USAGE_CSV_HEADER = [
   '入Token',
   '出Token',
   '总Token',
+  'Token来源',
   '节省Token',
   '缓存命中',
   '费用'

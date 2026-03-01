@@ -3,6 +3,8 @@ import {
   TOKEN_PRICE_USD,
   buildUsageOverviewFromRows,
   buildUsageOverviewFromStats,
+  normalizeUsageSource,
+  usageSourceLabel,
   pickUsageOverview
 } from './usage-overview'
 
@@ -77,5 +79,15 @@ describe('usage-overview', () => {
     expect(summary.totalRequests).toBe(1)
     expect(summary.savedTokens).toBe(20)
     expect(summary.savedRequests).toBe(1)
+  })
+
+  it('usage source helpers should normalize and label values', () => {
+    expect(normalizeUsageSource('actual')).toBe('actual')
+    expect(normalizeUsageSource('estimated')).toBe('estimated')
+    expect(normalizeUsageSource('unknown')).toBe('')
+
+    expect(usageSourceLabel('actual')).toBe('真实')
+    expect(usageSourceLabel('estimated')).toBe('估算')
+    expect(usageSourceLabel('')).toBe('-')
   })
 })

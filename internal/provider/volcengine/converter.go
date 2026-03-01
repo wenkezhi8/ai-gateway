@@ -34,6 +34,9 @@ func ConvertRequest(req *provider.ChatRequest) *ChatRequest {
 		Messages: messages,
 		Stream:   req.Stream,
 	}
+	if req.Stream {
+		volcReq.StreamOptions = &StreamOptions{IncludeUsage: true}
+	}
 
 	if len(req.Tools) > 0 {
 		volcReq.Tools = make([]Tool, len(req.Tools))
@@ -184,12 +187,22 @@ func ConvertStreamChunk(resp *StreamResponse, done bool) *provider.StreamChunk {
 		})
 	}
 
+	var usage *provider.Usage
+	if resp.Usage != nil {
+		usage = &provider.Usage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		}
+	}
+
 	return &provider.StreamChunk{
 		ID:      resp.ID,
 		Object:  resp.Object,
 		Created: resp.Created,
 		Model:   resp.Model,
 		Choices: choices,
+		Usage:   usage,
 		Done:    done,
 	}
 }

@@ -97,21 +97,26 @@ func (c *Client) DoStreamRequest(ctx context.Context, method, path string, body 
 
 // ChatRequest represents a Volcengine chat request
 type ChatRequest struct {
-	Model            string        `json:"model"`
-	Messages         []ChatMessage `json:"messages"`
-	Temperature      float64       `json:"temperature,omitempty"`
-	TopP             float64       `json:"top_p,omitempty"`
-	MaxTokens        int           `json:"max_tokens,omitempty"`
-	Stream           bool          `json:"stream,omitempty"`
-	Stop             []string      `json:"stop,omitempty"`
-	FrequencyPenalty float64       `json:"frequency_penalty,omitempty"`
-	PresencePenalty  float64       `json:"presence_penalty,omitempty"`
-	Logprobs         bool          `json:"logprobs,omitempty"`
-	TopLogprobs      int           `json:"top_logprobs,omitempty"`
-	N                int           `json:"n,omitempty"`
-	User             string        `json:"user,omitempty"`
-	Tools            []Tool        `json:"tools,omitempty"`
-	ToolChoice       interface{}   `json:"tool_choice,omitempty"`
+	Model            string         `json:"model"`
+	Messages         []ChatMessage  `json:"messages"`
+	Temperature      float64        `json:"temperature,omitempty"`
+	TopP             float64        `json:"top_p,omitempty"`
+	MaxTokens        int            `json:"max_tokens,omitempty"`
+	Stream           bool           `json:"stream,omitempty"`
+	StreamOptions    *StreamOptions `json:"stream_options,omitempty"`
+	Stop             []string       `json:"stop,omitempty"`
+	FrequencyPenalty float64        `json:"frequency_penalty,omitempty"`
+	PresencePenalty  float64        `json:"presence_penalty,omitempty"`
+	Logprobs         bool           `json:"logprobs,omitempty"`
+	TopLogprobs      int            `json:"top_logprobs,omitempty"`
+	N                int            `json:"n,omitempty"`
+	User             string         `json:"user,omitempty"`
+	Tools            []Tool         `json:"tools,omitempty"`
+	ToolChoice       interface{}    `json:"tool_choice,omitempty"`
+}
+
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 // ChatMessage represents a message in Volcengine chat

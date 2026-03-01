@@ -32,6 +32,8 @@ export interface UsageOverviewSummary {
   savedCost: number
 }
 
+export type UsageSource = 'actual' | 'estimated' | ''
+
 function toNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value
@@ -125,4 +127,25 @@ export function pickUsageOverview(
     return buildUsageOverviewFromStats(stats)
   }
   return buildUsageOverviewFromRows(rows)
+}
+
+export function normalizeUsageSource(value: unknown): UsageSource {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'actual' || normalized === 'estimated') {
+    return normalized
+  }
+  return ''
+}
+
+export function usageSourceLabel(source: UsageSource): string {
+  if (source === 'actual') {
+    return '真实'
+  }
+  if (source === 'estimated') {
+    return '估算'
+  }
+  return '-'
 }

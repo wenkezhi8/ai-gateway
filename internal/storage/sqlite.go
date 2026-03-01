@@ -199,6 +199,7 @@ func (s *SQLiteStorage) migrate() error {
 			difficulty TEXT,
 			experiment_tag TEXT,
 			domain_tag TEXT,
+			usage_source TEXT DEFAULT 'actual',
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)`,
@@ -934,6 +935,7 @@ type UsageLog struct {
 	Difficulty    string `json:"difficulty"`
 	ExperimentTag string `json:"experiment_tag"`
 	DomainTag     string `json:"domain_tag"`
+	UsageSource   string `json:"usage_source"`
 	CreatedAt     string `json:"created_at"`
 }
 
@@ -996,8 +998,8 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 
 	_, err := s.db.Exec(`INSERT INTO usage_logs (
 		request_id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, usage_source, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		usageStringValue(log, "request_id"),
 		timestamp,
 		usageStringValue(log, "model"),
@@ -1016,6 +1018,7 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 		usageStringValue(log, "difficulty"),
 		usageStringValue(log, "experiment_tag"),
 		usageStringValue(log, "domain_tag"),
+		usageSourceValue(log),
 		now,
 	)
 	return err
@@ -1029,7 +1032,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	whereClause, args := buildUsageWhereClause(filter)
 	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
 	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, created_at
+		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, usage_source, created_at
 		FROM usage_logs WHERE ` + whereClause
 
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -1047,10 +1050,10 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 		var timestamp, tokens, inputTokens, outputTokens, latencyMs, ttftMs int64
 		var model, createdAt string
 		var cacheHitInt, successInt int
-		var provider, userID, apiKey, errorType, taskType, difficulty, experimentTag, domainTag sql.NullString
+		var provider, userID, apiKey, errorType, taskType, difficulty, experimentTag, domainTag, usageSource sql.NullString
 		if err := rows.Scan(
 			&id, &timestamp, &model, &provider, &userID, &apiKey, &tokens, &inputTokens, &outputTokens,
-			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &experimentTag, &domainTag, &createdAt,
+			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &experimentTag, &domainTag, &usageSource, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1073,6 +1076,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 			"difficulty":     difficulty.String,
 			"experiment_tag": experimentTag.String,
 			"domain_tag":     domainTag.String,
+			"usage_source":   usageSource.String,
 			"created_at":     createdAt,
 		})
 	}
@@ -1102,6 +1106,7 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 		"task_type":      "TEXT",
 		"experiment_tag": "TEXT",
 		"domain_tag":     "TEXT",
+		"usage_source":   "TEXT DEFAULT 'actual'",
 	}
 
 	rows, err := s.db.Query(`PRAGMA table_info(usage_logs)`)
@@ -1194,6 +1199,14 @@ func usageStringValue(log map[string]interface{}, key string) string {
 		return s
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+func usageSourceValue(log map[string]interface{}) string {
+	source := strings.ToLower(strings.TrimSpace(usageStringValue(log, "usage_source")))
+	if source == "estimated" {
+		return source
+	}
+	return "actual"
 }
 
 func usageInt64Value(log map[string]interface{}, key string) int64 {

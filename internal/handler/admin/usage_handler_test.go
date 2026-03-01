@@ -38,6 +38,7 @@ func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
 		"success":        true,
 		"experiment_tag": "exp-a",
 		"domain_tag":     "finance",
+		"usage_source":   "actual",
 	})
 	require.NoError(t, err)
 
@@ -55,6 +56,7 @@ func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
 		"success":        true,
 		"experiment_tag": "exp-b",
 		"domain_tag":     "general",
+		"usage_source":   "estimated",
 	})
 	require.NoError(t, err)
 
@@ -79,6 +81,7 @@ func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
 	assert.Equal(t, 1, resp.Total)
 	assert.Equal(t, "exp-a", resp.Data[0].ExperimentTag)
 	assert.Equal(t, "finance", resp.Data[0].DomainTag)
+	assert.Equal(t, "actual", resp.Data[0].UsageSource)
 }
 
 func TestUsageHandler_GetUsageStats_FilterByRangeModelAndTaskType(t *testing.T) {

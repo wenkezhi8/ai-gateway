@@ -55,3 +55,58 @@ func TestExtractUsageTokensFromBody_WithoutUsage_ReturnsZero(t *testing.T) {
 		t.Fatalf("expected all zero tokens, got prompt=%d completion=%d total=%d", tokens.Prompt, tokens.Completion, tokens.Total)
 	}
 }
+
+func TestEstimateTokensByText_MixedAsciiAndCJK(t *testing.T) {
+	// ascii=4 -> 1 token, non-ascii=2 -> 2 tokens, total ceil(2.333)=3
+	got := estimateTokensByText("abcd你好")
+	if got != 3 {
+		t.Fatalf("expected estimated tokens 3, got %d", got)
+	}
+}
+
+func TestEstimateTokensByText_EmptyText_ReturnsZero(t *testing.T) {
+	got := estimateTokensByText("")
+	if got != 0 {
+		t.Fatalf("expected estimated tokens 0, got %d", got)
+	}
+}
+
+func TestBuildCachedUsage_UsesPromptTokensFromInput(t *testing.T) {
+	usage := buildCachedUsage(12, 8, 20)
+	if usage["prompt_tokens"] != 12 {
+		t.Fatalf("expected prompt_tokens 12, got %d", usage["prompt_tokens"])
+	}
+	if usage["completion_tokens"] != 8 {
+		t.Fatalf("expected completion_tokens 8, got %d", usage["completion_tokens"])
+	}
+	if usage["total_tokens"] != 20 {
+		t.Fatalf("expected total_tokens 20, got %d", usage["total_tokens"])
+	}
+}
+
+func TestResolveUsageWithFallback_WhenActualUsageExists_ReturnsActualSource(t *testing.T) {
+	provided := usageTokens{Prompt: 10, Completion: 5, Total: 15}
+	resolved, source := resolveUsageWithFallback("1+1", "2", provided)
+
+	if source != "actual" {
+		t.Fatalf("expected usage source actual, got %s", source)
+	}
+	if resolved.Total != 15 || resolved.Prompt != 10 || resolved.Completion != 5 {
+		t.Fatalf("unexpected resolved usage: %+v", resolved)
+	}
+}
+
+func TestResolveUsageWithFallback_WhenUsageMissing_ReturnsEstimatedSource(t *testing.T) {
+	provided := usageTokens{}
+	resolved, source := resolveUsageWithFallback("请计算1+1", "1+1=2", provided)
+
+	if source != "estimated" {
+		t.Fatalf("expected usage source estimated, got %s", source)
+	}
+	if resolved.Total <= 0 {
+		t.Fatalf("expected positive estimated total tokens, got %d", resolved.Total)
+	}
+	if resolved.Prompt <= 0 || resolved.Completion <= 0 {
+		t.Fatalf("expected positive prompt/completion tokens, got prompt=%d completion=%d", resolved.Prompt, resolved.Completion)
+	}
+}

@@ -40,6 +40,7 @@ type UsageLogResponse struct {
 	Difficulty    string `json:"difficulty,omitempty"`
 	ExperimentTag string `json:"experiment_tag,omitempty"`
 	DomainTag     string `json:"domain_tag,omitempty"`
+	UsageSource   string `json:"usage_source,omitempty"`
 	CreatedAt     string `json:"created_at"`
 }
 
@@ -146,6 +147,7 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 			Difficulty:    getString(log, "difficulty"),
 			ExperimentTag: getString(log, "experiment_tag"),
 			DomainTag:     getString(log, "domain_tag"),
+			UsageSource:   getString(log, "usage_source"),
 			CreatedAt:     getString(log, "created_at"),
 		}
 		response = append(response, item)

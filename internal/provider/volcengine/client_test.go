@@ -44,6 +44,8 @@ func TestConvertRequest(t *testing.T) {
 	assert.True(t, volcReq.Stream)
 	assert.Equal(t, 0.7, volcReq.Temperature)
 	assert.Equal(t, 1000, volcReq.MaxTokens)
+	require.NotNil(t, volcReq.StreamOptions)
+	assert.True(t, volcReq.StreamOptions.IncludeUsage)
 }
 
 func TestConvertRequest_WithTools(t *testing.T) {
@@ -207,6 +209,36 @@ func TestConvertStreamChunk(t *testing.T) {
 	assert.Len(t, provChunk.Choices, 1)
 	assert.Equal(t, "Hello", provChunk.Choices[0].Delta.Content)
 	assert.False(t, provChunk.Done)
+}
+
+func TestConvertStreamChunk_WithUsage(t *testing.T) {
+	chunk := &StreamResponse{
+		ID:      "test-id-usage",
+		Object:  "chat.completion.chunk",
+		Created: 1234567890,
+		Model:   "doubao-pro-4k",
+		Choices: []StreamResponseChoice{
+			{
+				Index: 0,
+				Delta: &StreamDelta{
+					Role:    "assistant",
+					Content: "答案",
+				},
+			},
+		},
+		Usage: &ChatResponseUsage{
+			PromptTokens:     18,
+			CompletionTokens: 7,
+			TotalTokens:      25,
+		},
+	}
+
+	provChunk := ConvertStreamChunk(chunk, false)
+
+	require.NotNil(t, provChunk.Usage)
+	assert.Equal(t, 18, provChunk.Usage.PromptTokens)
+	assert.Equal(t, 7, provChunk.Usage.CompletionTokens)
+	assert.Equal(t, 25, provChunk.Usage.TotalTokens)
 }
 
 func TestConvertStreamChunk_WithDone(t *testing.T) {

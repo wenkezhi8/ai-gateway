@@ -152,7 +152,17 @@
         </el-table-column>
         <el-table-column label="总 Token" min-width="130" align="right">
           <template #default="{ row }">
-            <div class="token-total">{{ formatCompact(row.totalTokens) }}</div>
+            <div class="token-cell">
+              <span class="token-total">{{ formatCompact(row.totalTokens) }}</span>
+              <el-tag
+                v-if="row.usageSource"
+                size="small"
+                :type="row.usageSource === 'estimated' ? 'warning' : 'success'"
+                effect="plain"
+              >
+                {{ usageSourceLabel(row.usageSource) }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="节省 Token" min-width="130" align="right">
@@ -198,7 +208,14 @@ import { API } from '@/constants/api'
 import { filterUsageRows } from '@/utils/usage-filters'
 import { accountApi, type Account } from '@/api/account'
 import { USAGE_CSV_HEADER } from '@/constants/pages/usage'
-import { pickUsageOverview, TOKEN_PRICE_USD, type UsageStatsPayload } from './usage-overview'
+import {
+  pickUsageOverview,
+  TOKEN_PRICE_USD,
+  normalizeUsageSource,
+  usageSourceLabel,
+  type UsageSource,
+  type UsageStatsPayload
+} from './usage-overview'
 
 type RangeType = '24h' | '7d' | '30d'
 
@@ -218,6 +235,7 @@ interface UsageRow {
   outputTokens: number
   totalTokens: number
   savedTokens: number
+  usageSource: UsageSource
   success: boolean
   cacheHit: string
   cost: number
@@ -353,6 +371,7 @@ const fetchUsageLogs = async () => {
       const success = Boolean(log.success)
       const cacheHit = Boolean(log.cache_hit)
       const savedTokens = cacheHit && success ? totalTokens : 0
+      const usageSource = normalizeUsageSource(log.usage_source)
       // 只使用账号自定义名称
       const accountName = (providerValue && accountNameMap.value.get(providerValue)) || '-'
       rows.push({
@@ -371,6 +390,7 @@ const fetchUsageLogs = async () => {
         outputTokens,
         totalTokens,
         savedTokens,
+        usageSource,
         success,
         cacheHit: cacheHit ? '命中' : '未命中',
         cost: totalTokens * TOKEN_PRICE_USD
@@ -473,6 +493,7 @@ const exportCsv = () => {
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,
+    usageSourceLabel(row.usageSource),
     row.savedTokens,
     row.cacheHit,
     row.cost.toFixed(5)
@@ -663,7 +684,7 @@ watch([range, selectedModel, selectedTaskType], () => {
 }
 
 .token-total {
-  margin-top: 4px;
+  margin-top: 0;
   color: #0284c7;
   font-size: 13px;
 }
