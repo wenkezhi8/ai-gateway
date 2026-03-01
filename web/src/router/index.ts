@@ -100,6 +100,24 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '缓存管理', icon: 'Box' }
       },
       {
+        path: '/knowledge/documents',
+        name: 'KnowledgeDocuments',
+        component: () => import('@/views/knowledge/documents/index.vue'),
+        meta: { title: '知识库文档', icon: 'Document' }
+      },
+      {
+        path: '/knowledge/chat',
+        name: 'KnowledgeChat',
+        component: () => import('@/views/knowledge/chat/index.vue'),
+        meta: { title: '知识库问答', icon: 'ChatDotRound' }
+      },
+      {
+        path: '/knowledge/config',
+        name: 'KnowledgeConfig',
+        component: () => import('@/views/knowledge/config/index.vue'),
+        meta: { title: '知识库配置', icon: 'Setting' }
+      },
+      {
         path: '/alerts',
         name: 'Alerts',
         component: () => import('@/views/alerts/index.vue'),
