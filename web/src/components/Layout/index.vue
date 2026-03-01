@@ -213,6 +213,7 @@ const menuItems = [
   { path: '/model-management', title: '模型管理', icon: 'Collection' },
   { path: '/providers-accounts', title: '账号与限额', icon: 'Key' },
   { path: '/usage', title: 'API 使用统计', icon: 'DataLine' },
+  { path: '/trace', title: '请求链路追踪', icon: 'Share' },
   { path: '/routing', title: '路由策略', icon: 'Guide' },
   { path: '/cache', title: '缓存管理', icon: 'Box' },
   { path: '/alerts', title: '告警管理', icon: 'Bell' },
