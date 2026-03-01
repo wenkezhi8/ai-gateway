@@ -3,15 +3,16 @@
 package routing
 
 import (
-	"ai-gateway/internal/constants"
 	"context"
 	"sync"
 	"time"
 
+	"ai-gateway/internal/constants"
+
 	"github.com/sirupsen/logrus"
 )
 
-// CascadeLevel defines the level in cascade routing
+// CascadeLevel defines the level in cascade routing.
 type CascadeLevel string
 
 const (
@@ -20,7 +21,7 @@ const (
 	CascadeLevelLarge  CascadeLevel = "large"  // 大模型：高质量、高成本
 )
 
-// CascadeRule defines rules for cascade routing
+// CascadeRule defines rules for cascade routing.
 type CascadeRule struct {
 	TaskType        TaskType        `json:"task_type"`
 	Difficulty      DifficultyLevel `json:"difficulty"`
@@ -31,7 +32,7 @@ type CascadeRule struct {
 	TimeoutPerLevel time.Duration   `json:"timeout_per_level"` // 每级别超时
 }
 
-// CascadeResult represents the result of cascade routing
+// CascadeResult represents the result of cascade routing.
 type CascadeResult struct {
 	SelectedModel string       `json:"selected_model"`
 	Level         CascadeLevel `json:"level"`
@@ -40,7 +41,7 @@ type CascadeResult struct {
 	FallbackUsed  bool         `json:"fallback_used"`
 }
 
-// CascadeRouter handles cascade routing logic
+// CascadeRouter handles cascade routing logic.
 type CascadeRouter struct {
 	mu          sync.RWMutex
 	smartRouter *SmartRouter
@@ -50,7 +51,7 @@ type CascadeRouter struct {
 	stats       map[string]*CascadeStats // key: model
 }
 
-// CascadeStats tracks statistics for cascade routing
+// CascadeStats tracks statistics for cascade routing.
 type CascadeStats struct {
 	TotalRequests   int64 `json:"total_requests"`
 	SuccessAtSmall  int64 `json:"success_at_small"`
@@ -62,7 +63,7 @@ type CascadeStats struct {
 
 var cascadeLogger = logrus.WithField("component", "cascade_router")
 
-// DefaultCascadeRules returns default cascade routing rules
+// DefaultCascadeRules returns default cascade routing rules.
 func DefaultCascadeRules() map[string]*CascadeRule {
 	rules := make(map[string]*CascadeRule, len(constants.RoutingDefaultCascadeRules))
 	for key, preset := range constants.RoutingDefaultCascadeRules {
@@ -79,7 +80,7 @@ func DefaultCascadeRules() map[string]*CascadeRule {
 	return rules
 }
 
-// DefaultModelLevels returns default model classifications by level
+// DefaultModelLevels returns default model classifications by level.
 func DefaultModelLevels() map[CascadeLevel][]string {
 	levels := make(map[CascadeLevel][]string, len(constants.RoutingDefaultModelLevels))
 	for level, models := range constants.RoutingDefaultModelLevels {
@@ -88,7 +89,7 @@ func DefaultModelLevels() map[CascadeLevel][]string {
 	return levels
 }
 
-// NewCascadeRouter creates a new cascade router
+// NewCascadeRouter creates a new cascade router.
 func NewCascadeRouter(smartRouter *SmartRouter, assessor *DifficultyAssessor) *CascadeRouter {
 	return &CascadeRouter{
 		smartRouter: smartRouter,
@@ -99,10 +100,9 @@ func NewCascadeRouter(smartRouter *SmartRouter, assessor *DifficultyAssessor) *C
 	}
 }
 
-// SelectCascadeModel selects a model using cascade strategy
-// 改动点: 基于任务类型和难度选择级联路由策略
-func (c *CascadeRouter) SelectCascadeModel(ctx context.Context, prompt string, context_ string, availableModels []string) *CascadeResult {
-	assessment := c.assessor.AssessWithResult(prompt, context_)
+// 改动点: 基于任务类型和难度选择级联路由策略.
+func (c *CascadeRouter) SelectCascadeModel(_ context.Context, prompt, contextText string, availableModels []string) *CascadeResult {
+	assessment := c.assessor.AssessWithResult(prompt, contextText)
 
 	taskType := assessment.TaskType
 	difficulty := assessment.Difficulty
@@ -182,7 +182,7 @@ func (c *CascadeRouter) SelectCascadeModel(ctx context.Context, prompt string, c
 	return result
 }
 
-// selectBestModelForLevel selects the best available model for a given level
+// selectBestModelForLevel selects the best available model for a given level.
 func (c *CascadeRouter) selectBestModelForLevel(level CascadeLevel, availableSet map[string]bool, taskType TaskType) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -213,7 +213,7 @@ func (c *CascadeRouter) selectBestModelForLevel(level CascadeLevel, availableSet
 	return ""
 }
 
-// getModelsForTaskType returns preferred models for a task type at a given level
+// getModelsForTaskType returns preferred models for a task type at a given level.
 func (c *CascadeRouter) getModelsForTaskType(taskType TaskType, level CascadeLevel) []string {
 	byTask, ok := constants.RoutingTaskTypeLevelModelPrefs[string(taskType)]
 	if !ok {
@@ -226,7 +226,7 @@ func (c *CascadeRouter) getModelsForTaskType(taskType TaskType, level CascadeLev
 	return append([]string{}, models...)
 }
 
-// RecordResult records the result of a cascade routing for statistics
+// RecordResult records the result of a cascade routing for statistics.
 func (c *CascadeRouter) RecordResult(model string, level CascadeLevel, success bool, latencyMs int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -258,7 +258,7 @@ func (c *CascadeRouter) RecordResult(model string, level CascadeLevel, success b
 	}
 }
 
-// GetStats returns cascade routing statistics
+// GetStats returns cascade routing statistics.
 func (c *CascadeRouter) GetStats() map[string]*CascadeStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -270,7 +270,7 @@ func (c *CascadeRouter) GetStats() map[string]*CascadeStats {
 	return result
 }
 
-// SetRule sets a cascade routing rule
+// SetRule sets a cascade routing rule.
 func (c *CascadeRouter) SetRule(rule *CascadeRule) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -279,7 +279,7 @@ func (c *CascadeRouter) SetRule(rule *CascadeRule) {
 	c.rules[key] = rule
 }
 
-// GetRule returns a cascade routing rule
+// GetRule returns a cascade routing rule.
 func (c *CascadeRouter) GetRule(taskType TaskType, difficulty DifficultyLevel) *CascadeRule {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -291,8 +291,7 @@ func (c *CascadeRouter) GetRule(taskType TaskType, difficulty DifficultyLevel) *
 	return nil
 }
 
-// ShouldCascadeUp determines if should cascade to a larger model
-// 改动点: 根据响应质量判断是否需要升级模型
+// 改动点: 根据响应质量判断是否需要升级模型.
 func (c *CascadeRouter) ShouldCascadeUp(response string, err error, currentLevel CascadeLevel) bool {
 	if err != nil {
 		return true
@@ -317,19 +316,21 @@ func (c *CascadeRouter) ShouldCascadeUp(response string, err error, currentLevel
 	return false
 }
 
-// GetNextLevel returns the next cascade level
+// GetNextLevel returns the next cascade level.
 func (c *CascadeRouter) GetNextLevel(current CascadeLevel) CascadeLevel {
 	switch current {
 	case CascadeLevelSmall:
 		return CascadeLevelMedium
 	case CascadeLevelMedium:
 		return CascadeLevelLarge
+	case CascadeLevelLarge:
+		return CascadeLevelLarge
 	default:
 		return CascadeLevelLarge
 	}
 }
 
-// GetModelLevel returns the cascade level for a model
+// GetModelLevel returns the cascade level for a model.
 func (c *CascadeRouter) GetModelLevel(model string) CascadeLevel {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -344,7 +345,7 @@ func (c *CascadeRouter) GetModelLevel(model string) CascadeLevel {
 	return CascadeLevelMedium
 }
 
-// GetModelsForLevel returns all models for a level
+// GetModelsForLevel returns all models for a level.
 func (c *CascadeRouter) GetModelsForLevel(level CascadeLevel) []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -355,7 +356,7 @@ func (c *CascadeRouter) GetModelsForLevel(level CascadeLevel) []string {
 	return result
 }
 
-// SetModelLevel sets the level for a model
+// SetModelLevel sets the level for a model.
 func (c *CascadeRouter) SetModelLevel(model string, level CascadeLevel) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -372,7 +373,7 @@ func (c *CascadeRouter) SetModelLevel(model string, level CascadeLevel) {
 	c.modelLevels[level] = append(c.modelLevels[level], model)
 }
 
-// GetCascadeRules returns all cascade rules
+// GetCascadeRules returns all cascade rules.
 func (c *CascadeRouter) GetCascadeRules() map[string]*CascadeRule {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -385,7 +386,7 @@ func (c *CascadeRouter) GetCascadeRules() map[string]*CascadeRule {
 	return result
 }
 
-// GetCascadeRule returns a specific cascade rule
+// GetCascadeRule returns a specific cascade rule.
 func (c *CascadeRouter) GetCascadeRule(taskType TaskType, difficulty DifficultyLevel) *CascadeRule {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -398,7 +399,7 @@ func (c *CascadeRouter) GetCascadeRule(taskType TaskType, difficulty DifficultyL
 	return nil
 }
 
-// SetCascadeRule sets a cascade rule
+// SetCascadeRule sets a cascade rule.
 func (c *CascadeRouter) SetCascadeRule(rule *CascadeRule) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -414,7 +415,7 @@ func (c *CascadeRouter) SetCascadeRule(rule *CascadeRule) {
 	}).Info("Cascade rule updated")
 }
 
-// DeleteCascadeRule deletes a cascade rule
+// DeleteCascadeRule deletes a cascade rule.
 func (c *CascadeRouter) DeleteCascadeRule(taskType TaskType, difficulty DifficultyLevel) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -427,7 +428,7 @@ func (c *CascadeRouter) DeleteCascadeRule(taskType TaskType, difficulty Difficul
 	return false
 }
 
-// ResetCascadeRules resets all rules to default
+// ResetCascadeRules resets all rules to default.
 func (c *CascadeRouter) ResetCascadeRules() {
 	c.mu.Lock()
 	defer c.mu.Unlock()

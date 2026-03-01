@@ -1,10 +1,11 @@
 package handler
 
 import (
-	"ai-gateway/internal/constants"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
+	"ai-gateway/internal/constants"
 )
 
 func (h *ProxyHandler) APIv1Root(c *gin.Context) {

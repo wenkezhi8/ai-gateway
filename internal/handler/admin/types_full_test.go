@@ -2,7 +2,6 @@ package admin
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,12 +49,9 @@ func TestAccountResponse_Fields(t *testing.T) {
 		ID:                "acc-1",
 		Name:              "Test Account",
 		Provider:          "openai",
-		APIKey:            "sk-test",
-		BaseURL:           "https://api.openai.com",
 		Enabled:           true,
 		Priority:          1,
 		IsActive:          true,
-		LastSwitch:        time.Now(),
 		PlanType:          "pro",
 		CodingPlanEnabled: true,
 	}
@@ -79,15 +75,6 @@ func TestAccountUsageResponse_Fields(t *testing.T) {
 		RPM:           100,
 		RPMLimit:      1000,
 		WarningLevel:  "normal",
-		Hour5Used:     10000,
-		Hour5Limit:    20000,
-		Hour5Percent:  50.0,
-		WeekUsed:      50000,
-		WeekLimit:     100000,
-		WeekPercent:   50.0,
-		MonthUsed:     200000,
-		MonthLimit:    500000,
-		MonthPercent:  40.0,
 	}
 
 	assert.Equal(t, int64(50000), usage.TokensUsed)
@@ -106,7 +93,6 @@ func TestProviderRequest_Fields(t *testing.T) {
 		BaseURL: "https://api.openai.com",
 		Models:  []string{"gpt-4", "gpt-3.5-turbo"},
 		Enabled: true,
-		Extra:   map[string]interface{}{"org": "test"},
 	}
 
 	assert.Equal(t, "openai", req.Name)
@@ -119,12 +105,9 @@ func TestProviderRequest_Fields(t *testing.T) {
 func TestProviderResponse_Fields(t *testing.T) {
 	resp := ProviderResponse{
 		Name:         "openai",
-		BaseURL:      "https://api.openai.com",
-		Models:       []string{"gpt-4"},
 		Enabled:      true,
 		Healthy:      true,
 		AccountCount: 5,
-		LastCheck:    time.Now(),
 	}
 
 	assert.Equal(t, "openai", resp.Name)
@@ -138,7 +121,6 @@ func TestProviderTestResult_Fields(t *testing.T) {
 		Success:      true,
 		Message:      "Connection successful",
 		ResponseTime: 100,
-		Timestamp:    time.Now(),
 	}
 
 	assert.True(t, result.Success)
@@ -210,14 +192,11 @@ func TestCacheStatsResponse_Fields(t *testing.T) {
 
 func TestCacheStatDetail_Fields(t *testing.T) {
 	detail := CacheStatDetail{
-		Hits:         1000,
-		Misses:       200,
-		HitRate:      83.3,
-		SizeBytes:    1024000,
-		Entries:      500,
-		AvgLatencyMs: 10,
-		MaxSize:      10485760,
-		Evictions:    50,
+		Hits:      1000,
+		Misses:    200,
+		HitRate:   83.3,
+		SizeBytes: 1024000,
+		Entries:   500,
 	}
 
 	assert.Equal(t, int64(1000), detail.Hits)
@@ -232,25 +211,19 @@ func TestCacheConfigRequest_Fields(t *testing.T) {
 	vectorEnabled := true
 	threshold := 0.8
 	ttl := 3600
-	entries := 10000
 	vectorDimension := 1024
 	vectorQueryTimeout := 1200
 	req := CacheConfigRequest{
-		Enabled:             &enabled,
-		Strategy:            strp("semantic"),
-		SimilarityThreshold: &threshold,
-		DefaultTTLSeconds:   &ttl,
-		MaxEntries:          &entries,
-		EvictionPolicy:      strp("lru"),
-		VectorEnabled:       &vectorEnabled,
-		VectorDimension:     &vectorDimension,
+		Enabled:              &enabled,
+		Strategy:             strp("semantic"),
+		SimilarityThreshold:  &threshold,
+		DefaultTTLSeconds:    &ttl,
+		VectorEnabled:        &vectorEnabled,
+		VectorDimension:      &vectorDimension,
 		VectorQueryTimeoutMs: &vectorQueryTimeout,
 		VectorThresholds: map[string]float64{
 			"calc": 0.97,
 		},
-		RequestTTL:          &ttl,
-		ContextTTL:          &ttl,
-		RouteTTL:            &ttl,
 	}
 
 	assert.True(t, *req.Enabled)
@@ -272,11 +245,8 @@ func TestDashboardStats_Fields(t *testing.T) {
 		TotalRequests:   10000,
 		RequestsToday:   1000,
 		SuccessRate:     95.5,
-		AvgLatencyMs:    500,
-		TotalTokens:     5000000,
 		ActiveAccounts:  10,
 		ActiveProviders: 5,
-		CacheHitRate:    70.0,
 		ProviderStats: []ProviderStat{
 			{Name: "openai", Requests: 5000, Tokens: 2500000, SuccessRate: 96.0, AvgLatency: 450},
 		},
@@ -307,6 +277,7 @@ func TestProviderStat_Fields(t *testing.T) {
 	assert.Equal(t, int64(5000), stat.Requests)
 	assert.Equal(t, int64(2500000), stat.Tokens)
 	assert.Equal(t, 96.0, stat.SuccessRate)
+	assert.Equal(t, int64(450), stat.AvgLatency)
 }
 
 func TestModelStat_Fields(t *testing.T) {
@@ -323,11 +294,10 @@ func TestModelStat_Fields(t *testing.T) {
 
 func TestRequestTrend_Fields(t *testing.T) {
 	trend := RequestTrend{
-		Timestamp: time.Now(),
-		Requests:  1000,
-		Success:   950,
-		Failed:    50,
-		Latency:   500,
+		Requests: 1000,
+		Success:  950,
+		Failed:   50,
+		Latency:  500,
 	}
 
 	assert.Equal(t, int64(1000), trend.Requests)
@@ -341,10 +311,7 @@ func TestAlertListItem_Fields(t *testing.T) {
 		ID:           "alert-1",
 		Type:         "quota_exceeded",
 		Level:        "warning",
-		Message:      "Token quota exceeded",
 		AccountID:    "acc-1",
-		Provider:     "openai",
-		Timestamp:    time.Now(),
 		Acknowledged: false,
 	}
 
@@ -357,17 +324,12 @@ func TestAlertListItem_Fields(t *testing.T) {
 
 func TestGatewayRequest_Fields(t *testing.T) {
 	req := GatewayRequest{
-		ID:                  "gw-1",
-		Name:                "Test Gateway",
-		Endpoint:            "https://api.example.com",
-		APIKey:              "sk-test",
-		Description:         "Test gateway",
-		Enabled:             true,
-		Priority:            1,
-		Timeout:             30,
-		MaxRetries:          3,
-		HealthCheckEnabled:  true,
-		HealthCheckInterval: 60,
+		ID:       "gw-1",
+		Name:     "Test Gateway",
+		Endpoint: "https://api.example.com",
+		Enabled:  true,
+		Priority: 1,
+		Timeout:  30,
 	}
 
 	assert.Equal(t, "gw-1", req.ID)
@@ -380,23 +342,11 @@ func TestGatewayRequest_Fields(t *testing.T) {
 
 func TestGatewayResponse_Fields(t *testing.T) {
 	resp := GatewayResponse{
-		ID:                  "gw-1",
-		Name:                "Test Gateway",
-		Endpoint:            "https://api.example.com",
-		Description:         "Test gateway",
-		Enabled:             true,
-		Priority:            1,
-		Timeout:             30,
-		MaxRetries:          3,
-		HealthCheckEnabled:  true,
-		HealthCheckInterval: 60,
-		LastHealthCheck:     time.Now(),
-		Healthy:             true,
-		Latency:             100,
-		RequestCount:        1000,
-		SuccessRate:         95.0,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		ID:           "gw-1",
+		Enabled:      true,
+		Healthy:      true,
+		Latency:      100,
+		RequestCount: 1000,
 	}
 
 	assert.Equal(t, "gw-1", resp.ID)
@@ -408,10 +358,9 @@ func TestGatewayResponse_Fields(t *testing.T) {
 
 func TestGatewayTestResult_Fields(t *testing.T) {
 	result := GatewayTestResult{
-		Success:   true,
-		Latency:   100,
-		Message:   "Connection successful",
-		Timestamp: time.Now(),
+		Success: true,
+		Latency: 100,
+		Message: "Connection successful",
 	}
 
 	assert.True(t, result.Success)
@@ -421,9 +370,8 @@ func TestGatewayTestResult_Fields(t *testing.T) {
 
 func TestGatewayHealthHistory_Fields(t *testing.T) {
 	history := GatewayHealthHistory{
-		Timestamp: time.Now(),
-		Healthy:   true,
-		Latency:   100,
+		Healthy: true,
+		Latency: 100,
 	}
 
 	assert.True(t, history.Healthy)

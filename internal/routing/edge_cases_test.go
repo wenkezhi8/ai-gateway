@@ -28,7 +28,7 @@ func TestCascadeRouter_EdgeCases(t *testing.T) {
 		}
 	})
 
-	t.Run("context timeout", func(t *testing.T) {
+	t.Run("context timeout", func(_ *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		defer cancel()
 		time.Sleep(1 * time.Millisecond)
@@ -221,7 +221,7 @@ func TestCascadeRouter_CascadeRuleGet(t *testing.T) {
 
 	rule := cascade.GetRule(TaskTypeCode, DifficultyHigh)
 	if rule == nil {
-		t.Error("should have rule for code:high")
+		t.Fatal("should have rule for code:high")
 	}
 	if rule.StartLevel != CascadeLevelLarge {
 		t.Errorf("expected large start level for high difficulty, got %s", rule.StartLevel)

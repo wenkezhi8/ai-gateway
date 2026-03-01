@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,revive,goconst
 package limiter
 
 import (
@@ -47,13 +48,13 @@ func (l *RPMLimiter) AllowN(ctx context.Context, key string, n int) (bool, error
 	return limiter.AllowN(time.Now(), n), nil
 }
 
-// Wait waits until a request is allowed or context is cancelled
+// Wait waits until a request is allowed or context is canceled
 func (l *RPMLimiter) Wait(ctx context.Context, key string) error {
 	limiter := l.getLimiter(key)
 	return limiter.Wait(ctx)
 }
 
-// WaitN waits until N requests are allowed or context is cancelled
+// WaitN waits until N requests are allowed or context is canceled
 func (l *RPMLimiter) WaitN(ctx context.Context, key string, n int) error {
 	limiter := l.getLimiter(key)
 	return limiter.WaitN(ctx, n)
@@ -142,13 +143,18 @@ func (l *RPMLimiter) Reset(ctx context.Context, key string) error {
 // getLimiter gets or creates a rate limiter for a key
 func (l *RPMLimiter) getLimiter(key string) *rate.Limiter {
 	if limiter, ok := l.limiters.Load(key); ok {
-		return limiter.(*rate.Limiter)
+		if typedLimiter, ok := limiter.(*rate.Limiter); ok {
+			return typedLimiter
+		}
 	}
 
 	// Create new limiter: rate = rpm/60 (requests per second)
 	limiter := rate.NewLimiter(rate.Limit(l.rpm)/60, l.burst)
 	actual, _ := l.limiters.LoadOrStore(key, limiter)
-	return actual.(*rate.Limiter)
+	if typedLimiter, ok := actual.(*rate.Limiter); ok {
+		return typedLimiter
+	}
+	return limiter
 }
 
 // buildKey creates the Redis key for a given identifier
@@ -204,12 +210,16 @@ func (l *ConcurrentLimiter) Acquire(ctx context.Context, key string, requestID s
 	// Check if we exceeded after increment (race condition)
 	if newCount > int64(l.maxConcur) {
 		// Rollback
-		l.store.Decr(ctx, redisKey)
+		if _, err := l.store.Decr(ctx, redisKey); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 
 	// Track this request
-	l.store.ZAdd(ctx, redisKey+":requests", float64(time.Now().UnixNano()), requestID)
+	if err := l.store.ZAdd(ctx, redisKey+":requests", float64(time.Now().UnixNano()), requestID); err != nil {
+		return false, err
+	}
 
 	return true, nil
 }

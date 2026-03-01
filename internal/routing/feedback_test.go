@@ -5,6 +5,24 @@ import (
 	"time"
 )
 
+func getStatInt(t *testing.T, stats map[string]interface{}, key string) int {
+	t.Helper()
+	v, ok := stats[key].(int)
+	if !ok {
+		t.Fatalf("stat %q type = %T, want int", key, stats[key])
+	}
+	return v
+}
+
+func getStatInt64(t *testing.T, stats map[string]interface{}, key string) int64 {
+	t.Helper()
+	v, ok := stats[key].(int64)
+	if !ok {
+		t.Fatalf("stat %q type = %T, want int64", key, stats[key])
+	}
+	return v
+}
+
 func TestFeedbackCollector_RecordFeedback(t *testing.T) {
 	assessor := NewDifficultyAssessor()
 	router := NewSmartRouter()
@@ -25,7 +43,7 @@ func TestFeedbackCollector_RecordFeedback(t *testing.T) {
 
 	perf := collector.GetPerformance("gpt-4o")
 	if perf == nil {
-		t.Error("expected performance data for model")
+		t.Fatal("expected performance data for model")
 	}
 	if perf.TotalRequests != 1 {
 		t.Errorf("expected 1 total request, got %d", perf.TotalRequests)
@@ -48,7 +66,7 @@ func TestFeedbackCollector_RecordRequestResult(t *testing.T) {
 
 	perf := collector.GetPerformance("deepseek-chat")
 	if perf == nil {
-		t.Error("expected performance data")
+		t.Fatal("expected performance data")
 	}
 	if perf.SuccessCount != 1 {
 		t.Errorf("expected 1 success, got %d", perf.SuccessCount)
@@ -135,17 +153,17 @@ func TestFeedbackCollector_GetFeedbackStats(t *testing.T) {
 
 	stats := collector.GetFeedbackStats()
 
-	if stats["total_feedback"].(int) != 4 {
-		t.Errorf("expected 4 total feedback, got %d", stats["total_feedback"])
+	if got := getStatInt(t, stats, "total_feedback"); got != 4 {
+		t.Errorf("expected 4 total feedback, got %d", got)
 	}
-	if stats["positive_count"].(int64) != 2 {
-		t.Errorf("expected 2 positive, got %d", stats["positive_count"])
+	if got := getStatInt64(t, stats, "positive_count"); got != 2 {
+		t.Errorf("expected 2 positive, got %d", got)
 	}
-	if stats["negative_count"].(int64) != 1 {
-		t.Errorf("expected 1 negative, got %d", stats["negative_count"])
+	if got := getStatInt64(t, stats, "negative_count"); got != 1 {
+		t.Errorf("expected 1 negative, got %d", got)
 	}
-	if stats["models_tracked"].(int) != 4 {
-		t.Errorf("expected 4 models, got %d", stats["models_tracked"])
+	if got := getStatInt(t, stats, "models_tracked"); got != 4 {
+		t.Errorf("expected 4 models, got %d", got)
 	}
 }
 
@@ -222,14 +240,16 @@ func TestFeedbackCollector_ClearOldFeedback(t *testing.T) {
 
 	// Record feedback with specific timestamps
 	collector.mu.Lock()
-	collector.feedback = append(collector.feedback, Feedback{
-		Model:     "old",
-		Timestamp: time.Now().Add(-48 * time.Hour),
-	})
-	collector.feedback = append(collector.feedback, Feedback{
-		Model:     "new",
-		Timestamp: time.Now().Add(-1 * time.Hour),
-	})
+	collector.feedback = append(collector.feedback,
+		Feedback{
+			Model:     "old",
+			Timestamp: time.Now().Add(-48 * time.Hour),
+		},
+		Feedback{
+			Model:     "new",
+			Timestamp: time.Now().Add(-1 * time.Hour),
+		},
+	)
 	collector.mu.Unlock()
 
 	cleared := collector.ClearOldFeedback(24 * time.Hour)
@@ -238,8 +258,8 @@ func TestFeedbackCollector_ClearOldFeedback(t *testing.T) {
 	}
 
 	stats := collector.GetFeedbackStats()
-	if stats["total_feedback"].(int) != 1 {
-		t.Errorf("expected 1 remaining feedback, got %d", stats["total_feedback"])
+	if got := getStatInt(t, stats, "total_feedback"); got != 1 {
+		t.Errorf("expected 1 remaining feedback, got %d", got)
 	}
 }
 

@@ -12,7 +12,7 @@ var (
 	ErrContextTooLong  = errors.New("context too long")
 )
 
-// ContextCacheConfig holds configuration for context caching
+// ContextCacheConfig holds configuration for context caching.
 type ContextCacheConfig struct {
 	MaxMessages      int           // Maximum messages per session
 	MaxTokens        int64         // Maximum tokens before summarization
@@ -21,7 +21,7 @@ type ContextCacheConfig struct {
 	EnableSummary    bool          // Enable auto-summarization
 }
 
-// DefaultContextCacheConfig returns default configuration
+// DefaultContextCacheConfig returns default configuration.
 func DefaultContextCacheConfig() ContextCacheConfig {
 	return ContextCacheConfig{
 		MaxMessages:      100,
@@ -32,16 +32,16 @@ func DefaultContextCacheConfig() ContextCacheConfig {
 	}
 }
 
-// Message represents a single message in a conversation
+// Message represents a single message in a conversation.
 type Message struct {
-	Role      string          `json:"role"`      // user, assistant, system
+	Role      string          `json:"role"` // user, assistant, system
 	Content   string          `json:"content"`
 	Tokens    int64           `json:"tokens"`
 	Timestamp time.Time       `json:"timestamp"`
 	Metadata  json.RawMessage `json:"metadata,omitempty"`
 }
 
-// SessionContext represents a conversation session's context
+// SessionContext represents a conversation session's context.
 type SessionContext struct {
 	SessionID    string    `json:"session_id"`
 	UserID       string    `json:"user_id"`
@@ -54,7 +54,7 @@ type SessionContext struct {
 	IsSummarized bool      `json:"is_summarized"`
 }
 
-// ContextCache handles caching of conversation contexts
+// ContextCache handles caching of conversation contexts.
 type ContextCache struct {
 	cache      Cache
 	stats      *Stats
@@ -62,12 +62,12 @@ type ContextCache struct {
 	summarizer Summarizer
 }
 
-// Summarizer defines the interface for context summarization
+// Summarizer defines the interface for context summarization.
 type Summarizer interface {
 	Summarize(ctx context.Context, messages []Message) (string, int64, error)
 }
 
-// NewContextCache creates a new context cache
+// NewContextCache creates a new context cache.
 func NewContextCache(cache Cache, config ContextCacheConfig) *ContextCache {
 	return &ContextCache{
 		cache:  cache,
@@ -76,7 +76,7 @@ func NewContextCache(cache Cache, config ContextCacheConfig) *ContextCache {
 	}
 }
 
-// SetSummarizer sets the summarizer for auto-summarization
+// SetSummarizer sets the summarizer for auto-summarization.
 func (c *ContextCache) SetSummarizer(summarizer Summarizer) {
 	c.summarizer = summarizer
 }
@@ -88,12 +88,12 @@ func (c *ContextCache) SetDefaultTTL(ttl time.Duration) {
 	}
 }
 
-// sessionKey generates the cache key for a session
+// sessionKey generates the cache key for a session.
 func (c *ContextCache) sessionKey(sessionID string) string {
 	return "session:" + sessionID
 }
 
-// GetSession retrieves a session's context
+// GetSession retrieves a session's context.
 func (c *ContextCache) GetSession(ctx context.Context, sessionID string) (*SessionContext, error) {
 	start := time.Now()
 
@@ -113,15 +113,15 @@ func (c *ContextCache) GetSession(ctx context.Context, sessionID string) (*Sessi
 
 	c.stats.RecordHit(latency)
 
-	// Calculate token savings from having context cached
-	// Each context message would need to be re-processed without cache
+	// Calculate token savings from having context cached.
+	// Each context message would need to be re-processed without cache.
 	tokenSavings := session.TotalTokens
 	c.stats.RecordTokensSaved(tokenSavings)
 
 	return &session, nil
 }
 
-// CreateSession creates a new session context
+// CreateSession creates a new session context.
 func (c *ContextCache) CreateSession(ctx context.Context, sessionID, userID string) (*SessionContext, error) {
 	now := time.Now()
 	session := &SessionContext{
@@ -142,12 +142,14 @@ func (c *ContextCache) CreateSession(ctx context.Context, sessionID, userID stri
 	return session, nil
 }
 
-// AddMessage adds a message to a session
+// AddMessage adds a message to a session.
+//
+//nolint:gocritic // Value parameter kept to preserve existing method signature.
 func (c *ContextCache) AddMessage(ctx context.Context, sessionID string, message Message) error {
 	session, err := c.GetSession(ctx, sessionID)
 	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
-			// Create new session if not found
+			// Create new session if not found.
 			session, err = c.CreateSession(ctx, sessionID, "")
 			if err != nil {
 				return err
@@ -157,30 +159,29 @@ func (c *ContextCache) AddMessage(ctx context.Context, sessionID string, message
 		}
 	}
 
-	// Set timestamp if not set
+	// Set timestamp if not set.
 	if message.Timestamp.IsZero() {
 		message.Timestamp = time.Now()
 	}
 
-	// Add message
+	// Add message.
 	session.Messages = append(session.Messages, message)
 	session.TotalTokens += message.Tokens
 	session.UpdatedAt = time.Now()
 
-	// Check if we need to summarize
+	// Check if we need to summarize.
 	if c.config.EnableSummary && session.TotalTokens > c.config.SummaryThreshold && c.summarizer != nil {
 		if err := c.summarizeSession(ctx, session); err != nil {
-			// Log error but don't fail the request
-			// In production, this should be logged
+			_ = err
 		}
 	}
 
-	// Check max messages limit
+	// Check max messages limit.
 	if c.config.MaxMessages > 0 && len(session.Messages) > c.config.MaxMessages {
-		// Remove oldest messages (keep system message if present)
+		// Remove oldest messages (keep system message if present).
 		keepCount := c.config.MaxMessages
 		if len(session.Messages) > 0 && session.Messages[0].Role == "system" {
-			// Keep system message + (max-1) recent messages
+			// Keep system message + (max-1) recent messages.
 			session.Messages = append(
 				[]Message{session.Messages[0]},
 				session.Messages[len(session.Messages)-keepCount+1:]...,
@@ -190,7 +191,7 @@ func (c *ContextCache) AddMessage(ctx context.Context, sessionID string, message
 		}
 	}
 
-	// Save updated session
+	// Save updated session.
 	key := c.sessionKey(sessionID)
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
@@ -201,44 +202,44 @@ func (c *ContextCache) AddMessage(ctx context.Context, sessionID string, message
 	return c.cache.Set(ctx, key, session, ttl)
 }
 
-// summarizeSession creates a summary of old messages to reduce context size
+// summarizeSession creates a summary of old messages to reduce context size.
 func (c *ContextCache) summarizeSession(ctx context.Context, session *SessionContext) error {
 	if c.summarizer == nil {
 		return nil
 	}
 
-	// Keep last N messages, summarize the rest
+	// Keep last N messages, summarize the rest.
 	keepCount := 10 // Keep last 10 messages
 	if len(session.Messages) <= keepCount {
 		return nil
 	}
 
-	// Messages to summarize
+	// Messages to summarize.
 	toSummarize := session.Messages[:len(session.Messages)-keepCount]
 
-	// Generate summary
+	// Generate summary.
 	summary, tokens, err := c.summarizer.Summarize(ctx, toSummarize)
 	if err != nil {
 		return err
 	}
 
-	// Update session with summary
+	// Update session with summary.
 	if session.Summary != "" {
 		session.Summary = session.Summary + "\n\n" + summary
 	} else {
 		session.Summary = summary
 	}
 
-	// Calculate token savings
+	// Calculate token savings.
 	oldTokens := int64(0)
 	for _, m := range toSummarize {
 		oldTokens += m.Tokens
 	}
 	session.TotalTokens = session.TotalTokens - oldTokens + tokens
 
-	// Keep only recent messages
+	// Keep only recent messages.
 	if len(session.Messages) > 0 && session.Messages[0].Role == "system" {
-		// Preserve system message
+		// Preserve system message.
 		session.Messages = append(
 			[]Message{session.Messages[0]},
 			session.Messages[len(session.Messages)-keepCount:]...,
@@ -253,7 +254,7 @@ func (c *ContextCache) summarizeSession(ctx context.Context, session *SessionCon
 	return nil
 }
 
-// UpdateSession updates an entire session
+// UpdateSession updates an entire session.
 func (c *ContextCache) UpdateSession(ctx context.Context, session *SessionContext) error {
 	session.UpdatedAt = time.Now()
 
@@ -267,13 +268,13 @@ func (c *ContextCache) UpdateSession(ctx context.Context, session *SessionContex
 	return c.cache.Set(ctx, key, session, ttl)
 }
 
-// DeleteSession removes a session
+// DeleteSession removes a session.
 func (c *ContextCache) DeleteSession(ctx context.Context, sessionID string) error {
 	key := c.sessionKey(sessionID)
 	return c.cache.Delete(ctx, key)
 }
 
-// ExtendSession extends the TTL of a session
+// ExtendSession extends the TTL of a session.
 func (c *ContextCache) ExtendSession(ctx context.Context, sessionID string, extension time.Duration) error {
 	session, err := c.GetSession(ctx, sessionID)
 	if err != nil {
@@ -284,17 +285,17 @@ func (c *ContextCache) ExtendSession(ctx context.Context, sessionID string, exte
 	return c.UpdateSession(ctx, session)
 }
 
-// GetStats returns cache statistics
+// GetStats returns cache statistics.
 func (c *ContextCache) GetStats() StatsSnapshot {
 	return c.stats.Snapshot()
 }
 
-// GetTokenSavings returns total tokens saved from context caching
+// GetTokenSavings returns total tokens saved from context caching.
 func (c *ContextCache) GetTokenSavings() int64 {
 	return c.stats.Snapshot().TokensSaved
 }
 
-// GetRecentMessages gets the most recent N messages from a session
+// GetRecentMessages gets the most recent N messages from a session.
 func (c *ContextCache) GetRecentMessages(ctx context.Context, sessionID string, count int) ([]Message, error) {
 	session, err := c.GetSession(ctx, sessionID)
 	if err != nil {
@@ -308,7 +309,7 @@ func (c *ContextCache) GetRecentMessages(ctx context.Context, sessionID string, 
 	return session.Messages[len(session.Messages)-count:], nil
 }
 
-// ClearMessages removes all messages from a session but keeps the session
+// ClearMessages removes all messages from a session but keeps the session.
 func (c *ContextCache) ClearMessages(ctx context.Context, sessionID string) error {
 	session, err := c.GetSession(ctx, sessionID)
 	if err != nil {

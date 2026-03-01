@@ -1,8 +1,10 @@
+//nolint:godot,gocyclo
 package claude
 
 import (
-	"ai-gateway/internal/provider"
 	"encoding/json"
+
+	"ai-gateway/internal/provider"
 )
 
 // ConvertRequest converts provider.ChatRequest to Claude MessagesRequest

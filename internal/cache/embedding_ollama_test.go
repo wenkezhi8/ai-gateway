@@ -1,3 +1,4 @@
+//nolint:errcheck // Test handlers intentionally ignore encoder errors.
 package cache
 
 import (
@@ -70,4 +71,3 @@ func TestOllamaEmbeddingService_GetEmbedding_ParseEmbedResponse(t *testing.T) {
 		t.Fatalf("expected embedding size 4, got %d", len(vec))
 	}
 }
-

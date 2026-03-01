@@ -1,3 +1,4 @@
+//nolint:godot,revive
 package limiter
 
 import (

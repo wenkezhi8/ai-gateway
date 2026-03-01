@@ -1,3 +1,4 @@
+//nolint:revive // Test fakes keep interface-compatible signatures with unused params.
 package cache
 
 import (

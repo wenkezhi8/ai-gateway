@@ -83,6 +83,7 @@ func GetLogger() *Logger {
 	return globalLogger
 }
 
+//nolint:gocritic // Kept by-value for API compatibility.
 func (l *Logger) Log(entry LogEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -102,7 +103,7 @@ func (l *Logger) Log(entry LogEntry) {
 	go l.saveToFile()
 }
 
-func (l *Logger) LogAction(userID, username, ip, userAgent string, action ActionType, resource ResourceType, resourceID, detail string, oldData, newData interface{}, status string, err string) {
+func (l *Logger) LogAction(userID, username, ip, userAgent string, action ActionType, resource ResourceType, resourceID, detail string, oldData, newData interface{}, status, errMsg string) {
 	l.Log(LogEntry{
 		UserID:     userID,
 		Username:   username,
@@ -115,7 +116,7 @@ func (l *Logger) LogAction(userID, username, ip, userAgent string, action Action
 		OldData:    oldData,
 		NewData:    newData,
 		Status:     status,
-		Error:      err,
+		Error:      errMsg,
 	})
 }
 
@@ -124,9 +125,10 @@ func (l *Logger) GetLogs(limit, offset int, filters map[string]interface{}) []Lo
 	defer l.mu.RUnlock()
 
 	result := make([]LogEntry, 0)
-	for _, log := range l.logs {
-		if l.matchFilters(log, filters) {
-			result = append(result, log)
+	for i := range l.logs {
+		logEntry := &l.logs[i]
+		if l.matchFilters(logEntry, filters) {
+			result = append(result, *logEntry)
 		}
 	}
 
@@ -159,48 +161,53 @@ func (l *Logger) Count(filters map[string]interface{}) int {
 	defer l.mu.RUnlock()
 
 	count := 0
-	for _, log := range l.logs {
-		if l.matchFilters(log, filters) {
+	for i := range l.logs {
+		if l.matchFilters(&l.logs[i], filters) {
 			count++
 		}
 	}
 	return count
 }
 
-func (l *Logger) matchFilters(log LogEntry, filters map[string]interface{}) bool {
+func (l *Logger) matchFilters(log *LogEntry, filters map[string]interface{}) bool {
+	if len(filters) == 0 {
+		return true
+	}
+
 	for key, value := range filters {
-		switch key {
-		case "user_id":
-			if log.UserID != value.(string) {
-				return false
-			}
-		case "action":
-			if log.Action != value.(ActionType) {
-				return false
-			}
-		case "resource":
-			if log.Resource != value.(ResourceType) {
-				return false
-			}
-		case "resource_id":
-			if log.ResourceID != value.(string) {
-				return false
-			}
-		case "status":
-			if log.Status != value.(string) {
-				return false
-			}
-		case "start_time":
-			if log.Timestamp.Before(value.(time.Time)) {
-				return false
-			}
-		case "end_time":
-			if log.Timestamp.After(value.(time.Time)) {
-				return false
-			}
+		if !matchFilterValue(log, key, value) {
+			return false
 		}
 	}
 	return true
+}
+
+func matchFilterValue(log *LogEntry, key string, value interface{}) bool {
+	switch key {
+	case "user_id":
+		expected, ok := value.(string)
+		return ok && log.UserID == expected
+	case "action":
+		expected, ok := value.(ActionType)
+		return ok && log.Action == expected
+	case "resource":
+		expected, ok := value.(ResourceType)
+		return ok && log.Resource == expected
+	case "resource_id":
+		expected, ok := value.(string)
+		return ok && log.ResourceID == expected
+	case "status":
+		expected, ok := value.(string)
+		return ok && log.Status == expected
+	case "start_time":
+		expected, ok := value.(time.Time)
+		return ok && !log.Timestamp.Before(expected)
+	case "end_time":
+		expected, ok := value.(time.Time)
+		return ok && !log.Timestamp.After(expected)
+	default:
+		return true
+	}
 }
 
 func (l *Logger) loadFromFile() {
@@ -240,9 +247,13 @@ func (l *Logger) saveToFile() {
 	}
 
 	dir := filepath.Dir(l.filePath)
-	os.MkdirAll(dir, 0755)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return
+	}
 
-	os.WriteFile(l.filePath, data, 0644)
+	if err := os.WriteFile(l.filePath, data, 0640); err != nil {
+		return
+	}
 }
 
 func (l *Logger) Close() {
@@ -272,8 +283,9 @@ func randomString(n int) string {
 	if _, err := cryptorand.Read(raw); err != nil {
 		// Fallback keeps behavior available even if secure RNG is unavailable.
 		seed := time.Now().UnixNano()
+		shifts := []uint{0, 8, 16, 24, 32, 40, 48, 56}
 		for i := range raw {
-			shift := uint((i % 8) * 8)
+			shift := shifts[i%8]
 			raw[i] = byte(seed>>shift) + byte(i*31)
 		}
 	}

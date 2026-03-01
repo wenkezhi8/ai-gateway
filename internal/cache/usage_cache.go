@@ -6,7 +6,14 @@ import (
 	"time"
 )
 
-// UsageCacheConfig holds configuration for usage statistics caching
+const (
+	periodHour  = "hour"
+	periodDay   = "day"
+	periodWeek  = "week"
+	periodMonth = "month"
+)
+
+// UsageCacheConfig holds configuration for usage statistics caching.
 type UsageCacheConfig struct {
 	DefaultTTL     time.Duration // Default cache TTL for usage data
 	RealtimeTTL    time.Duration // TTL for realtime data (shorter)
@@ -14,7 +21,7 @@ type UsageCacheConfig struct {
 	AggregationTTL time.Duration // TTL for aggregated data
 }
 
-// DefaultUsageCacheConfig returns default configuration
+// DefaultUsageCacheConfig returns default configuration.
 func DefaultUsageCacheConfig() UsageCacheConfig {
 	return UsageCacheConfig{
 		DefaultTTL:     5 * time.Minute,
@@ -24,99 +31,99 @@ func DefaultUsageCacheConfig() UsageCacheConfig {
 	}
 }
 
-// DashboardData represents cached dashboard statistics
+// DashboardData represents cached dashboard statistics.
 type DashboardData struct {
-	Key          string          `json:"key"`
-	Period       string          `json:"period"`       // hour, day, week, month
-	GeneratedAt  time.Time       `json:"generated_at"`
-	ExpiresAt    time.Time       `json:"expires_at"`
+	Key         string    `json:"key"`
+	Period      string    `json:"period"` // hour, day, week, month
+	GeneratedAt time.Time `json:"generated_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 
-	// Usage metrics
-	TotalRequests   int64            `json:"total_requests"`
-	TotalTokens     int64            `json:"total_tokens"`
-	TotalErrors     int64            `json:"total_errors"`
-	AverageLatency  int64            `json:"average_latency_ms"`
+	// Usage metrics.
+	TotalRequests  int64 `json:"total_requests"`
+	TotalTokens    int64 `json:"total_tokens"`
+	TotalErrors    int64 `json:"total_errors"`
+	AverageLatency int64 `json:"average_latency_ms"`
 
-	// Provider breakdown
-	ProviderStats   map[string]ProviderUsage `json:"provider_stats"`
+	// Provider breakdown.
+	ProviderStats map[string]ProviderUsage `json:"provider_stats"`
 
-	// Model breakdown
-	ModelStats      map[string]ModelUsage    `json:"model_stats"`
+	// Model breakdown.
+	ModelStats map[string]ModelUsage `json:"model_stats"`
 
-	// User breakdown (top users)
-	UserStats       []UserUsage              `json:"user_stats,omitempty"`
+	// User breakdown (top users).
+	UserStats []UserUsage `json:"user_stats,omitempty"`
 
-	// Cost tracking
-	EstimatedCost   float64                  `json:"estimated_cost"`
+	// Cost tracking.
+	EstimatedCost float64 `json:"estimated_cost"`
 
-	// Cache performance
-	CacheHits       int64                    `json:"cache_hits"`
-	CacheMisses     int64                    `json:"cache_misses"`
-	TokensSaved     int64                    `json:"tokens_saved"`
+	// Cache performance.
+	CacheHits   int64 `json:"cache_hits"`
+	CacheMisses int64 `json:"cache_misses"`
+	TokensSaved int64 `json:"tokens_saved"`
 }
 
-// ProviderUsage represents usage stats for a provider
+// ProviderUsage represents usage stats for a provider.
 type ProviderUsage struct {
-	Provider       string  `json:"provider"`
-	Requests       int64   `json:"requests"`
-	Tokens         int64   `json:"tokens"`
-	Errors         int64   `json:"errors"`
-	AvgLatency     int64   `json:"avg_latency_ms"`
-	EstimatedCost  float64 `json:"estimated_cost"`
+	Provider      string  `json:"provider"`
+	Requests      int64   `json:"requests"`
+	Tokens        int64   `json:"tokens"`
+	Errors        int64   `json:"errors"`
+	AvgLatency    int64   `json:"avg_latency_ms"`
+	EstimatedCost float64 `json:"estimated_cost"`
 }
 
-// ModelUsage represents usage stats for a model
+// ModelUsage represents usage stats for a model.
 type ModelUsage struct {
-	Model          string  `json:"model"`
-	Provider       string  `json:"provider"`
-	Requests       int64   `json:"requests"`
-	Tokens         int64   `json:"tokens"`
-	PromptTokens   int64   `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-	EstimatedCost  float64 `json:"estimated_cost"`
+	Model            string  `json:"model"`
+	Provider         string  `json:"provider"`
+	Requests         int64   `json:"requests"`
+	Tokens           int64   `json:"tokens"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	EstimatedCost    float64 `json:"estimated_cost"`
 }
 
-// UserUsage represents usage stats for a user
+// UserUsage represents usage stats for a user.
 type UserUsage struct {
-	UserID         string  `json:"user_id"`
-	Requests       int64   `json:"requests"`
-	Tokens         int64   `json:"tokens"`
-	QuotaUsed      int64   `json:"quota_used"`
-	QuotaLimit     int64   `json:"quota_limit"`
+	UserID     string `json:"user_id"`
+	Requests   int64  `json:"requests"`
+	Tokens     int64  `json:"tokens"`
+	QuotaUsed  int64  `json:"quota_used"`
+	QuotaLimit int64  `json:"quota_limit"`
 }
 
-// RealtimeMetrics represents real-time metrics for the dashboard
+// RealtimeMetrics represents real-time metrics for the dashboard.
 type RealtimeMetrics struct {
-	Key             string    `json:"key"`
-	GeneratedAt     time.Time `json:"generated_at"`
+	Key         string    `json:"key"`
+	GeneratedAt time.Time `json:"generated_at"`
 
-	RequestsPerMinute   float64 `json:"requests_per_minute"`
-	TokensPerMinute     float64 `json:"tokens_per_minute"`
-	ActiveConnections   int64   `json:"active_connections"`
-	ErrorRate           float64 `json:"error_rate"`
-	AverageLatency      int64   `json:"average_latency_ms"`
+	RequestsPerMinute float64 `json:"requests_per_minute"`
+	TokensPerMinute   float64 `json:"tokens_per_minute"`
+	ActiveConnections int64   `json:"active_connections"`
+	ErrorRate         float64 `json:"error_rate"`
+	AverageLatency    int64   `json:"average_latency_ms"`
 
-	TopModels          []ModelUsage `json:"top_models"`
-	RecentErrors       []ErrorEntry `json:"recent_errors,omitempty"`
+	TopModels    []ModelUsage `json:"top_models"`
+	RecentErrors []ErrorEntry `json:"recent_errors,omitempty"`
 }
 
-// ErrorEntry represents a recent error entry
+// ErrorEntry represents a recent error entry.
 type ErrorEntry struct {
-	Timestamp   time.Time `json:"timestamp"`
-	Provider    string    `json:"provider"`
-	Model       string    `json:"model"`
-	ErrorType   string    `json:"error_type"`
-	Message     string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+	Provider  string    `json:"provider"`
+	Model     string    `json:"model"`
+	ErrorType string    `json:"error_type"`
+	Message   string    `json:"message"`
 }
 
-// UsageCache handles caching of usage statistics and dashboard data
+// UsageCache handles caching of usage statistics and dashboard data.
 type UsageCache struct {
 	cache  Cache
 	stats  *Stats
 	config UsageCacheConfig
 }
 
-// NewUsageCache creates a new usage cache
+// NewUsageCache creates a new usage cache.
 func NewUsageCache(cache Cache, config UsageCacheConfig) *UsageCache {
 	return &UsageCache{
 		cache:  cache,
@@ -125,30 +132,30 @@ func NewUsageCache(cache Cache, config UsageCacheConfig) *UsageCache {
 	}
 }
 
-// usageKey generates a cache key for usage data
-func (c *UsageCache) usageKey(prefix, period string, timestamp time.Time) string {
-	// Truncate timestamp based on period for consistent keying
+// usageKey generates a cache key for usage data.
+func (c *UsageCache) usageKey(period string, timestamp time.Time) string {
+	// Truncate timestamp based on period for consistent keying.
 	var truncated time.Time
 	switch period {
-	case "hour":
+	case periodHour:
 		truncated = timestamp.Truncate(time.Hour)
-	case "day":
+	case periodDay:
 		truncated = timestamp.Truncate(24 * time.Hour)
-	case "week":
+	case periodWeek:
 		truncated = timestamp.AddDate(0, 0, -int(timestamp.Weekday())).Truncate(24 * time.Hour)
-	case "month":
+	case periodMonth:
 		truncated = time.Date(timestamp.Year(), timestamp.Month(), 1, 0, 0, 0, 0, timestamp.Location())
 	default:
 		truncated = timestamp.Truncate(time.Hour)
 	}
-	return prefix + ":" + period + ":" + truncated.Format("2006-01-02-15")
+	return "dashboard:" + period + ":" + truncated.Format("2006-01-02-15")
 }
 
-// GetDashboardData retrieves cached dashboard data
+// GetDashboardData retrieves cached dashboard data.
 func (c *UsageCache) GetDashboardData(ctx context.Context, period string) (*DashboardData, error) {
 	start := time.Now()
 
-	key := c.usageKey("dashboard", period, time.Now())
+	key := c.usageKey(period, time.Now())
 	var data DashboardData
 	err := c.cache.Get(ctx, key, &data)
 
@@ -166,20 +173,20 @@ func (c *UsageCache) GetDashboardData(ctx context.Context, period string) (*Dash
 	return &data, nil
 }
 
-// SetDashboardData caches dashboard data
+// SetDashboardData caches dashboard data.
 func (c *UsageCache) SetDashboardData(ctx context.Context, period string, data *DashboardData) error {
-	key := c.usageKey("dashboard", period, time.Now())
+	key := c.usageKey(period, time.Now())
 
 	data.Key = key
 	data.GeneratedAt = time.Now()
 
 	var ttl time.Duration
 	switch period {
-	case "hour":
+	case periodHour:
 		ttl = c.config.DefaultTTL
-	case "day":
+	case periodDay:
 		ttl = c.config.AggregationTTL
-	case "week", "month":
+	case periodWeek, periodMonth:
 		ttl = c.config.HistoricalTTL
 	default:
 		ttl = c.config.DefaultTTL
@@ -189,7 +196,7 @@ func (c *UsageCache) SetDashboardData(ctx context.Context, period string, data *
 	return c.cache.Set(ctx, key, data, ttl)
 }
 
-// GetRealtimeMetrics retrieves cached real-time metrics
+// GetRealtimeMetrics retrieves cached real-time metrics.
 func (c *UsageCache) GetRealtimeMetrics(ctx context.Context) (*RealtimeMetrics, error) {
 	start := time.Now()
 
@@ -211,7 +218,7 @@ func (c *UsageCache) GetRealtimeMetrics(ctx context.Context) (*RealtimeMetrics, 
 	return &metrics, nil
 }
 
-// SetRealtimeMetrics caches real-time metrics
+// SetRealtimeMetrics caches real-time metrics.
 func (c *UsageCache) SetRealtimeMetrics(ctx context.Context, metrics *RealtimeMetrics) error {
 	key := "metrics:realtime"
 	metrics.Key = key
@@ -219,63 +226,39 @@ func (c *UsageCache) SetRealtimeMetrics(ctx context.Context, metrics *RealtimeMe
 	return c.cache.Set(ctx, key, metrics, c.config.RealtimeTTL)
 }
 
-// GetProviderStats retrieves cached provider statistics
+// GetProviderStats retrieves cached provider statistics.
 func (c *UsageCache) GetProviderStats(ctx context.Context, provider, period string) (*ProviderUsage, error) {
-	start := time.Now()
-
 	key := "provider:" + provider + ":" + period
 	var stats ProviderUsage
-	err := c.cache.Get(ctx, key, &stats)
-
-	latency := time.Since(start)
-	if err != nil {
-		if err == ErrNotFound {
-			c.stats.RecordMiss(latency)
-			return nil, err
-		}
-		c.stats.RecordError()
+	if err := c.getByKey(ctx, key, &stats); err != nil {
 		return nil, err
 	}
-
-	c.stats.RecordHit(latency)
 	return &stats, nil
 }
 
-// SetProviderStats caches provider statistics
+// SetProviderStats caches provider statistics.
 func (c *UsageCache) SetProviderStats(ctx context.Context, provider, period string, stats *ProviderUsage) error {
 	key := "provider:" + provider + ":" + period
 	return c.cache.Set(ctx, key, stats, c.config.AggregationTTL)
 }
 
-// GetModelStats retrieves cached model statistics
+// GetModelStats retrieves cached model statistics.
 func (c *UsageCache) GetModelStats(ctx context.Context, model, period string) (*ModelUsage, error) {
-	start := time.Now()
-
 	key := "model:" + model + ":" + period
 	var stats ModelUsage
-	err := c.cache.Get(ctx, key, &stats)
-
-	latency := time.Since(start)
-	if err != nil {
-		if err == ErrNotFound {
-			c.stats.RecordMiss(latency)
-			return nil, err
-		}
-		c.stats.RecordError()
+	if err := c.getByKey(ctx, key, &stats); err != nil {
 		return nil, err
 	}
-
-	c.stats.RecordHit(latency)
 	return &stats, nil
 }
 
-// SetModelStats caches model statistics
+// SetModelStats caches model statistics.
 func (c *UsageCache) SetModelStats(ctx context.Context, model, period string, stats *ModelUsage) error {
 	key := "model:" + model + ":" + period
 	return c.cache.Set(ctx, key, stats, c.config.AggregationTTL)
 }
 
-// GetUserStats retrieves cached user statistics
+// GetUserStats retrieves cached user statistics.
 func (c *UsageCache) GetUserStats(ctx context.Context, userID string) (*UserUsage, error) {
 	start := time.Now()
 
@@ -297,54 +280,54 @@ func (c *UsageCache) GetUserStats(ctx context.Context, userID string) (*UserUsag
 	return &stats, nil
 }
 
-// SetUserStats caches user statistics
+// SetUserStats caches user statistics.
 func (c *UsageCache) SetUserStats(ctx context.Context, userID string, stats *UserUsage) error {
 	key := "user:" + userID
 	return c.cache.Set(ctx, key, stats, c.config.DefaultTTL)
 }
 
-// InvalidateUser invalidates cached data for a user
+// InvalidateUser invalidates cached data for a user.
 func (c *UsageCache) InvalidateUser(ctx context.Context, userID string) error {
 	return c.cache.Delete(ctx, "user:"+userID)
 }
 
-// InvalidateProvider invalidates cached data for a provider
+// InvalidateProvider invalidates cached data for a provider.
 func (c *UsageCache) InvalidateProvider(ctx context.Context, provider string) error {
 	return c.cache.DeleteByPattern(ctx, "provider:"+provider+":*")
 }
 
-// InvalidateModel invalidates cached data for a model
+// InvalidateModel invalidates cached data for a model.
 func (c *UsageCache) InvalidateModel(ctx context.Context, model string) error {
 	return c.cache.DeleteByPattern(ctx, "model:"+model+":*")
 }
 
-// GetStats returns cache statistics
+// GetStats returns cache statistics.
 func (c *UsageCache) GetStats() StatsSnapshot {
 	return c.stats.Snapshot()
 }
 
-// GetAggregatedStats retrieves aggregated statistics for a time range
+// GetAggregatedStats retrieves aggregated statistics for a time range.
 func (c *UsageCache) GetAggregatedStats(ctx context.Context, period string, start, end time.Time) ([]DashboardData, error) {
-	// Generate keys for each period in the range
+	// Generate keys for each period in the range.
 	var results []DashboardData
 
 	current := start
 	for current.Before(end) || current.Equal(end) {
-		key := c.usageKey("dashboard", period, current)
+		key := c.usageKey(period, current)
 		var data DashboardData
 		if err := c.cache.Get(ctx, key, &data); err == nil {
 			results = append(results, data)
 		}
 
-		// Move to next period
+		// Move to next period.
 		switch period {
-		case "hour":
+		case periodHour:
 			current = current.Add(time.Hour)
-		case "day":
+		case periodDay:
 			current = current.AddDate(0, 0, 1)
-		case "week":
+		case periodWeek:
 			current = current.AddDate(0, 0, 7)
-		case "month":
+		case periodMonth:
 			current = current.AddDate(0, 1, 0)
 		default:
 			current = current.Add(time.Hour)
@@ -354,13 +337,13 @@ func (c *UsageCache) GetAggregatedStats(ctx context.Context, period string, star
 	return results, nil
 }
 
-// CacheDashboardJSON caches pre-computed JSON for dashboard API responses
+// CacheDashboardJSON caches pre-computed JSON for dashboard API responses.
 func (c *UsageCache) CacheDashboardJSON(ctx context.Context, key string, jsonData json.RawMessage, ttl time.Duration) error {
 	fullKey := "dashboard:json:" + key
 	return c.cache.Set(ctx, fullKey, jsonData, ttl)
 }
 
-// GetDashboardJSON retrieves cached JSON for dashboard API responses
+// GetDashboardJSON retrieves cached JSON for dashboard API responses.
 func (c *UsageCache) GetDashboardJSON(ctx context.Context, key string) (json.RawMessage, error) {
 	start := time.Now()
 
@@ -380,4 +363,22 @@ func (c *UsageCache) GetDashboardJSON(ctx context.Context, key string) (json.Raw
 
 	c.stats.RecordHit(latency)
 	return data, nil
+}
+
+func (c *UsageCache) getByKey(ctx context.Context, key string, dest interface{}) error {
+	start := time.Now()
+	err := c.cache.Get(ctx, key, dest)
+
+	latency := time.Since(start)
+	if err != nil {
+		if err == ErrNotFound {
+			c.stats.RecordMiss(latency)
+			return err
+		}
+		c.stats.RecordError()
+		return err
+	}
+
+	c.stats.RecordHit(latency)
+	return nil
 }

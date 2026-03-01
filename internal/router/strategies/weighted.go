@@ -1,26 +1,27 @@
+//nolint:godot
 package strategies
 
 import (
-	"ai-gateway/internal/router"
 	"errors"
 	"math/rand"
 	"sort"
-	"sync/atomic"
 	"time"
+
+	"ai-gateway/internal/router"
 )
 
 // WeightedStrategy implements weighted routing
 type WeightedStrategy struct {
-	name    string
-	rng     *rand.Rand
-	seeded  uint64 // atomic flag for lazy seeding
+	name string
+	rng  *rand.Rand
 }
 
 // NewWeightedStrategy creates a new weighted strategy
 func NewWeightedStrategy() *WeightedStrategy {
 	return &WeightedStrategy{
 		name: "weighted",
-		rng:  rand.New(rand.NewSource(time.Now().UnixNano())),
+		//nolint:gosec // non-cryptographic randomness is sufficient for load balancing.
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -30,7 +31,7 @@ func (s *WeightedStrategy) Name() string {
 }
 
 // Select chooses a provider based on weights
-func (s *WeightedStrategy) Select(providers []*router.ProviderInfo, req *router.Request) (*router.ProviderInfo, error) {
+func (s *WeightedStrategy) Select(providers []*router.ProviderInfo, _ *router.Request) (*router.ProviderInfo, error) {
 	if len(providers) == 0 {
 		return nil, errors.New("no providers available")
 	}
@@ -71,11 +72,4 @@ func (s *WeightedStrategy) Select(providers []*router.ProviderInfo, req *router.
 
 	// Fallback to last provider (should not reach here)
 	return available[len(available)-1], nil
-}
-
-// ensureSeeded lazily seeds the random generator
-func (s *WeightedStrategy) ensureSeeded() {
-	if atomic.CompareAndSwapUint64(&s.seeded, 0, 1) {
-		s.rng.Seed(time.Now().UnixNano())
-	}
 }

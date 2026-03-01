@@ -1,3 +1,4 @@
+//nolint:godot
 package provider
 
 import (
@@ -15,15 +16,15 @@ type mockProvider struct {
 	enabled bool
 }
 
-func (m *mockProvider) Name() string                         { return m.name }
-func (m *mockProvider) Models() []string                     { return m.models }
-func (m *mockProvider) IsEnabled() bool                      { return m.enabled }
-func (m *mockProvider) SetEnabled(enabled bool)              { m.enabled = enabled }
-func (m *mockProvider) ValidateKey(ctx context.Context) bool { return true }
-func (m *mockProvider) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+func (m *mockProvider) Name() string                       { return m.name }
+func (m *mockProvider) Models() []string                   { return m.models }
+func (m *mockProvider) IsEnabled() bool                    { return m.enabled }
+func (m *mockProvider) SetEnabled(enabled bool)            { m.enabled = enabled }
+func (m *mockProvider) ValidateKey(_ context.Context) bool { return true }
+func (m *mockProvider) Chat(_ context.Context, _ *ChatRequest) (*ChatResponse, error) {
 	return nil, nil
 }
-func (m *mockProvider) StreamChat(ctx context.Context, req *ChatRequest) (<-chan *StreamChunk, error) {
+func (m *mockProvider) StreamChat(_ context.Context, _ *ChatRequest) (<-chan *StreamChunk, error) {
 	return nil, nil
 }
 
@@ -201,13 +202,14 @@ func TestRegistry_GetFactoryNames(t *testing.T) {
 }
 
 func TestRegistry_Concurrent(t *testing.T) {
+	_ = t
 	r := NewRegistry()
 
 	done := make(chan bool)
 
 	// Concurrent writes
 	for i := 0; i < 10; i++ {
-		go func(id int) {
+		go func(_ int) {
 			p := &mockProvider{name: "concurrent", enabled: true}
 			r.Register("provider", p)
 			done <- true

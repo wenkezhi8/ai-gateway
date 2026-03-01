@@ -1,5 +1,5 @@
-// Package cache provides embedding service for semantic caching
-// 改动点: 新增嵌入向量服务，用于语义缓存
+// Package cache provides embedding service for semantic caching.
+// 改动点: 新增嵌入向量服务，用于语义缓存.
 package cache
 
 import (
@@ -17,13 +17,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// EmbeddingProvider defines the interface for embedding services
+// EmbeddingProvider defines the interface for embedding services.
 type EmbeddingProvider interface {
 	GetEmbedding(ctx context.Context, text string) ([]float64, error)
 	GetEmbeddings(ctx context.Context, texts []string) ([][]float64, error)
 }
 
-// EmbeddingService provides text embedding functionality
+// EmbeddingService provides text embedding functionality.
 type EmbeddingService struct {
 	mu       sync.RWMutex
 	provider string
@@ -33,13 +33,13 @@ type EmbeddingService struct {
 	cache    map[string][]float64 // simple in-memory cache for embeddings
 }
 
-// EmbeddingRequest represents an embedding API request
+// EmbeddingRequest represents an embedding API request.
 type EmbeddingRequest struct {
 	Input string `json:"input"`
 	Model string `json:"model"`
 }
 
-// EmbeddingResponse represents an embedding API response
+// EmbeddingResponse represents an embedding API response.
 type EmbeddingResponse struct {
 	Object string `json:"object"`
 	Data   []struct {
@@ -61,7 +61,7 @@ type EmbeddingResponse struct {
 
 var embeddingLogger = logrus.WithField("component", "embedding_service")
 
-// NewEmbeddingService creates a new embedding service
+// NewEmbeddingService creates a new embedding service.
 func NewEmbeddingService(provider, apiKey, baseURL, model string) *EmbeddingService {
 	if model == "" {
 		model = "text-embedding-3-small"
@@ -79,10 +79,10 @@ func NewEmbeddingService(provider, apiKey, baseURL, model string) *EmbeddingServ
 	}
 }
 
-// GetEmbedding returns the embedding vector for a text
-// 改动点: 获取文本的嵌入向量，带缓存
+// GetEmbedding returns the embedding vector for a text.
+// 改动点: 获取文本的嵌入向量，带缓存.
 func (s *EmbeddingService) GetEmbedding(ctx context.Context, text string) ([]float64, error) {
-	// Check cache first
+	// Check cache first.
 	cacheKey := s.hashText(text)
 	s.mu.RLock()
 	if vec, ok := s.cache[cacheKey]; ok {
@@ -91,12 +91,12 @@ func (s *EmbeddingService) GetEmbedding(ctx context.Context, text string) ([]flo
 	}
 	s.mu.RUnlock()
 
-	// Truncate long texts (OpenAI has 8191 token limit)
+	// Truncate long texts (OpenAI has 8191 token limit).
 	if len(text) > 8000 {
 		text = text[:8000]
 	}
 
-	// Call embedding API
+	// Call embedding API.
 	req := EmbeddingRequest{
 		Input: text,
 		Model: s.model,
@@ -117,7 +117,7 @@ func (s *EmbeddingService) GetEmbedding(ctx context.Context, text string) ([]flo
 
 	embedding := resp.Data[0].Embedding
 
-	// Cache the result
+	// Cache the result.
 	s.mu.Lock()
 	s.cache[cacheKey] = embedding
 	s.mu.Unlock()
@@ -131,7 +131,7 @@ func (s *EmbeddingService) GetEmbedding(ctx context.Context, text string) ([]flo
 	return embedding, nil
 }
 
-// GetEmbeddings returns embeddings for multiple texts
+// GetEmbeddings returns embeddings for multiple texts.
 func (s *EmbeddingService) GetEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
 	results := make([][]float64, len(texts))
 	for i, text := range texts {
@@ -144,7 +144,7 @@ func (s *EmbeddingService) GetEmbeddings(ctx context.Context, texts []string) ([
 	return results, nil
 }
 
-// callEmbeddingAPI calls the embedding API
+// callEmbeddingAPI calls the embedding API.
 func (s *EmbeddingService) callEmbeddingAPI(ctx context.Context, req EmbeddingRequest) (*EmbeddingResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -179,27 +179,27 @@ func (s *EmbeddingService) callEmbeddingAPI(ctx context.Context, req EmbeddingRe
 	return &resp, nil
 }
 
-// hashText generates a hash for caching
+// hashText generates a hash for caching.
 func (s *EmbeddingService) hashText(text string) string {
 	hash := sha256.Sum256([]byte(text + s.model))
 	return hex.EncodeToString(hash[:])
 }
 
-// ClearCache clears the embedding cache
+// ClearCache clears the embedding cache.
 func (s *EmbeddingService) ClearCache() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cache = make(map[string][]float64)
 }
 
-// SimpleEmbedding generates a simple embedding without API call
-// 改动点: 简单嵌入向量生成，用于无 API key 时的降级
+// SimpleEmbedding generates a simple embedding without API call.
+// 改动点: 简单嵌入向量生成，用于无 API key 时的降级.
 func SimpleEmbedding(text string, dimension int) []float64 {
 	if dimension == 0 {
 		dimension = 1536
 	}
 
-	// Use character frequency as simple embedding
+	// Use character frequency as simple embedding.
 	vec := make([]float64, dimension)
 	text = strings.ToLower(text)
 
@@ -211,7 +211,7 @@ func SimpleEmbedding(text string, dimension int) []float64 {
 		}
 	}
 
-	// Normalize
+	// Normalize.
 	var sum float64
 	for _, v := range vec {
 		sum += v * v
@@ -227,12 +227,12 @@ func SimpleEmbedding(text string, dimension int) []float64 {
 	return vec
 }
 
-// MockEmbeddingService provides mock embeddings for testing
+// MockEmbeddingService provides mock embeddings for testing.
 type MockEmbeddingService struct {
 	Dimension int
 }
 
-// NewMockEmbeddingService creates a mock embedding service
+// NewMockEmbeddingService creates a mock embedding service.
 func NewMockEmbeddingService(dimension int) *MockEmbeddingService {
 	if dimension == 0 {
 		dimension = 1536
@@ -240,16 +240,19 @@ func NewMockEmbeddingService(dimension int) *MockEmbeddingService {
 	return &MockEmbeddingService{Dimension: dimension}
 }
 
-// GetEmbedding returns a mock embedding
-func (s *MockEmbeddingService) GetEmbedding(ctx context.Context, text string) ([]float64, error) {
+// GetEmbedding returns a mock embedding.
+func (s *MockEmbeddingService) GetEmbedding(_ context.Context, text string) ([]float64, error) {
 	return SimpleEmbedding(text, s.Dimension), nil
 }
 
-// GetEmbeddings returns mock embeddings
+// GetEmbeddings returns mock embeddings.
 func (s *MockEmbeddingService) GetEmbeddings(ctx context.Context, texts []string) ([][]float64, error) {
 	results := make([][]float64, len(texts))
 	for i, text := range texts {
-		emb, _ := s.GetEmbedding(ctx, text)
+		emb, err := s.GetEmbedding(ctx, text)
+		if err != nil {
+			return nil, err
+		}
 		results[i] = emb
 	}
 	return results, nil

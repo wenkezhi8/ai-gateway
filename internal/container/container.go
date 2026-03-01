@@ -1,6 +1,8 @@
 package container
 
 import (
+	"sync"
+
 	"ai-gateway/internal/cache"
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/provider"
@@ -8,7 +10,6 @@ import (
 	"ai-gateway/internal/storage"
 	"ai-gateway/pkg/logger"
 	"ai-gateway/pkg/security"
-	"sync"
 )
 
 var containerLogger = logger.WithField("component", "container")
@@ -21,7 +22,7 @@ type ServiceContainer struct {
 	cacheManager *cache.Manager
 	smartRouter  *routing.SmartRouter
 	storage      *storage.SQLiteStorage
-	security     *security.SecurityConfig
+	security     *security.Config
 
 	initialized bool
 }
@@ -102,7 +103,7 @@ func (c *ServiceContainer) Storage() *storage.SQLiteStorage {
 	return c.storage
 }
 
-func (c *ServiceContainer) Security() *security.SecurityConfig {
+func (c *ServiceContainer) Security() *security.Config {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.security

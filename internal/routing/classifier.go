@@ -1,10 +1,11 @@
 package routing
 
 import (
-	"ai-gateway/internal/constants"
 	"context"
 	"errors"
 	"time"
+
+	"ai-gateway/internal/constants"
 )
 
 type ClassificationSource string
@@ -102,6 +103,7 @@ type TaskClassifier interface {
 	GetConfig() ClassifierConfig
 }
 
+//nolint:gocritic // keep value-type config API for call-site simplicity.
 func clampClassifierConfig(cfg ClassifierConfig) ClassifierConfig {
 	def := DefaultClassifierConfig()
 	if cfg.Provider == "" {
@@ -132,17 +134,19 @@ func clampClassifierConfig(cfg ClassifierConfig) ClassifierConfig {
 	return cfg
 }
 
-func clampControlConfig(cfg ControlConfig, def ControlConfig) ControlConfig {
+func clampControlConfig(cfg, def ControlConfig) ControlConfig {
 	// Keep user-provided flags as-is. This method exists to centralize
 	// defaulting behavior when new control fields are added later.
 	_ = def
 	return cfg
 }
 
+//nolint:gocritic // keep value-type config API for external callers.
 func ClampClassifierConfig(cfg ClassifierConfig) ClassifierConfig {
 	return clampClassifierConfig(cfg)
 }
 
+//nolint:gocritic // keep value-type config API for timeout helper.
 func classifierTimeout(cfg ClassifierConfig) time.Duration {
 	if cfg.TimeoutMs <= 0 {
 		cfg = clampClassifierConfig(cfg)

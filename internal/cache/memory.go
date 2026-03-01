@@ -27,6 +27,7 @@ type cacheItem struct {
 	taskTypeSource string
 }
 
+//nolint:revive // Type name kept for compatibility with existing callers.
 type CacheMeta struct {
 	Size           int
 	Hits           int
@@ -39,7 +40,7 @@ type CacheMeta struct {
 	TaskTypeSource string
 }
 
-// MemoryCache is an in-memory cache implementation
+// MemoryCache is an in-memory cache implementation.
 type MemoryCache struct {
 	mu       sync.RWMutex
 	items    map[string]*cacheItem
@@ -48,7 +49,7 @@ type MemoryCache struct {
 	lruMap   map[string]*list.Element
 }
 
-// NewMemoryCache creates a new in-memory cache
+// NewMemoryCache creates a new in-memory cache.
 func NewMemoryCache() *MemoryCache {
 	return NewMemoryCacheWithMaxEntries(0)
 }
@@ -74,8 +75,8 @@ func NewMemoryCacheWithMaxEntries(maxEntries int) *MemoryCache {
 	return cache
 }
 
-// Get retrieves a value from the cache
-func (c *MemoryCache) Get(ctx context.Context, key string, dest interface{}) error {
+// Get retrieves a value from the cache.
+func (c *MemoryCache) Get(_ context.Context, key string, dest interface{}) error {
 	c.mu.Lock()
 	item, ok := c.items[key]
 	if !ok {
@@ -97,8 +98,8 @@ func (c *MemoryCache) Get(ctx context.Context, key string, dest interface{}) err
 	return json.Unmarshal(data, dest)
 }
 
-// Set stores a value in the cache
-func (c *MemoryCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+// Set stores a value in the cache.
+func (c *MemoryCache) Set(_ context.Context, key string, value interface{}, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -130,8 +131,8 @@ func (c *MemoryCache) Set(ctx context.Context, key string, value interface{}, tt
 	return nil
 }
 
-// SetWithMeta stores a value with metadata
-func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interface{}, ttl time.Duration, model, provider string) error {
+// SetWithMeta stores a value with metadata.
+func (c *MemoryCache) SetWithMeta(_ context.Context, key string, value interface{}, ttl time.Duration, model, provider string) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -166,8 +167,8 @@ func (c *MemoryCache) SetWithMeta(ctx context.Context, key string, value interfa
 	return nil
 }
 
-// SetWithTaskType stores a value with task type metadata
-func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value interface{}, ttl time.Duration, model, provider, taskType, taskTypeSource string) error {
+// SetWithTaskType stores a value with task type metadata.
+func (c *MemoryCache) SetWithTaskType(_ context.Context, key string, value interface{}, ttl time.Duration, model, provider, taskType, taskTypeSource string) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -203,8 +204,8 @@ func (c *MemoryCache) SetWithTaskType(ctx context.Context, key string, value int
 	return nil
 }
 
-// Delete removes a value from the cache
-func (c *MemoryCache) Delete(ctx context.Context, key string) error {
+// Delete removes a value from the cache.
+func (c *MemoryCache) Delete(_ context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -212,7 +213,7 @@ func (c *MemoryCache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// Exists checks if a key exists
+// Exists checks if a key exists.
 func (c *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 	c.mu.RLock()
 	item, ok := c.items[key]
@@ -223,15 +224,17 @@ func (c *MemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 	}
 
 	if !item.expiresAt.IsZero() && time.Now().After(item.expiresAt) {
-		c.Delete(ctx, key)
+		if err := c.Delete(ctx, key); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
 
 	return true, nil
 }
 
-// DeleteByPattern removes all keys matching a pattern (supports * wildcard)
-func (c *MemoryCache) DeleteByPattern(ctx context.Context, pattern string) error {
+// DeleteByPattern removes all keys matching a pattern (supports * wildcard).
+func (c *MemoryCache) DeleteByPattern(_ context.Context, pattern string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -246,7 +249,7 @@ func (c *MemoryCache) DeleteByPattern(ctx context.Context, pattern string) error
 	return nil
 }
 
-// Keys returns all keys matching a pattern
+// Keys returns all keys matching a pattern.
 func (c *MemoryCache) Keys(pattern string) []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -270,7 +273,7 @@ func (c *MemoryCache) Keys(pattern string) []string {
 	return keys
 }
 
-// GetMeta returns metadata for a key
+// GetMeta returns metadata for a key.
 func (c *MemoryCache) GetMeta(key string) *CacheMeta {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -293,7 +296,7 @@ func (c *MemoryCache) GetMeta(key string) *CacheMeta {
 	}
 }
 
-// cleanup removes expired items periodically
+// cleanup removes expired items periodically.
 func (c *MemoryCache) cleanup() {
 	ticker := time.NewTicker(time.Minute)
 	for range ticker.C {

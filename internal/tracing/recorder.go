@@ -67,19 +67,26 @@ func (r *SpanRecorder) RecordSpan(ctx context.Context, spanName string, fn func(
 		CreatedAt:  time.Now(),
 	}
 
-	if err := r.saveToDB(traceRecord); err != nil {
+	if saveErr := r.saveToDB(traceRecord); saveErr != nil {
 		// Log error but don't fail the operation
-		fmt.Printf("Failed to save trace record: %v\n", err)
+		fmt.Printf("Failed to save trace record: %v\n", saveErr)
 	}
 
 	return err
 }
 
 func (r *SpanRecorder) saveToDB(trace *RequestTrace) error {
-	attrsJSON, _ := json.Marshal(trace.Attributes)
-	eventsJSON, _ := json.Marshal(trace.Events)
+	attrsJSON, err := json.Marshal(trace.Attributes)
+	if err != nil {
+		return fmt.Errorf("marshal trace attributes: %w", err)
+	}
 
-	_, err := r.db.Exec(`
+	eventsJSON, err := json.Marshal(trace.Events)
+	if err != nil {
+		return fmt.Errorf("marshal trace events: %w", err)
+	}
+
+	_, err = r.db.Exec(`
 		INSERT INTO request_traces (
 			id, request_id, trace_id, span_id, parent_span_id,
 			operation, status, start_time, end_time, duration_ms,
@@ -91,16 +98,20 @@ func (r *SpanRecorder) saveToDB(trace *RequestTrace) error {
 		string(attrsJSON), string(eventsJSON), trace.UserID, trace.Method, trace.Path, trace.Model, trace.Provider, trace.Error, trace.CreatedAt.Format(time.RFC3339Nano),
 	)
 
-	return err
+	if err != nil {
+		return fmt.Errorf("insert request trace: %w", err)
+	}
+
+	return nil
 }
 
-func extractAttributes(span trace.Span) JSONB {
+func extractAttributes(_ trace.Span) JSONB {
 	// In a real implementation, you'd extract attributes from the span
 	// For now, return empty map
 	return JSONB{}
 }
 
-func extractEvents(span trace.Span) JSONB {
+func extractEvents(_ trace.Span) JSONB {
 	// In a real implementation, you'd extract events from the span
 	// For now, return empty map
 	return JSONB{}
@@ -125,7 +136,7 @@ func (r *SpanRecorder) GetTracesByRequestID(requestID string) ([]*RequestTrace, 
 		var attrsJSON, eventsJSON string
 		var startTime, endTime, createdAt string
 
-		err := rows.Scan(
+		err = rows.Scan(
 			&trace.ID, &trace.RequestID, &trace.TraceID, &trace.SpanID, &trace.ParentSpanID,
 			&trace.Operation, &trace.Status, &startTime, &endTime, &trace.DurationMs,
 			&attrsJSON, &eventsJSON, &trace.UserID, &trace.Method, &trace.Path, &trace.Model, &trace.Provider, &trace.Error, &createdAt,
@@ -134,13 +145,42 @@ func (r *SpanRecorder) GetTracesByRequestID(requestID string) ([]*RequestTrace, 
 			return nil, err
 		}
 
-		trace.StartTime, _ = time.Parse(time.RFC3339, startTime)
-		trace.EndTime, _ = time.Parse(time.RFC3339, endTime)
-		trace.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		json.Unmarshal([]byte(attrsJSON), &trace.Attributes)
-		json.Unmarshal([]byte(eventsJSON), &trace.Events)
+		trace.StartTime, err = time.Parse(time.RFC3339Nano, startTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse start_time: %w", err)
+		}
+
+		trace.EndTime, err = time.Parse(time.RFC3339Nano, endTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse end_time: %w", err)
+		}
+
+		trace.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse created_at: %w", err)
+		}
+
+		if attrsJSON != "" {
+			if err = json.Unmarshal([]byte(attrsJSON), &trace.Attributes); err != nil {
+				return nil, fmt.Errorf("unmarshal trace attributes: %w", err)
+			}
+		} else {
+			trace.Attributes = JSONB{}
+		}
+
+		if eventsJSON != "" {
+			if err = json.Unmarshal([]byte(eventsJSON), &trace.Events); err != nil {
+				return nil, fmt.Errorf("unmarshal trace events: %w", err)
+			}
+		} else {
+			trace.Events = JSONB{}
+		}
 
 		traces = append(traces, trace)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate request traces: %w", err)
 	}
 
 	return traces, nil
@@ -162,7 +202,9 @@ func AddAttribute(ctx context.Context, key string, value interface{}) {
 	}
 }
 
-// RecordSimpleSpan 简化版 Span 记录（不需要返回 error）
+// RecordSimpleSpan 简化版 Span 记录（不需要返回 error）。
+//
+//nolint:gocyclo // Keep extraction branches explicit for trace payload compatibility.
 func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, attrs map[string]interface{}) {
 	startTime := time.Now()
 
@@ -239,13 +281,13 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 	}
 }
 
-// RecordSpanWithResult 记录带结果的 Span（用于缓存命中/未命中等）
-func (r *SpanRecorder) RecordSpanWithResult(ctx context.Context, spanName string, result string, attrs map[string]interface{}) {
+// RecordSpanWithResult 记录带结果的 Span（用于缓存命中/未命中等）。
+func (r *SpanRecorder) RecordSpanWithResult(ctx context.Context, spanName, result string, attrs map[string]interface{}) {
 	attrs["result"] = result
 	r.RecordSimpleSpan(ctx, spanName, attrs)
 }
 
-func ExtractResponseTextPreview(body []byte, previewLimit int, fullLimit int) (string, string, bool) {
+func ExtractResponseTextPreview(body []byte, previewLimit, fullLimit int) (preview, full string, truncated bool) {
 	if len(body) == 0 {
 		return "", "", false
 	}
@@ -256,9 +298,9 @@ func ExtractResponseTextPreview(body []byte, previewLimit int, fullLimit int) (s
 		if text == "" {
 			return "", "", false
 		}
-		full, truncated := trimWithLimit(text, fullLimit)
-		preview, _ := trimWithLimit(full, previewLimit)
-		return preview, full, truncated
+		fullText, wasTruncated := trimWithLimit(text, fullLimit)
+		previewText, _ := trimWithLimit(fullText, previewLimit)
+		return previewText, fullText, wasTruncated
 	}
 
 	text := extractTextFromPayload(payload)
@@ -266,9 +308,9 @@ func ExtractResponseTextPreview(body []byte, previewLimit int, fullLimit int) (s
 		text = strings.TrimSpace(string(body))
 	}
 
-	full, truncated := trimWithLimit(text, fullLimit)
-	preview, _ := trimWithLimit(full, previewLimit)
-	return preview, full, truncated
+	fullText, wasTruncated := trimWithLimit(text, fullLimit)
+	previewText, _ := trimWithLimit(fullText, previewLimit)
+	return previewText, fullText, wasTruncated
 }
 
 func extractTextFromPayload(payload map[string]interface{}) string {

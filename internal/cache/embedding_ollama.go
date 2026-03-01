@@ -1,3 +1,4 @@
+//nolint:dupl,gocritic // Endpoint compatibility requires mirrored request paths and signatures.
 package cache
 
 import (
@@ -196,4 +197,3 @@ func normalizeOllamaEndpointMode(mode string) string {
 		return OllamaEndpointModeAuto
 	}
 }
-

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"ai-gateway/internal/provider"
@@ -46,7 +45,7 @@ func (c *Client) getAccessToken(ctx context.Context) (string, error) {
 	reqURL := fmt.Sprintf("https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=%s&client_secret=%s",
 		url.QueryEscape(c.apiKey), url.QueryEscape(c.secretKey))
 
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -368,7 +367,6 @@ type Adapter struct {
 	*provider.BaseProvider
 	client    *Client
 	secretKey string
-	mu        sync.RWMutex
 }
 
 func NewAdapter(cfg *provider.ProviderConfig) *Adapter {
@@ -429,7 +427,14 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, &provider.ProviderError{
+			Code:     http.StatusInternalServerError,
+			Message:  fmt.Sprintf("failed to read response: %v", readErr),
+			Provider: "ernie",
+		}
+	}
 
 	var ernieResp ChatResponse
 	if err := json.Unmarshal(body, &ernieResp); err != nil {
@@ -473,13 +478,28 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	ernieReq.Stream = true
 	modelPath := getModelPath(req.Model)
 
-	resp, err := a.client.DoStreamRequest(ctx, accessToken, modelPath, ernieReq)
+	resp, err := a.client.DoStreamRequest(ctx, accessToken, modelPath, ernieReq) //nolint:bodyclose
 	if err != nil {
 		close(chunkChan)
 		return chunkChan, &provider.ProviderError{
 			Code:     http.StatusInternalServerError,
 			Message:  fmt.Sprintf("failed to make stream request: %v", err),
 			Provider: "ernie",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
+		close(chunkChan)
+		return chunkChan, &provider.ProviderError{
+			Code:      resp.StatusCode,
+			Message:   string(body),
+			Provider:  "ernie",
+			Retryable: isRetryableError(resp.StatusCode),
 		}
 	}
 

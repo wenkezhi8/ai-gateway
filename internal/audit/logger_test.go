@@ -216,7 +216,7 @@ func TestLogger_Clear(t *testing.T) {
 	assert.Empty(t, logs)
 }
 
-func TestLogger_Close(t *testing.T) {
+func TestLogger_Close(_ *testing.T) {
 	logger := newTestLogger()
 	logger.Log(LogEntry{UserID: "user-1", Action: ActionLogin})
 	logger.Close()
@@ -235,17 +235,17 @@ func TestMatchFilters_TimeRange(t *testing.T) {
 		"start_time": past,
 		"end_time":   future,
 	}
-	assert.True(t, logger.matchFilters(entry, filters))
+	assert.True(t, logger.matchFilters(&entry, filters))
 
 	filters = map[string]interface{}{
 		"start_time": future,
 	}
-	assert.False(t, logger.matchFilters(entry, filters))
+	assert.False(t, logger.matchFilters(&entry, filters))
 
 	filters = map[string]interface{}{
 		"end_time": past,
 	}
-	assert.False(t, logger.matchFilters(entry, filters))
+	assert.False(t, logger.matchFilters(&entry, filters))
 }
 
 func TestMatchFilters_ResourceID(t *testing.T) {
@@ -253,8 +253,8 @@ func TestMatchFilters_ResourceID(t *testing.T) {
 
 	entry := LogEntry{ResourceID: "acc-1"}
 
-	assert.True(t, logger.matchFilters(entry, map[string]interface{}{"resource_id": "acc-1"}))
-	assert.False(t, logger.matchFilters(entry, map[string]interface{}{"resource_id": "acc-2"}))
+	assert.True(t, logger.matchFilters(&entry, map[string]interface{}{"resource_id": "acc-1"}))
+	assert.False(t, logger.matchFilters(&entry, map[string]interface{}{"resource_id": "acc-2"}))
 }
 
 func TestGenerateID(t *testing.T) {

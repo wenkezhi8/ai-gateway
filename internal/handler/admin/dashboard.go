@@ -1,21 +1,22 @@
 package admin
 
 import (
-	"ai-gateway/internal/cache"
-	"ai-gateway/internal/limiter"
-	"ai-gateway/internal/metrics"
-	"ai-gateway/internal/provider"
-	"ai-gateway/internal/storage"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/limiter"
+	"ai-gateway/internal/metrics"
+	"ai-gateway/internal/provider"
+	"ai-gateway/internal/storage"
+
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
 
-// DashboardHandler handles dashboard data requests
+// DashboardHandler handles dashboard data requests.
 type DashboardHandler struct {
 	registry *provider.Registry
 	manager  *limiter.AccountManager
@@ -51,7 +52,7 @@ type ModelStatData struct {
 	Tokens   int64
 }
 
-// RealtimeStats represents realtime metrics
+// RealtimeStats represents realtime metrics.
 type RealtimeStats struct {
 	Timestamp         time.Time     `json:"timestamp"`
 	RequestsPerMinute int64         `json:"requests_per_minute"`
@@ -70,7 +71,7 @@ type RecentError struct {
 	Error     string    `json:"error"`
 }
 
-// NewDashboardHandler creates a new dashboard handler
+// NewDashboardHandler creates a new dashboard handler.
 func NewDashboardHandler(
 	registry *provider.Registry,
 	manager *limiter.AccountManager,
@@ -91,6 +92,7 @@ func NewDashboardHandler(
 	return handler
 }
 
+//nolint:gocyclo
 func (h *DashboardHandler) loadPersistedState() {
 	store := storage.GetSQLite()
 	if store == nil {
@@ -171,8 +173,9 @@ func (h *DashboardHandler) loadPersistedState() {
 	}
 }
 
-// GetStats returns dashboard overview statistics
-// GET /api/admin/dashboard/stats
+// GET /api/admin/dashboard/stats.
+//
+//nolint:gocyclo
 func (h *DashboardHandler) GetStats(c *gin.Context) {
 	providerUsageMap := make(map[string]storage.ProviderUsageStat)
 	if store := storage.GetSQLite(); store != nil {
@@ -291,8 +294,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 	})
 }
 
-// GetRequestTrends returns request trend data
-// GET /api/admin/dashboard/requests
+// GET /api/admin/dashboard/requests.
 func (h *DashboardHandler) GetRequestTrends(c *gin.Context) {
 	timeRange := c.DefaultQuery("range", "24h")
 
@@ -364,8 +366,7 @@ func (h *DashboardHandler) GetRequestTrends(c *gin.Context) {
 	})
 }
 
-// GetAlerts returns alert list
-// GET /api/admin/dashboard/alerts
+// GET /api/admin/dashboard/alerts.
 func (h *DashboardHandler) GetAlerts(c *gin.Context) {
 	// Get query parameters
 	limit := 50
@@ -374,7 +375,8 @@ func (h *DashboardHandler) GetAlerts(c *gin.Context) {
 	alerts := make([]AlertListItem, 0)
 
 	h.mu.RLock()
-	for _, alert := range h.alerts {
+	for i := range h.alerts {
+		alert := h.alerts[i]
 		if acknowledged == "" ||
 			(acknowledged == "true" && alert.Acknowledged) ||
 			(acknowledged == "false" && !alert.Acknowledged) {
@@ -394,20 +396,20 @@ func (h *DashboardHandler) GetAlerts(c *gin.Context) {
 	})
 }
 
-// AcknowledgeAlert acknowledges an alert
-// POST /api/admin/dashboard/alerts/:id/acknowledge
+// POST /api/admin/dashboard/alerts/:id/acknowledge.
 func (h *DashboardHandler) AcknowledgeAlert(c *gin.Context) {
 	alertID := c.Param("id")
 
 	h.mu.Lock()
 	found := false
 
-	for i, alert := range h.alerts {
-		if alert.ID == alertID {
-			h.alerts[i].Acknowledged = true
-			found = true
-			break
+	for i := range h.alerts {
+		if h.alerts[i].ID != alertID {
+			continue
 		}
+		h.alerts[i].Acknowledged = true
+		found = true
+		break
 	}
 	h.mu.Unlock()
 
@@ -437,8 +439,7 @@ func (h *DashboardHandler) AcknowledgeAlert(c *gin.Context) {
 	})
 }
 
-// GetProviderMetrics returns metrics for a specific provider
-// GET /api/admin/dashboard/providers/:provider/metrics
+// GET /api/admin/dashboard/providers/:provider/metrics.
 func (h *DashboardHandler) GetProviderMetrics(c *gin.Context) {
 	providerName := c.Param("provider")
 
@@ -469,8 +470,7 @@ func (h *DashboardHandler) GetProviderMetrics(c *gin.Context) {
 	})
 }
 
-// GetModelMetrics returns metrics for a specific model
-// GET /api/admin/dashboard/models/:model/metrics
+// GET /api/admin/dashboard/models/:model/metrics.
 func (h *DashboardHandler) GetModelMetrics(c *gin.Context) {
 	model := c.Param("model")
 
@@ -501,18 +501,12 @@ func (h *DashboardHandler) GetModelMetrics(c *gin.Context) {
 	})
 }
 
-// GetSystemStatus returns overall system status
-// GET /api/admin/dashboard/system
+// GET /api/admin/dashboard/system.
+//
+//nolint:gocyclo
 func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 	// Check providers
 	providers := h.registry.ListEnabled()
-	providerStatus := make([]gin.H, 0)
-	for _, p := range providers {
-		providerStatus = append(providerStatus, gin.H{
-			"name":    p.Name(),
-			"healthy": true,
-		})
-	}
 
 	// Check cache
 	cacheHealthy := false
@@ -604,8 +598,10 @@ func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 	})
 }
 
-// UpdateStats updates internal statistics (called by other handlers)
-func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64, model ...string) {
+// UpdateStats updates internal statistics (called by other handlers).
+//
+//nolint:gocyclo
+func (h *DashboardHandler) UpdateStats(success bool, latency, tokens int64, model ...string) {
 	var (
 		summary       storage.DashboardSummary
 		modelName     string
@@ -674,7 +670,7 @@ func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64
 	} else {
 		last := &h.requestTrends[len(h.requestTrends)-1]
 		last.Requests++
-		last.Latency = (last.Latency*int64(last.Requests-1) + latency) / int64(last.Requests)
+		last.Latency = (last.Latency*(last.Requests-1) + latency) / last.Requests
 		if success {
 			last.Success++
 		} else {
@@ -725,8 +721,7 @@ func (h *DashboardHandler) UpdateStats(success bool, latency int64, tokens int64
 	}
 }
 
-// GetRealtime returns realtime metrics
-// GET /api/admin/dashboard/realtime
+// GET /api/admin/dashboard/realtime.
 func (h *DashboardHandler) GetRealtime(c *gin.Context) {
 	h.mu.RLock()
 
@@ -791,7 +786,9 @@ func (h *DashboardHandler) GetRealtime(c *gin.Context) {
 	})
 }
 
-// AddAlert adds an alert to the list
+// AddAlert adds an alert to the list.
+//
+//nolint:gocritic
 func (h *DashboardHandler) AddAlert(alert AlertListItem) {
 	h.mu.Lock()
 

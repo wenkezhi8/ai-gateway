@@ -46,6 +46,11 @@ type OpsHandler struct {
 	lastGCPauseTotalNs   uint64
 }
 
+const (
+	goosDarwin = "darwin"
+	goosLinux  = "linux"
+)
+
 type RequestMetric struct {
 	Timestamp time.Time
 	Success   bool
@@ -298,7 +303,7 @@ func (h *OpsHandler) ExportMetrics(c *gin.Context) {
 	c.JSON(http.StatusOK, export)
 }
 
-func (h *OpsHandler) RecordRequest(success bool, latency int64, ttft int64, tokens int64, errorType string) {
+func (h *OpsHandler) RecordRequest(success bool, latency, ttft, tokens int64, errorType string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -379,7 +384,10 @@ func (h *OpsHandler) cleanupOldData(timeRange string) {
 }
 
 func (h *OpsHandler) getSystemInfo() SystemInfo {
-	hostname, _ := os.Hostname()
+	hostname, err := os.Hostname()
+	if err != nil {
+		hostname = "unknown"
+	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
@@ -404,6 +412,7 @@ func (h *OpsHandler) getSystemInfo() SystemInfo {
 	}
 }
 
+//nolint:gocyclo
 func (h *OpsHandler) getRealtimeMetrics(timeRange string) RealtimeMetrics {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -442,12 +451,8 @@ func (h *OpsHandler) getRealtimeMetrics(timeRange string) RealtimeMetrics {
 		}
 	}
 
-	for _, l := range h.latencies {
-		windowLatencies = append(windowLatencies, l)
-	}
-	for _, t := range h.ttfts {
-		windowTTFTs = append(windowTTFTs, t)
-	}
+	windowLatencies = append(windowLatencies, h.latencies...)
+	windowTTFTs = append(windowTTFTs, h.ttfts...)
 
 	durationSeconds := cutoff.Seconds()
 	currentQPS := float64(h.minuteRequests) / 60.0
@@ -514,13 +519,13 @@ func (h *OpsHandler) getRealtimeMetrics(timeRange string) RealtimeMetrics {
 		LatencyP90:         percentile(windowLatencies, 90),
 		LatencyP50:         percentile(windowLatencies, 50),
 		LatencyAvg:         average(windowLatencies),
-		LatencyMax:         max(windowLatencies),
+		LatencyMax:         maxInt64(windowLatencies),
 		TTFTP99:            percentile(windowTTFTs, 99),
 		TTFTP95:            percentile(windowTTFTs, 95),
 		TTFTP90:            percentile(windowTTFTs, 90),
 		TTFTP50:            percentile(windowTTFTs, 50),
 		TTFTAvg:            average(windowTTFTs),
-		TTFTMax:            max(windowTTFTs),
+		TTFTMax:            maxInt64(windowTTFTs),
 		RequestErrorRate:   round2(requestErrorRate),
 	}
 }
@@ -621,9 +626,9 @@ func randomHexID() string {
 
 func getSystemMemoryUsage() (usedMB, totalMB uint64) {
 	switch runtime.GOOS {
-	case "darwin":
+	case goosDarwin:
 		return getSystemMemoryDarwin()
-	case "linux":
+	case goosLinux:
 		return getSystemMemoryLinux()
 	default:
 		return 0, 0
@@ -635,7 +640,10 @@ func getSystemMemoryDarwin() (usedMB, totalMB uint64) {
 	if err != nil {
 		return 0, 0
 	}
-	totalBytes, _ := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	totalBytes, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return 0, 0
+	}
 	totalMB = totalBytes / 1024 / 1024
 
 	out, err = exec.Command("vm_stat").Output()
@@ -653,14 +661,18 @@ func getSystemMemoryDarwin() (usedMB, totalMB uint64) {
 			fields := strings.Fields(line)
 			if len(fields) >= 3 {
 				val := strings.TrimSuffix(fields[2], ".")
-				freePages, _ = strconv.ParseUint(val, 10, 64)
+				if parsed, parseErr := strconv.ParseUint(val, 10, 64); parseErr == nil {
+					freePages = parsed
+				}
 			}
 		}
 		if strings.HasPrefix(line, "Pages inactive:") {
 			fields := strings.Fields(line)
 			if len(fields) >= 3 {
 				val := strings.TrimSuffix(fields[2], ".")
-				inactivePages, _ = strconv.ParseUint(val, 10, 64)
+				if parsed, parseErr := strconv.ParseUint(val, 10, 64); parseErr == nil {
+					inactivePages = parsed
+				}
 			}
 		}
 	}
@@ -688,7 +700,10 @@ func getSystemMemoryLinux() (usedMB, totalMB uint64) {
 			continue
 		}
 
-		val, _ := strconv.ParseUint(fields[1], 10, 64)
+		val, parseErr := strconv.ParseUint(fields[1], 10, 64)
+		if parseErr != nil {
+			continue
+		}
 
 		switch {
 		case strings.HasPrefix(line, "MemTotal:"):
@@ -716,9 +731,9 @@ func getSystemMemoryLinux() (usedMB, totalMB uint64) {
 
 func getCPUUsage() float64 {
 	switch runtime.GOOS {
-	case "darwin":
+	case goosDarwin:
 		return getCPUUsageDarwin()
-	case "linux":
+	case goosLinux:
 		return getCPUUsageLinux()
 	default:
 		return 0
@@ -772,7 +787,10 @@ func getCPUUsageLinux() float64 {
 
 	var total, idle float64
 	for i, f := range fields {
-		val, _ := strconv.ParseFloat(f, 64)
+		val, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			continue
+		}
 		total += val
 		if i == 3 {
 			idle = val
@@ -812,8 +830,7 @@ func (h *OpsHandler) getDiagnosis() DiagnosisResult {
 		status = "warning"
 		title = "警告"
 		message = fmt.Sprintf("错误率较高: %.2f%%", metrics.RequestErrorRate)
-		suggestions = append(suggestions, "检查上游服务状态")
-		suggestions = append(suggestions, "查看错误日志定位问题")
+		suggestions = append(suggestions, "检查上游服务状态", "查看错误日志定位问题")
 	}
 
 	if resources.Goroutines > resources.GoroutineWarn {
@@ -825,8 +842,7 @@ func (h *OpsHandler) getDiagnosis() DiagnosisResult {
 	}
 
 	if len(suggestions) == 0 {
-		suggestions = append(suggestions, "系统各项指标正常")
-		suggestions = append(suggestions, "建议定期检查告警规则")
+		suggestions = append(suggestions, "系统各项指标正常", "建议定期检查告警规则")
 	}
 
 	return DiagnosisResult{
@@ -837,7 +853,7 @@ func (h *OpsHandler) getDiagnosis() DiagnosisResult {
 	}
 }
 
-func (h *OpsHandler) getEvents(level string) []gin.H {
+func (h *OpsHandler) getEvents(_ string) []gin.H {
 	events := []gin.H{
 		{"timestamp": time.Now().Add(-5 * time.Minute).Format(time.RFC3339), "level": "info", "source": "system", "message": "Service started"},
 		{"timestamp": time.Now().Add(-2 * time.Minute).Format(time.RFC3339), "level": "info", "source": "router", "message": "Router initialized"},
@@ -881,7 +897,7 @@ func average(values []int64) int64 {
 	return sum / int64(len(values))
 }
 
-func max(values []int64) int64 {
+func maxInt64(values []int64) int64 {
 	if len(values) == 0 {
 		return 0
 	}

@@ -1,3 +1,4 @@
+//nolint:godot,revive
 package limiter
 
 import (
@@ -78,7 +79,9 @@ type accountRuntimeStat struct {
 // getOrCreate gets or creates runtime stats for an account
 func (m *RuntimeStatsManager) getOrCreate(accountID string) *accountRuntimeStat {
 	if value, ok := m.stats.Load(accountID); ok {
-		return value.(*accountRuntimeStat)
+		if stat, ok := value.(*accountRuntimeStat); ok {
+			return stat
+		}
 	}
 
 	stat := &accountRuntimeStat{
@@ -89,7 +92,9 @@ func (m *RuntimeStatsManager) getOrCreate(accountID string) *accountRuntimeStat 
 
 	actual, loaded := m.stats.LoadOrStore(accountID, stat)
 	if loaded {
-		return actual.(*accountRuntimeStat)
+		if loadedStat, ok := actual.(*accountRuntimeStat); ok {
+			return loadedStat
+		}
 	}
 	return stat
 }
@@ -142,7 +147,10 @@ func (m *RuntimeStatsManager) GetStats(accountID string) *AccountRuntimeStats {
 		}
 	}
 
-	stat := value.(*accountRuntimeStat)
+	stat, ok := value.(*accountRuntimeStat)
+	if !ok {
+		return nil
+	}
 	lastUpdateNano := stat.lastUpdate.Load()
 
 	return &AccountRuntimeStats{
@@ -166,7 +174,10 @@ func (m *RuntimeStatsManager) GetErrorRate(accountID string) float64 {
 		return 0
 	}
 
-	stat := value.(*accountRuntimeStat)
+	stat, ok := value.(*accountRuntimeStat)
+	if !ok {
+		return 0
+	}
 	return clamp01(stat.errorRateEWMA.Get())
 }
 
@@ -181,7 +192,10 @@ func (m *RuntimeStatsManager) GetTTFT(accountID string) float64 {
 		return 0
 	}
 
-	stat := value.(*accountRuntimeStat)
+	stat, ok := value.(*accountRuntimeStat)
+	if !ok {
+		return 0
+	}
 	return stat.ttftMsEWMA.Get()
 }
 

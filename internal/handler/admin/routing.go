@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Strategy types
+// Strategy types.
 const (
 	StrategyFailover      = "failover"
 	StrategyRoundRobin    = "roundrobin"
@@ -15,14 +15,13 @@ const (
 	StrategyCostOptimized = "cost"
 )
 
-// RoutingHandler handles routing strategy management
+// RoutingHandler handles routing strategy management.
 type RoutingHandler struct {
-	config     *RoutingConfig
-	configFile string // Path to config file for persistence
-	mu         sync.RWMutex
+	config *RoutingConfig
+	mu     sync.RWMutex
 }
 
-// NewRoutingHandler creates a new routing handler
+// NewRoutingHandler creates a new routing handler.
 func NewRoutingHandler() *RoutingHandler {
 	return &RoutingHandler{
 		config: &RoutingConfig{
@@ -30,18 +29,17 @@ func NewRoutingHandler() *RoutingHandler {
 			ModelStrategies: make(map[string]string),
 			ProviderWeights: make(map[string]int),
 			FailoverConfig: &FailoverConfig{
-				MaxRetries:      3,
-				RetryDelayMs:    100,
-				HealthCheckSec:  30,
-				CircuitBreaker:  true,
+				MaxRetries:       3,
+				RetryDelayMs:     100,
+				HealthCheckSec:   30,
+				CircuitBreaker:   true,
 				FailureThreshold: 5,
 			},
 		},
 	}
 }
 
-// GetRouting returns current routing configuration
-// GET /api/admin/routing
+// GET /api/admin/routing.
 func (h *RoutingHandler) GetRouting(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -52,8 +50,7 @@ func (h *RoutingHandler) GetRouting(c *gin.Context) {
 	})
 }
 
-// UpdateRouting updates routing configuration
-// PUT /api/admin/routing
+// PUT /api/admin/routing.
 func (h *RoutingHandler) UpdateRouting(c *gin.Context) {
 	var req RoutingConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -108,8 +105,7 @@ func (h *RoutingHandler) UpdateRouting(c *gin.Context) {
 	})
 }
 
-// GetStrategies returns available routing strategies
-// GET /api/admin/routing/strategies
+// GET /api/admin/routing/strategies.
 func (h *RoutingHandler) GetStrategies(c *gin.Context) {
 	strategies := []gin.H{
 		{
@@ -140,8 +136,7 @@ func (h *RoutingHandler) GetStrategies(c *gin.Context) {
 	})
 }
 
-// SetModelStrategy sets routing strategy for a specific model
-// PUT /api/admin/routing/models/:model/strategy
+// PUT /api/admin/routing/models/:model/strategy.
 func (h *RoutingHandler) SetModelStrategy(c *gin.Context) {
 	model := c.Param("model")
 
@@ -177,8 +172,7 @@ func (h *RoutingHandler) SetModelStrategy(c *gin.Context) {
 	})
 }
 
-// SetProviderWeight sets weight for a specific provider
-// PUT /api/admin/routing/providers/:provider/weight
+// PUT /api/admin/routing/providers/:provider/weight.
 func (h *RoutingHandler) SetProviderWeight(c *gin.Context) {
 	providerName := c.Param("provider")
 
@@ -214,8 +208,7 @@ func (h *RoutingHandler) SetProviderWeight(c *gin.Context) {
 	})
 }
 
-// ResetRouting resets routing configuration to defaults
-// POST /api/admin/routing/reset
+// POST /api/admin/routing/reset.
 func (h *RoutingHandler) ResetRouting(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -225,10 +218,10 @@ func (h *RoutingHandler) ResetRouting(c *gin.Context) {
 		ModelStrategies: make(map[string]string),
 		ProviderWeights: make(map[string]int),
 		FailoverConfig: &FailoverConfig{
-			MaxRetries:      3,
-			RetryDelayMs:    100,
-			HealthCheckSec:  30,
-			CircuitBreaker:  true,
+			MaxRetries:       3,
+			RetryDelayMs:     100,
+			HealthCheckSec:   30,
+			CircuitBreaker:   true,
 			FailureThreshold: 5,
 		},
 	}

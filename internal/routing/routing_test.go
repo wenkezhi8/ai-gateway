@@ -197,7 +197,7 @@ func TestSmartRouter_SelectModelWithAssessment(t *testing.T) {
 		t.Error("model should not be empty")
 	}
 	if assessment == nil {
-		t.Error("assessment should not be nil")
+		t.Fatal("assessment should not be nil")
 	}
 	if assessment.TaskType != TaskTypeCode {
 		t.Errorf("expected task type code, got %s", assessment.TaskType)

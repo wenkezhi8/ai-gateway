@@ -15,13 +15,13 @@ var (
 	ErrRedisNotAvailable = errors.New("redis not available")
 )
 
-// RedisCache implements Cache interface using Redis with MessagePack serialization
+// RedisCache implements Cache interface using Redis with MessagePack serialization.
 type RedisCache struct {
 	client *redis.Client
 	prefix string
 }
 
-// RedisConfig holds Redis cache configuration
+// RedisConfig holds Redis cache configuration.
 type RedisConfig struct {
 	Host     string
 	Port     int
@@ -30,7 +30,7 @@ type RedisConfig struct {
 	Prefix   string
 }
 
-// NewRedisCache creates a new Redis cache instance
+// NewRedisCache creates a new Redis cache instance.
 func NewRedisCache(cfg RedisConfig) (*RedisCache, error) {
 	client := redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
@@ -38,7 +38,7 @@ func NewRedisCache(cfg RedisConfig) (*RedisCache, error) {
 		DB:       cfg.DB,
 	})
 
-	// Test connection
+	// Test connection.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -57,7 +57,7 @@ func NewRedisCache(cfg RedisConfig) (*RedisCache, error) {
 	}, nil
 }
 
-// Get retrieves a value from Redis and deserializes using MessagePack
+// Get retrieves a value from Redis and deserializes using MessagePack.
 func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) error {
 	fullKey := c.prefix + key
 	data, err := c.client.Get(ctx, fullKey).Bytes()
@@ -71,7 +71,7 @@ func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) erro
 	return msgpack.Unmarshal(data, dest)
 }
 
-// Set stores a value in Redis using MessagePack serialization
+// Set stores a value in Redis using MessagePack serialization.
 func (c *RedisCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	fullKey := c.prefix + key
 
@@ -83,13 +83,13 @@ func (c *RedisCache) Set(ctx context.Context, key string, value interface{}, ttl
 	return c.client.Set(ctx, fullKey, data, ttl).Err()
 }
 
-// Delete removes a key from Redis
+// Delete removes a key from Redis.
 func (c *RedisCache) Delete(ctx context.Context, key string) error {
 	fullKey := c.prefix + key
 	return c.client.Del(ctx, fullKey).Err()
 }
 
-// Exists checks if a key exists in Redis
+// Exists checks if a key exists in Redis.
 func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 	fullKey := c.prefix + key
 	count, err := c.client.Exists(ctx, fullKey).Result()
@@ -99,7 +99,7 @@ func (c *RedisCache) Exists(ctx context.Context, key string) (bool, error) {
 	return count > 0, nil
 }
 
-// DeleteByPattern removes all keys matching a pattern
+// DeleteByPattern removes all keys matching a pattern.
 func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error {
 	fullPattern := c.prefix + pattern
 
@@ -127,12 +127,14 @@ func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error 
 	return nil
 }
 
-// GetClient returns the underlying Redis client for advanced operations
+// GetClient returns the underlying Redis client for advanced operations.
 func (c *RedisCache) GetClient() *redis.Client {
 	return c.client
 }
 
 // StatsByPattern returns count and total byte size (based on STRLEN) for keys matching pattern.
+//
+//nolint:gocritic // Unnamed returns keep callsites concise.
 func (c *RedisCache) StatsByPattern(ctx context.Context, pattern string) (int, int64, error) {
 	fullPattern := c.prefix + pattern
 	var cursor uint64
@@ -150,7 +152,9 @@ func (c *RedisCache) StatsByPattern(ctx context.Context, pattern string) (int, i
 			for _, key := range keys {
 				cmds = append(cmds, pipe.StrLen(ctx, key))
 			}
-			_, _ = pipe.Exec(ctx)
+			if _, err := pipe.Exec(ctx); err != nil {
+				return count, totalBytes, err
+			}
 			for _, cmd := range cmds {
 				if val, err := cmd.Result(); err == nil {
 					totalBytes += val
@@ -167,12 +171,12 @@ func (c *RedisCache) StatsByPattern(ctx context.Context, pattern string) (int, i
 	return count, totalBytes, nil
 }
 
-// Close closes the Redis connection
+// Close closes the Redis connection.
 func (c *RedisCache) Close() error {
 	return c.client.Close()
 }
 
-// SetNX sets a value only if the key does not exist (atomic operation)
+// SetNX sets a value only if the key does not exist (atomic operation).
 func (c *RedisCache) SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error) {
 	fullKey := c.prefix + key
 
@@ -184,7 +188,7 @@ func (c *RedisCache) SetNX(ctx context.Context, key string, value interface{}, t
 	return c.client.SetNX(ctx, fullKey, data, ttl).Result()
 }
 
-// GetOrSet returns the cached value or sets and returns the computed value
+// GetOrSet returns the cached value or sets and returns the computed value.
 func (c *RedisCache) GetOrSet(ctx context.Context, key string, dest interface{}, compute func() (interface{}, error), ttl time.Duration) error {
 	err := c.Get(ctx, key, dest)
 	if err == nil {
@@ -200,8 +204,8 @@ func (c *RedisCache) GetOrSet(ctx context.Context, key string, dest interface{},
 		return err
 	}
 
-	if err := c.Set(ctx, key, value, ttl); err != nil {
-		return err
+	if setErr := c.Set(ctx, key, value, ttl); setErr != nil {
+		return setErr
 	}
 
 	data, err := msgpack.Marshal(value)
@@ -212,7 +216,7 @@ func (c *RedisCache) GetOrSet(ctx context.Context, key string, dest interface{},
 	return msgpack.Unmarshal(data, dest)
 }
 
-// Keys returns all keys matching a pattern
+// Keys returns all keys matching a pattern.
 func (c *RedisCache) Keys(pattern string) []string {
 	ctx := context.Background()
 	fullPattern := c.prefix + pattern

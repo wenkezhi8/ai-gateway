@@ -1,14 +1,24 @@
 package handler
 
 import (
-	"ai-gateway/internal/provider"
-	"ai-gateway/internal/routing"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"ai-gateway/internal/provider"
+	"ai-gateway/internal/routing"
+)
+
+const (
+	anthropicModelAuto       = "auto"
+	anthropicModelLatest     = "latest"
+	anthropicModelDefault    = "default"
+	anthropicContentTypeText = "text"
+	finishReasonStop         = "stop"
 )
 
 type AnthropicMessagesRequest struct {
@@ -77,6 +87,7 @@ type AnthropicErrorResponse struct {
 	} `json:"error"`
 }
 
+//nolint:gocyclo // Handler logic is intentionally linear for request/response flow.
 func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	startTime := time.Now()
 
@@ -84,7 +95,8 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 
 	var req AnthropicMessagesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		if err.Error() == "http: request body too large" {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
 			h.writeAnthropicError(c, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds maximum size of 10MB")
 			return
 		}
@@ -119,7 +131,7 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	applyControlGenerationHintsAnthropic(&req, controlCfg, assessment)
 
 	requestedModel := req.Model
-	if req.Model == "auto" || req.Model == "latest" || req.Model == "default" {
+	if req.Model == anthropicModelAuto || req.Model == anthropicModelLatest || req.Model == anthropicModelDefault {
 		availableModels := make([]string, 0)
 		if h.accountManager != nil {
 			for _, acc := range h.accountManager.GetAllAccounts() {
@@ -130,9 +142,9 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 		}
 
 		switch req.Model {
-		case "latest":
+		case anthropicModelLatest:
 			requestedModel = h.smartRouter.SelectModelWithStrategy("latest", routing.StrategyQuality, prompt, availableModels)
-		case "default":
+		case anthropicModelDefault:
 			config := h.smartRouter.GetConfig()
 			if config.DefaultModel != "" {
 				requestedModel = config.DefaultModel
@@ -140,11 +152,11 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 				requestedModel = h.smartRouter.SelectModelForProvider("default", "anthropic", prompt, availableModels)
 			}
 		default:
-			requestedModel = h.smartRouter.SelectModelForProvider("auto", "anthropic", prompt, availableModels)
+			requestedModel = h.smartRouter.SelectModelForProvider(anthropicModelAuto, "anthropic", prompt, availableModels)
 		}
 	}
 
-	providerReq := buildProviderRequestFromAnthropic(req, requestedModel)
+	providerReq := buildProviderRequestFromAnthropic(&req, requestedModel)
 	targetProvider, err := h.getProviderForRequest(c, providerReq.Model, "anthropic")
 	if err != nil {
 		h.recordMetrics("", "", providerReq.Model, time.Since(startTime), 0, false)
@@ -217,7 +229,11 @@ func applyControlGenerationHintsAnthropic(req *AnthropicMessagesRequest, control
 	}
 }
 
-func buildProviderRequestFromAnthropic(req AnthropicMessagesRequest, model string) *provider.ChatRequest {
+func buildProviderRequestFromAnthropic(req *AnthropicMessagesRequest, model string) *provider.ChatRequest {
+	if req == nil {
+		return &provider.ChatRequest{Model: model}
+	}
+
 	extra := map[string]interface{}{}
 	if req.TopP != nil {
 		extra["top_p"] = *req.TopP
@@ -275,6 +291,7 @@ func buildProviderRequestFromAnthropic(req AnthropicMessagesRequest, model strin
 	return providerReq
 }
 
+//nolint:gocyclo // Multimodal conversion branches by block type.
 func convertAnthropicMessage(msg AnthropicMessage) []provider.ChatMessage {
 	contentBlocks, isArray := msg.Content.([]interface{})
 	if !isArray {
@@ -294,18 +311,27 @@ func convertAnthropicMessage(msg AnthropicMessage) []provider.ChatMessage {
 			continue
 		}
 
-		typeName, _ := block["type"].(string)
+		typeName := getStringFromMap(block, "type")
+		if typeName == "" {
+			continue
+		}
 		switch typeName {
-		case "text":
+		case anthropicContentTypeText:
 			if text, ok := block["text"].(string); ok {
 				contentParts = append(contentParts, map[string]interface{}{
-					"type": "text",
+					"type": anthropicContentTypeText,
 					"text": text,
 				})
 			}
 		case "image":
-			source, _ := block["source"].(map[string]interface{})
-			url, _ := source["url"].(string)
+			source, ok := block["source"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			url, ok := source["url"].(string)
+			if !ok {
+				continue
+			}
 			if url != "" {
 				contentParts = append(contentParts, map[string]interface{}{
 					"type": "image_url",
@@ -315,10 +341,16 @@ func convertAnthropicMessage(msg AnthropicMessage) []provider.ChatMessage {
 				})
 			}
 		case "tool_use":
-			callID, _ := block["id"].(string)
-			name, _ := block["name"].(string)
-			input, _ := block["input"].(map[string]interface{})
-			args, _ := json.Marshal(input)
+			callID := getStringFromMap(block, "id")
+			name := getStringFromMap(block, "name")
+			input, ok := block["input"].(map[string]interface{})
+			if !ok {
+				input = map[string]interface{}{}
+			}
+			args, err := json.Marshal(input)
+			if err != nil {
+				continue
+			}
 			toolCalls = append(toolCalls, provider.ToolCall{
 				ID:   callID,
 				Type: "function",
@@ -328,7 +360,7 @@ func convertAnthropicMessage(msg AnthropicMessage) []provider.ChatMessage {
 				},
 			})
 		case "tool_result":
-			toolUseID, _ := block["tool_use_id"].(string)
+			toolUseID := getStringFromMap(block, "tool_use_id")
 			result = append(result, provider.ChatMessage{
 				Role:       "tool",
 				ToolCallID: toolUseID,
@@ -340,7 +372,7 @@ func convertAnthropicMessage(msg AnthropicMessage) []provider.ChatMessage {
 	mainMsg := provider.ChatMessage{Role: msg.Role}
 	if len(contentParts) == 1 {
 		if first, ok := contentParts[0].(map[string]interface{}); ok {
-			if first["type"] == "text" {
+			if first["type"] == anthropicContentTypeText {
 				if text, ok := first["text"].(string); ok {
 					mainMsg.Content = text
 				}
@@ -372,13 +404,15 @@ func buildAnthropicResponseFromProvider(resp *provider.ChatResponse) AnthropicMe
 	content := make([]AnthropicContentBlock, 0)
 	text := getTextContent(message.Content)
 	if text != "" {
-		content = append(content, AnthropicContentBlock{Type: "text", Text: text})
+		content = append(content, AnthropicContentBlock{Type: anthropicContentTypeText, Text: text})
 	}
 
 	for _, call := range message.ToolCalls {
 		var input interface{}
 		if call.Function.Arguments != "" {
-			_ = json.Unmarshal([]byte(call.Function.Arguments), &input)
+			if err := json.Unmarshal([]byte(call.Function.Arguments), &input); err != nil {
+				input = map[string]string{"raw": call.Function.Arguments}
+			}
 		}
 		content = append(content, AnthropicContentBlock{
 			Type:  "tool_use",
@@ -389,7 +423,7 @@ func buildAnthropicResponseFromProvider(resp *provider.ChatResponse) AnthropicMe
 	}
 
 	if len(content) == 0 {
-		content = append(content, AnthropicContentBlock{Type: "text", Text: ""})
+		content = append(content, AnthropicContentBlock{Type: anthropicContentTypeText, Text: ""})
 	}
 
 	return AnthropicMessagesResponse{
@@ -406,6 +440,7 @@ func buildAnthropicResponseFromProvider(resp *provider.ChatResponse) AnthropicMe
 	}
 }
 
+//nolint:gocyclo // Stream event mapping needs explicit branching.
 func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.Provider, req *provider.ChatRequest, startTime time.Time) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -455,7 +490,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 						"type":  "content_block_start",
 						"index": 0,
 						"content_block": map[string]interface{}{
-							"type": "text",
+							"type": anthropicContentTypeText,
 							"text": "",
 						},
 					}); err != nil {
@@ -540,7 +575,7 @@ func extractAnthropicPrompt(messages []AnthropicMessage) string {
 		if blocks, ok := msg.Content.([]interface{}); ok {
 			for _, raw := range blocks {
 				if block, ok := raw.(map[string]interface{}); ok {
-					if block["type"] == "text" {
+					if block["type"] == anthropicContentTypeText {
 						if text, ok := block["text"].(string); ok {
 							return text
 						}
@@ -552,13 +587,21 @@ func extractAnthropicPrompt(messages []AnthropicMessage) string {
 	return ""
 }
 
+func getStringFromMap(data map[string]interface{}, key string) string {
+	value, ok := data[key].(string)
+	if !ok {
+		return ""
+	}
+	return value
+}
+
 func mapFinishReasonToAnthropic(finishReason string) string {
 	switch finishReason {
 	case "tool_calls":
 		return "tool_use"
 	case "length":
 		return "max_tokens"
-	case "stop", "":
+	case finishReasonStop, "":
 		return "end_turn"
 	default:
 		return finishReason

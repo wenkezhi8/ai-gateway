@@ -16,11 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+//nolint:gochecknoinits // set gin mode once for test process.
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
 func setupTestHandler(t *testing.T) (*AuthHandler, *gin.Engine) {
+	t.Helper()
+
 	jwtConfig := middleware.JWTConfig{
 		Secret:     "test-secret-key-for-testing",
 		ExpireTime: 3600,
@@ -32,6 +35,15 @@ func setupTestHandler(t *testing.T) (*AuthHandler, *gin.Engine) {
 
 	router := gin.New()
 	return handler, router
+}
+
+func mustJSONBody(t *testing.T, body any) []byte {
+	t.Helper()
+
+	jsonBody, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	return jsonBody
 }
 
 func TestNewAuthHandler(t *testing.T) {
@@ -50,7 +62,7 @@ func TestLogin_Success(t *testing.T) {
 	router.POST("/login", handler.Login)
 
 	body := LoginRequest{Username: "admin", Password: "admin123"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -73,7 +85,7 @@ func TestLogin_InvalidCredentials(t *testing.T) {
 	router.POST("/login", handler.Login)
 
 	body := LoginRequest{Username: "admin", Password: "wrongpassword"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -104,7 +116,7 @@ func TestLogin_UserNotFound(t *testing.T) {
 	router.POST("/login", handler.Login)
 
 	body := LoginRequest{Username: "nonexistent", Password: "password"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("POST", "/login", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -128,7 +140,7 @@ func TestChangePassword_Success(t *testing.T) {
 	})
 
 	body := ChangePasswordRequest{OldPassword: "admin123", NewPassword: "newpassword123"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/password", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -152,7 +164,7 @@ func TestChangePassword_InvalidOldPassword(t *testing.T) {
 	})
 
 	body := ChangePasswordRequest{OldPassword: "wrongpassword", NewPassword: "newpassword123"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/password", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -168,7 +180,7 @@ func TestListUsers(t *testing.T) {
 
 	router.GET("/users", handler.ListUsers)
 
-	req := httptest.NewRequest("GET", "/users", nil)
+	req := httptest.NewRequest("GET", "/users", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -192,7 +204,7 @@ func TestCreateUser_Success(t *testing.T) {
 	})
 
 	body := CreateUserRequest{Username: "testuser", Password: "password123", Role: "viewer"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -214,7 +226,7 @@ func TestCreateUser_Duplicate(t *testing.T) {
 	})
 
 	body := CreateUserRequest{Username: "admin", Password: "password123", Role: "viewer"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("POST", "/users", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -242,7 +254,7 @@ func TestDeleteUser_Success(t *testing.T) {
 		handler.DeleteUser(c)
 	})
 
-	req := httptest.NewRequest("DELETE", "/users/testuser", nil)
+	req := httptest.NewRequest("DELETE", "/users/testuser", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -260,7 +272,7 @@ func TestDeleteUser_CannotDeleteAdmin(t *testing.T) {
 		handler.DeleteUser(c)
 	})
 
-	req := httptest.NewRequest("DELETE", "/users/admin", nil)
+	req := httptest.NewRequest("DELETE", "/users/admin", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -278,7 +290,7 @@ func TestDeleteUser_NotFound(t *testing.T) {
 		handler.DeleteUser(c)
 	})
 
-	req := httptest.NewRequest("DELETE", "/users/nonexistent", nil)
+	req := httptest.NewRequest("DELETE", "/users/nonexistent", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -305,7 +317,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 
 	newUsername := "updated_" + time.Now().Format("20060102150405")
 	body := UpdateProfileRequest{Username: newUsername}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -327,7 +339,7 @@ func TestUpdateProfile_EmptyUsername(t *testing.T) {
 	})
 
 	body := UpdateProfileRequest{Username: ""}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -349,7 +361,7 @@ func TestUpdateProfile_ShortUsername(t *testing.T) {
 	})
 
 	body := UpdateProfileRequest{Username: "ab"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -378,7 +390,7 @@ func TestUpdateProfile_Conflict(t *testing.T) {
 	})
 
 	body := UpdateProfileRequest{Username: "admin"}
-	jsonBody, _ := json.Marshal(body)
+	jsonBody := mustJSONBody(t, body)
 
 	req := httptest.NewRequest("PUT", "/profile", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -399,7 +411,7 @@ func TestGetCurrentUser(t *testing.T) {
 		handler.GetCurrentUser(c)
 	})
 
-	req := httptest.NewRequest("GET", "/me", nil)
+	req := httptest.NewRequest("GET", "/me", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -417,7 +429,7 @@ func TestLogout(t *testing.T) {
 		handler.Logout(c)
 	})
 
-	req := httptest.NewRequest("POST", "/logout", nil)
+	req := httptest.NewRequest("POST", "/logout", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -430,9 +442,10 @@ func TestValidateToken(t *testing.T) {
 
 	router.GET("/validate", handler.ValidateToken)
 
-	token, _ := middleware.GenerateToken(handler.users["admin"], handler.jwtConfig)
+	token, err := middleware.GenerateToken(handler.users["admin"], handler.jwtConfig)
+	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/validate", nil)
+	req := httptest.NewRequest("GET", "/validate", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 
@@ -446,7 +459,7 @@ func TestValidateToken_NoToken(t *testing.T) {
 
 	router.GET("/validate", handler.ValidateToken)
 
-	req := httptest.NewRequest("GET", "/validate", nil)
+	req := httptest.NewRequest("GET", "/validate", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -459,7 +472,7 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 
 	router.GET("/validate", handler.ValidateToken)
 
-	req := httptest.NewRequest("GET", "/validate", nil)
+	req := httptest.NewRequest("GET", "/validate", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
 
@@ -468,7 +481,8 @@ func TestValidateToken_InvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 
 	var resp map[string]interface{}
-	json.Unmarshal(w.Body.Bytes(), &resp)
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
 	assert.Equal(t, false, resp["valid"])
 }
 
@@ -482,7 +496,7 @@ func TestRefreshToken(t *testing.T) {
 		handler.RefreshToken(c)
 	})
 
-	req := httptest.NewRequest("POST", "/refresh", nil)
+	req := httptest.NewRequest("POST", "/refresh", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -516,7 +530,7 @@ func TestExtractClaims(t *testing.T) {
 		c.JSON(200, extracted)
 	})
 
-	req := httptest.NewRequest("GET", "/extract", nil)
+	req := httptest.NewRequest("GET", "/extract", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -534,7 +548,7 @@ func TestExtractClaims_NoClaims(t *testing.T) {
 		}
 	})
 
-	req := httptest.NewRequest("GET", "/extract", nil)
+	req := httptest.NewRequest("GET", "/extract", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)

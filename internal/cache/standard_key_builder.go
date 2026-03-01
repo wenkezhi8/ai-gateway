@@ -9,7 +9,7 @@ import (
 )
 
 // BuildStandardKey generates a stable key in form:
-// intent:<intent>:k1=v1,k2=v2
+// intent:<intent>:k1=v1,k2=v2.
 func BuildStandardKey(intent string, slots map[string]string) string {
 	normalizedIntent := strings.TrimSpace(intent)
 	if normalizedIntent == "" {
@@ -44,7 +44,7 @@ func BuildStandardKey(intent string, slots map[string]string) string {
 }
 
 // BuildTaskTypeStandardKey generates a stable key from task type + normalized query.
-func BuildTaskTypeStandardKey(taskType string, normalizedQuery string) string {
+func BuildTaskTypeStandardKey(taskType, normalizedQuery string) string {
 	normalizedTaskType := strings.ToLower(strings.TrimSpace(taskType))
 	if normalizedTaskType == "" {
 		normalizedTaskType = "unknown"

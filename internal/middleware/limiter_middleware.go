@@ -1,19 +1,22 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+
 	"ai-gateway/internal/limiter"
 )
 
 // LimiterMiddleware provides rate limiting middleware
 type LimiterMiddleware struct {
-	manager      *limiter.AccountManager
-	tracker      *limiter.UsageTracker
-	logger       *logrus.Logger
+	manager *limiter.AccountManager
+	tracker *limiter.UsageTracker
+	logger  *logrus.Logger
 }
 
 // NewLimiterMiddleware creates a new limiter middleware
@@ -186,12 +189,12 @@ func (m *LimiterMiddleware) AlertHandler() gin.HandlerFunc {
 				return
 			case alert := <-alertChan:
 				c.SSEvent("alert", gin.H{
-					"type":        alert.Type,
-					"account_id":  alert.AccountID,
-					"limit_type":  alert.LimitType,
-					"percent":     alert.PercentUsed,
-					"message":     alert.Message,
-					"timestamp":   alert.Timestamp,
+					"type":       alert.Type,
+					"account_id": alert.AccountID,
+					"limit_type": alert.LimitType,
+					"percent":    alert.PercentUsed,
+					"message":    alert.Message,
+					"timestamp":  alert.Timestamp,
 				})
 				c.Writer.Flush()
 			}
@@ -276,7 +279,10 @@ func (m *LimiterMiddleware) GetSwitchHistory() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 50
 		if l := c.Query("limit"); l != "" {
-			// Parse limit from query
+			parsedLimit, err := strconv.Atoi(l)
+			if err == nil && parsedLimit > 0 {
+				limit = parsedLimit
+			}
 		}
 
 		history := m.manager.GetSwitchHistory(limit)

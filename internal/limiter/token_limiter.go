@@ -1,3 +1,4 @@
+//nolint:godot,exhaustive
 package limiter
 
 import (
@@ -186,6 +187,9 @@ func (l *TokenLimiter) getResetTime() time.Time {
 
 // getTTL returns the TTL for keys
 func (l *TokenLimiter) getTTL() time.Duration {
-	d, _ := PeriodDuration(l.period)
+	d, err := PeriodDuration(l.period)
+	if err != nil {
+		d = time.Hour
+	}
 	return d + time.Minute // Add buffer
 }

@@ -13,15 +13,15 @@ var (
 	ErrNotCacheable = errors.New("request is not cacheable")
 )
 
-// RequestCacheConfig holds configuration for request caching
+// RequestCacheConfig holds configuration for request caching.
 type RequestCacheConfig struct {
-	DefaultTTL   time.Duration
-	MaxBodySize  int64
-	SkipStream   bool
-	KeyTemplate  string
+	DefaultTTL  time.Duration
+	MaxBodySize int64
+	SkipStream  bool
+	KeyTemplate string
 }
 
-// DefaultRequestCacheConfig returns default configuration
+// DefaultRequestCacheConfig returns default configuration.
 func DefaultRequestCacheConfig() RequestCacheConfig {
 	return RequestCacheConfig{
 		DefaultTTL:  30 * time.Minute,
@@ -31,35 +31,35 @@ func DefaultRequestCacheConfig() RequestCacheConfig {
 	}
 }
 
-// CachedRequest represents a cached AI request response
+// CachedRequest represents a cached AI request response.
 type CachedRequest struct {
-	Key         string          `json:"key"`
-	Provider    string          `json:"provider"`
-	Model       string          `json:"model"`
-	Prompt      string          `json:"prompt"`
-	Parameters  json.RawMessage `json:"parameters"`
-	Response    json.RawMessage `json:"response"`
-	TokensUsed  TokenUsage      `json:"tokens_used"`
-	CreatedAt   time.Time       `json:"created_at"`
-	ExpiresAt   time.Time       `json:"expires_at"`
-	HitCount    int64           `json:"hit_count"`
+	Key        string          `json:"key"`
+	Provider   string          `json:"provider"`
+	Model      string          `json:"model"`
+	Prompt     string          `json:"prompt"`
+	Parameters json.RawMessage `json:"parameters"`
+	Response   json.RawMessage `json:"response"`
+	TokensUsed TokenUsage      `json:"tokens_used"`
+	CreatedAt  time.Time       `json:"created_at"`
+	ExpiresAt  time.Time       `json:"expires_at"`
+	HitCount   int64           `json:"hit_count"`
 }
 
-// TokenUsage represents token usage information
+// TokenUsage represents token usage information.
 type TokenUsage struct {
 	PromptTokens     int64 `json:"prompt_tokens"`
 	CompletionTokens int64 `json:"completion_tokens"`
 	TotalTokens      int64 `json:"total_tokens"`
 }
 
-// RequestCache handles caching of AI request responses
+// RequestCache handles caching of AI request responses.
 type RequestCache struct {
 	cache  Cache
 	stats  *Stats
 	config RequestCacheConfig
 }
 
-// NewRequestCache creates a new request cache
+// NewRequestCache creates a new request cache.
 func NewRequestCache(cache Cache, config RequestCacheConfig) *RequestCache {
 	return &RequestCache{
 		cache:  cache,
@@ -68,10 +68,10 @@ func NewRequestCache(cache Cache, config RequestCacheConfig) *RequestCache {
 	}
 }
 
-// CacheKey generates a cache key from request parameters
-// Key = sha256(Prompt + Model + Parameters)
+// CacheKey generates a cache key from request parameters.
+// Key = sha256(Prompt + Model + Parameters).
 func (c *RequestCache) CacheKey(provider, model, prompt string, params interface{}) (string, error) {
-	// Build key components
+	// Build key components.
 	keyData := map[string]interface{}{
 		"provider": provider,
 		"model":    model,
@@ -84,14 +84,14 @@ func (c *RequestCache) CacheKey(provider, model, prompt string, params interface
 		return "", err
 	}
 
-	// Generate SHA256 hash (more secure than MD5)
+	// Generate SHA256 hash (more secure than MD5).
 	hash := sha256.Sum256(data)
 	hashStr := hex.EncodeToString(hash[:])
 
 	return "req:" + provider + ":" + model + ":" + hashStr, nil
 }
 
-// Get retrieves a cached response
+// Get retrieves a cached response.
 func (c *RequestCache) Get(ctx context.Context, key string) (*CachedRequest, error) {
 	start := time.Now()
 
@@ -112,13 +112,13 @@ func (c *RequestCache) Get(ctx context.Context, key string) (*CachedRequest, err
 	c.stats.RecordRequestSaved()
 	c.stats.RecordTokensSaved(cached.TokensUsed.TotalTokens)
 
-	// Update hit count
+	// Update hit count.
 	cached.HitCount++
 
 	return &cached, nil
 }
 
-// Set stores a response in cache
+// Set stores a response in cache.
 func (c *RequestCache) Set(ctx context.Context, req *CachedRequest) error {
 	if !c.IsCacheable(req) {
 		return ErrNotCacheable
@@ -135,14 +135,14 @@ func (c *RequestCache) Set(ctx context.Context, req *CachedRequest) error {
 	return c.cache.Set(ctx, req.Key, req, ttl)
 }
 
-// IsCacheable checks if a request can be cached
+// IsCacheable checks if a request can be cached.
 func (c *RequestCache) IsCacheable(req *CachedRequest) bool {
-	// Don't cache empty responses
+	// Don't cache empty responses.
 	if len(req.Response) == 0 {
 		return false
 	}
 
-	// Don't cache if body is too large
+	// Don't cache if body is too large.
 	if c.config.MaxBodySize > 0 && int64(len(req.Response)) > c.config.MaxBodySize {
 		return false
 	}
@@ -150,7 +150,7 @@ func (c *RequestCache) IsCacheable(req *CachedRequest) bool {
 	return true
 }
 
-// Invalidate invalidates cached requests by pattern
+// Invalidate invalidates cached requests by pattern.
 func (c *RequestCache) Invalidate(ctx context.Context, provider, model string) error {
 	pattern := "req:" + provider + ":" + model + ":*"
 
@@ -158,17 +158,17 @@ func (c *RequestCache) Invalidate(ctx context.Context, provider, model string) e
 		return rc.DeleteByPattern(ctx, pattern)
 	}
 
-	// For memory cache, we need to handle differently
-	// This is a limitation of in-memory cache
+	// For memory cache, we need to handle differently.
+	// This is a limitation of in-memory cache.
 	return nil
 }
 
-// GetStats returns cache statistics
+// GetStats returns cache statistics.
 func (c *RequestCache) GetStats() StatsSnapshot {
 	return c.stats.Snapshot()
 }
 
-// GetTokenSavings returns total tokens saved
+// GetTokenSavings returns total tokens saved.
 func (c *RequestCache) GetTokenSavings() int64 {
 	return c.stats.Snapshot().TokensSaved
 }
@@ -180,7 +180,7 @@ func (c *RequestCache) SetDefaultTTL(ttl time.Duration) {
 	}
 }
 
-// RequestCacheMiddleware provides middleware for caching AI requests
+// RequestCacheMiddleware provides middleware for caching AI requests.
 type RequestCacheMiddleware struct {
 	cache       *RequestCache
 	skipFunc    func(provider, model string) bool
@@ -189,62 +189,60 @@ type RequestCacheMiddleware struct {
 	deserialize func(data []byte, dest interface{}) error
 }
 
-// NewRequestCacheMiddleware creates a new cache middleware
+// NewRequestCacheMiddleware creates a new cache middleware.
 func NewRequestCacheMiddleware(cache *RequestCache) *RequestCacheMiddleware {
 	return &RequestCacheMiddleware{
 		cache: cache,
-		skipFunc: func(provider, model string) bool {
+		skipFunc: func(_ string, _ string) bool {
 			return false // Don't skip any by default
 		},
-		keyFunc: cache.CacheKey,
-		serialize: func(response interface{}) ([]byte, error) {
-			return json.Marshal(response)
-		},
-		deserialize: func(data []byte, dest interface{}) error {
-			return json.Unmarshal(data, dest)
-		},
+		keyFunc:     cache.CacheKey,
+		serialize:   json.Marshal,
+		deserialize: json.Unmarshal,
 	}
 }
 
-// WithSkipFunc sets a custom skip function
+// WithSkipFunc sets a custom skip function.
 func (m *RequestCacheMiddleware) WithSkipFunc(fn func(provider, model string) bool) *RequestCacheMiddleware {
 	m.skipFunc = fn
 	return m
 }
 
-// GetOrCreate attempts to get from cache, or creates and caches the result
+// GetOrCreate attempts to get from cache, or creates and caches the result.
+//
+//nolint:gocritic // Return tuple kept explicit for middleware callers.
 func (m *RequestCacheMiddleware) GetOrCreate(
 	ctx context.Context,
 	provider, model, prompt string,
 	params interface{},
 	create func() ([]byte, TokenUsage, error),
 ) ([]byte, bool, error) {
-	// Check if we should skip caching for this request
+	// Check if we should skip caching for this request.
 	if m.skipFunc(provider, model) {
 		response, _, err := create()
 		return response, false, err
 	}
 
-	// Generate cache key
+	// Generate cache key.
 	key, err := m.keyFunc(provider, model, prompt, params)
 	if err != nil {
-		response, _, err := create()
-		return response, false, err
+		response, _, createErr := create()
+		return response, false, createErr
 	}
 
-	// Try to get from cache
+	// Try to get from cache.
 	cached, err := m.cache.Get(ctx, key)
 	if err == nil {
 		return cached.Response, true, nil
 	}
 
-	// Cache miss - create new response
+	// Cache miss - create new response.
 	response, tokens, err := create()
 	if err != nil {
 		return nil, false, err
 	}
 
-	// Store in cache
+	// Store in cache.
 	cachedReq := &CachedRequest{
 		Key:        key,
 		Provider:   provider,
@@ -256,14 +254,16 @@ func (m *RequestCacheMiddleware) GetOrCreate(
 	}
 
 	if err := m.cache.Set(ctx, cachedReq); err != nil {
-		// Log error but don't fail the request
-		// In production, this should be logged
+		m.cache.stats.RecordError()
 	}
 
 	return response, false, nil
 }
 
 func mustMarshal(v interface{}) json.RawMessage {
-	data, _ := json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil {
+		return json.RawMessage("null")
+	}
 	return data
 }

@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"ai-gateway/pkg/logger"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -11,6 +10,7 @@ import (
 
 	"ai-gateway/internal/audit"
 	"ai-gateway/internal/middleware"
+	"ai-gateway/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -20,6 +20,7 @@ const usersDataFile = "data/users.json"
 
 var authLogger = logger.WithField("component", "auth")
 
+//nolint:revive // keep exported name for compatibility with existing callers.
 type AuthHandler struct {
 	jwtConfig middleware.JWTConfig
 	users     map[string]*middleware.User
@@ -53,7 +54,9 @@ func NewAuthHandler(jwtConfig middleware.JWTConfig, auditLog *audit.Logger) *Aut
 			Role:         "admin",
 			CreatedAt:    time.Now().Unix(),
 		}
-		h.saveToFile()
+		if err := h.saveToFile(); err != nil {
+			authLogger.WithError(err).Warn("Failed to persist default admin user")
+		}
 		authLogger.Info("Created default admin user")
 	}
 
@@ -110,7 +113,7 @@ func (h *AuthHandler) saveToFile() error {
 		return err
 	}
 
-	return os.WriteFile(usersDataFile, data, 0644)
+	return os.WriteFile(usersDataFile, data, 0600)
 }
 
 func mustHashPassword(password string) string {
@@ -244,14 +247,14 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Password changed successfully"})
 }
 
-// UpdateProfileRequest represents the request for updating user profile
+// UpdateProfileRequest represents the request for updating user profile.
 type UpdateProfileRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 }
 
-// UpdateProfile updates the current user's profile
-// 改动点: 新增用户资料更新接口，支持修改用户名
+// UpdateProfile updates the current user's profile.
+// 改动点: 新增用户资料更新接口，支持修改用户名.
 func (h *AuthHandler) UpdateProfile(c *gin.Context) {
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -460,6 +463,7 @@ func (h *AuthHandler) ValidateToken(c *gin.Context) {
 	})
 }
 
+//nolint:unparam // keep parameter for future non-auth resource audit events.
 func (h *AuthHandler) logAudit(userID, username, ip, userAgent string, action audit.ActionType, resource audit.ResourceType, resourceID, detail, status, errMsg string) {
 	if h.auditLog != nil {
 		h.auditLog.Log(audit.LogEntry{
@@ -499,7 +503,7 @@ func ParseTokenMiddleware(secret string) gin.HandlerFunc {
 			tokenString = authHeader[7:]
 		}
 
-		claims, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(token *jwt.Token) (interface{}, error) {
+		claims, err := jwt.ParseWithClaims(tokenString, &middleware.Claims{}, func(_ *jwt.Token) (interface{}, error) {
 			return []byte(secret), nil
 		})
 

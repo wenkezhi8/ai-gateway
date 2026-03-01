@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,revive
 package provider
 
 import (

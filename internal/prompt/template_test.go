@@ -98,9 +98,10 @@ func TestManager_Delete(t *testing.T) {
 		Name:     "To Delete",
 		Provider: "test",
 	}
-	mgr.Add(tmpl)
+	err := mgr.Add(tmpl)
+	require.NoError(t, err)
 
-	err := mgr.Delete("to-delete")
+	err = mgr.Delete("to-delete")
 	require.NoError(t, err)
 
 	_, err = mgr.Get("to-delete")
@@ -208,7 +209,7 @@ func TestConvertMessagesToPrompt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.provider, func(t *testing.T) {
 			result := ConvertMessagesToPrompt(messages, tt.provider)
-			assert.True(t, len(result) > 0, "result should not be empty")
+			assert.True(t, result != "", "result should not be empty")
 			if tt.contains != "" {
 				assert.Contains(t, result, tt.contains)
 			}

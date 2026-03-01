@@ -1,14 +1,16 @@
+//nolint:godot
 package handler
 
 import (
-	"ai-gateway/internal/config"
-	"ai-gateway/internal/provider"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"ai-gateway/internal/config"
+	"ai-gateway/internal/provider"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -158,7 +160,7 @@ type mockProvider struct {
 	*provider.BaseProvider
 }
 
-func (m *mockProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (m *mockProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return &provider.ChatResponse{
 		ID:      "test-response-id",
 		Object:  "chat.completion",
@@ -182,7 +184,7 @@ func (m *mockProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*pr
 	}, nil
 }
 
-func (m *mockProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+func (m *mockProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	ch := make(chan *provider.StreamChunk, 1)
 	go func() {
 		defer close(ch)
@@ -205,7 +207,7 @@ func (m *mockProvider) StreamChat(ctx context.Context, req *provider.ChatRequest
 	return ch, nil
 }
 
-func (m *mockProvider) ValidateKey(ctx context.Context) bool {
+func (m *mockProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -230,20 +232,20 @@ type failingProvider struct {
 	chatErr error
 }
 
-func (f *failingProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (f *failingProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
 	if f.chatErr != nil {
 		return nil, f.chatErr
 	}
 	return nil, nil
 }
 
-func (f *failingProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+func (f *failingProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	ch := make(chan *provider.StreamChunk)
 	close(ch)
 	return ch, nil
 }
 
-func (f *failingProvider) ValidateKey(ctx context.Context) bool {
+func (f *failingProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 

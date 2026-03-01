@@ -54,14 +54,15 @@ func TestConfigWatcher_OnReload(t *testing.T) {
 	defer watcher.Close()
 
 	reloadCalled := make(chan struct{}, 1)
-	watcher.OnReload(func(c *Config) {
+	watcher.OnReload(func(_ *Config) {
 		select {
 		case reloadCalled <- struct{}{}:
 		default:
 		}
 	})
 
-	watcher.ReloadManually()
+	err = watcher.ReloadManually()
+	require.NoError(t, err)
 
 	select {
 	case <-reloadCalled:
@@ -168,5 +169,5 @@ func TestGlobalWatcher(t *testing.T) {
 	retrieved := GetWatchedConfig()
 	assert.NotNil(t, retrieved)
 
-	OnConfigReload(func(c *Config) {})
+	OnConfigReload(func(_ *Config) {})
 }

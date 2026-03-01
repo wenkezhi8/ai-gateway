@@ -1,13 +1,18 @@
 package handler
 
 import (
-	"ai-gateway/internal/provider"
-	"ai-gateway/internal/routing"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"ai-gateway/internal/provider"
+	"ai-gateway/internal/routing"
 )
+
+func boolPtrAnthropic(v bool) *bool {
+	return &v
+}
 
 func TestConvertAnthropicMessage_Multimodal(t *testing.T) {
 	msg := AnthropicMessage{
@@ -130,7 +135,7 @@ func TestApplyControlToolGateAnthropic(t *testing.T) {
 	}
 
 	cfg := routing.ControlConfig{Enable: true, ToolGateEnable: true}
-	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtr(false)}}
+	assessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtrAnthropic(false)}}
 
 	applyControlToolGateAnthropic(req, cfg, assessment)
 	assert.Len(t, req.Tools, 0)
@@ -142,7 +147,7 @@ func TestApplyControlToolGateAnthropic(t *testing.T) {
 	assert.Len(t, shadowReq.Tools, 1)
 
 	allowReq := &AnthropicMessagesRequest{Tools: []AnthropicTool{{Name: "get_weather"}}}
-	allowAssessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtr(true)}}
+	allowAssessment := &routing.AssessmentResult{ControlSignals: &routing.ControlSignals{ToolNeeded: boolPtrAnthropic(true)}}
 	applyControlToolGateAnthropic(allowReq, cfg, allowAssessment)
 	assert.Len(t, allowReq.Tools, 1)
 }

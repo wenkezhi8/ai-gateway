@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestCORS_DefaultHeaders(t *testing.T) {
 	r := gin.New()
 	r.Use(CORS())
@@ -21,7 +17,7 @@ func TestCORS_DefaultHeaders(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
@@ -40,7 +36,7 @@ func TestCORS_OptionsRequest(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("OPTIONS", "/api", nil)
+	req := httptest.NewRequest("OPTIONS", "/api", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	// OPTIONS should return 204
@@ -55,7 +51,7 @@ func TestCORS_PostRequest(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api", nil)
+	req := httptest.NewRequest("POST", "/api", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -70,7 +66,7 @@ func TestCORS_AllowedHeaders(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	allowedHeaders := w.Header().Get("Access-Control-Allow-Headers")
@@ -97,7 +93,7 @@ func TestCORS_AllowedMethods(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	allowedMethods := w.Header().Get("Access-Control-Allow-Methods")
