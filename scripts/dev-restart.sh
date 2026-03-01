@@ -1,8 +1,8 @@
 #!/bin/bash
-# 开发完成后重启脚本
+# 开发完成后重启脚本（严格模式）
 # 使用方法: ./scripts/dev-restart.sh
 
-set -e
+set -euo pipefail
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -13,6 +13,11 @@ cd "$PROJECT_DIR"
 echo "🔨 构建前端..."
 cd web
 npm run build
+
+echo ""
+echo "🔨 构建后端二进制..."
+cd "$PROJECT_DIR"
+go build -o bin/gateway ./cmd/gateway
 
 echo ""
 echo "🔍 检查 Redis (6379)..."
@@ -43,25 +48,32 @@ echo ""
 echo "🛑 停止所有旧服务（包括僵尸进程）..."
 # 停止所有 gateway 相关进程
 pkill -9 -f "go run ./cmd/gateway" 2>/dev/null || true
+pkill -9 -f "clawdbot-gateway" 2>/dev/null || true
 pkill -9 -f "ai-gateway" 2>/dev/null || true
 pkill -9 -f "openclaw-gateway" 2>/dev/null || true
 pkill -9 -f "/gateway" 2>/dev/null || true
 sleep 2
 
 # 再次确认没有残留
-REMAINING=$(pgrep -f "gateway" 2>/dev/null | wc -l)
+REMAINING=$(pgrep -f "gateway" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$REMAINING" -gt 0 ]; then
     echo "⚠️  发现 $REMAINING 个残留进程，强制清理..."
     pkill -9 gateway 2>/dev/null || true
     sleep 1
 fi
 
+if lsof -iTCP:8566 -sTCP:LISTEN -ti >/dev/null 2>&1; then
+    echo "❌ 端口 8566 仍被占用，停止失败"
+    lsof -i :8566 -n -P
+    exit 1
+fi
+
 echo "✓ 旧服务已停止"
 
 echo ""
-echo "🚀 启动新服务..."
+echo "🚀 启动新服务（二进制）..."
 cd "$PROJECT_DIR"
-nohup go run ./cmd/gateway > /tmp/ai-gateway.log 2>&1 &
+nohup ./bin/gateway > /tmp/ai-gateway.log 2>&1 &
 GATEWAY_PID=$!
 
 echo ""
@@ -73,6 +85,25 @@ echo "🔍 检查服务状态..."
 HEALTH=$(curl -s http://localhost:8566/health)
 if echo "$HEALTH" | grep -q "healthy"; then
     echo "✅ 服务启动成功"
+
+    if ! lsof -iTCP:8566 -sTCP:LISTEN -ti >/dev/null 2>&1; then
+        echo "❌ 未检测到 8566 监听"
+        exit 1
+    fi
+
+    TRACE_HTML=$(curl -s http://localhost:8566/trace)
+    TRACE_ASSET=$(echo "$TRACE_HTML" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1 || true)
+    if [ -z "$TRACE_ASSET" ]; then
+        echo "❌ /trace 未找到前端资产引用"
+        exit 1
+    fi
+
+    TRACE_ASSET_HEAD=$(curl -s "http://localhost:8566$TRACE_ASSET" | head -c 20)
+    if echo "$TRACE_ASSET_HEAD" | grep -qi "<!doctype html"; then
+        echo "❌ /trace 资产返回了 HTML，疑似资源不一致"
+        echo "   资产路径: $TRACE_ASSET"
+        exit 1
+    fi
 
     CACHE_BACKEND_LINE=$(grep -E "Cache backend is memory|Connected to Redis" /tmp/ai-gateway.log | tail -1 || true)
     if [ -n "$CACHE_BACKEND_LINE" ]; then
@@ -93,6 +124,7 @@ if echo "$HEALTH" | grep -q "healthy"; then
     echo "   - 首页:     http://localhost:8566/"
     echo "   - 路由策略: http://localhost:8566/routing"
     echo "   - 缓存管理: http://localhost:8566/cache"
+    echo "   - 请求链路: http://localhost:8566/trace"
     echo ""
     echo "⚠️  如果页面显示异常，请强制刷新浏览器:"
     echo "   Mac:     Cmd + Shift + R"
