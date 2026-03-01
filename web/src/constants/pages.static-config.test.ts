@@ -7,7 +7,10 @@ import { OPS_TIME_TABS } from './pages/ops'
 import { DASHBOARD_FALLBACK_SERIES } from './pages/dashboard'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from './pages/settings'
 import { USAGE_CSV_HEADER } from './pages/usage'
-import { PROVIDERS_ACCOUNTS_BASE_TYPES, PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS } from './pages/providers-accounts'
+import {
+  PROVIDERS_ACCOUNTS_BASE_TYPES,
+  PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS
+} from './pages/providers-accounts'
 import { PROVIDERS_ENDPOINT_MAP } from './pages/providers'
 
 describe('pages static config extraction', () => {
@@ -34,20 +37,38 @@ describe('pages static config extraction', () => {
     expect(USAGE_CSV_HEADER).toContain('任务类型')
   })
 
+  it('should include saved token column in usage csv header', () => {
+    const savedTokenIndex = USAGE_CSV_HEADER.indexOf('节省Token')
+    const totalTokenIndex = USAGE_CSV_HEADER.indexOf('总Token')
+    const cacheHitIndex = USAGE_CSV_HEADER.indexOf('缓存命中')
+
+    expect(savedTokenIndex).toBeGreaterThan(-1)
+    expect(savedTokenIndex).toBeGreaterThan(totalTokenIndex)
+    expect(savedTokenIndex).toBeLessThan(cacheHitIndex)
+  })
+
   it('should expose providers-accounts base types', () => {
     expect(PROVIDERS_ACCOUNTS_BASE_TYPES.length).toBeGreaterThan(0)
   })
 
   it('should use google native default endpoint', () => {
-    expect(PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS.google).toBe('https://generativelanguage.googleapis.com/v1beta')
+    expect(PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS.google).toBe(
+      'https://generativelanguage.googleapis.com/v1beta'
+    )
     expect(PROVIDERS_ENDPOINT_MAP.google).toBe('https://generativelanguage.googleapis.com/v1beta')
   })
 
   it('should remove hardcoded model defaults from stores', () => {
     const modelsStoreFile = readFileSync(join(process.cwd(), 'src/store/models.ts'), 'utf-8')
     const chatStoreFile = readFileSync(join(process.cwd(), 'src/store/chat.ts'), 'utf-8')
-    const chatConstantsFile = readFileSync(join(process.cwd(), 'src/constants/store/chat.ts'), 'utf-8')
-    const modelConstantsFile = readFileSync(join(process.cwd(), 'src/constants/store/models.ts'), 'utf-8')
+    const chatConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/store/chat.ts'),
+      'utf-8'
+    )
+    const modelConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/store/models.ts'),
+      'utf-8'
+    )
 
     expect(modelsStoreFile).not.toContain('const defaultModels: Model[] = [')
     expect(chatStoreFile).not.toContain('const DEFAULT_PROVIDERS: ProviderConfig[] = [')
@@ -68,14 +89,20 @@ describe('pages static config extraction', () => {
 
   it('should move docs and api-management inline strategy/provider lists into constants', () => {
     const docsViewFile = readFileSync(join(process.cwd(), 'src/views/docs/index.vue'), 'utf-8')
-    const apiManagementViewFile = readFileSync(join(process.cwd(), 'src/views/api-management/index.vue'), 'utf-8')
+    const apiManagementViewFile = readFileSync(
+      join(process.cwd(), 'src/views/api-management/index.vue'),
+      'utf-8'
+    )
 
     expect(docsViewFile).not.toContain('const providers = ref([')
     expect(apiManagementViewFile).not.toContain('const strategies = ref([')
   })
 
   it('should show google endpoint mode hint in providers accounts view', () => {
-    const providersAccountsViewFile = readFileSync(join(process.cwd(), 'src/views/providers-accounts/index.vue'), 'utf-8')
+    const providersAccountsViewFile = readFileSync(
+      join(process.cwd(), 'src/views/providers-accounts/index.vue'),
+      'utf-8'
+    )
 
     expect(providersAccountsViewFile).toContain('Google 端点模式')
     expect(providersAccountsViewFile).toContain('v1beta（原生）')
@@ -84,26 +111,37 @@ describe('pages static config extraction', () => {
 
   it('should redirect to home page after logout', () => {
     const layoutFile = readFileSync(join(process.cwd(), 'src/components/Layout/index.vue'), 'utf-8')
-    const navigationConstantsFile = readFileSync(join(process.cwd(), 'src/constants/navigation.ts'), 'utf-8')
+    const navigationConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/navigation.ts'),
+      'utf-8'
+    )
 
     expect(layoutFile).toContain('POST_LOGOUT_REDIRECT')
     expect(layoutFile).not.toContain("router.push('/login')")
-    expect(navigationConstantsFile).toContain("export const POST_LOGOUT_REDIRECT = HOME_ROUTE")
+    expect(navigationConstantsFile).toContain('export const POST_LOGOUT_REDIRECT = HOME_ROUTE')
   })
 
   it('should centralize auth routes and redirects in navigation constants', () => {
-    const navigationConstantsFile = readFileSync(join(process.cwd(), 'src/constants/navigation.ts'), 'utf-8')
+    const navigationConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/navigation.ts'),
+      'utf-8'
+    )
     const routerFile = readFileSync(join(process.cwd(), 'src/router/index.ts'), 'utf-8')
     const requestFile = readFileSync(join(process.cwd(), 'src/api/request.ts'), 'utf-8')
     const errorHandlerFile = readFileSync(join(process.cwd(), 'src/utils/errorHandler.ts'), 'utf-8')
-    const apiManagementFile = readFileSync(join(process.cwd(), 'src/views/api-management/index.vue'), 'utf-8')
+    const apiManagementFile = readFileSync(
+      join(process.cwd(), 'src/views/api-management/index.vue'),
+      'utf-8'
+    )
     const loginViewFile = readFileSync(join(process.cwd(), 'src/views/login/index.vue'), 'utf-8')
 
     expect(navigationConstantsFile).toContain("export const HOME_ROUTE = '/'")
     expect(navigationConstantsFile).toContain("export const LOGIN_ROUTE = '/login'")
     expect(navigationConstantsFile).toContain("export const DASHBOARD_ROUTE = '/dashboard'")
     expect(navigationConstantsFile).toContain('export const UNAUTHORIZED_REDIRECT = LOGIN_ROUTE')
-    expect(navigationConstantsFile).toContain('export const LOGIN_SUCCESS_REDIRECT = DASHBOARD_ROUTE')
+    expect(navigationConstantsFile).toContain(
+      'export const LOGIN_SUCCESS_REDIRECT = DASHBOARD_ROUTE'
+    )
 
     expect(routerFile).toContain('LOGIN_ROUTE')
     expect(routerFile).toContain('UNAUTHORIZED_REDIRECT')
@@ -162,9 +200,18 @@ describe('pages static config extraction', () => {
   })
 
   it('should migrate business localStorage persistence to settings api', () => {
-    const routingViewFile = readFileSync(join(process.cwd(), 'src/views/routing/index.vue'), 'utf-8')
-    const settingsViewFile = readFileSync(join(process.cwd(), 'src/views/settings/index.vue'), 'utf-8')
-    const modelManagementViewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
+    const routingViewFile = readFileSync(
+      join(process.cwd(), 'src/views/routing/index.vue'),
+      'utf-8'
+    )
+    const settingsViewFile = readFileSync(
+      join(process.cwd(), 'src/views/settings/index.vue'),
+      'utf-8'
+    )
+    const modelManagementViewFile = readFileSync(
+      join(process.cwd(), 'src/views/model-management/index.vue'),
+      'utf-8'
+    )
 
     expect(routingViewFile).not.toContain('routing_task_mapping_auto_save')
     expect(routingViewFile).not.toContain('routing_task_mapping_last_saved')
@@ -175,7 +222,10 @@ describe('pages static config extraction', () => {
 
   it('should enforce api facade boundaries in stores and composables', () => {
     const alertsStoreFile = readFileSync(join(process.cwd(), 'src/store/alerts.ts'), 'utf-8')
-    const globalDataComposableFile = readFileSync(join(process.cwd(), 'src/composables/useGlobalData.ts'), 'utf-8')
+    const globalDataComposableFile = readFileSync(
+      join(process.cwd(), 'src/composables/useGlobalData.ts'),
+      'utf-8'
+    )
 
     expect(alertsStoreFile).not.toContain("from '@/api/request'")
     expect(globalDataComposableFile).not.toContain("from '@/api/request'")

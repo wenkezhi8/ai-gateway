@@ -152,6 +152,11 @@
             <div class="token-total">{{ formatCompact(row.totalTokens) }}</div>
           </template>
         </el-table-column>
+        <el-table-column label="节省 Token" min-width="130" align="right">
+          <template #default="{ row }">
+            <div class="token-total">{{ formatCompact(row.savedTokens) }}</div>
+          </template>
+        </el-table-column>
         <el-table-column label="缓存命中" min-width="120" align="right">
           <template #default="{ row }">
             <span>{{ row.cacheHit }}</span>
@@ -208,6 +213,7 @@ interface UsageRow {
   inputTokens: number
   outputTokens: number
   totalTokens: number
+  savedTokens: number
   success: boolean
   cacheHit: string
   cost: number
@@ -341,6 +347,8 @@ const fetchUsageLogs = async () => {
       const ttftMs = Number(log.ttft_ms || 0)
       const latencyMs = Number(log.latency_ms || 0)
       const success = Boolean(log.success)
+      const cacheHit = Boolean(log.cache_hit)
+      const savedTokens = cacheHit && success ? totalTokens : 0
       // 只使用账号自定义名称
       const accountName = (providerValue && accountNameMap.value.get(providerValue)) || '-'
       rows.push({
@@ -358,8 +366,9 @@ const fetchUsageLogs = async () => {
         inputTokens,
         outputTokens,
         totalTokens,
+        savedTokens,
         success,
-        cacheHit: Boolean(log.cache_hit) ? '命中' : '未命中',
+        cacheHit: cacheHit ? '命中' : '未命中',
         cost: totalTokens * TOKEN_PRICE_USD
       })
     }
@@ -431,6 +440,7 @@ const exportCsv = () => {
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,
+    row.savedTokens,
     row.cacheHit,
     row.cost.toFixed(5)
   ])
