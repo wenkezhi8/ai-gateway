@@ -29,12 +29,13 @@
 
 | AI标识 | 工具 | 任务 | 分支 | Worktree | 锁定文件/目录 | 状态 | 开始时间 | 结束时间 | 备注 |
 |---|---|---|---|---|---|---|---|---|---|
-| opencode-1 | opencode | request-trace | opencode/cache-detail | .worktrees/opencode-cache-detail | internal/tracing/**, internal/storage/sqlite.go, internal/handler/admin/trace*.go, web/src/views/trace/**, web/src/api/trace-domain.ts | RELEASED | 2026-03-01 08:30 | 2026-03-01 09:15 | OpenTelemetry链路追踪-阶段1完成 |
 | codex | codex | usage-saved-token-stats | codex/parallel-dev-20260301 | .worktrees/codex-parallel-dev-20260301 | internal/storage/sqlite.go, internal/storage/sqlite_test.go, internal/handler/admin/usage.go, internal/handler/admin/usage_handler_test.go, web/src/views/usage/index.vue, web/src/views/usage/usage-overview.ts, web/src/views/usage/usage-overview.test.ts | RELEASED | 2026-03-01 09:20 | 2026-03-01 09:35 | /usage 命中节省 Token 与 stats 同口径改造 |
 
 ## 5. 历史记录
 
-（已释放的锁会移动到这里）
+| AI标识 | 工具 | 任务 | 分支 | Worktree | 锁定文件/目录 | 状态 | 开始时间 | 结束时间 | 备注 |
+|---|---|---|---|---|---|---|---|---|---|
+| opencode-1 | opencode | request-trace | opencode/cache-detail | .worktrees/opencode-cache-detail | internal/tracing/**, internal/storage/sqlite.go, internal/handler/admin/trace*.go, internal/handler/proxy.go, web/src/views/trace/**, web/src/api/trace-domain.ts | RELEASED | 2026-03-01 08:30 | 2026-03-01 10:00 | OpenTelemetry链路追踪-完整实现（含10个关键Span） |
 
 ## 4. 状态值说明
 
