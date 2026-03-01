@@ -1,3 +1,4 @@
+//nolint:errcheck,revive // Mock cache implementation in tests intentionally minimal.
 package cache
 
 import (
@@ -80,33 +81,33 @@ func TestStats_RecordError(t *testing.T) {
 
 func TestStats_HitRate(t *testing.T) {
 	tests := []struct {
-		name      string
-		hits      int
-		misses    int
+		name         string
+		hits         int
+		misses       int
 		expectedRate float64
 	}{
 		{
-			name:      "100% hit rate",
-			hits:      10,
-			misses:    0,
+			name:         "100% hit rate",
+			hits:         10,
+			misses:       0,
 			expectedRate: 1.0,
 		},
 		{
-			name:      "50% hit rate",
-			hits:      5,
-			misses:    5,
+			name:         "50% hit rate",
+			hits:         5,
+			misses:       5,
 			expectedRate: 0.5,
 		},
 		{
-			name:      "0% hit rate",
-			hits:      0,
-			misses:    10,
+			name:         "0% hit rate",
+			hits:         0,
+			misses:       10,
 			expectedRate: 0.0,
 		},
 		{
-			name:      "no operations",
-			hits:      0,
-			misses:    0,
+			name:         "no operations",
+			hits:         0,
+			misses:       0,
 			expectedRate: 0.0,
 		},
 	}
@@ -153,7 +154,7 @@ func TestStats_Snapshot(t *testing.T) {
 func TestStats_Reset(t *testing.T) {
 	stats := NewStats()
 
-	// Add some data
+	// Add some data.
 	stats.RecordHit(time.Millisecond)
 	stats.RecordMiss(time.Millisecond)
 	stats.RecordTokensSaved(100)
@@ -161,10 +162,10 @@ func TestStats_Reset(t *testing.T) {
 	stats.RecordEviction()
 	stats.RecordError()
 
-	// Reset
+	// Reset.
 	stats.Reset()
 
-	// Verify all zeros
+	// Verify all zeros.
 	snapshot := stats.Snapshot()
 	assert.Equal(t, int64(0), snapshot.Hits)
 	assert.Equal(t, int64(0), snapshot.Misses)
@@ -180,7 +181,7 @@ func TestStats_Concurrent(t *testing.T) {
 	var wg sync.WaitGroup
 	iterations := 100
 
-	// Concurrent hits
+	// Concurrent hits.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -189,7 +190,7 @@ func TestStats_Concurrent(t *testing.T) {
 		}
 	}()
 
-	// Concurrent misses
+	// Concurrent misses.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -198,7 +199,7 @@ func TestStats_Concurrent(t *testing.T) {
 		}
 	}()
 
-	// Concurrent token saves
+	// Concurrent token saves.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -215,7 +216,7 @@ func TestStats_Concurrent(t *testing.T) {
 	assert.Equal(t, int64(iterations*10), snapshot.TokensSaved)
 }
 
-// StatsCollector Tests
+// StatsCollector Tests.
 
 func TestNewStatsCollector(t *testing.T) {
 	collector := NewStatsCollector()
@@ -226,14 +227,14 @@ func TestNewStatsCollector(t *testing.T) {
 func TestStatsCollector_GetStats(t *testing.T) {
 	collector := NewStatsCollector()
 
-	// Get stats for new cache
+	// Get stats for new cache.
 	stats1 := collector.GetStats("cache1")
 	assert.NotNil(t, stats1)
 
-	// Record some data
+	// Record some data.
 	stats1.RecordHit(time.Millisecond)
 
-	// Get same stats again
+	// Get same stats again.
 	stats1Again := collector.GetStats("cache1")
 	snapshot := stats1Again.Snapshot()
 	assert.Equal(t, int64(1), snapshot.Hits)
@@ -242,7 +243,7 @@ func TestStatsCollector_GetStats(t *testing.T) {
 func TestStatsCollector_AllStats(t *testing.T) {
 	collector := NewStatsCollector()
 
-	// Add multiple caches
+	// Add multiple caches.
 	stats1 := collector.GetStats("cache1")
 	stats1.RecordHit(time.Millisecond)
 
@@ -257,7 +258,7 @@ func TestStatsCollector_AllStats(t *testing.T) {
 }
 
 func TestGlobalStatsCollector(t *testing.T) {
-	// Test global functions
+	// Test global functions.
 	stats := GetCacheStats("global-test")
 	assert.NotNil(t, stats)
 
@@ -267,7 +268,7 @@ func TestGlobalStatsCollector(t *testing.T) {
 	assert.Contains(t, allStats, "global-test")
 }
 
-// TrackedCache Tests
+// TrackedCache Tests.
 
 type mockCache struct {
 	data map[string]interface{}
@@ -284,7 +285,7 @@ func (m *mockCache) Get(ctx context.Context, key string, dest interface{}) error
 	if !ok {
 		return ErrNotFound
 	}
-	// Simple assignment for testing
+	// Simple assignment for testing.
 	switch v := dest.(type) {
 	case *string:
 		*v = val.(string)
@@ -305,7 +306,7 @@ func (m *mockCache) Delete(ctx context.Context, key string) error {
 }
 
 func (m *mockCache) DeleteByPattern(ctx context.Context, pattern string) error {
-	// Simple implementation for testing
+	// Simple implementation for testing.
 	return nil
 }
 

@@ -1,3 +1,4 @@
+//nolint:godot
 package metrics
 
 import (
@@ -13,6 +14,7 @@ import (
 const (
 	Namespace = "ai_gateway"
 	Subsystem = "api"
+	unknown   = "unknown"
 )
 
 // Metrics holds all Prometheus metrics for the AI Gateway
@@ -478,7 +480,7 @@ func (m *Metrics) RecordProviderRequest(provider, model, endpoint string, succes
 	if success {
 		m.ProviderRequestsSuccess.WithLabelValues(provider, model).Inc()
 	} else {
-		errorType := "unknown"
+		errorType := unknown
 		if err != nil {
 			errorType = categorizeError(err)
 		}
@@ -547,7 +549,7 @@ func (m *Metrics) RecordWebSearch(provider string, duration time.Duration, succe
 	if success {
 		m.WebSearchSuccess.WithLabelValues(provider).Inc()
 	} else {
-		errorType := "unknown"
+		errorType := unknown
 		if err != nil {
 			errorType = categorizeError(err)
 		}
@@ -620,7 +622,7 @@ func statusCodeClass(statusCode int) string {
 	case statusCode >= 500:
 		return "5xx"
 	default:
-		return "unknown"
+		return unknown
 	}
 }
 
@@ -631,7 +633,7 @@ func errorTypeFromStatus(statusCode int) string {
 	case statusCode >= 500:
 		return "server_error"
 	default:
-		return "unknown"
+		return unknown
 	}
 }
 
@@ -647,12 +649,12 @@ func categorizeError(err error) string {
 	case contains(errStr, "rate limit"):
 		return "rate_limited"
 	default:
-		return "unknown"
+		return unknown
 	}
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+	return len(s) >= len(substr) && (s == substr || s != "" && containsHelper(s, substr))
 }
 
 func containsHelper(s, substr string) bool {

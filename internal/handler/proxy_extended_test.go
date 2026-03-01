@@ -1,3 +1,4 @@
+//nolint:godot
 package handler
 
 import (
@@ -7,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -17,8 +19,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func init() {
+func TestMain(m *testing.M) {
 	gin.SetMode(gin.TestMode)
+	os.Exit(m.Run())
 }
 
 // TestChatCompletions_InvalidJSON tests invalid JSON handling
@@ -227,7 +230,7 @@ func TestListModels(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest("GET", "/api/v1/models", nil)
+	req := httptest.NewRequest("GET", "/api/v1/models", http.NoBody)
 	c.Request = req
 
 	h.ListModels(c)
@@ -246,7 +249,7 @@ func TestChatCompletions_WithContextCancellation(t *testing.T) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 
-	// Create a context that's already cancelled
+	// Create a context that's already canceled
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -257,7 +260,7 @@ func TestChatCompletions_WithContextCancellation(t *testing.T) {
 
 	h.ChatCompletions(c)
 
-	// Request should fail due to cancelled context
+	// Request should fail due to canceled context
 	assert.True(t, w.Code >= 400 || w.Code == 0)
 }
 
@@ -294,7 +297,8 @@ func TestChatCompletions_WithTemperature(t *testing.T) {
 				"temperature": tt.temperature,
 			}
 
-			bodyBytes, _ := json.Marshal(body)
+			bodyBytes, err := json.Marshal(body)
+			assert.NoError(t, err)
 
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
@@ -312,7 +316,7 @@ func TestChatCompletions_WithTemperature(t *testing.T) {
 }
 
 // TestRecordMetrics tests metrics recording
-func TestRecordMetrics(t *testing.T) {
+func TestRecordMetrics(_ *testing.T) {
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
 
@@ -425,7 +429,7 @@ func TestValidateChatRequest(t *testing.T) {
 // Mock io.Reader for testing read errors
 type errorReader struct{}
 
-func (e *errorReader) Read(p []byte) (n int, err error) {
+func (e *errorReader) Read(_ []byte) (n int, err error) {
 	return 0, io.ErrUnexpectedEOF
 }
 
@@ -495,7 +499,7 @@ func TestIsContextCancelled(t *testing.T) {
 	ctx := context.Background()
 	assert.False(t, isContextCancelled(ctx))
 
-	// Cancelled context
+	// Canceled context
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 	assert.True(t, isContextCancelled(cancelCtx))
@@ -508,7 +512,7 @@ func TestListConfiguredProviders(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest("GET", "/api/v1/config/providers", nil)
+	req := httptest.NewRequest("GET", "/api/v1/config/providers", http.NoBody)
 	c.Request = req
 
 	h.ListConfiguredProviders(c)

@@ -1,22 +1,23 @@
 package admin
 
 import (
-	"ai-gateway/internal/limiter"
-	"ai-gateway/internal/provider"
 	"context"
 	"net/http"
 	"time"
 
+	"ai-gateway/internal/limiter"
+	"ai-gateway/internal/provider"
+
 	"github.com/gin-gonic/gin"
 )
 
-// ProviderHandler handles provider management requests
+// ProviderHandler handles provider management requests.
 type ProviderHandler struct {
 	registry *provider.Registry
 	manager  *limiter.AccountManager
 }
 
-// NewProviderHandler creates a new provider handler
+// NewProviderHandler creates a new provider handler.
 func NewProviderHandler(registry *provider.Registry, manager *limiter.AccountManager) *ProviderHandler {
 	return &ProviderHandler{
 		registry: registry,
@@ -48,8 +49,7 @@ func (h *ProviderHandler) checkProviderHealth(ctx context.Context, p provider.Pr
 	return p.ValidateKey(checkCtx)
 }
 
-// ListProviders returns all providers
-// GET /api/admin/providers
+// GET /api/admin/providers.
 func (h *ProviderHandler) ListProviders(c *gin.Context) {
 	providers := h.registry.List()
 
@@ -79,8 +79,7 @@ func (h *ProviderHandler) ListProviders(c *gin.Context) {
 	})
 }
 
-// GetProvider returns a single provider by name
-// GET /api/admin/providers/:id
+// GET /api/admin/providers/:id.
 func (h *ProviderHandler) GetProvider(c *gin.Context) {
 	providerName := c.Param("id")
 
@@ -115,8 +114,7 @@ func (h *ProviderHandler) GetProvider(c *gin.Context) {
 	})
 }
 
-// CreateProvider adds a new provider
-// POST /api/admin/providers
+// POST /api/admin/providers.
 func (h *ProviderHandler) CreateProvider(c *gin.Context) {
 	var req ProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -162,8 +160,7 @@ func (h *ProviderHandler) CreateProvider(c *gin.Context) {
 	})
 }
 
-// UpdateProvider updates provider configuration
-// PUT /api/admin/providers/:id
+// PUT /api/admin/providers/:id.
 func (h *ProviderHandler) UpdateProvider(c *gin.Context) {
 	providerName := c.Param("id")
 
@@ -205,8 +202,7 @@ func (h *ProviderHandler) UpdateProvider(c *gin.Context) {
 	})
 }
 
-// DeleteProvider removes a provider
-// DELETE /api/admin/providers/:id
+// DELETE /api/admin/providers/:id.
 func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 	providerName := c.Param("id")
 
@@ -233,8 +229,7 @@ func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 	})
 }
 
-// TestProvider tests provider connectivity
-// POST /api/admin/providers/:id/test
+// POST /api/admin/providers/:id/test.
 func (h *ProviderHandler) TestProvider(c *gin.Context) {
 	providerName := c.Param("id")
 
@@ -275,38 +270,17 @@ func (h *ProviderHandler) TestProvider(c *gin.Context) {
 	})
 }
 
-// EnableProvider enables a provider
-// POST /api/admin/providers/:id/enable
+// POST /api/admin/providers/:id/enable.
 func (h *ProviderHandler) EnableProvider(c *gin.Context) {
-	providerName := c.Param("id")
-
-	p, ok := h.registry.Get(providerName)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
-			},
-		})
-		return
-	}
-
-	p.SetEnabled(true)
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"name":    providerName,
-			"enabled": true,
-			"message": "Provider enabled successfully",
-		},
-	})
+	h.setProviderEnabled(c, true)
 }
 
-// DisableProvider disables a provider
-// POST /api/admin/providers/:id/disable
+// POST /api/admin/providers/:id/disable.
 func (h *ProviderHandler) DisableProvider(c *gin.Context) {
+	h.setProviderEnabled(c, false)
+}
+
+func (h *ProviderHandler) setProviderEnabled(c *gin.Context, enabled bool) {
 	providerName := c.Param("id")
 
 	p, ok := h.registry.Get(providerName)
@@ -321,20 +295,24 @@ func (h *ProviderHandler) DisableProvider(c *gin.Context) {
 		return
 	}
 
-	p.SetEnabled(false)
+	p.SetEnabled(enabled)
+
+	message := "Provider disabled successfully"
+	if enabled {
+		message = "Provider enabled successfully"
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
 			"name":    providerName,
-			"enabled": false,
-			"message": "Provider disabled successfully",
+			"enabled": enabled,
+			"message": message,
 		},
 	})
 }
 
-// GetProviderModels returns models supported by a provider
-// GET /api/admin/providers/:id/models
+// GET /api/admin/providers/:id/models.
 func (h *ProviderHandler) GetProviderModels(c *gin.Context) {
 	providerName := c.Param("id")
 

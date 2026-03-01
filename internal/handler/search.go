@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -67,7 +68,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 			Error(c, http.StatusServiceUnavailable, "search_unavailable", "Search API not configured")
 			return
 		}
-		results, err := h.bingSearch(req.Query, apiKey, req.Limit)
+		results, err := h.bingSearch(c.Request.Context(), req.Query, apiKey, req.Limit)
 		if err != nil {
 			Error(c, http.StatusInternalServerError, "search_failed", err.Error())
 			return
@@ -76,7 +77,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
-	results, err := h.serperSearch(req.Query, apiKey, req.Limit)
+	results, err := h.serperSearch(c.Request.Context(), req.Query, apiKey, req.Limit)
 	if err != nil {
 		Error(c, http.StatusInternalServerError, "search_failed", err.Error())
 		return
@@ -85,7 +86,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	Success(c, SearchResponse{Success: true, Data: results})
 }
 
-func (h *SearchHandler) serperSearch(query, apiKey string, limit int) ([]SearchResult, error) {
+func (h *SearchHandler) serperSearch(ctx context.Context, query, apiKey string, limit int) ([]SearchResult, error) {
 	reqURL := "https://google.serper.dev/search"
 
 	formData := url.Values{}
@@ -93,7 +94,7 @@ func (h *SearchHandler) serperSearch(query, apiKey string, limit int) ([]SearchR
 	formData.Set("gl", "cn")
 	formData.Set("hl", "zh-cn")
 
-	req, err := http.NewRequest("POST", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -140,14 +141,14 @@ func (h *SearchHandler) serperSearch(query, apiKey string, limit int) ([]SearchR
 	return results, nil
 }
 
-func (h *SearchHandler) bingSearch(query, apiKey string, limit int) ([]SearchResult, error) {
+func (h *SearchHandler) bingSearch(ctx context.Context, query, apiKey string, limit int) ([]SearchResult, error) {
 	reqURL := fmt.Sprintf(
 		"https://api.bing.microsoft.com/v7.0/search?q=%s&count=%d&responseFilter=Webpages",
 		url.QueryEscape(query),
 		limit,
 	)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

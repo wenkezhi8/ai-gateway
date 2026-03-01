@@ -1,10 +1,12 @@
+//nolint:revive
 package provider
 
 import (
-	"ai-gateway/pkg/logger"
 	"context"
 	"sync"
 	"time"
+
+	"ai-gateway/pkg/logger"
 )
 
 var poolLogger = logger.WithField("component", "provider")

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -14,14 +15,16 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// generateID generates a random ID
+// generateID generates a random ID.
 func generateID() string {
 	b := make([]byte, 4)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
 	return hex.EncodeToString(b)
 }
 
-// AlertRule represents an alert rule configuration
+// AlertRule represents an alert rule configuration.
 type AlertRule struct {
 	ID             string         `json:"id"`
 	Name           string         `json:"name"`
@@ -32,7 +35,7 @@ type AlertRule struct {
 	UpdatedAt      string         `json:"updatedAt,omitempty"`
 }
 
-// AlertCondition represents the condition for triggering an alert
+// AlertCondition represents the condition for triggering an alert.
 type AlertCondition struct {
 	Type      string  `json:"type"`               // latency, error_rate, quota, availability
 	Operator  string  `json:"operator"`           // >, <, >=, <=, ==
@@ -40,7 +43,7 @@ type AlertCondition struct {
 	Duration  int     `json:"duration,omitempty"` // duration in seconds
 }
 
-// AlertRecord represents an alert history record
+// AlertRecord represents an alert history record.
 type AlertRecord struct {
 	ID         string `json:"id"`
 	Time       string `json:"time"`
@@ -52,7 +55,7 @@ type AlertRecord struct {
 	ResolvedAt string `json:"resolvedAt,omitempty"`
 }
 
-// AlertStats represents alert statistics
+// AlertStats represents alert statistics.
 type AlertStats struct {
 	Critical   int `json:"critical"`
 	Warning    int `json:"warning"`
@@ -60,7 +63,7 @@ type AlertStats struct {
 	Resolved   int `json:"resolved"`
 }
 
-// AlertHandler handles alert-related requests
+// AlertHandler handles alert-related requests.
 type AlertHandler struct {
 	rules    []AlertRule
 	alerts   []AlertRecord
@@ -71,12 +74,16 @@ type AlertHandler struct {
 	lastAlerts    map[string]time.Time
 }
 
-const defaultAlertCooldown = 5 * time.Minute
+const (
+	defaultAlertCooldown = 5 * time.Minute
+	alertLevelWarning    = "warning"
+	alertStatusResolved  = "resolved"
+)
 
-// Global alert handler
+// Global alert handler.
 var globalAlertHandler *AlertHandler
 
-// NewAlertHandler creates a new alert handler
+// NewAlertHandler creates a new alert handler.
 func NewAlertHandler() *AlertHandler {
 	h := &AlertHandler{
 		rules:         make([]AlertRule, 0),
@@ -138,7 +145,7 @@ func NewAlertHandler() *AlertHandler {
 	return h
 }
 
-// GetAlertHandler returns the global alert handler
+// GetAlertHandler returns the global alert handler.
 func GetAlertHandler() *AlertHandler {
 	if globalAlertHandler == nil {
 		return NewAlertHandler()
@@ -146,7 +153,7 @@ func GetAlertHandler() *AlertHandler {
 	return globalAlertHandler
 }
 
-// loadData loads alert data from file
+// loadData loads alert data from file.
 func (h *AlertHandler) loadData() {
 	fileData, err := os.ReadFile(h.dataPath)
 	if err != nil {
@@ -166,7 +173,7 @@ func (h *AlertHandler) loadData() {
 	h.alerts = data.Alerts
 }
 
-// saveData saves alert data to file
+// saveData saves alert data to file.
 func (h *AlertHandler) saveData() {
 	dir := filepath.Dir(h.dataPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -181,12 +188,16 @@ func (h *AlertHandler) saveData() {
 		Alerts: h.alerts,
 	}
 
-	jsonData, _ := json.MarshalIndent(data, "", "  ")
-	os.WriteFile(h.dataPath, jsonData, 0644)
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return
+	}
+	if err := os.WriteFile(h.dataPath, jsonData, 0o640); err != nil {
+		return
+	}
 }
 
-// GetStats returns alert statistics
-// GET /api/admin/alerts/stats
+// GET /api/admin/alerts/stats.
 func (h *AlertHandler) GetStats(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -194,18 +205,19 @@ func (h *AlertHandler) GetStats(c *gin.Context) {
 	today := time.Now().Format("2006-01-02")
 	stats := AlertStats{}
 
-	for _, alert := range h.alerts {
-		if alert.Time[:10] == today {
+	for i := range h.alerts {
+		alert := &h.alerts[i]
+		if strings.HasPrefix(alert.Time, today) {
 			stats.TodayTotal++
 
 			switch alert.Level {
 			case "critical":
 				stats.Critical++
-			case "warning":
+			case alertLevelWarning:
 				stats.Warning++
 			}
 
-			if alert.Status == "resolved" {
+			if alert.Status == alertStatusResolved {
 				stats.Resolved++
 			}
 		}
@@ -217,8 +229,7 @@ func (h *AlertHandler) GetStats(c *gin.Context) {
 	})
 }
 
-// GetRules returns all alert rules
-// GET /api/admin/alerts/rules
+// GET /api/admin/alerts/rules.
 func (h *AlertHandler) GetRules(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -229,8 +240,7 @@ func (h *AlertHandler) GetRules(c *gin.Context) {
 	})
 }
 
-// CreateRule creates a new alert rule
-// POST /api/admin/alerts/rules
+// POST /api/admin/alerts/rules.
 func (h *AlertHandler) CreateRule(c *gin.Context) {
 	var req AlertRule
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -260,8 +270,7 @@ func (h *AlertHandler) CreateRule(c *gin.Context) {
 	})
 }
 
-// UpdateRule updates an alert rule
-// PUT /api/admin/alerts/rules/:id
+// PUT /api/admin/alerts/rules/:id.
 func (h *AlertHandler) UpdateRule(c *gin.Context) {
 	id := c.Param("id")
 
@@ -280,20 +289,22 @@ func (h *AlertHandler) UpdateRule(c *gin.Context) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for i, rule := range h.rules {
-		if rule.ID == id {
-			req.ID = id
-			req.CreatedAt = rule.CreatedAt
-			req.UpdatedAt = time.Now().Format(time.RFC3339)
-			h.rules[i] = req
-			h.saveData()
-
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"data":    req,
-			})
-			return
+	for i := range h.rules {
+		if h.rules[i].ID != id {
+			continue
 		}
+
+		req.ID = id
+		req.CreatedAt = h.rules[i].CreatedAt
+		req.UpdatedAt = time.Now().Format(time.RFC3339)
+		h.rules[i] = req
+		h.saveData()
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"data":    req,
+		})
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{
@@ -305,25 +316,26 @@ func (h *AlertHandler) UpdateRule(c *gin.Context) {
 	})
 }
 
-// DeleteRule deletes an alert rule
-// DELETE /api/admin/alerts/rules/:id
+// DELETE /api/admin/alerts/rules/:id.
 func (h *AlertHandler) DeleteRule(c *gin.Context) {
 	id := c.Param("id")
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for i, rule := range h.rules {
-		if rule.ID == id {
-			h.rules = append(h.rules[:i], h.rules[i+1:]...)
-			h.saveData()
-
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"message": "Rule deleted",
-			})
-			return
+	for i := range h.rules {
+		if h.rules[i].ID != id {
+			continue
 		}
+
+		h.rules = append(h.rules[:i], h.rules[i+1:]...)
+		h.saveData()
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Rule deleted",
+		})
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{
@@ -335,8 +347,7 @@ func (h *AlertHandler) DeleteRule(c *gin.Context) {
 	})
 }
 
-// GetHistory returns alert history
-// GET /api/admin/alerts/history
+// GET /api/admin/alerts/history.
 func (h *AlertHandler) GetHistory(c *gin.Context) {
 	level := c.Query("level")
 	startDate := c.Query("startDate")
@@ -345,8 +356,9 @@ func (h *AlertHandler) GetHistory(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	var filtered []AlertRecord
-	for _, alert := range h.alerts {
+	filtered := make([]AlertRecord, 0, len(h.alerts))
+	for i := range h.alerts {
+		alert := h.alerts[i]
 		// Filter by level
 		if level != "" && alert.Level != level {
 			continue
@@ -372,26 +384,27 @@ func (h *AlertHandler) GetHistory(c *gin.Context) {
 	})
 }
 
-// ResolveAlert resolves an alert
-// PUT /api/admin/alerts/:id/resolve
+// PUT /api/admin/alerts/:id/resolve.
 func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	id := c.Param("id")
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for i, alert := range h.alerts {
-		if alert.ID == id {
-			h.alerts[i].Status = "resolved"
-			h.alerts[i].ResolvedAt = time.Now().Format(time.RFC3339)
-			h.saveData()
-
-			c.JSON(http.StatusOK, gin.H{
-				"success": true,
-				"message": "Alert resolved",
-			})
-			return
+	for i := range h.alerts {
+		if h.alerts[i].ID != id {
+			continue
 		}
+
+		h.alerts[i].Status = alertStatusResolved
+		h.alerts[i].ResolvedAt = time.Now().Format(time.RFC3339)
+		h.saveData()
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Alert resolved",
+		})
+		return
 	}
 
 	c.JSON(http.StatusNotFound, gin.H{
@@ -403,15 +416,15 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 	})
 }
 
-// GetAlertDetail returns alert detail
-// GET /api/admin/alerts/:id
+// GET /api/admin/alerts/:id.
 func (h *AlertHandler) GetAlertDetail(c *gin.Context) {
 	id := c.Param("id")
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
-	for _, alert := range h.alerts {
+	for i := range h.alerts {
+		alert := &h.alerts[i]
 		if alert.ID == id {
 			c.JSON(http.StatusOK, gin.H{
 				"success": true,
@@ -430,7 +443,7 @@ func (h *AlertHandler) GetAlertDetail(c *gin.Context) {
 	})
 }
 
-// AddAlert adds a new alert (internal use)
+// AddAlert adds a new alert (internal use).
 func (h *AlertHandler) AddAlert(level, source, message string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

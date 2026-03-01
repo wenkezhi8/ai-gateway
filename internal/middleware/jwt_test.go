@@ -11,10 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestHashPassword(t *testing.T) {
 	hash, err := HashPassword("password123")
 	require.NoError(t, err)
@@ -23,7 +19,8 @@ func TestHashPassword(t *testing.T) {
 }
 
 func TestCheckPasswordHash(t *testing.T) {
-	hash, _ := HashPassword("password123")
+	hash, err := HashPassword("password123")
+	require.NoError(t, err)
 
 	assert.True(t, CheckPasswordHash("password123", hash))
 	assert.False(t, CheckPasswordHash("wrongpassword", hash))
@@ -62,9 +59,10 @@ func TestParseToken_WrongSecret(t *testing.T) {
 	user := &User{ID: "1", Username: "test", Role: "admin"}
 	config := JWTConfig{Secret: "secret1", ExpireTime: time.Hour}
 
-	token, _ := GenerateToken(user, config)
+	token, err := GenerateToken(user, config)
+	require.NoError(t, err)
 
-	_, err := ParseToken(token, "secret2")
+	_, err = ParseToken(token, "secret2")
 	assert.Error(t, err)
 }
 
@@ -77,7 +75,7 @@ func TestJWTAuth_NoHeader(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -94,7 +92,7 @@ func TestJWTAuth_InvalidFormat(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "InvalidFormat")
 	w := httptest.NewRecorder()
 
@@ -107,7 +105,8 @@ func TestJWTAuth_Success(t *testing.T) {
 	config := JWTConfig{Secret: "test-secret", ExpireTime: time.Hour}
 
 	user := &User{ID: "1", Username: "testuser", Role: "admin"}
-	token, _ := GenerateToken(user, config)
+	token, err := GenerateToken(user, config)
+	require.NoError(t, err)
 
 	router := gin.New()
 	router.Use(JWTAuth(config))
@@ -120,7 +119,7 @@ func TestJWTAuth_Success(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 
@@ -138,7 +137,7 @@ func TestJWTAuth_InvalidToken(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid-token")
 	w := httptest.NewRecorder()
 
@@ -156,7 +155,7 @@ func TestOptionalJWT_NoHeader(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -168,7 +167,8 @@ func TestOptionalJWT_WithToken(t *testing.T) {
 	config := JWTConfig{Secret: "test-secret", ExpireTime: time.Hour}
 
 	user := &User{ID: "1", Username: "testuser", Role: "admin"}
-	token, _ := GenerateToken(user, config)
+	token, err := GenerateToken(user, config)
+	require.NoError(t, err)
 
 	router := gin.New()
 	router.Use(OptionalJWT(config))
@@ -181,7 +181,7 @@ func TestOptionalJWT_WithToken(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer "+token)
 	w := httptest.NewRecorder()
 
@@ -197,7 +197,7 @@ func TestRequireRole_NoRole(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -218,7 +218,7 @@ func TestRequireRole_InsufficientPermissions(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -239,7 +239,7 @@ func TestRequireRole_Success(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -258,7 +258,7 @@ func TestGetCurrentUser_Empty(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -270,7 +270,8 @@ func TestJWTAuth_BearerCaseInsensitive(t *testing.T) {
 	config := JWTConfig{Secret: "test-secret", ExpireTime: time.Hour}
 
 	user := &User{ID: "1", Username: "testuser", Role: "admin"}
-	token, _ := GenerateToken(user, config)
+	token, err := GenerateToken(user, config)
+	require.NoError(t, err)
 
 	router := gin.New()
 	router.Use(JWTAuth(config))
@@ -278,7 +279,7 @@ func TestJWTAuth_BearerCaseInsensitive(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "bearer "+token)
 	w := httptest.NewRecorder()
 
@@ -296,7 +297,7 @@ func TestOptionalJWT_InvalidFormat(t *testing.T) {
 		c.Status(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "InvalidFormat")
 	w := httptest.NewRecorder()
 

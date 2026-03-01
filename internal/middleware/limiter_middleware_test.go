@@ -13,10 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestNewLimiterMiddleware(t *testing.T) {
 	logger := logrus.New()
 	manager := limiter.NewAccountManager(nil, logger)
@@ -33,7 +29,7 @@ func TestLimiterMiddleware_RateLimit_NoProvider(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	handler := mw.RateLimit()
 	handler(c)
@@ -56,7 +52,7 @@ func TestLimiterMiddleware_RateLimit_WithProvider(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("provider", "openai")
 
 	handler := mw.RateLimit()
@@ -75,7 +71,7 @@ func TestLimiterMiddleware_RateLimit_InvalidProvider(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("provider", 123)
 
 	handler := mw.RateLimit()
@@ -92,7 +88,7 @@ func TestLimiterMiddleware_UsageTracking(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	handler := mw.UsageTracking()
 	handler(c)
@@ -118,7 +114,7 @@ func TestLimiterMiddleware_UsageTracking_WithAccount(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("active_account", account)
 
 	handler := mw.UsageTracking()
@@ -145,7 +141,7 @@ func TestLimiterMiddleware_AccountInfo(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("active_account", account)
 
 	handler := mw.AccountInfo()
@@ -163,7 +159,7 @@ func TestLimiterMiddleware_AccountInfo_NoAccount(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	handler := mw.AccountInfo()
 	handler(c)
@@ -180,7 +176,7 @@ func TestLimiterMiddleware_AccountInfo_InvalidType(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Set("active_account", "invalid")
 
 	handler := mw.AccountInfo()
@@ -197,7 +193,7 @@ func TestLimiterMiddleware_RequireAccount_NoProvider(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	handler := mw.RequireAccount()
 	handler(c)
@@ -221,7 +217,7 @@ func TestLimiterMiddleware_RequireAccount_WithHeader(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Request.Header.Set("X-Provider", "openai")
 
 	handler := mw.RequireAccount()
@@ -240,7 +236,7 @@ func TestLimiterMiddleware_RequireAccount_NoAccount(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Request.Header.Set("X-Provider", "nonexistent")
 
 	handler := mw.RequireAccount()
@@ -258,7 +254,7 @@ func TestLimiterMiddleware_GetSwitchHistory(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test?limit=10", nil)
+	c.Request = httptest.NewRequest("GET", "/test?limit=10", http.NoBody)
 
 	handler := mw.GetSwitchHistory()
 	handler(c)
@@ -274,7 +270,7 @@ func TestLimiterMiddleware_ForceSwitch_InvalidRequest(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("POST", "/test", nil)
+	c.Request = httptest.NewRequest("POST", "/test", http.NoBody)
 
 	handler := mw.ForceSwitch()
 	handler(c)
@@ -290,7 +286,7 @@ func TestLimiterMiddleware_GetAccountStatus_NoID(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 
 	handler := mw.GetAccountStatus()
 	handler(c)
@@ -306,7 +302,7 @@ func TestLimiterMiddleware_GetAccountStatus_NotFound(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest("GET", "/test", nil)
+	c.Request = httptest.NewRequest("GET", "/test", http.NoBody)
 	c.Params = gin.Params{{Key: "account_id", Value: "nonexistent"}}
 
 	handler := mw.GetAccountStatus()

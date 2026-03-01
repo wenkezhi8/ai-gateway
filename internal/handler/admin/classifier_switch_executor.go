@@ -26,7 +26,9 @@ func (h *RouterHandler) executeSwitchTask(taskID string) {
 	task.UpdatedAt = now.UnixMilli()
 	task.DeadlineAt = deadline.UnixMilli()
 	task.LastError = ""
-	_ = h.switchTaskStore.Update(task)
+	if err := h.switchTaskStore.Update(task); err != nil {
+		return
+	}
 
 	for {
 		now = h.nowFn()
@@ -34,7 +36,9 @@ func (h *RouterHandler) executeSwitchTask(taskID string) {
 			task.Status = ClassifierSwitchTaskStatusTimeout
 			task.UpdatedAt = now.UnixMilli()
 			task.LastError = classifierSwitchTimeoutMessage
-			_ = h.switchTaskStore.Update(task)
+			if err := h.switchTaskStore.Update(task); err != nil {
+				return
+			}
 			return
 		}
 
@@ -44,14 +48,18 @@ func (h *RouterHandler) executeSwitchTask(taskID string) {
 			task.Status = ClassifierSwitchTaskStatusSuccess
 			task.UpdatedAt = h.nowFn().UnixMilli()
 			task.LastError = ""
-			_ = h.switchTaskStore.Update(task)
+			if err := h.switchTaskStore.Update(task); err != nil {
+				return
+			}
 			return
 		}
 
 		task.UpdatedAt = h.nowFn().UnixMilli()
 		task.LastError = strings.TrimSpace(probeErr.Error())
 		task.Status = ClassifierSwitchTaskStatusRunning
-		_ = h.switchTaskStore.Update(task)
+		if err := h.switchTaskStore.Update(task); err != nil {
+			return
+		}
 
 		h.sleepFn(constants.AdminClassifierSwitchProbeInterval)
 	}

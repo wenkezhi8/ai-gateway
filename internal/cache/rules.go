@@ -9,13 +9,15 @@ import (
 )
 
 // CacheRule defines a TTL override rule for cache entries.
+//
+//nolint:revive // Type name kept for compatibility with existing API payloads.
 type CacheRule struct {
-	ID          int           `json:"id"`
-	Pattern     string        `json:"pattern"`      // e.g. "chat:*" or "*:gpt-4*"
-	ModelFilter string        `json:"model_filter"` // optional model filter
-	TTL         int           `json:"ttl"`          // TTL in seconds
-	Priority    string        `json:"priority"`     // high, medium, low
-	Enabled     bool          `json:"enabled"`
+	ID          int    `json:"id"`
+	Pattern     string `json:"pattern"`      // e.g. "chat:*" or "*:gpt-4*"
+	ModelFilter string `json:"model_filter"` // optional model filter
+	TTL         int    `json:"ttl"`          // TTL in seconds
+	Priority    string `json:"priority"`     // high, medium, low
+	Enabled     bool   `json:"enabled"`
 }
 
 // RuleStore stores cache rules in memory.

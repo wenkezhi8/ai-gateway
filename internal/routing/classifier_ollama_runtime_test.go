@@ -26,7 +26,9 @@ func TestOllamaChatRequest_KeepAliveDisabledUnload(t *testing.T) {
 		}
 		keepAlive = req.KeepAlive
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"message":{"content":"{}"}}`))
+		if _, err := w.Write([]byte(`{"message":{"content":"{}"}}`)); err != nil {
+			t.Fatalf("write response failed: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -54,7 +56,9 @@ func TestListOllamaRunningModels_FromPS(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:4b"},{"model":"qwen2.5:0.5b-instruct"}]}`))
+		if _, err := w.Write([]byte(`{"models":[{"name":"qwen3:4b"},{"model":"qwen2.5:0.5b-instruct"}]}`)); err != nil {
+			t.Fatalf("write response failed: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -80,7 +84,9 @@ func TestListOllamaRunningModelDetails_FromPS(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"models":[{"name":"qwen3:4b","size_vram":2147483648},{"model":"qwen2.5:0.5b-instruct","size_vram":536870912}]}`))
+		if _, err := w.Write([]byte(`{"models":[{"name":"qwen3:4b","size_vram":2147483648},{"model":"qwen2.5:0.5b-instruct","size_vram":536870912}]}`)); err != nil {
+			t.Fatalf("write response failed: %v", err)
+		}
 	}))
 	defer server.Close()
 

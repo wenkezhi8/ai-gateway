@@ -1,7 +1,7 @@
+//nolint:godot,exhaustive,gocritic,goconst
 package limiter
 
 import (
-	logpkg "ai-gateway/pkg/logger"
 	"context"
 	"fmt"
 	"sort"
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	logpkg "ai-gateway/pkg/logger"
 )
 
 // AccountManager manages multiple AI provider accounts with automatic switching

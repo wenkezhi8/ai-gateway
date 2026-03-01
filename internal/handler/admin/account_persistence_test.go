@@ -16,11 +16,14 @@ func TestSaveAndLoadSwitchHistory(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
+	err = os.Chdir(tmpDir)
+	if err != nil {
 		t.Fatalf("chdir to temp dir: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originalWD)
+		if cleanupErr := os.Chdir(originalWD); cleanupErr != nil {
+			t.Errorf("restore wd: %v", cleanupErr)
+		}
 	})
 
 	input := []limiter.SwitchEvent{
@@ -33,11 +36,13 @@ func TestSaveAndLoadSwitchHistory(t *testing.T) {
 		},
 	}
 
-	if err := SaveSwitchHistoryToFile(input); err != nil {
+	err = SaveSwitchHistoryToFile(input)
+	if err != nil {
 		t.Fatalf("save switch history: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join("data", "switch_history.json")); err != nil {
+	_, err = os.Stat(filepath.Join("data", "switch_history.json"))
+	if err != nil {
 		t.Fatalf("expected switch history file: %v", err)
 	}
 
@@ -61,11 +66,14 @@ func TestLoadPersistedSwitchHistoryMissingFile(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	if err := os.Chdir(tmpDir); err != nil {
+	err = os.Chdir(tmpDir)
+	if err != nil {
 		t.Fatalf("chdir to temp dir: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originalWD)
+		if cleanupErr := os.Chdir(originalWD); cleanupErr != nil {
+			t.Errorf("restore wd: %v", cleanupErr)
+		}
 	})
 
 	history, err := LoadPersistedSwitchHistory()

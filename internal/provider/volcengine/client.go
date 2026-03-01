@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,dupl
 package volcengine
 
 import (
@@ -289,7 +290,7 @@ func ParseStreamResponse(reader io.Reader) (<-chan *StreamResponse, <-chan error
 		defer close(eventChan)
 		defer close(errChan)
 
-		var gzipReader io.Reader = reader
+		var gzipReader io.Reader
 
 		// Try to detect and handle gzip compression
 		buf := make([]byte, 2)
@@ -301,19 +302,22 @@ func ParseStreamResponse(reader io.Reader) (<-chan *StreamResponse, <-chan error
 
 		// Check for gzip magic number
 		if n >= 2 && buf[0] == 0x1f && buf[1] == 0x8b {
-			gzipReader, err = gzip.NewReader(io.MultiReader(bytes.NewReader(buf), reader))
+			var gzipReadCloser io.ReadCloser
+			gzipReadCloser, err = gzip.NewReader(io.MultiReader(bytes.NewReader(buf), reader))
 			if err != nil {
 				errChan <- err
 				return
 			}
-			defer gzipReader.(io.ReadCloser).Close()
+			defer func() {
+				_ = gzipReadCloser.Close()
+			}()
+			gzipReader = gzipReadCloser
 		} else {
 			// Not gzipped, create a multi-reader with the already-read bytes
 			gzipReader = io.MultiReader(bytes.NewReader(buf), reader)
 		}
 
-		bufReader := io.Reader(gzipReader)
-		decoder := json.NewDecoder(bufReader)
+		decoder := json.NewDecoder(gzipReader)
 
 		for {
 			var event StreamResponse

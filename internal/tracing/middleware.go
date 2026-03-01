@@ -2,6 +2,7 @@ package tracing
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,12 +62,18 @@ func TraceMiddleware(recorder *SpanRecorder) gin.HandlerFunc {
 
 		// Get user info from context if available
 		if userID, exists := c.Get("user_id"); exists {
-			traceRecord.UserID = userID.(string)
+			if userIDStr, ok := userID.(string); ok {
+				traceRecord.UserID = userIDStr
+			}
 		}
 
 		// Save to database asynchronously
 		if recorder != nil {
-			go recorder.saveToDB(traceRecord)
+			go func() {
+				if err := recorder.saveToDB(traceRecord); err != nil {
+					fmt.Printf("Failed to save trace record: %v\n", err)
+				}
+			}()
 		}
 	}
 }

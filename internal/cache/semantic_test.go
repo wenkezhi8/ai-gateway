@@ -10,10 +10,10 @@ func TestSemanticCache_Get(t *testing.T) {
 	config := DefaultSemanticCacheConfig()
 	cache := NewSemanticCache(config, nil)
 
-	// Create a test embedding
+	// Create a test embedding.
 	embedding := SimpleEmbedding("hello world", 1536)
 
-	// Test cache miss
+	// Test cache miss.
 	entry, similarity := cache.Get(context.Background(), "hello world", embedding)
 	if entry != nil {
 		t.Error("expected nil entry for cache miss")
@@ -30,7 +30,7 @@ func TestSemanticCache_SetAndGet(t *testing.T) {
 	embedding := SimpleEmbedding("hello world", 1536)
 	response := []byte(`{"choices":[{"message":{"content":"Hello!"}}]}`)
 
-	// Set entry
+	// Set entry.
 	id := cache.Set(
 		context.Background(),
 		"hello world",
@@ -46,10 +46,11 @@ func TestSemanticCache_SetAndGet(t *testing.T) {
 		t.Error("expected non-empty cache ID")
 	}
 
-	// Get entry with same query
+	// Get entry with same query.
 	entry, similarity := cache.Get(context.Background(), "hello world", embedding)
 	if entry == nil {
 		t.Error("expected non-nil entry for cache hit")
+		return
 	}
 	if similarity < config.SimilarityThreshold {
 		t.Errorf("expected similarity >= %f, got %f", config.SimilarityThreshold, similarity)
@@ -64,7 +65,7 @@ func TestSemanticCache_SemanticMatch(t *testing.T) {
 	config.SimilarityThreshold = 0.8
 	cache := NewSemanticCache(config, nil)
 
-	// Store a query about programming
+	// Store a query about programming.
 	embedding1 := SimpleEmbedding("how to write a python function", 1536)
 	response1 := []byte(`{"choices":[{"message":{"content":"Here's how..."}}]}`)
 	cache.Set(
@@ -78,11 +79,11 @@ func TestSemanticCache_SemanticMatch(t *testing.T) {
 		time.Hour,
 	)
 
-	// Try similar query about programming
+	// Try similar query about programming.
 	embedding2 := SimpleEmbedding("how do I create a function in python", 1536)
 	entry, similarity := cache.Get(context.Background(), "how do I create a function in python", embedding2)
 
-	// Should match because embeddings are similar
+	// Should match because embeddings are similar.
 	if entry != nil && similarity < 0.8 {
 		t.Errorf("expected similarity >= 0.8 for similar query, got %f", similarity)
 	}
@@ -95,7 +96,7 @@ func TestSemanticCache_Expiration(t *testing.T) {
 	embedding := SimpleEmbedding("test query", 1536)
 	response := []byte(`{"choices":[{"message":{"content":"test"}}]}`)
 
-	// Set with short TTL
+	// Set with short TTL.
 	cache.Set(
 		context.Background(),
 		"test query",
@@ -107,16 +108,16 @@ func TestSemanticCache_Expiration(t *testing.T) {
 		100*time.Millisecond,
 	)
 
-	// Should hit immediately
+	// Should hit immediately.
 	entry, _ := cache.Get(context.Background(), "test query", embedding)
 	if entry == nil {
 		t.Error("expected cache hit before expiration")
 	}
 
-	// Wait for expiration
+	// Wait for expiration.
 	time.Sleep(150 * time.Millisecond)
 
-	// Should miss after expiration
+	// Should miss after expiration.
 	entry, _ = cache.Get(context.Background(), "test query", embedding)
 	if entry != nil {
 		t.Error("expected cache miss after expiration")
@@ -141,10 +142,10 @@ func TestSemanticCache_Delete(t *testing.T) {
 		time.Hour,
 	)
 
-	// Delete
+	// Delete.
 	cache.Delete(id)
 
-	// Should miss after delete
+	// Should miss after delete.
 	entry, _ := cache.Get(context.Background(), "test query", embedding)
 	if entry != nil {
 		t.Error("expected cache miss after delete")
@@ -158,7 +159,7 @@ func TestSemanticCache_Cleanup(t *testing.T) {
 	embedding := SimpleEmbedding("test query", 1536)
 	response := []byte(`{"test": true}`)
 
-	// Set entry with short TTL
+	// Set entry with short TTL.
 	cache.Set(
 		context.Background(),
 		"test query",
@@ -170,10 +171,10 @@ func TestSemanticCache_Cleanup(t *testing.T) {
 		100*time.Millisecond,
 	)
 
-	// Wait for expiration
+	// Wait for expiration.
 	time.Sleep(150 * time.Millisecond)
 
-	// Cleanup should remove expired entry
+	// Cleanup should remove expired entry.
 	count := cache.Cleanup()
 	if count != 1 {
 		t.Errorf("expected 1 evicted entry, got %d", count)
@@ -187,13 +188,13 @@ func TestSemanticCache_GetStats(t *testing.T) {
 	embedding := SimpleEmbedding("test query", 1536)
 	response := []byte(`{"test": true}`)
 
-	// Initial stats
+	// Initial stats.
 	stats := cache.GetStats()
 	if stats.TotalQueries != 0 {
 		t.Error("expected 0 total queries initially")
 	}
 
-	// Generate cache miss
+	// Generate cache miss.
 	cache.Get(context.Background(), "test", embedding)
 
 	stats = cache.GetStats()
@@ -201,7 +202,7 @@ func TestSemanticCache_GetStats(t *testing.T) {
 		t.Errorf("expected 1 cache miss, got %d", stats.CacheMisses)
 	}
 
-	// Store and retrieve
+	// Store and retrieve.
 	cache.Set(context.Background(), "test", embedding, response, "gpt-4o", "openai", "chat", time.Hour)
 	cache.Get(context.Background(), "test", embedding)
 
@@ -219,7 +220,7 @@ func TestSemanticCache_MaxEntries(t *testing.T) {
 	embedding := SimpleEmbedding("test", 1536)
 	response := []byte(`{"test": true}`)
 
-	// Add more entries than max
+	// Add more entries than max.
 	for i := 0; i < 5; i++ {
 		cache.Set(
 			context.Background(),
@@ -233,7 +234,7 @@ func TestSemanticCache_MaxEntries(t *testing.T) {
 		)
 	}
 
-	// Should not exceed max
+	// Should not exceed max.
 	if cache.Size() > config.MaxEntries {
 		t.Errorf("expected size <= %d, got %d", config.MaxEntries, cache.Size())
 	}
@@ -244,7 +245,7 @@ func TestSemanticCache_FindSimilar(t *testing.T) {
 	config.SimilarityThreshold = 0.7
 	cache := NewSemanticCache(config, nil)
 
-	// Add some entries
+	// Add some entries.
 	queries := []string{
 		"how to write python code",
 		"what is the weather today",
@@ -265,18 +266,18 @@ func TestSemanticCache_FindSimilar(t *testing.T) {
 		)
 	}
 
-	// Search for similar to python coding
+	// Search for similar to python coding.
 	searchEmbedding := SimpleEmbedding("python coding tutorial", 1536)
 	results := cache.FindSimilar(searchEmbedding, 5)
 
-	// Should find at least one similar result
+	// Should find at least one similar result.
 	if len(results) == 0 {
 		t.Error("expected to find similar entries")
 	}
 }
 
 func TestSimpleEmbedding(t *testing.T) {
-	// Test that embeddings are consistent
+	// Test that embeddings are consistent.
 	emb1 := SimpleEmbedding("hello world", 1536)
 	emb2 := SimpleEmbedding("hello world", 1536)
 
@@ -284,7 +285,7 @@ func TestSimpleEmbedding(t *testing.T) {
 		t.Errorf("expected dimension 1536, got %d", len(emb1))
 	}
 
-	// Same input should produce same output
+	// Same input should produce same output.
 	for i := range emb1 {
 		if emb1[i] != emb2[i] {
 			t.Error("expected identical embeddings for same input")
@@ -292,7 +293,7 @@ func TestSimpleEmbedding(t *testing.T) {
 		}
 	}
 
-	// Different input should produce different output
+	// Different input should produce different output.
 	emb3 := SimpleEmbedding("different text", 1536)
 	allSame := true
 	for i := range emb1 {
@@ -310,21 +311,21 @@ func TestCosineSimilarity(t *testing.T) {
 	config := DefaultSemanticCacheConfig()
 	cache := NewSemanticCache(config, nil)
 
-	// Test identical vectors
+	// Test identical vectors.
 	vec1 := []float64{1, 0, 0, 1}
 	sim := cache.cosineSimilarity(vec1, vec1)
 	if sim < 0.99 || sim > 1.01 {
 		t.Errorf("expected similarity ~1.0 for identical vectors, got %f", sim)
 	}
 
-	// Test orthogonal vectors
+	// Test orthogonal vectors.
 	vec2 := []float64{0, 1, 0, 0}
 	sim = cache.cosineSimilarity(vec1, vec2)
 	if sim < -0.01 || sim > 0.01 {
 		t.Errorf("expected similarity ~0.0 for orthogonal vectors, got %f", sim)
 	}
 
-	// Test opposite vectors
+	// Test opposite vectors.
 	vec3 := []float64{-1, 0, 0, -1}
 	sim = cache.cosineSimilarity(vec1, vec3)
 	if sim < -1.01 || sim > -0.99 {
@@ -343,7 +344,7 @@ func TestMockEmbeddingService(t *testing.T) {
 		t.Errorf("expected dimension 512, got %d", len(embedding))
 	}
 
-	// Test batch
+	// Test batch.
 	embeddings, err := svc.GetEmbeddings(context.Background(), []string{"a", "b"})
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)

@@ -1,12 +1,13 @@
 package admin
 
 import (
-	"ai-gateway/internal/tracing"
 	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
+
+	"ai-gateway/internal/tracing"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,11 +20,16 @@ func NewTraceHandler(db *sql.DB) *TraceHandler {
 	return &TraceHandler{db: db}
 }
 
-// GetTraces returns list of traces
-// GET /api/admin/traces
+// GET /api/admin/traces.
 func (h *TraceHandler) GetTraces(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit := 100
+	if parsedLimit, err := strconv.Atoi(c.DefaultQuery("limit", "100")); err == nil && parsedLimit > 0 {
+		limit = parsedLimit
+	}
+	offset := 0
+	if parsedOffset, err := strconv.Atoi(c.DefaultQuery("offset", "0")); err == nil && parsedOffset >= 0 {
+		offset = parsedOffset
+	}
 	operation := c.Query("operation")
 	status := c.Query("status")
 	startTime := c.Query("start_time")
@@ -67,27 +73,13 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	traces := []*tracing.RequestTrace{}
-	for rows.Next() {
-		trace := &tracing.RequestTrace{}
-		var attrsJSON, eventsJSON string
-		var startTimeStr, endTimeStr, createdAtStr string
-
-		err := rows.Scan(
-			&trace.ID, &trace.RequestID, &trace.TraceID, &trace.SpanID, &trace.ParentSpanID,
-			&trace.Operation, &trace.Status, &startTimeStr, &endTimeStr, &trace.DurationMs,
-			&attrsJSON, &eventsJSON, &trace.UserID, &trace.Method, &trace.Path, &trace.Model, &trace.Provider, &trace.Error, &createdAtStr,
-		)
-		if err != nil {
-			continue
-		}
-
-		trace.StartTime = parseRFC3339Flexible(startTimeStr)
-		trace.EndTime = parseRFC3339Flexible(endTimeStr)
-		trace.CreatedAt = parseRFC3339Flexible(createdAtStr)
-		_ = json.Unmarshal([]byte(attrsJSON), &trace.Attributes)
-		_ = json.Unmarshal([]byte(eventsJSON), &trace.Events)
-		traces = append(traces, trace)
+	traces, err := scanRequestTraces(rows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "scan_failed", "message": err.Error()},
+		})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -96,8 +88,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	})
 }
 
-// GetTraceDetail returns detail of a trace
-// GET /api/admin/traces/:request_id
+// GET /api/admin/traces/:request_id.
 func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 	requestID := c.Param("request_id")
 
@@ -119,27 +110,13 @@ func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	traces := []*tracing.RequestTrace{}
-	for rows.Next() {
-		trace := &tracing.RequestTrace{}
-		var attrsJSON, eventsJSON string
-		var startTimeStr, endTimeStr, createdAtStr string
-
-		err := rows.Scan(
-			&trace.ID, &trace.RequestID, &trace.TraceID, &trace.SpanID, &trace.ParentSpanID,
-			&trace.Operation, &trace.Status, &startTimeStr, &endTimeStr, &trace.DurationMs,
-			&attrsJSON, &eventsJSON, &trace.UserID, &trace.Method, &trace.Path, &trace.Model, &trace.Provider, &trace.Error, &createdAtStr,
-		)
-		if err != nil {
-			continue
-		}
-
-		trace.StartTime = parseRFC3339Flexible(startTimeStr)
-		trace.EndTime = parseRFC3339Flexible(endTimeStr)
-		trace.CreatedAt = parseRFC3339Flexible(createdAtStr)
-		_ = json.Unmarshal([]byte(attrsJSON), &trace.Attributes)
-		_ = json.Unmarshal([]byte(eventsJSON), &trace.Events)
-		traces = append(traces, trace)
+	traces, err := scanRequestTraces(rows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "scan_failed", "message": err.Error()},
+		})
+		return
 	}
 
 	if len(traces) == 0 {
@@ -164,4 +141,43 @@ func parseRFC3339Flexible(v string) time.Time {
 		return t
 	}
 	return time.Time{}
+}
+
+func scanRequestTraces(rows *sql.Rows) ([]*tracing.RequestTrace, error) {
+	traces := make([]*tracing.RequestTrace, 0)
+	for rows.Next() {
+		trace := &tracing.RequestTrace{}
+		var attrsJSON, eventsJSON string
+		var startTimeStr, endTimeStr, createdAtStr string
+
+		err := rows.Scan(
+			&trace.ID, &trace.RequestID, &trace.TraceID, &trace.SpanID, &trace.ParentSpanID,
+			&trace.Operation, &trace.Status, &startTimeStr, &endTimeStr, &trace.DurationMs,
+			&attrsJSON, &eventsJSON, &trace.UserID, &trace.Method, &trace.Path, &trace.Model, &trace.Provider, &trace.Error, &createdAtStr,
+		)
+		if err != nil {
+			continue
+		}
+
+		trace.StartTime = parseRFC3339Flexible(startTimeStr)
+		trace.EndTime = parseRFC3339Flexible(endTimeStr)
+		trace.CreatedAt = parseRFC3339Flexible(createdAtStr)
+		if attrsJSON != "" {
+			if err := json.Unmarshal([]byte(attrsJSON), &trace.Attributes); err != nil {
+				continue
+			}
+		}
+		if eventsJSON != "" {
+			if err := json.Unmarshal([]byte(eventsJSON), &trace.Events); err != nil {
+				continue
+			}
+		}
+		traces = append(traces, trace)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return traces, nil
 }

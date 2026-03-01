@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // register sqlite3 driver
 )
 
 type ClassifierSwitchTaskStatus string

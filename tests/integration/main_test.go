@@ -1,8 +1,19 @@
 package integration
 
 import (
+	"sync"
+
 	"ai-gateway/internal/provider"
+
+	"github.com/gin-gonic/gin"
 )
 
-// Provider alias for integration tests
 type Provider = provider.Provider
+
+var setGinTestModeOnce sync.Once
+
+func setGinTestMode() {
+	setGinTestModeOnce.Do(func() {
+		gin.SetMode(gin.TestMode)
+	})
+}

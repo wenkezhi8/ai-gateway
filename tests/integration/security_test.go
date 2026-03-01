@@ -1,26 +1,24 @@
 package integration
 
 import (
-	"ai-gateway/internal/config"
-	"ai-gateway/internal/handler"
-	"ai-gateway/internal/middleware"
-	"ai-gateway/internal/provider"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"ai-gateway/internal/config"
+	"ai-gateway/internal/handler"
+	"ai-gateway/internal/middleware"
+	"ai-gateway/internal/provider"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
-// TestSecurity_APIKeyExposure tests that API keys are not exposed in responses
 func TestSecurity_APIKeyExposure(t *testing.T) {
+	setGinTestMode()
+
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{
 			{
@@ -36,7 +34,7 @@ func TestSecurity_APIKeyExposure(t *testing.T) {
 	proxyHandler := handler.NewProxyHandler(cfg, nil, nil)
 	ginRouter.GET("/v1/providers", proxyHandler.ListProviders)
 
-	req := httptest.NewRequest("GET", "/v1/providers", nil)
+	req := httptest.NewRequest("GET", "/v1/providers", http.NoBody)
 	w := httptest.NewRecorder()
 	ginRouter.ServeHTTP(w, req)
 
@@ -46,8 +44,9 @@ func TestSecurity_APIKeyExposure(t *testing.T) {
 	assert.NotContains(t, body, "api_key")
 }
 
-// TestSecurity_RateLimiting tests rate limiting enforcement
 func TestSecurity_RateLimiting(t *testing.T) {
+	setGinTestMode()
+
 	cfg := config.LimiterConfig{
 		Enabled: true,
 		Rate:    1, // Very low rate for testing
@@ -63,7 +62,7 @@ func TestSecurity_RateLimiting(t *testing.T) {
 
 	// First few requests should succeed (within burst)
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest("GET", "/test", http.NoBody)
 		w := httptest.NewRecorder()
 		ginRouter.ServeHTTP(w, req)
 		require.Equal(t, http.StatusOK, w.Code)
@@ -73,8 +72,9 @@ func TestSecurity_RateLimiting(t *testing.T) {
 	// Note: In practice, this is timing-dependent
 }
 
-// TestSecurity_InputValidation tests input validation
 func TestSecurity_InputValidation(t *testing.T) {
+	setGinTestMode()
+
 	// Clear global registry before test
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
@@ -131,8 +131,9 @@ func TestSecurity_InputValidation(t *testing.T) {
 	}
 }
 
-// TestSecurity_HTTPHeaders tests security headers
 func TestSecurity_HTTPHeaders(t *testing.T) {
+	setGinTestMode()
+
 	ginRouter := gin.New()
 
 	// Add security headers middleware
@@ -147,7 +148,7 @@ func TestSecurity_HTTPHeaders(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	ginRouter.ServeHTTP(w, req)
 
@@ -156,8 +157,9 @@ func TestSecurity_HTTPHeaders(t *testing.T) {
 	assert.Equal(t, "1; mode=block", w.Header().Get("X-XSS-Protection"))
 }
 
-// TestSecurity_SQlInjection tests SQL injection protection
 func TestSecurity_SQLInjection(t *testing.T) {
+	setGinTestMode()
+
 	// Clear global registry before test
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
@@ -173,7 +175,7 @@ func TestSecurity_SQLInjection(t *testing.T) {
 	ginRouter.GET("/v1/providers", proxyHandler.ListProviders)
 
 	// Try SQL injection in query params - proper URL encoding
-	req := httptest.NewRequest("GET", "/v1/providers?id=1%27%20OR%20%271%27%3D%271", nil)
+	req := httptest.NewRequest("GET", "/v1/providers?id=1%27%20OR%20%271%27%3D%271", http.NoBody)
 	w := httptest.NewRecorder()
 	ginRouter.ServeHTTP(w, req)
 
@@ -181,8 +183,9 @@ func TestSecurity_SQLInjection(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 }
 
-// TestSecurity_PathTraversal tests path traversal protection
 func TestSecurity_PathTraversal(t *testing.T) {
+	setGinTestMode()
+
 	ginRouter := gin.New()
 	ginRouter.GET("/files/:filename", func(c *gin.Context) {
 		// In real app, this would serve files
@@ -200,7 +203,7 @@ func TestSecurity_PathTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest("GET", tt.path, http.NoBody)
 			w := httptest.NewRecorder()
 			ginRouter.ServeHTTP(w, req)
 
@@ -210,8 +213,9 @@ func TestSecurity_PathTraversal(t *testing.T) {
 	}
 }
 
-// TestSecurity_XSSProtection tests XSS protection
 func TestSecurity_XSSProtection(t *testing.T) {
+	setGinTestMode()
+
 	cfg := &config.Config{
 		Providers: []config.ProviderConfig{
 			{Name: "test", Enabled: true},
@@ -223,7 +227,7 @@ func TestSecurity_XSSProtection(t *testing.T) {
 	ginRouter.GET("/v1/providers", proxyHandler.ListProviders)
 
 	// Try XSS in query params
-	req := httptest.NewRequest("GET", "/v1/providers?name=<script>alert('xss')</script>", nil)
+	req := httptest.NewRequest("GET", "/v1/providers?name=<script>alert('xss')</script>", http.NoBody)
 	w := httptest.NewRecorder()
 	ginRouter.ServeHTTP(w, req)
 
@@ -232,8 +236,9 @@ func TestSecurity_XSSProtection(t *testing.T) {
 	assert.NotContains(t, body, "<script>alert")
 }
 
-// TestSecurity_MethodNotAllowed tests HTTP method restrictions
 func TestSecurity_MethodNotAllowed(t *testing.T) {
+	setGinTestMode()
+
 	cfg := &config.Config{}
 	ginRouter := gin.New()
 	proxyHandler := handler.NewProxyHandler(cfg, nil, nil)
@@ -242,7 +247,7 @@ func TestSecurity_MethodNotAllowed(t *testing.T) {
 	ginRouter.POST("/api/v1/chat/completions", proxyHandler.ChatCompletions)
 
 	// Try GET request on POST-only endpoint
-	req := httptest.NewRequest("GET", "/api/v1/chat/completions", nil)
+	req := httptest.NewRequest("GET", "/api/v1/chat/completions", http.NoBody)
 	w := httptest.NewRecorder()
 	ginRouter.ServeHTTP(w, req)
 

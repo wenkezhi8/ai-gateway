@@ -24,7 +24,8 @@ func TestClassifierSwitchExecutor_SuccessWithinWindow(t *testing.T) {
 		UpdatedAt:     now.UnixMilli(),
 		DeadlineAt:    now.Add(180 * time.Second).UnixMilli(),
 	}
-	if err := store.Create(task); err != nil {
+	err = store.Create(task)
+	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
 
@@ -32,7 +33,7 @@ func TestClassifierSwitchExecutor_SuccessWithinWindow(t *testing.T) {
 	h := &RouterHandler{switchTaskStore: store}
 	h.nowFn = func() time.Time { return now }
 	h.sleepFn = func(d time.Duration) { now = now.Add(d) }
-	h.probeSwitchFn = func(targetModel, originalModel string) error {
+	h.probeSwitchFn = func(_, _ string) error {
 		attempt++
 		if attempt == 1 {
 			return errors.New("ollama request failed: context deadline exceeded")
@@ -71,14 +72,15 @@ func TestClassifierSwitchExecutor_TimeoutReturnsFriendlyMessage(t *testing.T) {
 		UpdatedAt:     now.UnixMilli(),
 		DeadlineAt:    now.Add(4 * time.Second).UnixMilli(),
 	}
-	if err := store.Create(task); err != nil {
+	err = store.Create(task)
+	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
 
 	h := &RouterHandler{switchTaskStore: store}
 	h.nowFn = func() time.Time { return now }
 	h.sleepFn = func(d time.Duration) { now = now.Add(d) }
-	h.probeSwitchFn = func(targetModel, originalModel string) error {
+	h.probeSwitchFn = func(_, _ string) error {
 		return errors.New("ollama request failed: Post \"http://127.0.0.1:11434/api/chat\": context deadline exceeded")
 	}
 

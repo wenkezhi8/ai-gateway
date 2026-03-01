@@ -1,3 +1,4 @@
+//nolint:gocyclo,goconst
 package google
 
 import (
@@ -8,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"ai-gateway/internal/provider"
@@ -17,7 +17,6 @@ import (
 type Adapter struct {
 	*provider.BaseProvider
 	client *Client
-	mu     sync.RWMutex
 }
 
 func NewAdapter(cfg *provider.ProviderConfig) *Adapter {
@@ -50,7 +49,10 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		body = []byte(readErr.Error())
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseProviderError(resp.StatusCode, body)
 	}
@@ -79,14 +81,17 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	}
 
 	gReq := ConvertRequest(req)
-	resp, err := a.client.DoStreamGenerate(ctx, req.Model, gReq)
+	resp, err := a.client.DoStreamGenerate(ctx, req.Model, gReq) //nolint:bodyclose
 	if err != nil {
 		close(chunkChan)
 		return chunkChan, &provider.ProviderError{Code: http.StatusInternalServerError, Message: fmt.Sprintf("failed to make stream request: %v", err), Provider: "google"}
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		_ = resp.Body.Close()
 		close(chunkChan)
 		return chunkChan, parseProviderError(resp.StatusCode, body)

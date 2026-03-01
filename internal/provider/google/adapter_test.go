@@ -83,7 +83,8 @@ func TestAdapter_StreamChat_PassesThroughSSEError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1beta/models/gemini-3.1-pro-preview:streamGenerateContent" {
 			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":{"code":404,"message":"not found"}}`))
+			_, err := w.Write([]byte(`{"error":{"code":404,"message":"not found"}}`))
+			require.NoError(t, err)
 			return
 		}
 

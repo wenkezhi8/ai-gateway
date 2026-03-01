@@ -1,13 +1,15 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (
-	"ai-gateway/internal/config"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
+
+	"ai-gateway/internal/config"
 )
 
 // IPRateLimiter tracks rate limiters per IP

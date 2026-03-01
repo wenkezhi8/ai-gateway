@@ -47,7 +47,7 @@ func TestSecurityConfig_Validate(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			config := &SecurityConfig{
+			config := &Config{
 				JWTSecret:     tc.jwtSecret,
 				AllowInsecure: tc.allowInsecure,
 			}
@@ -88,8 +88,7 @@ func TestGetEnvBool(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		os.Setenv("TEST_BOOL", tc.envValue)
-		defer os.Unsetenv("TEST_BOOL")
+		t.Setenv("TEST_BOOL", tc.envValue)
 
 		if got := GetEnvBool("TEST_BOOL", tc.defaultVal); got != tc.expected {
 			t.Errorf("GetEnvBool(%q, %v) = %v, want %v", tc.envValue, tc.defaultVal, got, tc.expected)

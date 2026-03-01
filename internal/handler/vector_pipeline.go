@@ -1,15 +1,16 @@
 package handler
 
 import (
-	"ai-gateway/internal/cache"
-	"ai-gateway/internal/intent"
-	"ai-gateway/internal/routing"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
+
+	"ai-gateway/internal/cache"
+	"ai-gateway/internal/intent"
+	"ai-gateway/internal/routing"
 )
 
 type VectorPipeline struct {
@@ -36,6 +37,7 @@ func NewVectorPipeline(
 	}
 }
 
+//nolint:gocyclo,gocritic
 func (p *VectorPipeline) Read(
 	ctx context.Context,
 	prompt string,
@@ -43,7 +45,7 @@ func (p *VectorPipeline) Read(
 	taskType string,
 	settings *cache.CacheSettings,
 	thresholdResolver func(string, cache.CacheSettings) float64,
-) (*intent.IntentEmbeddingResult, []byte, bool, string, string) {
+) (*intent.EmbeddingResult, []byte, bool, string, string) {
 	resolvedSettings := p.resolveSettings(settings)
 	if p.vectorStore == nil || !resolvedSettings.VectorEnabled || !resolvedSettings.VectorPipelineEnabled {
 		return nil, nil, false, "", ""
@@ -85,9 +87,10 @@ func (p *VectorPipeline) Read(
 	return intentResult, payload, true, "vector-semantic", hit.CacheKey
 }
 
+//nolint:gocritic
 func (p *VectorPipeline) Write(
 	ctx context.Context,
-	intentResult *intent.IntentEmbeddingResult,
+	intentResult *intent.EmbeddingResult,
 	providerName string,
 	model string,
 	taskType routing.TaskType,
@@ -128,8 +131,12 @@ func (p *VectorPipeline) Write(
 	go func() {
 		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
-		_ = p.vectorStore.Upsert(writeCtx, doc)
-		_ = p.vectorStore.TouchTTL(writeCtx, doc.CacheKey, ttlSec)
+		if err := p.vectorStore.Upsert(writeCtx, doc); err != nil {
+			return
+		}
+		if err := p.vectorStore.TouchTTL(writeCtx, doc.CacheKey, ttlSec); err != nil {
+			return
+		}
 	}()
 }
 
@@ -143,13 +150,14 @@ func (p *VectorPipeline) resolveSettings(settings *cache.CacheSettings) cache.Ca
 	return cache.DefaultCacheSettings()
 }
 
+//nolint:gocritic
 func (p *VectorPipeline) buildIntentEmbeddingResult(
 	ctx context.Context,
 	prompt string,
 	normalizedQuery string,
 	taskType string,
 	settings cache.CacheSettings,
-) (*intent.IntentEmbeddingResult, error) {
+) (*intent.EmbeddingResult, error) {
 	normalizedText := strings.TrimSpace(normalizedQuery)
 	if normalizedText == "" {
 		if p.textNormalizer != nil {
@@ -186,7 +194,7 @@ func (p *VectorPipeline) buildIntentEmbeddingResult(
 	hash := sha256.Sum256([]byte(normalizedText))
 	queryHash := hex.EncodeToString(hash[:])
 
-	return &intent.IntentEmbeddingResult{
+	return &intent.EmbeddingResult{
 		Intent:         normalizedTaskType,
 		Slots:          map[string]string{"task_type": normalizedTaskType, "query_hash": queryHash},
 		StandardKey:    cache.BuildTaskTypeStandardKey(normalizedTaskType, normalizedText),

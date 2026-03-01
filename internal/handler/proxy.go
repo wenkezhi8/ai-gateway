@@ -1,6 +1,15 @@
+//nolint:godot,gocyclo,goconst,gocritic,revive,exhaustive,unused
 package handler
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"sort"
+	"strings"
+	"time"
+
 	"ai-gateway/internal/cache"
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/handler/admin"
@@ -11,13 +20,6 @@ import (
 	"ai-gateway/internal/routing"
 	"ai-gateway/internal/storage"
 	"ai-gateway/internal/tracing"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"sort"
-	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -88,7 +90,6 @@ type ProxyHandler struct {
 	cache             *cache.Manager
 	deduplicator      *cache.RequestDeduplicator
 	semanticCache     *cache.SemanticCache
-	embeddingSvc      cache.EmbeddingProvider
 	modelMappingCache *cache.ModelMappingCache
 	intentClient      *intent.Client
 	vectorStore       cache.VectorCacheStore
@@ -403,7 +404,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			c.Data(http.StatusOK, "application/json", v2CachedBody)
 		}
 		if v2HitKey != "" && h.vectorStore != nil {
-			_ = h.vectorStore.TouchTTL(c.Request.Context(), v2HitKey, h.intentTTLSeconds(intentResult))
+			if err := h.vectorStore.TouchTTL(c.Request.Context(), v2HitKey, h.intentTTLSeconds(intentResult)); err != nil {
+				logrus.WithError(err).WithField("cache_key", v2HitKey).Debug("failed to refresh vector cache ttl")
+			}
 		}
 		return
 	}
@@ -476,64 +479,70 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Try exact cache
 	if cacheEnabled && h.cache.ResponseCache != nil {
-		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
-		cacheExactStart := time.Now()
-		cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
-		if h.traceRecorder != nil {
-			result := "miss"
-			if err == nil && cached != nil {
-				result = "hit"
+		cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
+		if keyErr != nil {
+			logrus.WithError(keyErr).Warn("failed to generate exact cache key")
+		} else {
+			cacheExactStart := time.Now()
+			cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
+			if h.traceRecorder != nil {
+				result := "miss"
+				if err == nil && cached != nil {
+					result = "hit"
+				}
+				preview, full, truncated := tracing.ExtractResponseTextPreview(func() []byte {
+					if cached == nil {
+						return nil
+					}
+					return cached.Body
+				}(), 200, 4000)
+				h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-exact", result, map[string]interface{}{
+					"duration_ms":      time.Since(cacheExactStart).Milliseconds(),
+					"hit":              err == nil && cached != nil,
+					"cache_key":        cacheKey,
+					"answer_preview":   preview,
+					"answer_full":      full,
+					"answer_truncated": truncated,
+				})
 			}
-			preview, full, truncated := tracing.ExtractResponseTextPreview(func() []byte {
-				if cached == nil {
-					return nil
-				}
-				return cached.Body
-			}(), 200, 4000)
-			h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-exact", result, map[string]interface{}{
-				"duration_ms":      time.Since(cacheExactStart).Milliseconds(),
-				"hit":              err == nil && cached != nil,
-				"cache_key":        cacheKey,
-				"answer_preview":   preview,
-				"answer_full":      full,
-				"answer_truncated": truncated,
-			})
-		}
-		if err == nil && cached != nil {
-			if !hasMeaningfulCachedResponse(cached.Body) {
-				logrus.WithFields(logrus.Fields{
-					"model":     req.Model,
-					"task_type": assessment.TaskType,
-					"cache_key": cacheKey,
-				}).Warn("Skip invalid cached response without meaningful content")
-				_ = h.cache.Cache().Delete(c.Request.Context(), cacheKey)
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"model":     req.Model,
-					"task_type": assessment.TaskType,
-				}).Info("Response cache hit")
-
-				tokenUsage := extractUsageTokensFromBody(cached.Body)
-				h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
-				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
-				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
-				if h.traceRecorder != nil {
-					h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
-						"duration_ms": time.Since(startTime).Milliseconds(),
-						"model":       req.Model,
-						"provider":    req.Provider,
-						"cache_hit":   true,
-						"cache_layer": "exact",
-						"status_code": cached.StatusCode,
-					})
-				}
-				c.Header("X-Local-Cache-Hit", "1")
-				if req.Stream {
-					h.writeCachedResponseAsStream(c, req.Model, cached.Body)
+			if err == nil && cached != nil {
+				if !hasMeaningfulCachedResponse(cached.Body) {
+					logrus.WithFields(logrus.Fields{
+						"model":     req.Model,
+						"task_type": assessment.TaskType,
+						"cache_key": cacheKey,
+					}).Warn("Skip invalid cached response without meaningful content")
+					if delErr := h.cache.Cache().Delete(c.Request.Context(), cacheKey); delErr != nil {
+						logrus.WithError(delErr).WithField("cache_key", cacheKey).Debug("failed to delete invalid cache entry")
+					}
 				} else {
-					c.Data(cached.StatusCode, "application/json", cached.Body)
+					logrus.WithFields(logrus.Fields{
+						"model":     req.Model,
+						"task_type": assessment.TaskType,
+					}).Info("Response cache hit")
+
+					tokenUsage := extractUsageTokensFromBody(cached.Body)
+					h.recordMetricsExtended(userID, apiKey, req.Model, req.Provider, time.Since(startTime), tokenUsage.Total, true, true, 0, tokenUsage.Prompt, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+					admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), tokenUsage.Total)
+					h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
+					if h.traceRecorder != nil {
+						h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+							"duration_ms": time.Since(startTime).Milliseconds(),
+							"model":       req.Model,
+							"provider":    req.Provider,
+							"cache_hit":   true,
+							"cache_layer": "exact",
+							"status_code": cached.StatusCode,
+						})
+					}
+					c.Header("X-Local-Cache-Hit", "1")
+					if req.Stream {
+						h.writeCachedResponseAsStream(c, req.Model, cached.Body)
+					} else {
+						c.Data(cached.StatusCode, "application/json", cached.Body)
+					}
+					return
 				}
-				return
 			}
 		}
 	}
@@ -778,7 +787,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
-	resp := result.(*provider.ChatResponse)
+	resp, ok := result.(*provider.ChatResponse)
+	if !ok {
+		ProviderError(c, "Provider returned invalid response type", "invalid_provider_response")
+		return
+	}
 
 	// Check for provider error in response
 	if resp.Error != nil {
@@ -835,40 +848,52 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}).Info("Cache check")
 
 	if cacheEnabled && cacheWriteAllowed && h.cache.ResponseCache != nil && hasMeaningfulAssistantResponse(&response) {
-		responseBody, _ := json.Marshal(response)
-		cacheKey, _ := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
-		cachedResp := &cache.CachedResponse{
-			StatusCode:     http.StatusOK,
-			Headers:        map[string]string{"Content-Type": "application/json"},
-			Body:           responseBody,
-			CreatedAt:      time.Now(),
-			HitCount:       0,
-			HitModels:      map[string]int64{req.Model: 1},
-			Provider:       req.Provider,
-			Model:          req.Model,
-			Prompt:         prompt,
-			TaskType:       string(assessment.TaskType),
-			TaskTypeSource: string(assessment.Source),
-		}
-
-		// Use SetWithTaskType to record task type for filtering
-		if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-			taskTypeStr := string(assessment.TaskType)
-			mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr, string(assessment.Source))
+		responseBody, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			logrus.WithError(marshalErr).Warn("failed to marshal chat completion response for cache")
 		} else {
-			h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
-		}
+			cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
+			if keyErr != nil {
+				logrus.WithError(keyErr).Warn("failed to generate response cache key")
+			} else {
+				cachedResp := &cache.CachedResponse{
+					StatusCode:     http.StatusOK,
+					Headers:        map[string]string{"Content-Type": "application/json"},
+					Body:           responseBody,
+					CreatedAt:      time.Now(),
+					HitCount:       0,
+					HitModels:      map[string]int64{req.Model: 1},
+					Provider:       req.Provider,
+					Model:          req.Model,
+					Prompt:         prompt,
+					TaskType:       string(assessment.TaskType),
+					TaskTypeSource: string(assessment.Source),
+				}
 
-		if shouldUsePromptOnlyCache(assessment.TaskType) {
-			h.pruneDuplicateResponseEntries(c.Request.Context(), req.Provider, req.Model, string(assessment.TaskType), prompt, cacheKey)
-		}
+				// Use SetWithTaskType to record task type for filtering
+				if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+					taskTypeStr := string(assessment.TaskType)
+					if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr, string(assessment.Source)); err != nil {
+						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
+					}
+				} else {
+					if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
+						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
+					}
+				}
 
-		logrus.WithFields(logrus.Fields{
-			"model":     req.Model,
-			"ttl":       recommendedTTL,
-			"task_type": assessment.TaskType,
-			"cache_key": cacheKey,
-		}).Info("Response cached")
+				if shouldUsePromptOnlyCache(assessment.TaskType) {
+					h.pruneDuplicateResponseEntries(c.Request.Context(), req.Provider, req.Model, string(assessment.TaskType), prompt, cacheKey)
+				}
+
+				logrus.WithFields(logrus.Fields{
+					"model":     req.Model,
+					"ttl":       recommendedTTL,
+					"task_type": assessment.TaskType,
+					"cache_key": cacheKey,
+				}).Info("Response cached")
+			}
+		}
 	} else if !cacheWriteAllowed {
 		logrus.WithFields(logrus.Fields{
 			"model":     req.Model,
@@ -894,22 +919,26 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	// Store in semantic cache for similar query matching
 	// 改动点: 存储到语义缓存供相似请求复用
 	if allowSemantic && cacheWriteAllowed && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
-		responseBody, _ := json.Marshal(response)
-		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-		h.semanticCache.Set(
-			c.Request.Context(),
-			semanticQuery,
-			queryVector,
-			responseBody,
-			req.Model,
-			req.Provider,
-			string(assessment.TaskType),
-			recommendedTTL,
-		)
-		logrus.WithFields(logrus.Fields{
-			"model":     req.Model,
-			"task_type": assessment.TaskType,
-		}).Debug("Semantic cache entry stored")
+		responseBody, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			logrus.WithError(marshalErr).Warn("failed to marshal semantic cache response")
+		} else {
+			queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+			h.semanticCache.Set(
+				c.Request.Context(),
+				semanticQuery,
+				queryVector,
+				responseBody,
+				req.Model,
+				req.Provider,
+				string(assessment.TaskType),
+				recommendedTTL,
+			)
+			logrus.WithFields(logrus.Fields{
+				"model":     req.Model,
+				"task_type": assessment.TaskType,
+			}).Debug("Semantic cache entry stored")
+		}
 	}
 
 	// 记录 Span 8: 缓存写入
@@ -1051,10 +1080,12 @@ func (h *ProxyHandler) getProviderForRequest(c *gin.Context, model string, provi
 				// Cache the route decision
 				if h.cache != nil && h.cache.RouteCache != nil {
 					cacheKey := model + ":" + providerName
-					h.cache.RouteCache.Set(context.Background(), cacheKey, nil, &cache.RouteDecision{
+					if setErr := h.cache.RouteCache.Set(context.Background(), cacheKey, nil, &cache.RouteDecision{
 						Provider: providerName,
 						Model:    model,
-					})
+					}); setErr != nil {
+						logrus.WithError(setErr).WithField("cache_key", cacheKey).Debug("failed to write route cache")
+					}
 				}
 				return p, nil
 			}
@@ -1092,7 +1123,11 @@ func (h *ProxyHandler) getProviderForRequest(c *gin.Context, model string, provi
 			}
 
 			// Fallback: try to get active account by provider type
-			account, _ := h.accountManager.GetActiveAccount(pk)
+			account, accountErr := h.accountManager.GetActiveAccount(pk)
+			if accountErr != nil {
+				logrus.WithError(accountErr).WithField("provider", pk).Debug("failed to fetch active account")
+				continue
+			}
 			if account != nil && account.Enabled {
 				provConfig := &provider.ProviderConfig{
 					Name:    backendProvider,
@@ -1751,9 +1786,13 @@ func (h *ProxyHandler) handleStreamResponse(
 							TaskTypeSource: taskTypeSource,
 						}
 						if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-							mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource)
+							if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
+								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+							}
 						} else {
-							h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
+							if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
+								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+							}
 						}
 						if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 							h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
@@ -1987,9 +2026,13 @@ func (h *ProxyHandler) handleStreamResponse(
 						TaskTypeSource: taskTypeSource,
 					}
 					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-						mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource)
+						if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource); err != nil {
+							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
+						}
 					} else {
-						h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL)
+						if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
+							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
+						}
 					}
 					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, model, taskType, prompt, cacheKey)
@@ -2344,7 +2387,9 @@ func (h *ProxyHandler) ListConfiguredProviders(c *gin.Context) {
 
 			models := []string{}
 			if existing, ok := providerMap[providerName]; ok {
-				models = existing["models"].([]string)
+				if existingModels, castOK := existing["models"].([]string); castOK {
+					models = existingModels
+				}
 			} else if defaultModels, ok := defaultProviderModels[providerName]; ok {
 				models = defaultModels
 			}
@@ -2403,6 +2448,7 @@ func (h *ProxyHandler) recordMetrics(userID, apiKey, model string, latency time.
 	h.recordMetricsExtended(userID, apiKey, model, "", latency, tokens, success, false, 0, 0, "", "", "", "", "")
 }
 
+//nolint:unparam
 func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType, experimentTag, domainTag string) {
 	// Update dashboard stats
 	if dh := admin.GetDashboardHandler(); dh != nil {
@@ -2419,7 +2465,7 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 				}
 			}
 		}
-		storage.LogUsage(map[string]interface{}{
+		if err := storage.LogUsage(map[string]interface{}{
 			"timestamp":      time.Now().UnixMilli(),
 			"model":          model,
 			"provider":       provider,
@@ -2437,20 +2483,10 @@ func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider str
 			"error_type":     errorType,
 			"experiment_tag": experimentTag,
 			"domain_tag":     domainTag,
-		})
+		}); err != nil {
+			logrus.WithError(err).Debug("failed to persist usage metrics")
+		}
 	}
-
-	// Log metrics
-	metricsData, _ := json.Marshal(map[string]interface{}{
-		"user_id":    userID,
-		"api_key":    maskAPIKey(apiKey),
-		"model":      model,
-		"latency_ms": latency.Milliseconds(),
-		"tokens":     tokens,
-		"success":    success,
-		"timestamp":  time.Now().Unix(),
-	})
-	_ = metricsData
 }
 
 // maskAPIKey masks an API key for logging
@@ -2961,17 +2997,27 @@ func (h *ProxyHandler) pruneDuplicateResponseEntries(ctx context.Context, provid
 			continue
 		}
 
-		_ = h.cache.Cache().Delete(ctx, entry.Key)
+		if err := h.cache.Cache().Delete(ctx, entry.Key); err != nil {
+			logrus.WithError(err).WithField("cache_key", entry.Key).Debug("failed to prune duplicate cache entry")
+		}
 	}
 }
 
 func extractPromptAndTaskTypeFromCacheValue(value interface{}) (string, string) {
 	switch v := value.(type) {
 	case map[string]interface{}:
-		prompt, _ := v["prompt"].(string)
-		taskType, _ := v["task_type"].(string)
+		prompt, ok := v["prompt"].(string)
+		if !ok {
+			prompt = ""
+		}
+		taskType, ok := v["task_type"].(string)
+		if !ok {
+			taskType = ""
+		}
 		if taskType == "" {
-			taskType, _ = v["TaskType"].(string)
+			if fallbackTaskType, fallbackOK := v["TaskType"].(string); fallbackOK {
+				taskType = fallbackTaskType
+			}
 		}
 		return prompt, taskType
 	case map[interface{}]interface{}:
@@ -3005,7 +3051,9 @@ func (h *ProxyHandler) persistResponseCacheHit(ctx context.Context, cacheKey str
 		if err != nil || ttl <= 0 {
 			return
 		}
-		_ = h.cache.ResponseCache.SetWithTTL(ctx, cacheKey, cached, ttl)
+		if setErr := h.cache.ResponseCache.SetWithTTL(ctx, cacheKey, cached, ttl); setErr != nil {
+			logrus.WithError(setErr).WithField("cache_key", cacheKey).Debug("failed to persist cache hit metadata")
+		}
 	}
 }
 
@@ -3015,7 +3063,7 @@ func (h *ProxyHandler) processCacheV2Read(
 	normalizedQuery string,
 	taskType string,
 	cacheSettings cache.CacheSettings,
-) (*intent.IntentEmbeddingResult, []byte, bool, string, string) {
+) (*intent.EmbeddingResult, []byte, bool, string, string) {
 	if h.vectorStore == nil || !cacheSettings.VectorEnabled {
 		return nil, nil, false, "", ""
 	}
@@ -3038,7 +3086,7 @@ func (h *ProxyHandler) processCacheV2Read(
 
 func (h *ProxyHandler) processCacheV2Write(
 	ctx context.Context,
-	intentResult *intent.IntentEmbeddingResult,
+	intentResult *intent.EmbeddingResult,
 	providerName string,
 	model string,
 	taskType routing.TaskType,
@@ -3084,7 +3132,7 @@ func (h *ProxyHandler) intentThreshold(intentName string, cacheSettings cache.Ca
 	return 0.92
 }
 
-func (h *ProxyHandler) intentTTLSeconds(intentResult *intent.IntentEmbeddingResult) int64 {
+func (h *ProxyHandler) intentTTLSeconds(intentResult *intent.EmbeddingResult) int64 {
 	defaultTTL := int64((24 * time.Hour).Seconds())
 	if h.config == nil {
 		return defaultTTL
@@ -3266,5 +3314,7 @@ func (h *ProxyHandler) bindResponseToAccount(ctx context.Context, responseID, ac
 	if h.accountManager == nil {
 		return
 	}
-	_ = h.accountManager.BindResponseToAccount(ctx, responseID, accountID)
+	if err := h.accountManager.BindResponseToAccount(ctx, responseID, accountID); err != nil {
+		logrus.WithError(err).WithFields(logrus.Fields{"response_id": responseID, "account_id": accountID}).Debug("failed to bind response to account")
+	}
 }

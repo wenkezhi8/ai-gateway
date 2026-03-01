@@ -1,3 +1,4 @@
+//nolint:errcheck,revive,unparam // Mock command handlers intentionally lightweight for behavior tests.
 package cache
 
 import (
@@ -93,8 +94,8 @@ func TestRedisStackVectorStore_UpsertAndGetExact(t *testing.T) {
 			"role":    "assistant",
 			"content": "1+1=2",
 		},
-		Provider:    "openai",
-		Model:       "gpt-4o-mini",
+		Provider:     "openai",
+		Model:        "gpt-4o-mini",
 		QualityScore: 99,
 		TTLSec:       int64((24 * time.Hour).Seconds()),
 	}
@@ -168,11 +169,10 @@ func TestRedisStackVectorStore_TouchTTL(t *testing.T) {
 	}
 
 	store := NewRedisStackVectorStoreWithExecutor(exec, DefaultRedisStackVectorConfig())
-	if err := store.TouchTTL(context.Background(), "intent:calc:expr=1+1", int64((10*time.Minute).Seconds())); err != nil {
+	if err := store.TouchTTL(context.Background(), "intent:calc:expr=1+1", int64((10 * time.Minute).Seconds())); err != nil {
 		t.Fatalf("touch ttl failed: %v", err)
 	}
 	if !called {
 		t.Fatal("expected expire to be called")
 	}
 }
-

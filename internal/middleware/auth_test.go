@@ -10,10 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestAuth_Disabled(t *testing.T) {
 	cfg := AuthConfig{
 		Enabled: false,
@@ -25,7 +21,7 @@ func TestAuth_Disabled(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -47,7 +43,7 @@ func TestAuth_Enabled_ValidBearer(t *testing.T) {
 		c.String(http.StatusOK, userID)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer test-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -71,7 +67,7 @@ func TestAuth_Enabled_ValidAPIKeyHeader(t *testing.T) {
 		c.String(http.StatusOK, userID)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("X-API-Key", "test-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -80,7 +76,7 @@ func TestAuth_Enabled_ValidAPIKeyHeader(t *testing.T) {
 	assert.Equal(t, "user-456", w.Body.String())
 }
 
-// TestAuth_Enabled_QueryParamNotSupported tests that query param auth is not supported for security
+// TestAuth_Enabled_QueryParamNotSupported tests that query param auth is not supported for security.
 func TestAuth_Enabled_QueryParamNotSupported(t *testing.T) {
 	cfg := AuthConfig{
 		Enabled: true,
@@ -97,7 +93,7 @@ func TestAuth_Enabled_QueryParamNotSupported(t *testing.T) {
 	})
 
 	// Query parameter authentication is not supported for security reasons
-	req := httptest.NewRequest("GET", "/test?api_key=test-key", nil)
+	req := httptest.NewRequest("GET", "/test?api_key=test-key", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -118,7 +114,7 @@ func TestAuth_Enabled_NoAPIKey(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -138,7 +134,7 @@ func TestAuth_Enabled_OptionalNoAPIKey(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -159,7 +155,7 @@ func TestAuth_Enabled_InvalidAPIKey(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer invalid-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -175,7 +171,7 @@ func TestAuth_GetUserID(t *testing.T) {
 		c.String(http.StatusOK, userID)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -189,7 +185,7 @@ func TestAuth_GetUserID_NotSet(t *testing.T) {
 		c.String(http.StatusOK, userID)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -204,7 +200,7 @@ func TestAuth_GetAPIKey(t *testing.T) {
 		c.String(http.StatusOK, apiKey)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -224,7 +220,7 @@ func TestRequireAuth(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -238,7 +234,7 @@ func TestRequireAuth_Unauthorized(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -261,7 +257,7 @@ func TestAuth_AuthorizationWithoutBearer(t *testing.T) {
 	})
 
 	// Authorization header without "Bearer " prefix
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "plain-key")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -287,7 +283,7 @@ func TestAuth_Priority(t *testing.T) {
 	})
 
 	// Authorization header should take priority over X-API-Key
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("Authorization", "Bearer bearer-key")
 	req.Header.Set("X-API-Key", "header-key")
 	w := httptest.NewRecorder()

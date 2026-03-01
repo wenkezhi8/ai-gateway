@@ -1,3 +1,4 @@
+//nolint:govet // Test fixture intentionally sets optional fields for serialization coverage.
 package cache
 
 import (
@@ -51,7 +52,7 @@ func TestResponseCache_GenerateKey_Consistency(t *testing.T) {
 	key2, err := rc.GenerateKey("openai", "gpt-4", req)
 	require.NoError(t, err)
 
-	// Same request should generate same key
+	// Same request should generate same key.
 	assert.Equal(t, key1, key2)
 }
 
@@ -75,7 +76,7 @@ func TestResponseCache_GenerateKey_DifferentRequests(t *testing.T) {
 	key2, err := rc.GenerateKey("openai", "gpt-4", req2)
 	require.NoError(t, err)
 
-	// Different requests should generate different keys
+	// Different requests should generate different keys.
 	assert.NotEqual(t, key1, key2)
 }
 
@@ -161,20 +162,20 @@ func TestResponseCache_IsCacheable(t *testing.T) {
 	memCache := NewMemoryCache()
 	rc := NewResponseCache(memCache, time.Hour)
 
-	// Test streamable request
+	// Test streamable request.
 	streamReq := &mockStreamableRequest{stream: true}
 	assert.False(t, rc.IsCacheable(streamReq))
 
-	// Test non-streamable request
+	// Test non-streamable request.
 	nonStreamReq := &mockStreamableRequest{stream: false}
 	assert.True(t, rc.IsCacheable(nonStreamReq))
 
-	// Test regular request (no IsStream method)
+	// Test regular request (no IsStream method).
 	regularReq := map[string]string{"test": "data"}
 	assert.True(t, rc.IsCacheable(regularReq))
 }
 
-// mockStreamableRequest for testing IsCacheable
+// mockStreamableRequest for testing IsCacheable.
 type mockStreamableRequest struct {
 	stream bool
 }
@@ -193,7 +194,7 @@ func TestCachedResponse_JSON(t *testing.T) {
 		Model:      "claude-3",
 	}
 
-	// Verify JSON marshaling works
+	// Verify JSON marshaling works.
 	data, err := response.Body.MarshalJSON()
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "Hello")

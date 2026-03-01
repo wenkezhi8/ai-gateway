@@ -12,8 +12,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
+func newTestRouter(handler *Handler) *gin.Engine {
 	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.POST("/webhook", handler.WebhookHandler)
+	return router
 }
 
 func TestHandler_WebhookHandler_ValidPayload(t *testing.T) {
@@ -22,8 +25,7 @@ func TestHandler_WebhookHandler_ValidPayload(t *testing.T) {
 	})
 	handler := NewHandler(notifier)
 
-	router := gin.New()
-	router.POST("/webhook", handler.WebhookHandler)
+	router := newTestRouter(handler)
 
 	// Create a valid Prometheus alert payload
 	payload := map[string]interface{}{
@@ -42,7 +44,8 @@ func TestHandler_WebhookHandler_ValidPayload(t *testing.T) {
 		},
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
 	req := httptest.NewRequest("POST", "/webhook", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -58,8 +61,7 @@ func TestHandler_WebhookHandler_InvalidJSON(t *testing.T) {
 	})
 	handler := NewHandler(notifier)
 
-	router := gin.New()
-	router.POST("/webhook", handler.WebhookHandler)
+	router := newTestRouter(handler)
 
 	req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString("invalid json"))
 	req.Header.Set("Content-Type", "application/json")
@@ -75,8 +77,7 @@ func TestHandler_WebhookHandler_EmptyBody(t *testing.T) {
 	})
 	handler := NewHandler(notifier)
 
-	router := gin.New()
-	router.POST("/webhook", handler.WebhookHandler)
+	router := newTestRouter(handler)
 
 	req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString("{}"))
 	req.Header.Set("Content-Type", "application/json")
@@ -97,6 +98,8 @@ func TestAlert_Fields(t *testing.T) {
 
 	assert.Equal(t, "TestAlert", alert.Name)
 	assert.Equal(t, AlertLevelCritical, alert.Level)
+	assert.Equal(t, "Test summary", alert.Message)
+	assert.Equal(t, map[string]string{"env": "prod"}, alert.Labels)
 }
 
 func TestNotifierConfig_Fields(t *testing.T) {
@@ -113,8 +116,14 @@ func TestNotifierConfig_Fields(t *testing.T) {
 	}
 
 	assert.Equal(t, "https://oapi.dingtalk.com/robot/send?access_token=xxx", cfg.DingTalkWebhook)
+	assert.Equal(t, "secret", cfg.DingTalkSecret)
 	assert.Equal(t, "smtp.example.com", cfg.SMTPHost)
 	assert.Equal(t, 587, cfg.SMTPPort)
+	assert.Equal(t, "user", cfg.SMTPUser)
+	assert.Equal(t, "pass", cfg.SMTPPassword)
+	assert.Equal(t, "alerts@example.com", cfg.SMTPFrom)
+	assert.Equal(t, "admin@example.com", cfg.EmailTo)
+	assert.Equal(t, []AlertLevel{AlertLevelCritical, AlertLevelWarning}, cfg.EnabledLevels)
 }
 
 func TestFormatAlertFromPrometheus(t *testing.T) {

@@ -20,7 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RouterHandler handles smart router configuration requests
+// RouterHandler handles smart router configuration requests.
 type RouterHandler struct {
 	router          *routing.SmartRouter
 	mu              sync.RWMutex
@@ -31,7 +31,7 @@ type RouterHandler struct {
 	intentEngineCfg IntentEngineConfig
 }
 
-// NewRouterHandler creates a new router handler
+// NewRouterHandler creates a new router handler.
 func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 	taskStore, err := newClassifierSwitchTaskStore(constants.ClassifierSwitchTaskDBPath)
 	if err != nil {
@@ -51,7 +51,7 @@ func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 	return h
 }
 
-// RouterConfigResponse represents the router configuration response
+// RouterConfigResponse represents the router configuration response.
 type RouterConfigResponse struct {
 	UseAutoMode     string                   `json:"use_auto_mode"` // "auto", "default", "fixed", "latest"
 	DefaultStrategy string                   `json:"default_strategy"`
@@ -60,14 +60,14 @@ type RouterConfigResponse struct {
 	Strategies      []StrategyOption         `json:"strategies"`
 }
 
-// StrategyOption represents a strategy option
+// StrategyOption represents a strategy option.
 type StrategyOption struct {
 	Value       string `json:"value"`
 	Label       string `json:"label"`
 	Description string `json:"description"`
 }
 
-// ModelScoreResponse represents model score in response
+// ModelScoreResponse represents model score in response.
 type ModelScoreResponse struct {
 	Model          string  `json:"model"`
 	Provider       string  `json:"provider"`
@@ -79,7 +79,7 @@ type ModelScoreResponse struct {
 	Enabled        bool    `json:"enabled"`
 }
 
-// UpdateRouterConfigRequest represents update request
+// UpdateRouterConfigRequest represents update request.
 type UpdateRouterConfigRequest struct {
 	UseAutoMode     json.RawMessage           `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed", "latest" or bool
 	DefaultStrategy *string                   `json:"default_strategy,omitempty"`
@@ -87,7 +87,7 @@ type UpdateRouterConfigRequest struct {
 	Classifier      *routing.ClassifierConfig `json:"classifier,omitempty"`
 }
 
-// UpdateModelScoreRequest represents model score update request
+// UpdateModelScoreRequest represents model score update request.
 type UpdateModelScoreRequest struct {
 	Model        string `json:"model"`
 	Provider     string `json:"provider"`
@@ -107,7 +107,7 @@ type IntentEngineConfig struct {
 	ExpectedDimension int    `json:"expected_dimension"`
 }
 
-// PersistedRouterConfig is the structure stored for UI routing mode selection
+// PersistedRouterConfig is the structure stored for UI routing mode selection.
 type PersistedRouterConfig struct {
 	UseAutoMode     string                   `json:"use_auto_mode"`
 	DefaultStrategy string                   `json:"default_strategy"`
@@ -118,12 +118,14 @@ type PersistedRouterConfig struct {
 const routerUIConfigFile = constants.RouterUIConfigFilePath
 const routerConfigFile = constants.RouterConfigFilePath
 const intentEngineConfigFile = constants.IntentEngineConfigFilePath
+const autoModeAuto = "auto"
+const autoModeFixed = "fixed"
 
 var persistedConfig *PersistedRouterConfig
 
 func normalizeAutoMode(value string) string {
 	switch value {
-	case "auto", "default", "fixed", "latest":
+	case autoModeAuto, "default", autoModeFixed, "latest":
 		return value
 	default:
 		return constants.RoutingDefaultStrategy
@@ -146,7 +148,7 @@ func parseAutoModeJSON(raw json.RawMessage, fallback string) string {
 		if b {
 			return constants.RoutingDefaultStrategy
 		}
-		return "fixed"
+		return autoModeFixed
 	}
 	return normalizeAutoMode(fallback)
 }
@@ -180,7 +182,12 @@ func mergeClassifierCandidateModels(activeModel string, groups ...[]string) []st
 	return merged
 }
 
-func resolveClassifierModels(ctx context.Context, cfg routing.ClassifierConfig) []string {
+func resolveClassifierModels(ctx context.Context, cfg *routing.ClassifierConfig) []string {
+	if cfg == nil {
+		def := routing.DefaultClassifierConfig()
+		cfg = &def
+	}
+
 	timeout := constants.AdminResolveClassifierBaseTimeout
 	if cfg.TimeoutMs > 0 {
 		candidate := time.Duration(cfg.TimeoutMs) * time.Millisecond
@@ -226,16 +233,21 @@ func runShellCommand(timeout time.Duration, command string) (string, error) {
 
 func getOllamaStopCommand(goos string) (string, error) {
 	switch goos {
-	case "darwin":
+	case goosDarwin:
 		return `osascript -e 'quit app "Ollama"' >/dev/null 2>&1 || true; pkill -f "ollama serve" >/dev/null 2>&1 || true`, nil
-	case "linux":
+	case goosLinux:
 		return `pkill -f "ollama serve" >/dev/null 2>&1 || true`, nil
 	default:
 		return "", fmt.Errorf("current OS is not supported for auto stop")
 	}
 }
 
-func checkOllamaRunning(ctx context.Context, cfg routing.ClassifierConfig) (bool, []string, string) {
+func checkOllamaRunning(ctx context.Context, cfg *routing.ClassifierConfig) (running bool, models []string, detail string) {
+	if cfg == nil {
+		def := routing.DefaultClassifierConfig()
+		cfg = &def
+	}
+
 	baseURL := strings.TrimSpace(cfg.BaseURL)
 	if baseURL == "" {
 		baseURL = constants.ClassifierDefaultBaseURL
@@ -318,7 +330,7 @@ func (h *RouterHandler) saveIntentEngineConfig() error {
 	if err := os.MkdirAll(filepath.Dir(intentEngineConfigFile), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(intentEngineConfigFile, data, 0644)
+	return os.WriteFile(intentEngineConfigFile, data, 0640)
 }
 
 func (h *RouterHandler) migrateLegacyRouterConfig() {
@@ -344,10 +356,10 @@ func (h *RouterHandler) migrateLegacyRouterConfig() {
 	if raw.DefaultModel != "" {
 		h.router.SetDefaultModel(raw.DefaultModel)
 	}
-	h.router.SetUseAutoMode(mode == "auto")
+	h.router.SetUseAutoMode(mode == autoModeAuto)
 }
 
-// loadConfig loads persisted config from file
+// loadConfig loads persisted config from file.
 func (h *RouterHandler) loadConfig() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -359,7 +371,7 @@ func (h *RouterHandler) loadConfig() {
 	h.migrateLegacyRouterConfig()
 
 	config := h.router.GetConfig()
-	mode := "fixed"
+	mode := autoModeFixed
 	if config.UseAutoMode {
 		mode = constants.RoutingDefaultStrategy
 	}
@@ -402,7 +414,7 @@ func (h *RouterHandler) loadConfig() {
 	persistedConfig = &cfg
 }
 
-// saveConfig saves config to file
+// saveConfig saves config to file.
 func (h *RouterHandler) saveConfig() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -411,12 +423,13 @@ func (h *RouterHandler) saveConfig() error {
 	if err != nil {
 		return err
 	}
-	os.MkdirAll(filepath.Dir(routerUIConfigFile), 0755)
-	return os.WriteFile(routerUIConfigFile, data, 0644)
+	if err := os.MkdirAll(filepath.Dir(routerUIConfigFile), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(routerUIConfigFile, data, 0640)
 }
 
-// GetRouterConfig returns current router configuration
-// GET /api/admin/router/config
+// GET /api/admin/router/config.
 func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	h.loadConfig()
 
@@ -443,7 +456,7 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	if cfg.Classifier.ActiveModel == "" {
 		cfg.Classifier = classifierCfg
 	}
-	cfg.Classifier.CandidateModels = resolveClassifierModels(c.Request.Context(), cfg.Classifier)
+	cfg.Classifier.CandidateModels = resolveClassifierModels(c.Request.Context(), &cfg.Classifier)
 
 	c.JSON(200, gin.H{
 		"success": true,
@@ -457,11 +470,10 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	})
 }
 
-// GetClassifierModels returns classifier model options from Ollama + persisted config
-// GET /api/admin/router/classifier/models
+// GET /api/admin/router/classifier/models.
 func (h *RouterHandler) GetClassifierModels(c *gin.Context) {
 	cfg := h.router.GetClassifierConfig()
-	models := resolveClassifierModels(c.Request.Context(), cfg)
+	models := resolveClassifierModels(c.Request.Context(), &cfg)
 
 	c.JSON(200, gin.H{
 		"success": true,
@@ -472,8 +484,7 @@ func (h *RouterHandler) GetClassifierModels(c *gin.Context) {
 	})
 }
 
-// UpdateRouterConfig updates router configuration
-// PUT /api/admin/router/config
+// PUT /api/admin/router/config.
 func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 	h.loadConfig()
 
@@ -510,7 +521,16 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 	}
 	h.mu.Unlock()
 
-	h.saveConfig()
+	if err := h.saveConfig(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "save_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
 
 	c.JSON(200, gin.H{
 		"success": true,
@@ -526,8 +546,7 @@ type UpdateIntentEngineConfigRequest struct {
 	ExpectedDimension *int    `json:"expected_dimension"`
 }
 
-// GetIntentEngineConfig returns local intent-engine configuration.
-// GET /api/admin/router/intent-engine/config
+// GET /api/admin/router/intent-engine/config.
 func (h *RouterHandler) GetIntentEngineConfig(c *gin.Context) {
 	h.mu.RLock()
 	cfg := h.intentEngineCfg
@@ -539,8 +558,7 @@ func (h *RouterHandler) GetIntentEngineConfig(c *gin.Context) {
 	})
 }
 
-// UpdateIntentEngineConfig updates local intent-engine configuration.
-// PUT /api/admin/router/intent-engine/config
+// PUT /api/admin/router/intent-engine/config.
 func (h *RouterHandler) UpdateIntentEngineConfig(c *gin.Context) {
 	var req UpdateIntentEngineConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -589,8 +607,7 @@ func (h *RouterHandler) UpdateIntentEngineConfig(c *gin.Context) {
 	})
 }
 
-// GetIntentEngineHealth probes local intent-engine health endpoint.
-// GET /api/admin/router/intent-engine/health
+// GET /api/admin/router/intent-engine/health.
 func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
 	h.mu.RLock()
 	cfg := h.intentEngineCfg
@@ -616,11 +633,11 @@ func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.BaseURL, "/")+"/health", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.BaseURL, "/")+"/health", http.NoBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
-			"error": gin.H{"code": "request_build_failed", "message": err.Error()},
+			"error":   gin.H{"code": "request_build_failed", "message": err.Error()},
 		})
 		return
 	}
@@ -641,7 +658,14 @@ func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "read_response_failed", "message": err.Error()},
+		})
+		return
+	}
 	payload := gin.H{
 		"enabled":    true,
 		"healthy":    resp.StatusCode >= 200 && resp.StatusCode < 300,
@@ -665,13 +689,12 @@ func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
 	})
 }
 
-// GetModelScores returns all model scores
-// GET /api/admin/router/models
+// GET /api/admin/router/models.
 func (h *RouterHandler) GetModelScores(c *gin.Context) {
 	scores := h.router.GetAllModelScores()
 	config := h.router.GetConfig()
 
-	var response []ModelScoreResponse
+	response := make([]ModelScoreResponse, 0, len(scores))
 	for model, score := range scores {
 		composite := float64(score.QualityScore)*0.4 + float64(score.SpeedScore)*0.35 + float64(score.CostScore)*0.25
 		if config.DefaultStrategy == routing.StrategyQuality {
@@ -700,8 +723,7 @@ func (h *RouterHandler) GetModelScores(c *gin.Context) {
 	})
 }
 
-// UpdateModelScore updates score for a specific model
-// PUT /api/admin/router/models/:model
+// PUT /api/admin/router/models/:model.
 func (h *RouterHandler) UpdateModelScore(c *gin.Context) {
 	model := c.Param("model")
 
@@ -735,8 +757,7 @@ func (h *RouterHandler) UpdateModelScore(c *gin.Context) {
 	})
 }
 
-// DeleteModelScore deletes a model score
-// DELETE /api/admin/router/models/:model
+// DELETE /api/admin/router/models/:model.
 func (h *RouterHandler) DeleteModelScore(c *gin.Context) {
 	model := c.Param("model")
 
@@ -748,8 +769,7 @@ func (h *RouterHandler) DeleteModelScore(c *gin.Context) {
 	})
 }
 
-// GetAvailableModels returns list of enabled models
-// GET /api/admin/router/available-models?format=object
+// GET /api/admin/router/available-models?format=object.
 func (h *RouterHandler) GetAvailableModels(c *gin.Context) {
 	format := c.DefaultQuery("format", "string")
 	models := h.router.GetAvailableModels()
@@ -784,8 +804,7 @@ func (h *RouterHandler) GetAvailableModels(c *gin.Context) {
 	})
 }
 
-// GetTopModels returns top N models for current strategy
-// GET /api/admin/router/top-models
+// GET /api/admin/router/top-models.
 func (h *RouterHandler) GetTopModels(c *gin.Context) {
 	h.loadConfig()
 
@@ -801,14 +820,13 @@ func (h *RouterHandler) GetTopModels(c *gin.Context) {
 	})
 }
 
-// SelectModelRequest represents model selection request
+// SelectModelRequest represents model selection request.
 type SelectModelRequest struct {
 	RequestedModel string `json:"requested_model"`
 	Prompt         string `json:"prompt"`
 }
 
-// SelectModel selects best model based on configuration
-// POST /api/admin/router/select
+// POST /api/admin/router/select.
 func (h *RouterHandler) SelectModel(c *gin.Context) {
 	var req SelectModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -832,8 +850,7 @@ func (h *RouterHandler) SelectModel(c *gin.Context) {
 	})
 }
 
-// GetProviderDefaults returns default models for all providers
-// GET /api/admin/router/provider-defaults
+// GET /api/admin/router/provider-defaults.
 func (h *RouterHandler) GetProviderDefaults(c *gin.Context) {
 	defaults := h.router.GetProviderDefaults()
 
@@ -843,8 +860,7 @@ func (h *RouterHandler) GetProviderDefaults(c *gin.Context) {
 	})
 }
 
-// UpdateProviderDefaults updates default models for providers
-// PUT /api/admin/router/provider-defaults
+// PUT /api/admin/router/provider-defaults.
 func (h *RouterHandler) UpdateProviderDefaults(c *gin.Context) {
 	var req map[string]string
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -866,14 +882,13 @@ func (h *RouterHandler) UpdateProviderDefaults(c *gin.Context) {
 	})
 }
 
-// TTLConfigResponse represents TTL configuration response
+// TTLConfigResponse represents TTL configuration response.
 type TTLConfigResponse struct {
 	TaskTypeDefaults      map[string]int     `json:"task_type_defaults"` // TTL in hours
 	DifficultyMultipliers map[string]float64 `json:"difficulty_multipliers"`
 }
 
-// GetTTLConfig returns TTL configuration
-// GET /api/admin/router/ttl-config
+// GET /api/admin/router/ttl-config.
 func (h *RouterHandler) GetTTLConfig(c *gin.Context) {
 	config := h.router.GetDifficultyAssessor().GetTTLConfig()
 
@@ -896,14 +911,13 @@ func (h *RouterHandler) GetTTLConfig(c *gin.Context) {
 	})
 }
 
-// UpdateTTLConfigRequest represents TTL config update request
+// UpdateTTLConfigRequest represents TTL config update request.
 type UpdateTTLConfigRequest struct {
 	TaskTypeDefaults      map[string]int     `json:"task_type_defaults"` // TTL in hours
 	DifficultyMultipliers map[string]float64 `json:"difficulty_multipliers"`
 }
 
-// UpdateTTLConfig updates TTL configuration
-// PUT /api/admin/router/ttl-config
+// PUT /api/admin/router/ttl-config.
 func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 	var req UpdateTTLConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -948,7 +962,7 @@ func (h *RouterHandler) UpdateTTLConfig(c *gin.Context) {
 	})
 }
 
-// CascadeRuleResponse represents cascade rule in response
+// CascadeRuleResponse represents cascade rule in response.
 type CascadeRuleResponse struct {
 	TaskType        string `json:"task_type"`
 	Difficulty      string `json:"difficulty"`
@@ -959,8 +973,7 @@ type CascadeRuleResponse struct {
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 }
 
-// GetCascadeRules returns all cascade routing rules
-// GET /api/admin/router/cascade-rules
+// GET /api/admin/router/cascade-rules.
 func (h *RouterHandler) GetCascadeRules(c *gin.Context) {
 	rules := h.router.GetCascadeRules()
 
@@ -983,8 +996,7 @@ func (h *RouterHandler) GetCascadeRules(c *gin.Context) {
 	})
 }
 
-// GetCascadeRule returns a specific cascade rule
-// GET /api/admin/router/cascade-rules/:taskType/:difficulty
+// GET /api/admin/router/cascade-rules/:taskType/:difficulty.
 func (h *RouterHandler) GetCascadeRule(c *gin.Context) {
 	taskType := c.Param("taskType")
 	difficulty := c.Param("difficulty")
@@ -1015,7 +1027,7 @@ func (h *RouterHandler) GetCascadeRule(c *gin.Context) {
 	})
 }
 
-// UpdateCascadeRuleRequest represents cascade rule update request
+// UpdateCascadeRuleRequest represents cascade rule update request.
 type UpdateCascadeRuleRequest struct {
 	TaskType        string `json:"task_type"`
 	Difficulty      string `json:"difficulty"`
@@ -1026,8 +1038,7 @@ type UpdateCascadeRuleRequest struct {
 	TimeoutSeconds  int    `json:"timeout_seconds"`
 }
 
-// UpdateCascadeRule updates or creates a cascade rule
-// PUT /api/admin/router/cascade-rules
+// PUT /api/admin/router/cascade-rules.
 func (h *RouterHandler) UpdateCascadeRule(c *gin.Context) {
 	var req UpdateCascadeRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1059,8 +1070,7 @@ func (h *RouterHandler) UpdateCascadeRule(c *gin.Context) {
 	})
 }
 
-// DeleteCascadeRule deletes a cascade rule
-// DELETE /api/admin/router/cascade-rules/:taskType/:difficulty
+// DELETE /api/admin/router/cascade-rules/:taskType/:difficulty.
 func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
 	taskType := c.Param("taskType")
 	difficulty := c.Param("difficulty")
@@ -1083,8 +1093,7 @@ func (h *RouterHandler) DeleteCascadeRule(c *gin.Context) {
 	})
 }
 
-// ResetCascadeRules resets all cascade rules to defaults
-// POST /api/admin/router/cascade-rules/reset
+// POST /api/admin/router/cascade-rules/reset.
 func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
 	h.router.ResetCascadeRules()
 
@@ -1094,8 +1103,7 @@ func (h *RouterHandler) ResetCascadeRules(c *gin.Context) {
 	})
 }
 
-// GetTaskModelMapping returns task type to model mapping
-// GET /api/admin/router/task-model-mapping
+// GET /api/admin/router/task-model-mapping.
 func (h *RouterHandler) GetTaskModelMapping(c *gin.Context) {
 	mapping := h.router.GetTaskModelMapping()
 
@@ -1105,7 +1113,7 @@ func (h *RouterHandler) GetTaskModelMapping(c *gin.Context) {
 	})
 }
 
-// UpdateTaskModelMappingRequest represents task model mapping update request
+// UpdateTaskModelMappingRequest represents task model mapping update request.
 type UpdateTaskModelMappingRequest map[string]string
 
 type SwitchClassifierModelRequest struct {
@@ -1116,8 +1124,7 @@ type switchClassifierTaskResponse struct {
 	TaskID string `json:"task_id"`
 }
 
-// UpdateTaskModelMapping updates task type to model mapping
-// PUT /api/admin/router/task-model-mapping
+// PUT /api/admin/router/task-model-mapping.
 func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
 	var req UpdateTaskModelMappingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1139,8 +1146,7 @@ func (h *RouterHandler) UpdateTaskModelMapping(c *gin.Context) {
 	})
 }
 
-// SwitchClassifierModel switches classifier model after health verification
-// POST /api/admin/router/classifier/switch
+// POST /api/admin/router/classifier/switch.
 func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
 	var req SwitchClassifierModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1175,13 +1181,18 @@ func (h *RouterHandler) SwitchClassifierModel(c *gin.Context) {
 	h.mu.Lock()
 	persistedConfig.Classifier = cfg
 	h.mu.Unlock()
-	_ = h.saveConfig()
+	if err := h.saveConfig(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "save_failed", "message": err.Error()},
+		})
+		return
+	}
 
 	c.JSON(200, gin.H{"success": true, "message": "Classifier model switched", "data": health})
 }
 
-// SwitchClassifierModelAsync creates async switch task
-// POST /api/admin/router/classifier/switch-async
+// POST /api/admin/router/classifier/switch-async.
 func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
 	var req SwitchClassifierModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1229,8 +1240,7 @@ func (h *RouterHandler) SwitchClassifierModelAsync(c *gin.Context) {
 	})
 }
 
-// GetSwitchClassifierTask returns async switch task status
-// GET /api/admin/router/classifier/switch-tasks/:taskId
+// GET /api/admin/router/classifier/switch-tasks/:taskId.
 func (h *RouterHandler) GetSwitchClassifierTask(c *gin.Context) {
 	taskID := c.Param("taskId")
 	if strings.TrimSpace(taskID) == "" {
@@ -1256,8 +1266,7 @@ func (h *RouterHandler) GetSwitchClassifierTask(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": task})
 }
 
-// GetClassifierHealth returns classifier health
-// GET /api/admin/router/classifier/health
+// GET /api/admin/router/classifier/health.
 func (h *RouterHandler) GetClassifierHealth(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminClassifierHealthTimeout)
 	defer cancel()
@@ -1270,8 +1279,7 @@ func (h *RouterHandler) GetClassifierHealth(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": health})
 }
 
-// GetClassifierStats returns classifier runtime stats
-// GET /api/admin/router/classifier/stats
+// GET /api/admin/router/classifier/stats.
 func (h *RouterHandler) GetClassifierStats(c *gin.Context) {
 	stats := h.router.GetClassifierStats()
 	c.JSON(200, gin.H{"success": true, "data": stats})
@@ -1305,26 +1313,32 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 		runCtx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
 		defer cancel()
 		var detail string
-		running, models, detail = checkOllamaRunning(runCtx, cfg)
+		running, models, detail = checkOllamaRunning(runCtx, &cfg)
 		if running {
 			modelInstalled = containsModel(models, model)
 			psCtx, psCancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
-			details, _ := routing.ListOllamaRunningModelDetails(psCtx, cfg.BaseURL, constants.AdminOllamaCheckTimeout)
+			details, err := routing.ListOllamaRunningModelDetails(psCtx, cfg.BaseURL, constants.AdminOllamaCheckTimeout)
 			psCancel()
-			runningModels = make([]string, 0, len(details))
-			for _, detail := range details {
-				runningModels = append(runningModels, detail.Name)
-				runningModelDetails = append(runningModelDetails, gin.H{"name": detail.Name, "size_vram": detail.SizeVRAM})
-				if detail.SizeVRAM > 0 {
-					runningVramBytesTotal += detail.SizeVRAM
+			if err == nil {
+				runningModels = make([]string, 0, len(details))
+				for _, detail := range details {
+					runningModels = append(runningModels, detail.Name)
+					runningModelDetails = append(runningModelDetails, gin.H{"name": detail.Name, "size_vram": detail.SizeVRAM})
+					if detail.SizeVRAM > 0 {
+						runningVramBytesTotal += detail.SizeVRAM
+					}
 				}
+			} else {
+				message = err.Error()
 			}
 			if containsModel(runningModels, model) {
 				runningModel = model
 			} else if len(runningModels) > 0 {
 				runningModel = runningModels[0]
 			}
-			message = "ok"
+			if err == nil {
+				message = "ok"
+			}
 		} else {
 			message = detail
 		}
@@ -1357,13 +1371,13 @@ func (h *RouterHandler) InstallOllama(c *gin.Context) {
 
 	var command string
 	switch runtime.GOOS {
-	case "darwin":
+	case goosDarwin:
 		if !commandExists("brew") {
 			c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "brew_not_found", "message": "Homebrew not found, please install Homebrew first"}})
 			return
 		}
 		command = "brew install ollama"
-	case "linux":
+	case goosLinux:
 		command = "curl -fsSL https://ollama.com/install.sh | sh"
 	default:
 		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": "current OS is not supported for auto install, please install Ollama manually"}})
@@ -1382,7 +1396,7 @@ func (h *RouterHandler) InstallOllama(c *gin.Context) {
 func (h *RouterHandler) StartOllama(c *gin.Context) {
 	cfg := h.router.GetClassifierConfig()
 	runCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-	running, _, _ := checkOllamaRunning(runCtx, cfg)
+	running, _, _ := checkOllamaRunning(runCtx, &cfg)
 	cancel()
 	if running {
 		c.JSON(200, gin.H{"success": true, "message": "ollama already running"})
@@ -1396,9 +1410,9 @@ func (h *RouterHandler) StartOllama(c *gin.Context) {
 
 	var command string
 	switch runtime.GOOS {
-	case "darwin":
+	case goosDarwin:
 		command = "open -a Ollama"
-	case "linux":
+	case goosLinux:
 		command = "nohup ollama serve >/tmp/ollama.log 2>&1 &"
 	default:
 		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": "current OS is not supported for auto start"}})
@@ -1414,7 +1428,7 @@ func (h *RouterHandler) StartOllama(c *gin.Context) {
 	deadline := time.Now().Add(constants.AdminOllamaStartReadyDeadline)
 	for time.Now().Before(deadline) {
 		checkCtx, stop := context.WithTimeout(c.Request.Context(), constants.AdminOllamaStartProbeTimeout)
-		alive, _, _ := checkOllamaRunning(checkCtx, cfg)
+		alive, _, _ := checkOllamaRunning(checkCtx, &cfg)
 		stop()
 		if alive {
 			c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": output}})
@@ -1448,7 +1462,7 @@ func (h *RouterHandler) StopOllama(c *gin.Context) {
 	deadline := time.Now().Add(constants.AdminOllamaStartReadyDeadline)
 	for time.Now().Before(deadline) {
 		checkCtx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaStartProbeTimeout)
-		running, _, _ := checkOllamaRunning(checkCtx, cfg)
+		running, _, _ := checkOllamaRunning(checkCtx, &cfg)
 		cancel()
 		if !running {
 			c.JSON(200, gin.H{"success": true, "message": "ollama stopped", "data": gin.H{"output": output}})
@@ -1482,7 +1496,7 @@ func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
-	running, _, msg := checkOllamaRunning(ctx, cfg)
+	running, _, msg := checkOllamaRunning(ctx, &cfg)
 	cancel()
 	if !running {
 		c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "ollama_not_running", "message": msg}})

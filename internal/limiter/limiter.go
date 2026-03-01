@@ -1,3 +1,4 @@
+//nolint:godot,revive
 package limiter
 
 import (
@@ -27,11 +28,11 @@ type Store interface {
 
 // UsageRecord represents a usage record
 type UsageRecord struct {
-	UserID     string
-	Provider   string
-	Endpoint   string
-	Tokens     int64
-	Timestamp  time.Time
+	UserID    string
+	Provider  string
+	Endpoint  string
+	Tokens    int64
+	Timestamp time.Time
 }
 
 // LegacyUsageTracker tracks API usage per user/provider (legacy compatibility)
@@ -59,7 +60,9 @@ func (t *LegacyUsageTracker) IncrementUsage(ctx context.Context, userID, provide
 		// Expire at the end of the day
 		now := time.Now()
 		endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
-		t.store.Expire(ctx, key, time.Until(endOfDay))
+		if err := t.store.Expire(ctx, key, time.Until(endOfDay)); err != nil {
+			return err
+		}
 	}
 
 	return nil

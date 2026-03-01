@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"ai-gateway/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,11 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/time/rate"
-)
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
+	"ai-gateway/internal/config"
+)
 
 func TestIPRateLimiter_New(t *testing.T) {
 	limiter := NewIPRateLimiter(rate.Limit(100), 200)
@@ -84,7 +81,7 @@ func TestRateLimiter_Middleware_Allowed(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -110,7 +107,7 @@ func TestRateLimiter_Middleware_PerUser(t *testing.T) {
 	})
 
 	// Request with API key
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("X-API-Key", "test-api-key")
 	w := httptest.NewRecorder()
 
@@ -137,7 +134,7 @@ func TestRateLimiter_Middleware_UsesClientIP(t *testing.T) {
 	})
 
 	// Request without API key - should use ClientIP
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
@@ -159,7 +156,7 @@ func TestRateLimiter_Disabled(t *testing.T) {
 		c.String(http.StatusOK, "OK")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)

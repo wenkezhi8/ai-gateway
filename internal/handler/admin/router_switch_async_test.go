@@ -24,7 +24,7 @@ func TestSwitchClassifierModelAsync_CreateTask(t *testing.T) {
 	handler := &RouterHandler{switchTaskStore: store}
 	handler.nowFn = time.Now
 	handler.sleepFn = func(time.Duration) {}
-	handler.probeSwitchFn = func(targetModel, originalModel string) error { return nil }
+	handler.probeSwitchFn = func(_, _ string) error { return nil }
 	router := gin.New()
 	router.POST("/api/admin/router/classifier/switch-async", handler.SwitchClassifierModelAsync)
 

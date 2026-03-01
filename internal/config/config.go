@@ -1,15 +1,16 @@
 package config
 
 import (
-	"ai-gateway/internal/constants"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"ai-gateway/internal/constants"
 )
 
-// Config holds all configuration for the AI Gateway
+// Config holds all configuration for the AI Gateway.
 type Config struct {
 	Server       ServerConfig       `json:"server"`
 	Redis        RedisConfig        `json:"redis"`
@@ -21,13 +22,13 @@ type Config struct {
 	VectorCache  VectorCacheConfig  `json:"vector_cache"`
 }
 
-// ServerConfig holds HTTP server configuration
+// ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
 	Port string `json:"port"`
 	Mode string `json:"mode"`
 }
 
-// RedisConfig holds Redis connection configuration
+// RedisConfig holds Redis connection configuration.
 type RedisConfig struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -35,12 +36,12 @@ type RedisConfig struct {
 	DB       int    `json:"db"`
 }
 
-// DatabaseConfig holds SQLite configuration
+// DatabaseConfig holds SQLite configuration.
 type DatabaseConfig struct {
 	Path string `json:"path"`
 }
 
-// ProviderConfig holds AI provider configuration
+// ProviderConfig holds AI provider configuration.
 type ProviderConfig struct {
 	Name    string   `json:"name"`
 	APIKey  string   `json:"api_key"`
@@ -49,7 +50,7 @@ type ProviderConfig struct {
 	Models  []string `json:"models,omitempty"`
 }
 
-// LimiterConfig holds rate limiter configuration
+// LimiterConfig holds rate limiter configuration.
 type LimiterConfig struct {
 	Enabled          bool    `json:"enabled"`
 	Rate             int     `json:"rate"`              // requests per second
@@ -60,7 +61,7 @@ type LimiterConfig struct {
 	CheckIntervalMs  int     `json:"check_interval_ms"` // usage check interval (ms)
 }
 
-// AccountConfig holds account configuration with limits
+// AccountConfig holds account configuration with limits.
 type AccountConfig struct {
 	ID       string                 `json:"id"`
 	Name     string                 `json:"name"`
@@ -116,7 +117,7 @@ type VectorCacheConfig struct {
 	ColdVectorQdrantTimeoutMs     int                `json:"cold_vector_qdrant_timeout_ms"`
 }
 
-// LimitConfig holds a single limit configuration
+// LimitConfig holds a single limit configuration.
 type LimitConfig struct {
 	Type    string  `json:"type"`    // token, rpm, concurrent
 	Period  string  `json:"period"`  // minute, hour, day, month
@@ -124,7 +125,7 @@ type LimitConfig struct {
 	Warning float64 `json:"warning"` // warning threshold
 }
 
-// DefaultConfig returns a configuration with sensible defaults
+// DefaultConfig returns a configuration with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
@@ -177,15 +178,15 @@ func DefaultConfig() *Config {
 				"qa":        24 * 3600,
 				"chat":      12 * 3600,
 			},
-			PipelineEnabled:          true,
-			StandardKeyVersion:       "v2",
-			EmbeddingProvider:        "ollama",
-			OllamaBaseURL:            "http://127.0.0.1:11434",
-			OllamaEmbeddingModel:     "nomic-embed-text",
-			OllamaEmbeddingDimension: 1024,
-			OllamaEmbeddingTimeoutMs: 1500,
-			OllamaEndpointMode:       "auto",
-			WritebackEnabled:         true,
+			PipelineEnabled:               true,
+			StandardKeyVersion:            "v2",
+			EmbeddingProvider:             "ollama",
+			OllamaBaseURL:                 "http://127.0.0.1:11434",
+			OllamaEmbeddingModel:          "nomic-embed-text",
+			OllamaEmbeddingDimension:      1024,
+			OllamaEmbeddingTimeoutMs:      1500,
+			OllamaEndpointMode:            "auto",
+			WritebackEnabled:              true,
 			ColdVectorEnabled:             false,
 			ColdVectorQueryEnabled:        true,
 			ColdVectorBackend:             "sqlite",
@@ -203,7 +204,9 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load reads configuration from file and environment
+// Load reads configuration from file and environment.
+//
+//nolint:gocyclo // Keep centralized env+file loading flow to avoid behavior drift.
 func Load() (*Config, error) {
 	cfg := DefaultConfig()
 
@@ -398,7 +401,7 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
-// expandEnvVars expands environment variables in the format ${VAR_NAME} or $VAR_NAME
+// expandEnvVars expands environment variables in the format ${VAR_NAME} or $VAR_NAME.
 func expandEnvVars(s string) string {
 	return os.Expand(s, func(key string) string {
 		// Handle ${VAR} format
@@ -445,22 +448,24 @@ func (c *Config) loadProvidersFromEnv() {
 		// Get enabled status from env (optional, default true)
 		enabled := true
 		if enabledEnv := os.Getenv("PROVIDER_" + prefix + "_ENABLED"); enabledEnv != "" {
-			enabled = strings.ToLower(enabledEnv) == "true" || enabledEnv == "1"
+			enabled = strings.EqualFold(enabledEnv, "true") || enabledEnv == "1"
 		}
 
 		// Check if provider already exists in config
 		found := false
 		for i, p := range c.Providers {
-			if strings.EqualFold(p.Name, providerName) {
-				// Override with env values
-				c.Providers[i].APIKey = apiKey
-				if baseURL != "" {
-					c.Providers[i].BaseURL = baseURL
-				}
-				c.Providers[i].Enabled = enabled
-				found = true
-				break
+			if !strings.EqualFold(p.Name, providerName) {
+				continue
 			}
+
+			// Override with env values
+			c.Providers[i].APIKey = apiKey
+			if baseURL != "" {
+				c.Providers[i].BaseURL = baseURL
+			}
+			c.Providers[i].Enabled = enabled
+			found = true
+			break
 		}
 
 		// Add new provider if not found
@@ -475,7 +480,9 @@ func (c *Config) loadProvidersFromEnv() {
 	}
 }
 
-// Validate validates the configuration and returns an error if invalid
+// Validate validates the configuration and returns an error if invalid.
+//
+//nolint:gocyclo // Keep validation in one place for predictable config errors.
 func (c *Config) Validate() error {
 	// Validate server configuration
 	if c.Server.Port == "" {
@@ -495,38 +502,40 @@ func (c *Config) Validate() error {
 	hasEnabledProvider := false
 	providerNames := make(map[string]bool)
 	for i, p := range c.Providers {
-		if p.Enabled {
-			if p.Name == "" {
-				return &ValidationError{Field: "providers", Message: "provider name is required"}
-			}
-
-			// Check for duplicate provider names
-			if providerNames[p.Name] {
-				return &ValidationError{Field: "providers", Message: "duplicate provider name: " + p.Name}
-			}
-			providerNames[p.Name] = true
-
-			// Validate provider name is supported
-			supportedProviders := []string{
-				"openai", "anthropic", "azure-openai", "volcengine",
-				"deepseek", "zhipu", "qwen", "moonshot", "minimax",
-				"baichuan", "yi", "google", "mistral",
-			}
-			isSupported := false
-			for _, supported := range supportedProviders {
-				if strings.EqualFold(p.Name, supported) {
-					isSupported = true
-					break
-				}
-			}
-			if !isSupported {
-				return &ValidationError{Field: "providers[" + strconv.Itoa(i) + "].name",
-					Message: "unsupported provider: " + p.Name + ", supported: " + strings.Join(supportedProviders, ", ")}
-			}
-
-			// Note: API key validation is optional as some providers may use auth headers
-			hasEnabledProvider = true
+		if !p.Enabled {
+			continue
 		}
+
+		if p.Name == "" {
+			return &ValidationError{Field: "providers", Message: "provider name is required"}
+		}
+
+		// Check for duplicate provider names
+		if providerNames[p.Name] {
+			return &ValidationError{Field: "providers", Message: "duplicate provider name: " + p.Name}
+		}
+		providerNames[p.Name] = true
+
+		// Validate provider name is supported
+		supportedProviders := []string{
+			"openai", "anthropic", "azure-openai", "volcengine",
+			"deepseek", "zhipu", "qwen", "moonshot", "minimax",
+			"baichuan", "yi", "google", "mistral",
+		}
+		isSupported := false
+		for _, supported := range supportedProviders {
+			if strings.EqualFold(p.Name, supported) {
+				isSupported = true
+				break
+			}
+		}
+		if !isSupported {
+			return &ValidationError{Field: "providers[" + strconv.Itoa(i) + "].name",
+				Message: "unsupported provider: " + p.Name + ", supported: " + strings.Join(supportedProviders, ", ")}
+		}
+
+		// Note: API key validation is optional as some providers may use auth headers.
+		hasEnabledProvider = true
 	}
 
 	if !hasEnabledProvider {
@@ -555,35 +564,37 @@ func (c *Config) Validate() error {
 	// Validate account configurations
 	accountIDs := make(map[string]bool)
 	for i, acc := range c.Accounts {
-		if acc.Enabled {
-			if acc.ID == "" {
-				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "account ID is required"}
-			}
+		if !acc.Enabled {
+			continue
+		}
 
-			// Check for duplicate account IDs
-			if accountIDs[acc.ID] {
-				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "duplicate account ID: " + acc.ID}
-			}
-			accountIDs[acc.ID] = true
+		if acc.ID == "" {
+			return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "account ID is required"}
+		}
 
-			if acc.Provider == "" {
-				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].provider", Message: "provider is required"}
-			}
+		// Check for duplicate account IDs
+		if accountIDs[acc.ID] {
+			return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].id", Message: "duplicate account ID: " + acc.ID}
+		}
+		accountIDs[acc.ID] = true
 
-			// Validate limits if present
-			for limitName, limit := range acc.Limits {
-				if limit.Type == "" {
-					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".type",
-						Message: "limit type is required"}
-				}
-				if limit.Limit <= 0 {
-					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".limit",
-						Message: "limit must be positive"}
-				}
-				if limit.Warning < 0 || limit.Warning > 1 {
-					return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".warning",
-						Message: "warning must be between 0 and 1"}
-				}
+		if acc.Provider == "" {
+			return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].provider", Message: "provider is required"}
+		}
+
+		// Validate limits if present.
+		for limitName, limit := range acc.Limits {
+			if limit.Type == "" {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".type",
+					Message: "limit type is required"}
+			}
+			if limit.Limit <= 0 {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".limit",
+					Message: "limit must be positive"}
+			}
+			if limit.Warning < 0 || limit.Warning > 1 {
+				return &ValidationError{Field: "accounts[" + strconv.Itoa(i) + "].limits." + limitName + ".warning",
+					Message: "warning must be between 0 and 1"}
 			}
 		}
 	}
@@ -670,7 +681,7 @@ func parseBool(v string) bool {
 	}
 }
 
-// ValidationError represents a configuration validation error
+// ValidationError represents a configuration validation error.
 type ValidationError struct {
 	Field   string
 	Message string

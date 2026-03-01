@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// NewHealthHandler creates a new health handler
+// NewHealthHandler creates a new health handler.
 func NewHealthHandler(checkers ...func() error) *HealthHandler {
 	h := &HealthHandler{}
 	if len(checkers) > 0 {
@@ -20,7 +20,7 @@ type HealthHandler struct {
 	readyCheck func() error
 }
 
-// HealthResponse represents the health check response
+// HealthResponse represents the health check response.
 type HealthResponse struct {
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
@@ -34,7 +34,7 @@ type ReadyResponse struct {
 	Message   string    `json:"message,omitempty"`
 }
 
-// Check returns the health status of the service
+// Check returns the health status of the service.
 func (h *HealthHandler) Check(c *gin.Context) {
 	c.JSON(http.StatusOK, HealthResponse{
 		Status:    "healthy",
@@ -43,7 +43,7 @@ func (h *HealthHandler) Check(c *gin.Context) {
 	})
 }
 
-// CheckReady returns readiness status of the service dependencies
+// CheckReady returns readiness status of the service dependencies.
 func (h *HealthHandler) CheckReady(c *gin.Context) {
 	if h.readyCheck != nil {
 		if err := h.readyCheck(); err != nil {

@@ -1,3 +1,4 @@
+//nolint:gocyclo,gosimple,gocritic
 package deepseek
 
 import (

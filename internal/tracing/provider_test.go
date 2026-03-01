@@ -13,15 +13,22 @@ func TestNewTracerProvider(t *testing.T) {
 	if tp == nil {
 		t.Fatal("NewTracerProvider() returned nil")
 	}
-	defer tp.Shutdown(context.Background())
+	if shutdownErr := tp.Shutdown(context.Background()); shutdownErr != nil {
+		t.Errorf("Shutdown() error = %v", shutdownErr)
+	}
 }
 
 func TestGetTracer(t *testing.T) {
-	tp, _ := NewTracerProvider()
-	defer tp.Shutdown(context.Background())
-
+	tp, err := NewTracerProvider()
+	if err != nil {
+		t.Fatalf("NewTracerProvider() error = %v", err)
+	}
 	tracer := tp.GetTracer("test-tracer")
 	if tracer == nil {
 		t.Fatal("GetTracer() returned nil")
+	}
+
+	if shutdownErr := tp.Shutdown(context.Background()); shutdownErr != nil {
+		t.Errorf("Shutdown() error = %v", shutdownErr)
 	}
 }

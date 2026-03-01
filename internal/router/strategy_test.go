@@ -1,3 +1,4 @@
+//nolint:godot
 package router
 
 import (
@@ -16,25 +17,25 @@ type mockProvider struct {
 	enabled bool
 }
 
-func newMockProvider(name string, models []string, enabled bool) *mockProvider {
+func newMockProvider(models []string, enabled bool) *mockProvider {
 	return &mockProvider{
-		name:    name,
+		name:    "test",
 		models:  models,
 		enabled: enabled,
 	}
 }
 
-func (m *mockProvider) Name() string                                          { return m.name }
-func (m *mockProvider) Models() []string                                      { return m.models }
-func (m *mockProvider) IsEnabled() bool                                       { return m.enabled }
-func (m *mockProvider) SetEnabled(enabled bool)                               { m.enabled = enabled }
-func (m *mockProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (m *mockProvider) Name() string            { return m.name }
+func (m *mockProvider) Models() []string        { return m.models }
+func (m *mockProvider) IsEnabled() bool         { return m.enabled }
+func (m *mockProvider) SetEnabled(enabled bool) { m.enabled = enabled }
+func (m *mockProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
-func (m *mockProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+func (m *mockProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	return nil, nil
 }
-func (m *mockProvider) ValidateKey(ctx context.Context) bool { return true }
+func (m *mockProvider) ValidateKey(_ context.Context) bool { return true }
 
 func TestProviderInfo_Available(t *testing.T) {
 	tests := []struct {
@@ -45,8 +46,8 @@ func TestProviderInfo_Available(t *testing.T) {
 		{
 			name: "fully available",
 			info: &ProviderInfo{
-				Provider:  newMockProvider("test", []string{"gpt-4"}, true),
-				Healthy:   true,
+				Provider:   newMockProvider([]string{"gpt-4"}, true),
+				Healthy:    true,
 				QuotaLimit: 0, // unlimited
 			},
 			expected: true,
@@ -54,8 +55,8 @@ func TestProviderInfo_Available(t *testing.T) {
 		{
 			name: "disabled provider",
 			info: &ProviderInfo{
-				Provider:  newMockProvider("test", []string{"gpt-4"}, false),
-				Healthy:   true,
+				Provider:   newMockProvider([]string{"gpt-4"}, false),
+				Healthy:    true,
 				QuotaLimit: 0,
 			},
 			expected: false,
@@ -63,8 +64,8 @@ func TestProviderInfo_Available(t *testing.T) {
 		{
 			name: "unhealthy",
 			info: &ProviderInfo{
-				Provider:  newMockProvider("test", []string{"gpt-4"}, true),
-				Healthy:   false,
+				Provider:   newMockProvider([]string{"gpt-4"}, true),
+				Healthy:    false,
 				QuotaLimit: 0,
 			},
 			expected: false,
@@ -72,7 +73,7 @@ func TestProviderInfo_Available(t *testing.T) {
 		{
 			name: "quota exceeded",
 			info: &ProviderInfo{
-				Provider:   newMockProvider("test", []string{"gpt-4"}, true),
+				Provider:   newMockProvider([]string{"gpt-4"}, true),
 				Healthy:    true,
 				QuotaLimit: 100,
 				QuotaUsed:  100,
@@ -82,7 +83,7 @@ func TestProviderInfo_Available(t *testing.T) {
 		{
 			name: "quota available",
 			info: &ProviderInfo{
-				Provider:   newMockProvider("test", []string{"gpt-4"}, true),
+				Provider:   newMockProvider([]string{"gpt-4"}, true),
 				Healthy:    true,
 				QuotaLimit: 100,
 				QuotaUsed:  50,
@@ -176,9 +177,6 @@ func TestRequest_Fields(t *testing.T) {
 		Messages: []Message{
 			{Role: "user", Content: "Hello"},
 		},
-		Extra: map[string]interface{}{
-			"custom": "field",
-		},
 	}
 
 	assert.Equal(t, "gpt-4", req.Model)
@@ -200,7 +198,7 @@ func TestMessage_Fields(t *testing.T) {
 
 func TestProviderInfo_Fields(t *testing.T) {
 	info := &ProviderInfo{
-		Provider:   newMockProvider("test", []string{"gpt-4"}, true),
+		Provider:   newMockProvider([]string{"gpt-4"}, true),
 		Weight:     10,
 		Priority:   5,
 		Cost:       0.02,

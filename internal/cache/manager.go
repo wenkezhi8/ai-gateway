@@ -7,30 +7,30 @@ import (
 	"time"
 )
 
-// Manager provides a unified interface for all cache operations
+// Manager provides a unified interface for all cache operations.
 type Manager struct {
 	cache Cache
 
-	// Specialized caches
+	// Specialized caches.
 	RequestCache  *RequestCache
 	ContextCache  *ContextCache
 	RouteCache    *RouteCache
 	ResponseCache *ResponseCache
 	UsageCache    *UsageCache
 
-	// Semantic cache (optional)
+	// Semantic cache (optional).
 	semanticCache *SemanticCache
 	vectorStore   VectorCacheStore
 	tieredStore   *TieredVectorStore
 
-	// Statistics
+	// Statistics.
 	stats *StatsCollector
 
 	settingsMu sync.RWMutex
 	settings   CacheSettings
 }
 
-// ManagerConfig holds configuration for the cache manager
+// ManagerConfig holds configuration for the cache manager.
 type ManagerConfig struct {
 	Redis         RedisConfig
 	ContextConfig ContextCacheConfig
@@ -41,7 +41,7 @@ type ManagerConfig struct {
 	UseRedis      bool
 }
 
-// DefaultManagerConfig returns default configuration
+// DefaultManagerConfig returns default configuration.
 func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		Redis: RedisConfig{
@@ -58,7 +58,9 @@ func DefaultManagerConfig() ManagerConfig {
 	}
 }
 
-// NewManager creates a new cache manager
+// NewManager creates a new cache manager.
+//
+//nolint:gocritic // Keep value parameter to preserve external constructor API.
 func NewManager(cfg ManagerConfig) (*Manager, error) {
 	var cache Cache
 	var err error
@@ -66,7 +68,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	if cfg.UseRedis {
 		cache, err = NewRedisCache(cfg.Redis)
 		if err != nil {
-			// Fall back to memory cache if Redis is unavailable
+			// Fall back to memory cache if Redis is unavailable.
 			cache = NewMemoryCache()
 		}
 	} else {
@@ -86,7 +88,7 @@ func NewManager(cfg ManagerConfig) (*Manager, error) {
 	return manager, nil
 }
 
-// NewManagerWithCache creates a manager with an existing cache
+// NewManagerWithCache creates a manager with an existing cache.
 func NewManagerWithCache(cache Cache) *Manager {
 	return &Manager{
 		cache:         cache,
@@ -100,42 +102,44 @@ func NewManagerWithCache(cache Cache) *Manager {
 	}
 }
 
-// Get retrieves a value from the underlying cache
+// Get retrieves a value from the underlying cache.
 func (m *Manager) Get(ctx context.Context, key string, dest interface{}) error {
 	return m.cache.Get(ctx, key, dest)
 }
 
-// Cache returns the underlying cache interface
+// Cache returns the underlying cache interface.
 func (m *Manager) Cache() Cache {
 	return m.cache
 }
 
-// Set stores a value in the underlying cache
+// Set stores a value in the underlying cache.
 func (m *Manager) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	return m.cache.Set(ctx, key, value, ttl)
 }
 
-// Delete removes a value from the underlying cache
+// Delete removes a value from the underlying cache.
 func (m *Manager) Delete(ctx context.Context, key string) error {
 	return m.cache.Delete(ctx, key)
 }
 
-// DeleteByPattern removes all values matching a pattern
+// DeleteByPattern removes all values matching a pattern.
 func (m *Manager) DeleteByPattern(ctx context.Context, pattern string) error {
 	return m.cache.DeleteByPattern(ctx, pattern)
 }
 
-// Exists checks if a key exists
+// Exists checks if a key exists.
 func (m *Manager) Exists(ctx context.Context, key string) (bool, error) {
 	return m.cache.Exists(ctx, key)
 }
 
-// GetAllStats returns statistics for all caches
+// GetAllStats returns statistics for all caches.
 func (m *Manager) GetAllStats() map[string]StatsSnapshot {
 	return m.stats.AllStats()
 }
 
 // GetEntriesStats returns entry count and size (best-effort) for a cache type.
+//
+//nolint:gocritic // Unnamed returns keep callsites simple and stable.
 func (m *Manager) GetEntriesStats(cacheType string) (int, int64) {
 	if rc, ok := m.cache.(*RedisCache); ok {
 		count, sizeBytes, err := rc.StatsByPattern(context.Background(), getKeyPattern(cacheType))
@@ -160,17 +164,19 @@ func (m *Manager) GetSettings() CacheSettings {
 }
 
 // UpdateSettings updates cache settings and applies to components.
+//
+//nolint:gocritic // Keep value parameter to avoid changing external callers.
 func (m *Manager) UpdateSettings(settings CacheSettings) {
 	m.settingsMu.Lock()
 	m.settings = settings
 	m.settingsMu.Unlock()
 
-	// Apply response cache default TTL
+	// Apply response cache default TTL.
 	if m.ResponseCache != nil && settings.DefaultTTLSeconds > 0 {
 		m.ResponseCache.SetDefaultTTL(time.Duration(settings.DefaultTTLSeconds) * time.Second)
 	}
 
-	// Apply semantic cache config if available
+	// Apply semantic cache config if available.
 	if sc := m.semanticCache; sc != nil {
 		sc.UpdateConfig(SemanticCacheConfig{
 			Enabled:             settings.Enabled && settings.Strategy == CacheStrategySemantic,
@@ -181,7 +187,7 @@ func (m *Manager) UpdateSettings(settings CacheSettings) {
 		})
 	}
 
-	// Apply dedup configuration
+	// Apply dedup configuration.
 	dedup := GetRequestDeduplicator()
 	dedup.UpdateConfig(RequestDeduplicatorConfig{
 		MaxPending:      settings.Dedup.MaxPending,
@@ -194,32 +200,32 @@ func (m *Manager) UpdateSettings(settings CacheSettings) {
 	}
 }
 
-// GetRequestCacheStats returns request cache statistics
+// GetRequestCacheStats returns request cache statistics.
 func (m *Manager) GetRequestCacheStats() StatsSnapshot {
 	return m.RequestCache.GetStats()
 }
 
-// GetContextCacheStats returns context cache statistics
+// GetContextCacheStats returns context cache statistics.
 func (m *Manager) GetContextCacheStats() StatsSnapshot {
 	return m.ContextCache.GetStats()
 }
 
-// GetRouteCacheStats returns route cache statistics
+// GetRouteCacheStats returns route cache statistics.
 func (m *Manager) GetRouteCacheStats() StatsSnapshot {
 	return m.RouteCache.GetStats()
 }
 
-// GetUsageCacheStats returns usage cache statistics
+// GetUsageCacheStats returns usage cache statistics.
 func (m *Manager) GetUsageCacheStats() StatsSnapshot {
 	return m.UsageCache.GetStats()
 }
 
-// GetSemanticCache returns the semantic cache
+// GetSemanticCache returns the semantic cache.
 func (m *Manager) GetSemanticCache() *SemanticCache {
 	return m.semanticCache
 }
 
-// SetSemanticCache sets the semantic cache
+// SetSemanticCache sets the semantic cache.
 func (m *Manager) SetSemanticCache(sc *SemanticCache) {
 	m.semanticCache = sc
 }
@@ -250,75 +256,63 @@ func (m *Manager) GetTieredVectorStore() *TieredVectorStore {
 	return m.tieredStore
 }
 
-// GetTokenSavings returns total tokens saved across all caches
+// GetTokenSavings returns total tokens saved across all caches.
 func (m *Manager) GetTokenSavings() int64 {
 	return m.RequestCache.GetTokenSavings() +
 		m.ContextCache.GetTokenSavings()
 }
 
-// InvalidateAll invalidates all cached data
+// InvalidateAll invalidates all cached data.
 func (m *Manager) InvalidateAll(ctx context.Context) error {
-	// Invalidate route cache
+	// Invalidate route cache.
 	if err := m.RouteCache.InvalidateAll(ctx); err != nil {
 		return err
 	}
 
-	// Invalidate request cache patterns
+	// Invalidate request cache patterns.
 	if err := m.cache.DeleteByPattern(ctx, "req:*"); err != nil {
 		return err
 	}
 
-	// Invalidate response cache patterns
-	if err := m.cache.DeleteByPattern(ctx, "ai-response:*"); err != nil {
-		return err
-	}
-
-	return nil
+	// Invalidate response cache patterns.
+	return m.cache.DeleteByPattern(ctx, "ai-response:*")
 }
 
-// InvalidateProvider invalidates all cached data for a specific provider
+// InvalidateProvider invalidates all cached data for a specific provider.
 func (m *Manager) InvalidateProvider(ctx context.Context, provider string) error {
-	// Invalidate request cache for this provider
+	// Invalidate request cache for this provider.
 	if err := m.RequestCache.Invalidate(ctx, provider, "*"); err != nil {
 		return err
 	}
 
-	// Invalidate route cache for this provider's models
+	// Invalidate route cache for this provider's models.
 	if err := m.cache.DeleteByPattern(ctx, "route:*"); err != nil {
 		return err
 	}
 
-	// Invalidate usage cache for this provider
-	if err := m.UsageCache.InvalidateProvider(ctx, provider); err != nil {
-		return err
-	}
-
-	return nil
+	// Invalidate usage cache for this provider.
+	return m.UsageCache.InvalidateProvider(ctx, provider)
 }
 
-// InvalidateModel invalidates all cached data for a specific model
+// InvalidateModel invalidates all cached data for a specific model.
 func (m *Manager) InvalidateModel(ctx context.Context, provider, model string) error {
-	// Invalidate request cache
+	// Invalidate request cache.
 	if err := m.RequestCache.Invalidate(ctx, provider, model); err != nil {
 		return err
 	}
 
-	// Invalidate route cache
+	// Invalidate route cache.
 	if err := m.RouteCache.Invalidate(ctx, model); err != nil {
 		return err
 	}
 
-	// Invalidate usage cache for this model
-	if err := m.UsageCache.InvalidateModel(ctx, model); err != nil {
-		return err
-	}
-
-	return nil
+	// Invalidate usage cache for this model.
+	return m.UsageCache.InvalidateModel(ctx, model)
 }
 
-// HealthCheck verifies cache connectivity
+// HealthCheck verifies cache connectivity.
 func (m *Manager) HealthCheck(ctx context.Context) error {
-	// Try a simple set/get operation
+	// Try a simple set/get operation.
 	testKey := "health:check"
 	testValue := map[string]interface{}{"timestamp": time.Now().Unix()}
 
@@ -331,13 +325,11 @@ func (m *Manager) HealthCheck(ctx context.Context) error {
 		return err
 	}
 
-	// Cleanup
-	m.cache.Delete(ctx, testKey)
-
-	return nil
+	// Cleanup.
+	return m.cache.Delete(ctx, testKey)
 }
 
-// Summary returns a summary of cache state
+// Summary returns a summary of cache state.
 func (m *Manager) Summary() json.RawMessage {
 	summary := map[string]interface{}{
 		"stats":         m.GetAllStats(),
@@ -345,11 +337,14 @@ func (m *Manager) Summary() json.RawMessage {
 		"hot_models":    m.RouteCache.GetHotModels(10),
 	}
 
-	data, _ := json.Marshal(summary)
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
 	return data
 }
 
-// Close closes any open connections
+// Close closes any open connections.
 func (m *Manager) Close() error {
 	if rc, ok := m.cache.(*RedisCache); ok {
 		return rc.Close()
@@ -357,7 +352,9 @@ func (m *Manager) Close() error {
 	return nil
 }
 
-// CacheEntryInfo represents info about a cache entry
+// CacheEntryInfo represents info about a cache entry.
+//
+//nolint:revive // Type name kept for API compatibility.
 type CacheEntryInfo struct {
 	Key            string         `json:"key"`
 	Type           string         `json:"type"`
@@ -379,7 +376,9 @@ type CacheEntryInfo struct {
 	AIResponse     string         `json:"ai_response,omitempty"`
 }
 
-// CacheEntryDetail represents detailed cache entry data
+// CacheEntryDetail represents detailed cache entry data.
+//
+//nolint:revive // Type name kept for API compatibility.
 type CacheEntryDetail struct {
 	Key       string      `json:"key"`
 	Type      string      `json:"type"`
@@ -391,8 +390,8 @@ type CacheEntryDetail struct {
 	TTL       int         `json:"ttl"`
 }
 
-// ListEntries returns a list of cache entries
-func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo {
+// ListEntries returns a list of cache entries.
+func (m *Manager) ListEntries(cacheType, search string) []*CacheEntryInfo {
 	entries := make([]*CacheEntryInfo, 0)
 	ctx := context.Background()
 
@@ -448,7 +447,7 @@ func (m *Manager) ListEntries(cacheType string, search string) []*CacheEntryInfo
 	return entries
 }
 
-// GetEntryDetail returns detailed information about a cache entry
+// GetEntryDetail returns detailed information about a cache entry.
 func (m *Manager) GetEntryDetail(ctx context.Context, key string) (*CacheEntryDetail, error) {
 	var value interface{}
 	if err := m.cache.Get(ctx, key, &value); err != nil {
@@ -474,7 +473,7 @@ func (m *Manager) GetEntryDetail(ctx context.Context, key string) (*CacheEntryDe
 		}
 	}
 
-	// Best-effort TTL for Redis cache
+	// Best-effort TTL for Redis cache.
 	if rc, ok := m.cache.(*RedisCache); ok {
 		if ttl, err := rc.TTL(ctx, key); err == nil && ttl > 0 {
 			detail.TTL = int(ttl.Seconds())

@@ -3,14 +3,15 @@
 package admin
 
 import (
-	"ai-gateway/internal/routing"
 	"net/http"
 	"time"
+
+	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
 )
 
-// FeedbackRequest represents a feedback submission request
+// FeedbackRequest represents a feedback submission request.
 type FeedbackRequest struct {
 	RequestID  string `json:"request_id"`
 	Model      string `json:"model"`
@@ -20,21 +21,21 @@ type FeedbackRequest struct {
 	IsPositive bool   `json:"is_positive"`
 }
 
-// FeedbackHandler handles feedback-related requests
+// FeedbackHandler handles feedback-related requests.
 type FeedbackHandler struct {
 	collector *routing.FeedbackCollector
 }
 
 var globalFeedbackHandler *FeedbackHandler
 
-// InitFeedbackHandler initializes the global feedback handler
+// InitFeedbackHandler initializes the global feedback handler.
 func InitFeedbackHandler(collector *routing.FeedbackCollector) {
 	globalFeedbackHandler = &FeedbackHandler{
 		collector: collector,
 	}
 }
 
-// GetFeedbackHandler returns the global feedback handler
+// GetFeedbackHandler returns the global feedback handler.
 func GetFeedbackHandler() *FeedbackHandler {
 	return globalFeedbackHandler
 }
@@ -48,7 +49,7 @@ func RecordRequestResult(model, provider string, taskType routing.TaskType, diff
 	globalFeedbackHandler.collector.RecordRequestResult(model, provider, taskType, difficulty, success, latencyMs, tokensUsed)
 }
 
-// SubmitFeedback handles feedback submission
+// SubmitFeedback handles feedback submission.
 func (h *FeedbackHandler) SubmitFeedback(c *gin.Context) {
 	var req FeedbackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -92,13 +93,13 @@ func (h *FeedbackHandler) SubmitFeedback(c *gin.Context) {
 	})
 }
 
-// GetFeedbackStats returns feedback statistics
+// GetFeedbackStats returns feedback statistics.
 func (h *FeedbackHandler) GetFeedbackStats(c *gin.Context) {
 	stats := h.collector.GetFeedbackStats()
 	c.JSON(http.StatusOK, stats)
 }
 
-// GetModelPerformance returns performance metrics for a model
+// GetModelPerformance returns performance metrics for a model.
 func (h *FeedbackHandler) GetModelPerformance(c *gin.Context) {
 	model := c.Param("model")
 	if model == "" {
@@ -115,13 +116,13 @@ func (h *FeedbackHandler) GetModelPerformance(c *gin.Context) {
 	c.JSON(http.StatusOK, perf)
 }
 
-// GetAllPerformance returns all model performance metrics
+// GetAllPerformance returns all model performance metrics.
 func (h *FeedbackHandler) GetAllPerformance(c *gin.Context) {
 	perf := h.collector.GetAllPerformance()
 	c.JSON(http.StatusOK, perf)
 }
 
-// GetTopModels returns top performing models
+// GetTopModels returns top performing models.
 func (h *FeedbackHandler) GetTopModels(c *gin.Context) {
 	taskType := c.DefaultQuery("task_type", "chat")
 	limit := 10
@@ -133,7 +134,7 @@ func (h *FeedbackHandler) GetTopModels(c *gin.Context) {
 	})
 }
 
-// TriggerOptimization manually triggers score optimization
+// TriggerOptimization manually triggers score optimization.
 func (h *FeedbackHandler) TriggerOptimization(c *gin.Context) {
 	result := h.collector.OptimizeScoresWithResult()
 	message := "Optimization completed"
@@ -150,7 +151,7 @@ func (h *FeedbackHandler) TriggerOptimization(c *gin.Context) {
 	})
 }
 
-// GetRecentFeedback returns recent feedback entries
+// GetRecentFeedback returns recent feedback entries.
 func (h *FeedbackHandler) GetRecentFeedback(c *gin.Context) {
 	limit := 50
 	feedback := h.collector.GetRecentFeedback(limit)
@@ -160,7 +161,7 @@ func (h *FeedbackHandler) GetRecentFeedback(c *gin.Context) {
 	})
 }
 
-// GetTaskTypeDistribution returns the distribution of task types
+// GetTaskTypeDistribution returns the distribution of task types.
 func (h *FeedbackHandler) GetTaskTypeDistribution(c *gin.Context) {
 	distribution := h.collector.GetTaskTypeDistribution()
 	c.JSON(http.StatusOK, gin.H{

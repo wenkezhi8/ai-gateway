@@ -1,9 +1,11 @@
+//nolint:godot
 package strategies
 
 import (
-	"ai-gateway/internal/router"
 	"errors"
 	"sort"
+
+	"ai-gateway/internal/router"
 )
 
 // CostStrategy implements cost-optimized routing
@@ -24,7 +26,7 @@ func (s *CostStrategy) Name() string {
 }
 
 // Select chooses a provider with the lowest cost
-func (s *CostStrategy) Select(providers []*router.ProviderInfo, req *router.Request) (*router.ProviderInfo, error) {
+func (s *CostStrategy) Select(providers []*router.ProviderInfo, _ *router.Request) (*router.ProviderInfo, error) {
 	if len(providers) == 0 {
 		return nil, errors.New("no providers available")
 	}

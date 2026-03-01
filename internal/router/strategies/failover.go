@@ -1,9 +1,11 @@
+//nolint:godot
 package strategies
 
 import (
-	"ai-gateway/internal/router"
 	"errors"
 	"sort"
+
+	"ai-gateway/internal/router"
 )
 
 // FailoverStrategy implements primary/backup routing
@@ -25,7 +27,7 @@ func (s *FailoverStrategy) Name() string {
 
 // Select chooses a provider using failover logic
 // Priority order: Primary > Secondary by priority value (lower = higher priority)
-func (s *FailoverStrategy) Select(providers []*router.ProviderInfo, req *router.Request) (*router.ProviderInfo, error) {
+func (s *FailoverStrategy) Select(providers []*router.ProviderInfo, _ *router.Request) (*router.ProviderInfo, error) {
 	if len(providers) == 0 {
 		return nil, errors.New("no providers available")
 	}

@@ -9,10 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func init() {
-	gin.SetMode(gin.TestMode)
-}
-
 func TestLogger_RecordsRequest(t *testing.T) {
 	r := gin.New()
 	r.Use(Logger())
@@ -21,7 +17,7 @@ func TestLogger_RecordsRequest(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.Header.Set("User-Agent", "test-agent")
 	r.ServeHTTP(w, req)
 
@@ -36,7 +32,7 @@ func TestLogger_RecordsPostRequest(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api", nil)
+	req := httptest.NewRequest("POST", "/api", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -50,7 +46,7 @@ func TestLogger_RecordsErrorStatus(t *testing.T) {
 	})
 
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/error", nil)
+	req := httptest.NewRequest("GET", "/error", http.NoBody)
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
@@ -66,7 +62,7 @@ func TestLogger_MultipleRequests(t *testing.T) {
 	// Make multiple requests
 	for i := 0; i < 5; i++ {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest("GET", "/test", http.NoBody)
 		r.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusOK, w.Code)
 	}

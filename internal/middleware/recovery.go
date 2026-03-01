@@ -1,3 +1,4 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (

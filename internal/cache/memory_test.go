@@ -1,3 +1,4 @@
+//nolint:errcheck,revive // Concurrency test intentionally ignores intermediate call errors.
 package cache
 
 import (
@@ -24,7 +25,7 @@ func TestMemoryCache_SetAndGet(t *testing.T) {
 		Value int    `json:"value"`
 	}
 
-	// Test set and get
+	// Test set and get.
 	original := &testData{Name: "test", Value: 42}
 	err := cache.Set(ctx, "test-key", original, time.Hour)
 	require.NoError(t, err)
@@ -49,20 +50,20 @@ func TestMemoryCache_Delete(t *testing.T) {
 	cache := NewMemoryCache()
 	ctx := context.Background()
 
-	// Set a value
+	// Set a value.
 	err := cache.Set(ctx, "delete-key", "test-value", time.Hour)
 	require.NoError(t, err)
 
-	// Verify it exists
+	// Verify it exists.
 	exists, err := cache.Exists(ctx, "delete-key")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// Delete it
+	// Delete it.
 	err = cache.Delete(ctx, "delete-key")
 	require.NoError(t, err)
 
-	// Verify it's gone
+	// Verify it's gone.
 	exists, err = cache.Exists(ctx, "delete-key")
 	require.NoError(t, err)
 	assert.False(t, exists)
@@ -72,16 +73,16 @@ func TestMemoryCache_Exists(t *testing.T) {
 	cache := NewMemoryCache()
 	ctx := context.Background()
 
-	// Test non-existent key
+	// Test non-existent key.
 	exists, err := cache.Exists(ctx, "non-existent")
 	require.NoError(t, err)
 	assert.False(t, exists)
 
-	// Set a value
+	// Set a value.
 	err = cache.Set(ctx, "exists-key", "value", time.Hour)
 	require.NoError(t, err)
 
-	// Test existing key
+	// Test existing key.
 	exists, err = cache.Exists(ctx, "exists-key")
 	require.NoError(t, err)
 	assert.True(t, exists)
@@ -91,19 +92,19 @@ func TestMemoryCache_Expiration(t *testing.T) {
 	cache := NewMemoryCache()
 	ctx := context.Background()
 
-	// Set with short TTL
+	// Set with short TTL.
 	err := cache.Set(ctx, "expiring-key", "value", 50*time.Millisecond)
 	require.NoError(t, err)
 
-	// Should exist immediately
+	// Should exist immediately.
 	exists, err := cache.Exists(ctx, "expiring-key")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// Wait for expiration
+	// Wait for expiration.
 	time.Sleep(100 * time.Millisecond)
 
-	// Should be expired
+	// Should be expired.
 	var result string
 	err = cache.Get(ctx, "expiring-key", &result)
 	assert.ErrorIs(t, err, ErrNotFound)
@@ -113,7 +114,7 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 	cache := NewMemoryCache()
 	ctx := context.Background()
 
-	// Run concurrent operations
+	// Run concurrent operations.
 	done := make(chan bool)
 
 	for i := 0; i < 10; i++ {
@@ -129,7 +130,7 @@ func TestMemoryCache_Concurrent(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all goroutines
+	// Wait for all goroutines.
 	for i := 0; i < 10; i++ {
 		<-done
 	}
@@ -139,15 +140,15 @@ func TestMemoryCache_Set_Overwrite(t *testing.T) {
 	cache := NewMemoryCache()
 	ctx := context.Background()
 
-	// Set initial value
+	// Set initial value.
 	err := cache.Set(ctx, "overwrite-key", "initial", time.Hour)
 	require.NoError(t, err)
 
-	// Overwrite with new value
+	// Overwrite with new value.
 	err = cache.Set(ctx, "overwrite-key", "updated", time.Hour)
 	require.NoError(t, err)
 
-	// Verify updated value
+	// Verify updated value.
 	var result string
 	err = cache.Get(ctx, "overwrite-key", &result)
 	require.NoError(t, err)

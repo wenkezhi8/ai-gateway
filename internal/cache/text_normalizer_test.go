@@ -25,4 +25,3 @@ func TestTextNormalizer_DeduplicatePunctuation(t *testing.T) {
 		t.Fatalf("expected deduplicated punctuation, got %q", got)
 	}
 }
-

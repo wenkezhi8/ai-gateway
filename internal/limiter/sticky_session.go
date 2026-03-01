@@ -1,3 +1,4 @@
+//nolint:godot,gocritic,revive
 package limiter
 
 import (
@@ -81,7 +82,10 @@ func (m *StickySessionManager) getLocalSessionAccount(provider, sessionHash stri
 		return ""
 	}
 
-	entry := value.(*localSessionEntry)
+	entry, ok := value.(*localSessionEntry)
+	if !ok {
+		return ""
+	}
 	if time.Now().After(entry.expiresAt) {
 		m.localSession.Delete(key)
 		return ""
@@ -98,7 +102,9 @@ func (m *StickySessionManager) DeleteSession(ctx context.Context, provider, sess
 
 	// Try Redis first
 	if m.store != nil {
-		_ = m.store.DeleteSession(ctx, provider, sessionHash)
+		if err := m.store.DeleteSession(ctx, provider, sessionHash); err != nil {
+			return err
+		}
 	}
 
 	// Also delete local
@@ -120,13 +126,18 @@ func (m *StickySessionManager) RefreshSessionTTL(ctx context.Context, provider, 
 
 	// Try Redis first
 	if m.store != nil {
-		_ = m.store.RefreshSessionTTL(ctx, provider, sessionHash, ttl)
+		if err := m.store.RefreshSessionTTL(ctx, provider, sessionHash, ttl); err != nil {
+			return err
+		}
 	}
 
 	// Also refresh local
 	key := m.sessionKey(provider, sessionHash)
 	if value, ok := m.localSession.Load(key); ok {
-		entry := value.(*localSessionEntry)
+		entry, ok := value.(*localSessionEntry)
+		if !ok {
+			return nil
+		}
 		entry.expiresAt = time.Now().Add(ttl)
 	}
 
@@ -185,7 +196,10 @@ func (m *StickySessionManager) getLocalResponseAccount(responseID string) string
 		return ""
 	}
 
-	entry := value.(*localSessionEntry)
+	entry, ok := value.(*localSessionEntry)
+	if !ok {
+		return ""
+	}
 	if time.Now().After(entry.expiresAt) {
 		m.localResp.Delete(responseID)
 		return ""
@@ -205,7 +219,10 @@ func (m *StickySessionManager) CleanupExpired() int {
 	now := time.Now()
 
 	m.localSession.Range(func(key, value interface{}) bool {
-		entry := value.(*localSessionEntry)
+		entry, ok := value.(*localSessionEntry)
+		if !ok {
+			return true
+		}
 		if now.After(entry.expiresAt) {
 			m.localSession.Delete(key)
 			count++
@@ -214,7 +231,10 @@ func (m *StickySessionManager) CleanupExpired() int {
 	})
 
 	m.localResp.Range(func(key, value interface{}) bool {
-		entry := value.(*localSessionEntry)
+		entry, ok := value.(*localSessionEntry)
+		if !ok {
+			return true
+		}
 		if now.After(entry.expiresAt) {
 			m.localResp.Delete(key)
 			count++

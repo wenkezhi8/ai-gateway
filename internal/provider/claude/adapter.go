@@ -1,3 +1,4 @@
+//nolint:godot
 package claude
 
 import (
@@ -67,7 +68,10 @@ func (a *Adapter) Chat(ctx context.Context, req *provider.ChatRequest) (*provide
 
 	// Handle error responses
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
 		var errResp MessagesResponse
 		if json.Unmarshal(body, &errResp) == nil && errResp.Error != nil {
 			return nil, ConvertToProviderResponse(&errResp).Error
@@ -111,13 +115,28 @@ func (a *Adapter) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-
 	claudeReq.Stream = true
 
 	// Make the streaming API call
-	resp, err := a.client.DoStreamRequest(ctx, "POST", "/messages", claudeReq)
+	resp, err := a.client.DoStreamRequest(ctx, "POST", "/messages", claudeReq) //nolint:bodyclose
 	if err != nil {
 		close(chunkChan)
 		return chunkChan, &provider.ProviderError{
 			Code:     http.StatusInternalServerError,
 			Message:  fmt.Sprintf("failed to make stream request: %v", err),
 			Provider: "claude",
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(readErr.Error())
+		}
+		close(chunkChan)
+		return chunkChan, &provider.ProviderError{
+			Code:      resp.StatusCode,
+			Message:   string(body),
+			Provider:  "claude",
+			Retryable: isRetryableError(resp.StatusCode),
 		}
 	}
 

@@ -1,3 +1,4 @@
+//nolint:gocyclo,gocritic,staticcheck,errcheck,revive // Legacy redis-stack implementation retained to avoid behavior drift.
 package cache
 
 import (

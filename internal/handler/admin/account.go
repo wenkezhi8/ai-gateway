@@ -1,9 +1,6 @@
 package admin
 
 import (
-	"ai-gateway/internal/limiter"
-	"ai-gateway/internal/routing"
-	"ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,11 +12,23 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/limiter"
+	"ai-gateway/internal/routing"
+	"ai-gateway/pkg/logger"
+
 	"github.com/gin-gonic/gin"
 )
 
 const accountsFile = "data/accounts.json"
 const switchHistoryFile = "data/switch_history.json"
+
+const (
+	planTypeLite     = "Lite"
+	planTypePro      = "Pro"
+	planTypeMax      = "Max"
+	planTypeBasic    = "Basic"
+	planTypeStandard = "Standard"
+)
 
 var (
 	accountsMu     sync.Mutex
@@ -27,24 +36,24 @@ var (
 	globalRouter   *routing.SmartRouter
 )
 
-// SetGlobalRouter sets the global smart router for model syncing
+// SetGlobalRouter sets the global smart router for model syncing.
 func SetGlobalRouter(router *routing.SmartRouter) {
 	globalRouter = router
 }
 
-// AccountHandler handles account management requests
+// AccountHandler handles account management requests.
 type AccountHandler struct {
 	manager *limiter.AccountManager
 }
 
-// NewAccountHandler creates a new account handler
+// NewAccountHandler creates a new account handler.
 func NewAccountHandler(manager *limiter.AccountManager) *AccountHandler {
 	return &AccountHandler{
 		manager: manager,
 	}
 }
 
-// PersistedAccount represents an account for JSON persistence
+// PersistedAccount represents an account for JSON persistence.
 type PersistedAccount struct {
 	ID                string                    `json:"id"`
 	Name              string                    `json:"name"`
@@ -108,10 +117,10 @@ func saveAccountsToFile(accounts []*limiter.AccountConfig) error {
 		return err
 	}
 
-	return os.WriteFile(accountsFile, data, 0644)
+	return os.WriteFile(accountsFile, data, 0640)
 }
 
-// LoadPersistedAccounts loads accounts from the persistence file
+// LoadPersistedAccounts loads accounts from the persistence file.
 func LoadPersistedAccounts() ([]*limiter.AccountConfig, error) {
 	accountsMu.Lock()
 	defer accountsMu.Unlock()
@@ -130,7 +139,8 @@ func LoadPersistedAccounts() ([]*limiter.AccountConfig, error) {
 	}
 
 	accounts := make([]*limiter.AccountConfig, 0, len(persisted))
-	for _, pa := range persisted {
+	for i := range persisted {
+		pa := &persisted[i]
 		config := &limiter.AccountConfig{
 			ID:                pa.ID,
 			Name:              pa.Name,
@@ -177,7 +187,7 @@ func SaveSwitchHistoryToFile(history []limiter.SwitchEvent) error {
 		return err
 	}
 
-	return os.WriteFile(switchHistoryFile, data, 0644)
+	return os.WriteFile(switchHistoryFile, data, 0640)
 }
 
 func LoadPersistedSwitchHistory() ([]limiter.SwitchEvent, error) {
@@ -200,8 +210,7 @@ func LoadPersistedSwitchHistory() ([]limiter.SwitchEvent, error) {
 	return history, nil
 }
 
-// ListAccounts returns all accounts
-// GET /api/admin/accounts
+// GET /api/admin/accounts.
 func (h *AccountHandler) ListAccounts(c *gin.Context) {
 	accounts := h.manager.GetAllAccounts()
 
@@ -217,8 +226,7 @@ func (h *AccountHandler) ListAccounts(c *gin.Context) {
 	})
 }
 
-// GetAccount returns a single account by ID
-// GET /api/admin/accounts/:id
+// GET /api/admin/accounts/:id.
 func (h *AccountHandler) GetAccount(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -250,8 +258,7 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 	})
 }
 
-// CreateAccount creates a new account
-// POST /api/admin/accounts
+// POST /api/admin/accounts.
 func (h *AccountHandler) CreateAccount(c *gin.Context) {
 	var req AccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -308,7 +315,7 @@ func generateAccountID(provider string) string {
 	return fmt.Sprintf("%s-%d", p, time.Now().UnixNano())
 }
 
-// mapProviderToBackend maps frontend provider names to backend provider types
+// mapProviderToBackend maps frontend provider names to backend provider types.
 func mapProviderToBackend(frontendProvider string) string {
 	// Providers that use OpenAI-compatible API
 	openaiCompatible := map[string]bool{
@@ -330,8 +337,7 @@ func mapProviderToBackend(frontendProvider string) string {
 	return frontendProvider
 }
 
-// UpdateAccount updates an existing account
-// PUT /api/admin/accounts/:id
+// PUT /api/admin/accounts/:id.
 func (h *AccountHandler) UpdateAccount(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -423,8 +429,7 @@ func (h *AccountHandler) UpdateAccount(c *gin.Context) {
 	})
 }
 
-// DeleteAccount deletes an account
-// DELETE /api/admin/accounts/:id
+// DELETE /api/admin/accounts/:id.
 func (h *AccountHandler) DeleteAccount(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -453,8 +458,7 @@ func (h *AccountHandler) DeleteAccount(c *gin.Context) {
 	})
 }
 
-// UpdateAccountStatus updates only the enabled status of an account
-// PUT /api/admin/accounts/:id/status
+// PUT /api/admin/accounts/:id/status.
 func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -512,8 +516,7 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 	})
 }
 
-// GetAccountUsage returns usage statistics for an account
-// GET /api/admin/accounts/:id/usage
+// GET /api/admin/accounts/:id/usage.
 func (h *AccountHandler) GetAccountUsage(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -541,6 +544,20 @@ func (h *AccountHandler) GetAccountUsage(c *gin.Context) {
 			usage.RequestsCount = usageData.Used
 			usage.RPM = int(usageData.Used)
 			usage.RPMLimit = int(usageData.Limit)
+		case limiter.LimitTypeHour5:
+			usage.Hour5Used = usageData.Used
+			usage.Hour5Limit = usageData.Limit
+			usage.Hour5Percent = usageData.PercentUsed
+		case limiter.LimitTypeWeek:
+			usage.WeekUsed = usageData.Used
+			usage.WeekLimit = usageData.Limit
+			usage.WeekPercent = usageData.PercentUsed
+		case limiter.LimitTypeMonth:
+			usage.MonthUsed = usageData.Used
+			usage.MonthLimit = usageData.Limit
+			usage.MonthPercent = usageData.PercentUsed
+		case limiter.LimitTypeConcurrent, limiter.LimitTypeRequest:
+			continue
 		}
 	}
 
@@ -550,7 +567,7 @@ func (h *AccountHandler) GetAccountUsage(c *gin.Context) {
 	})
 }
 
-// getDefaultModelsForProvider returns default models for providers that don't support /models API
+// getDefaultModelsForProvider returns default models for providers that don't support /models API.
 func getDefaultModelsForProvider(provider string) []string {
 	defaults := map[string][]string{
 		"minimax": {
@@ -604,7 +621,7 @@ func getDefaultModelsForProvider(provider string) []string {
 	return []string{}
 }
 
-// ProviderConfigResponse represents a provider configuration for frontend
+// ProviderConfigResponse represents a provider configuration for frontend.
 type ProviderConfigResponse struct {
 	Value    string   `json:"value"`
 	Label    string   `json:"label"`
@@ -614,8 +631,7 @@ type ProviderConfigResponse struct {
 	IsOpenAI bool     `json:"is_openai_compatible"`
 }
 
-// GetProviderConfigs returns all known provider configurations
-// GET /api/admin/providers/configs
+// GET /api/admin/providers/configs.
 func (h *AccountHandler) GetProviderConfigs(c *gin.Context) {
 	providers := []ProviderConfigResponse{
 		// 国际服务商
@@ -646,8 +662,7 @@ func (h *AccountHandler) GetProviderConfigs(c *gin.Context) {
 	})
 }
 
-// ForceSwitchAccount forces a switch to a specific account
-// POST /api/admin/accounts/:id/switch
+// POST /api/admin/accounts/:id/switch.
 func (h *AccountHandler) ForceSwitchAccount(c *gin.Context) {
 	accountID := c.Param("id")
 
@@ -697,8 +712,7 @@ func (h *AccountHandler) ForceSwitchAccount(c *gin.Context) {
 	})
 }
 
-// GetSwitchHistory returns account switch history
-// GET /api/admin/accounts/switch-history
+// GET /api/admin/accounts/switch-history.
 func (h *AccountHandler) GetSwitchHistory(c *gin.Context) {
 	limit := 50 // default limit
 
@@ -775,6 +789,7 @@ func convertAccountToResponse(acc *limiter.AccountConfig, manager *limiter.Accou
 	return response
 }
 
+//nolint:gocyclo
 func detectPlanType(provider string, limits map[limiter.LimitType]*limiter.LimitConfig) string {
 	if limits == nil {
 		return ""
@@ -791,26 +806,29 @@ func detectPlanType(provider string, limits map[limiter.LimitType]*limiter.Limit
 	switch provider {
 	case "zhipu":
 		if hour5Limit <= 80 && weekLimit <= 400 {
-			return "Lite"
-		} else if hour5Limit <= 400 && weekLimit <= 2000 {
-			return "Pro"
-		} else if hour5Limit > 400 {
-			return "Max"
+			return planTypeLite
+		}
+		if hour5Limit <= 400 && weekLimit <= 2000 {
+			return planTypePro
+		}
+		if hour5Limit > 400 {
+			return planTypeMax
 		}
 	case "bailian", "qwen":
 		if hour5Limit <= 1200 && weekLimit <= 9000 {
-			return "Lite"
-		} else if hour5Limit > 1200 {
-			return "Pro"
+			return planTypeLite
+		}
+		if hour5Limit > 1200 {
+			return planTypePro
 		}
 	case "volcengine":
 		if hour5Limit <= 500 {
-			return "Basic"
-		} else if hour5Limit <= 2000 {
-			return "Standard"
-		} else {
-			return "Pro"
+			return planTypeBasic
 		}
+		if hour5Limit <= 2000 {
+			return planTypeStandard
+		}
+		return planTypePro
 	}
 	return ""
 }
@@ -844,7 +862,7 @@ func convertRequestToAccountConfig(req *AccountRequest) *limiter.AccountConfig {
 	return config
 }
 
-// ProviderModelsResponse represents the response from provider's /v1/models API
+// ProviderModelsResponse represents the response from provider's /v1/models API.
 type ProviderModelsResponse struct {
 	Data []ProviderModel `json:"data"`
 }
@@ -858,8 +876,9 @@ type ProviderModel struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// FetchModels fetches available models from the provider's API
-// GET /api/admin/accounts/:id/fetch-models?sync=true
+// GET /api/admin/accounts/:id/fetch-models?sync=true.
+//
+//nolint:gocyclo
 func (h *AccountHandler) FetchModels(c *gin.Context) {
 	accountID := c.Param("id")
 	syncModels := c.Query("sync") == "true"
@@ -906,7 +925,7 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, http.NoBody)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -981,7 +1000,10 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte(fmt.Sprintf("读取服务商错误响应失败: %v", readErr))
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -1038,8 +1060,8 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 			continue
 		}
 
-		modelID, _ := modelObj["id"].(string)
-		if modelID == "" {
+		modelID, ok := modelObj["id"].(string)
+		if !ok || modelID == "" {
 			continue
 		}
 

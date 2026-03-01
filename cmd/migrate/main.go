@@ -1,15 +1,16 @@
 package main
 
 import (
-	"ai-gateway/internal/models"
-	"ai-gateway/internal/storage"
-	gatewaylogger "ai-gateway/pkg/logger"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
+
+	"ai-gateway/internal/models"
+	"ai-gateway/internal/storage"
+	gatewaylogger "ai-gateway/pkg/logger"
 )
 
 var logger = gatewaylogger.WithField("component", "migrate")
@@ -131,7 +132,7 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0644)
+	return os.WriteFile(dst, data, 0600)
 }
 
 func verifyMigration(sourceDir string) error {
@@ -161,12 +162,70 @@ func verifyMigration(sourceDir string) error {
 	return nil
 }
 
-func readJSONFile(path string, v interface{}) error {
-	data, err := os.ReadFile(path)
+func readOptionalFile(path, missingMessage string) (data []byte, found bool, err error) {
+	data, err = os.ReadFile(path)
 	if err != nil {
-		return err
+		if os.IsNotExist(err) {
+			logger.Debug(missingMessage)
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
-	return json.Unmarshal(data, v)
+
+	return data, true, nil
+}
+
+func migrateJSONMap[T any](sourceDir, fileName string) (records map[string]*T, found bool, err error) {
+	path := filepath.Join(sourceDir, fileName)
+	data, found, err := readOptionalFile(path, fileName+" not found, skipping")
+	if err != nil || !found {
+		return nil, found, err
+	}
+
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, true, fmt.Errorf("parse %s: %w", fileName, err)
+	}
+
+	return records, true, nil
+}
+
+func ensureTimestamps(createdAt, updatedAt *string) {
+	now := time.Now().Format(time.RFC3339)
+	if *createdAt == "" {
+		*createdAt = now
+	}
+	if *updatedAt == "" {
+		*updatedAt = now
+	}
+}
+
+func migrateRecords[T any](records map[string]*T, migrate func(string, *T) error, onError func(string, error)) int {
+	migrated := 0
+	for key, record := range records {
+		if err := migrate(key, record); err != nil {
+			onError(key, err)
+			continue
+		}
+		migrated++
+	}
+
+	return migrated
+}
+
+func migrateLabeledRecords[T any](
+	sourceDir, fileName string,
+	migrate func(string, *T) error,
+	onError func(string, error),
+) (int, error) {
+	records, found, err := migrateJSONMap[T](sourceDir, fileName)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 0, nil
+	}
+
+	return migrateRecords(records, migrate, onError), nil
 }
 
 func migrateAccounts(store *storage.SQLiteStorage, sourceDir string, stats *MigrationStats) error {
@@ -204,36 +263,25 @@ func migrateAccounts(store *storage.SQLiteStorage, sourceDir string, stats *Migr
 	return nil
 }
 
+//nolint:dupl // model/user migrations share the same flow with type-specific persistence.
 func migrateModelScores(store *storage.SQLiteStorage, sourceDir string, stats *MigrationStats) error {
-	path := filepath.Join(sourceDir, "model_scores.json")
-	data, err := os.ReadFile(path)
+	migrated, err := migrateLabeledRecords(
+		sourceDir,
+		"model_scores.json",
+		func(model string, score *models.ModelScoreRecord) error {
+			score.Model = model
+			ensureTimestamps(&score.CreatedAt, &score.UpdatedAt)
+			return store.SaveModelScore(model, score)
+		},
+		func(model string, err error) {
+			stats.AddError(fmt.Sprintf("model_score %s: %v", model, err))
+		},
+	)
 	if err != nil {
-		if os.IsNotExist(err) {
-			logger.Debug("model_scores.json not found, skipping")
-			return nil
-		}
 		return err
 	}
 
-	var scores map[string]*models.ModelScoreRecord
-	if err := json.Unmarshal(data, &scores); err != nil {
-		return fmt.Errorf("parse model_scores.json: %w", err)
-	}
-
-	for model, score := range scores {
-		score.Model = model
-		if score.CreatedAt == "" {
-			score.CreatedAt = time.Now().Format(time.RFC3339)
-		}
-		if score.UpdatedAt == "" {
-			score.UpdatedAt = time.Now().Format(time.RFC3339)
-		}
-		if err := store.SaveModelScore(model, score); err != nil {
-			stats.AddError(fmt.Sprintf("model_score %s: %v", model, err))
-			continue
-		}
-		stats.ModelScores++
-	}
+	stats.ModelScores += migrated
 
 	logger.Infof("Migrated %d model scores", stats.ModelScores)
 	return nil
@@ -324,36 +372,25 @@ func migrateAPIKeys(store *storage.SQLiteStorage, sourceDir string, stats *Migra
 	return nil
 }
 
+//nolint:dupl // model/user migrations share the same flow with type-specific persistence.
 func migrateUsers(store *storage.SQLiteStorage, sourceDir string, stats *MigrationStats) error {
-	path := filepath.Join(sourceDir, "users.json")
-	data, err := os.ReadFile(path)
+	migrated, err := migrateLabeledRecords(
+		sourceDir,
+		"users.json",
+		func(username string, user *models.UserRecord) error {
+			user.Username = username
+			ensureTimestamps(&user.CreatedAt, &user.UpdatedAt)
+			return store.SaveUser(username, user)
+		},
+		func(username string, err error) {
+			stats.AddError(fmt.Sprintf("user %s: %v", username, err))
+		},
+	)
 	if err != nil {
-		if os.IsNotExist(err) {
-			logger.Debug("users.json not found, skipping")
-			return nil
-		}
 		return err
 	}
 
-	var users map[string]*models.UserRecord
-	if err := json.Unmarshal(data, &users); err != nil {
-		return fmt.Errorf("parse users.json: %w", err)
-	}
-
-	for username, user := range users {
-		user.Username = username
-		if user.CreatedAt == "" {
-			user.CreatedAt = time.Now().Format(time.RFC3339)
-		}
-		if user.UpdatedAt == "" {
-			user.UpdatedAt = time.Now().Format(time.RFC3339)
-		}
-		if err := store.SaveUser(username, user); err != nil {
-			stats.AddError(fmt.Sprintf("user %s: %v", username, err))
-			continue
-		}
-		stats.Users++
-	}
+	stats.Users += migrated
 
 	logger.Infof("Migrated %d users", stats.Users)
 	return nil

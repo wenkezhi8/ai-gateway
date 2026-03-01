@@ -1,10 +1,12 @@
+//nolint:godot
 package strategies
 
 import (
-	"ai-gateway/internal/provider"
-	"ai-gateway/internal/router"
 	"context"
 	"testing"
+
+	"ai-gateway/internal/provider"
+	"ai-gateway/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,15 +19,15 @@ type mockProvider struct {
 	models  []string
 }
 
-func (m *mockProvider) Name() string                                     { return m.name }
-func (m *mockProvider) Models() []string                                 { return m.models }
-func (m *mockProvider) IsEnabled() bool                                  { return m.enabled }
-func (m *mockProvider) SetEnabled(enabled bool)                          { m.enabled = enabled }
-func (m *mockProvider) ValidateKey(ctx context.Context) bool             { return true }
-func (m *mockProvider) Chat(ctx context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+func (m *mockProvider) Name() string                       { return m.name }
+func (m *mockProvider) Models() []string                   { return m.models }
+func (m *mockProvider) IsEnabled() bool                    { return m.enabled }
+func (m *mockProvider) SetEnabled(enabled bool)            { m.enabled = enabled }
+func (m *mockProvider) ValidateKey(_ context.Context) bool { return true }
+func (m *mockProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return nil, nil
 }
-func (m *mockProvider) StreamChat(ctx context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+func (m *mockProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	return nil, nil
 }
 
@@ -196,7 +198,8 @@ func TestRoundRobinStrategy_Reset(t *testing.T) {
 	req := &router.Request{Model: "gpt-4"}
 
 	// Make a selection
-	_, _ = s.Select(providers, req)
+	_, err := s.Select(providers, req)
+	require.NoError(t, err)
 
 	// Reset counter
 	s.Reset()

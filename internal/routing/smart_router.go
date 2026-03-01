@@ -1,8 +1,6 @@
 package routing
 
 import (
-	"ai-gateway/internal/constants"
-	"ai-gateway/pkg/logger"
 	"context"
 	"encoding/json"
 	"math"
@@ -13,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"ai-gateway/internal/constants"
+	"ai-gateway/pkg/logger"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -22,7 +23,7 @@ const routerConfigFile = constants.RouterConfigFilePath
 
 var routerLogger = logger.WithField("component", "routing")
 
-// StrategyType defines the routing strategy
+// StrategyType defines the routing strategy.
 type StrategyType string
 
 const (
@@ -33,7 +34,7 @@ const (
 	StrategyCustom  StrategyType = "custom"  // Custom rules
 )
 
-// ModelScore represents scoring for a model
+// ModelScore represents scoring for a model.
 type ModelScore struct {
 	Model        string `json:"model"`
 	Provider     string `json:"provider"`
@@ -44,14 +45,14 @@ type ModelScore struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-// TaskRule defines model selection for specific task types
+// TaskRule defines model selection for specific task types.
 type TaskRule struct {
 	TaskType        string   `json:"task_type"`
 	Keywords        []string `json:"keywords"`
 	PreferredModels []string `json:"preferred_models"`
 }
 
-// RouterConfig holds the smart router configuration
+// RouterConfig holds the smart router configuration.
 type RouterConfig struct {
 	DefaultStrategy  StrategyType           `json:"default_strategy"`
 	DefaultModel     string                 `json:"default_model"`
@@ -62,7 +63,7 @@ type RouterConfig struct {
 	ProviderDefaults map[string]string      `json:"provider_defaults"` // provider -> default model
 }
 
-// SmartRouter handles intelligent model selection
+// SmartRouter handles intelligent model selection.
 type SmartRouter struct {
 	mu               sync.RWMutex
 	config           *RouterConfig
@@ -81,7 +82,7 @@ func normalizeTaskMappingKey(taskType string) string {
 	}
 }
 
-// DefaultModelScores returns default scoring for common models
+// DefaultModelScores returns default scoring for common models.
 func DefaultModelScores() map[string]*ModelScore {
 	defaults := make(map[string]*ModelScore, len(constants.RoutingDefaultModelScores))
 	for key, preset := range constants.RoutingDefaultModelScores {
@@ -97,7 +98,7 @@ func DefaultModelScores() map[string]*ModelScore {
 	return defaults
 }
 
-// DefaultTaskRules returns default task-based routing rules
+// DefaultTaskRules returns default task-based routing rules.
 func DefaultTaskRules() []TaskRule {
 	rules := make([]TaskRule, 0, len(constants.RoutingDefaultTaskRules))
 	for _, preset := range constants.RoutingDefaultTaskRules {
@@ -110,7 +111,7 @@ func DefaultTaskRules() []TaskRule {
 	return rules
 }
 
-// NewSmartRouter creates a new smart router with default config
+// NewSmartRouter creates a new smart router with default config.
 func NewSmartRouter() *SmartRouter {
 	router := &SmartRouter{
 		config: &RouterConfig{
@@ -133,14 +134,16 @@ func NewSmartRouter() *SmartRouter {
 	router.loadFromFile()
 
 	if _, err := os.Stat(modelScoresFile); os.IsNotExist(err) {
-		router.SaveToFile()
+		if saveErr := router.SaveToFile(); saveErr != nil {
+			routerLogger.WithError(saveErr).Warn("Failed to save default model scores to file")
+		}
 		routerLogger.Info("Saved default model scores to file")
 	}
 
 	return router
 }
 
-// SaveToFile saves ALL model scores to a file (complete snapshot)
+// SaveToFile saves ALL model scores to a file (complete snapshot).
 func (r *SmartRouter) SaveToFile() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -159,10 +162,10 @@ func (r *SmartRouter) SaveToFile() error {
 	}
 
 	routerLogger.Infof("Saving %d model scores to file", len(r.config.ModelScores))
-	return os.WriteFile(modelScoresFile, data, 0644)
+	return os.WriteFile(modelScoresFile, data, 0640)
 }
 
-// SaveProviderDefaultsToFile saves provider defaults to a file
+// SaveProviderDefaultsToFile saves provider defaults to a file.
 func (r *SmartRouter) SaveProviderDefaultsToFile() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -178,10 +181,10 @@ func (r *SmartRouter) SaveProviderDefaultsToFile() error {
 		return err
 	}
 
-	return os.WriteFile(providerDefaultsFile, data, 0644)
+	return os.WriteFile(providerDefaultsFile, data, 0640)
 }
 
-// RouterConfigPersist is the structure saved to file for router config
+// RouterConfigPersist is the structure saved to file for router config.
 type RouterConfigPersist struct {
 	DefaultStrategy string           `json:"default_strategy"`
 	DefaultModel    string           `json:"default_model"`
@@ -189,7 +192,7 @@ type RouterConfigPersist struct {
 	Classifier      ClassifierConfig `json:"classifier"`
 }
 
-// SaveRouterConfigToFile saves router config to a file
+// SaveRouterConfigToFile saves router config to a file.
 func (r *SmartRouter) SaveRouterConfigToFile() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -212,16 +215,16 @@ func (r *SmartRouter) SaveRouterConfigToFile() error {
 		return err
 	}
 
-	return os.WriteFile(routerConfigFile, data, 0644)
+	return os.WriteFile(routerConfigFile, data, 0640)
 }
 
-// loadFromFile loads model scores from the persistence file
+// loadFromFile loads model scores from the persistence file.
 func (r *SmartRouter) loadFromFile() {
 	// Load router config (strategy, default model, auto mode)
 	configData, err := os.ReadFile(routerConfigFile)
 	if err == nil {
 		var savedConfig RouterConfigPersist
-		if err := json.Unmarshal(configData, &savedConfig); err == nil {
+		if unmarshalErr := json.Unmarshal(configData, &savedConfig); unmarshalErr == nil {
 			r.mu.Lock()
 			if savedConfig.DefaultStrategy != "" {
 				r.config.DefaultStrategy = StrategyType(savedConfig.DefaultStrategy)
@@ -237,7 +240,7 @@ func (r *SmartRouter) loadFromFile() {
 			}
 			routerLogger.Info("Loaded router config from persistence file")
 		} else {
-			routerLogger.WithError(err).Warn("Failed to parse router config file")
+			routerLogger.WithError(unmarshalErr).Warn("Failed to parse router config file")
 		}
 	}
 
@@ -245,7 +248,7 @@ func (r *SmartRouter) loadFromFile() {
 	data, err := os.ReadFile(modelScoresFile)
 	if err == nil && len(data) > 2 {
 		var savedScores map[string]*ModelScore
-		if err := json.Unmarshal(data, &savedScores); err == nil && len(savedScores) > 0 {
+		if unmarshalErr := json.Unmarshal(data, &savedScores); unmarshalErr == nil && len(savedScores) > 0 {
 			r.mu.Lock()
 			// Completely replace model scores with saved data
 			// This ensures deleted models stay deleted
@@ -253,7 +256,7 @@ func (r *SmartRouter) loadFromFile() {
 			r.mu.Unlock()
 			routerLogger.Infof("Loaded %d model scores from persistence file (replaced defaults)", len(savedScores))
 		} else {
-			routerLogger.WithError(err).Warn("Failed to parse model scores file")
+			routerLogger.WithError(unmarshalErr).Warn("Failed to parse model scores file")
 		}
 	} else {
 		routerLogger.Info("No saved model scores found, using defaults")
@@ -276,7 +279,7 @@ func (r *SmartRouter) loadFromFile() {
 	}
 }
 
-// DefaultProviderDefaults returns default models for each provider
+// DefaultProviderDefaults returns default models for each provider.
 func DefaultProviderDefaults() map[string]string {
 	defaults := make(map[string]string, len(constants.RoutingDefaultProviderDefaults))
 	for provider, model := range constants.RoutingDefaultProviderDefaults {
@@ -285,14 +288,14 @@ func DefaultProviderDefaults() map[string]string {
 	return defaults
 }
 
-// GetConfig returns current router configuration
+// GetConfig returns current router configuration.
 func (r *SmartRouter) GetConfig() *RouterConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.config
 }
 
-// SetConfig updates router configuration and persists to file
+// SetConfig updates router configuration and persists to file.
 func (r *SmartRouter) SetConfig(config *RouterConfig) {
 	r.mu.Lock()
 	config.Classifier = clampClassifierConfig(config.Classifier)
@@ -307,7 +310,7 @@ func (r *SmartRouter) SetConfig(config *RouterConfig) {
 	}
 }
 
-// SetStrategy sets the default routing strategy and persists to file
+// SetStrategy sets the default routing strategy and persists to file.
 func (r *SmartRouter) SetStrategy(strategy StrategyType) {
 	r.mu.Lock()
 	r.config.DefaultStrategy = strategy
@@ -318,7 +321,7 @@ func (r *SmartRouter) SetStrategy(strategy StrategyType) {
 	}
 }
 
-// SetDefaultModel sets the default model and persists to file
+// SetDefaultModel sets the default model and persists to file.
 func (r *SmartRouter) SetDefaultModel(model string) {
 	r.mu.Lock()
 	r.config.DefaultModel = model
@@ -329,7 +332,7 @@ func (r *SmartRouter) SetDefaultModel(model string) {
 	}
 }
 
-// SetUseAutoMode enables or disables auto mode and persists to file
+// SetUseAutoMode enables or disables auto mode and persists to file.
 func (r *SmartRouter) SetUseAutoMode(useAuto bool) {
 	r.mu.Lock()
 	r.config.UseAutoMode = useAuto
@@ -346,6 +349,7 @@ func (r *SmartRouter) GetClassifierConfig() ClassifierConfig {
 	return r.config.Classifier
 }
 
+//nolint:gocritic // keep value-type config API across router/classifier.
 func (r *SmartRouter) SetClassifierConfig(cfg ClassifierConfig) {
 	cfg = clampClassifierConfig(cfg)
 	r.mu.Lock()
@@ -388,7 +392,7 @@ func (r *SmartRouter) GetClassifierStats() ClassifierStats {
 	return r.hybridClassifier.GetStats()
 }
 
-// UpdateModelScore updates score for a specific model and persists to file
+// UpdateModelScore updates score for a specific model and persists to file.
 func (r *SmartRouter) UpdateModelScore(model string, score *ModelScore) {
 	r.mu.Lock()
 	r.config.ModelScores[model] = score
@@ -400,7 +404,7 @@ func (r *SmartRouter) UpdateModelScore(model string, score *ModelScore) {
 	}
 }
 
-// DeleteModelScore deletes a model score and persists to file
+// DeleteModelScore deletes a model score and persists to file.
 func (r *SmartRouter) DeleteModelScore(model string) {
 	r.mu.Lock()
 	delete(r.config.ModelScores, model)
@@ -412,9 +416,8 @@ func (r *SmartRouter) DeleteModelScore(model string) {
 	}
 }
 
-// SelectModel selects the best model based on strategy and context
-// Returns the selected model name
-func (r *SmartRouter) SelectModel(requestedModel string, prompt string, availableModels []string) string {
+// Returns the selected model name.
+func (r *SmartRouter) SelectModel(requestedModel, prompt string, availableModels []string) string {
 	r.mu.RLock()
 	strategy := r.config.DefaultStrategy
 	r.mu.RUnlock()
@@ -422,10 +425,12 @@ func (r *SmartRouter) SelectModel(requestedModel string, prompt string, availabl
 	return r.SelectModelWithStrategy(requestedModel, strategy, prompt, availableModels)
 }
 
-// SelectModelWithStrategy selects the best model using specified strategy
+// SelectModelWithStrategy selects the best model using specified strategy.
+//
+//nolint:gocyclo // legacy branching; keep behavior stable in this lint cleanup.
 func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy StrategyType, prompt string, availableModels []string) string {
 	// If specific model requested and not "auto"/"latest", use it
-	if requestedModel != "" && requestedModel != "auto" && requestedModel != "latest" {
+	if requestedModel != "" && requestedModel != string(StrategyAuto) && requestedModel != "latest" {
 		return requestedModel
 	}
 
@@ -440,7 +445,7 @@ func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy St
 	useAutoMode := r.config.UseAutoMode
 
 	// If auto mode is disabled and using auto request, use default model
-	if !useAutoMode && defaultModel != "" && requestedModel == "auto" {
+	if !useAutoMode && defaultModel != "" && requestedModel == string(StrategyAuto) {
 		r.mu.RUnlock()
 		return defaultModel
 	}
@@ -483,7 +488,7 @@ func (r *SmartRouter) SelectModelWithStrategy(requestedModel string, strategy St
 	return candidates[0].Model
 }
 
-// GetProviderForModel returns the provider for a given model
+// GetProviderForModel returns the provider for a given model.
 func (r *SmartRouter) GetProviderForModel(model string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -494,7 +499,7 @@ func (r *SmartRouter) GetProviderForModel(model string) string {
 	return ""
 }
 
-// GetModelScore returns the model score for a given model
+// GetModelScore returns the model score for a given model.
 func (r *SmartRouter) GetModelScore(model string) *ModelScore {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -505,7 +510,7 @@ func (r *SmartRouter) GetModelScore(model string) *ModelScore {
 	return nil
 }
 
-// GetProviderDefaults returns all provider default models
+// GetProviderDefaults returns all provider default models.
 func (r *SmartRouter) GetProviderDefaults() map[string]string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -517,7 +522,7 @@ func (r *SmartRouter) GetProviderDefaults() map[string]string {
 	return result
 }
 
-// SetProviderDefaults sets provider default models and persists to file
+// SetProviderDefaults sets provider default models and persists to file.
 func (r *SmartRouter) SetProviderDefaults(defaults map[string]string) {
 	r.mu.Lock()
 	if r.config.ProviderDefaults == nil {
@@ -534,7 +539,7 @@ func (r *SmartRouter) SetProviderDefaults(defaults map[string]string) {
 	}
 }
 
-// GetProviderDefault returns the default model for a provider
+// GetProviderDefault returns the default model for a provider.
 func (r *SmartRouter) GetProviderDefault(provider string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -545,7 +550,7 @@ func (r *SmartRouter) GetProviderDefault(provider string) string {
 	return r.config.ProviderDefaults[provider]
 }
 
-// SetProviderDefault sets the default model for a provider and persists to file
+// SetProviderDefault sets the default model for a provider and persists to file.
 func (r *SmartRouter) SetProviderDefault(provider, model string) {
 	r.mu.Lock()
 	if r.config.ProviderDefaults == nil {
@@ -560,8 +565,8 @@ func (r *SmartRouter) SetProviderDefault(provider, model string) {
 	}
 }
 
-// SelectModelForProvider selects model for a specific provider
-func (r *SmartRouter) SelectModelForProvider(requestedModel string, provider string, prompt string, availableModels []string) string {
+// SelectModelForProvider selects model for a specific provider.
+func (r *SmartRouter) SelectModelForProvider(requestedModel, provider, _ string, availableModels []string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -591,7 +596,7 @@ func (r *SmartRouter) SelectModelForProvider(requestedModel string, provider str
 	}
 }
 
-// getFirstModelForProvider returns the first available model for a provider
+// getFirstModelForProvider returns the first available model for a provider.
 func (r *SmartRouter) getFirstModelForProvider(provider string, availableModels []string) string {
 	availableSet := make(map[string]bool)
 	for _, m := range availableModels {
@@ -606,7 +611,7 @@ func (r *SmartRouter) getFirstModelForProvider(provider string, availableModels 
 	return ""
 }
 
-// getBestModelForProvider returns the best model for a provider based on strategy
+// getBestModelForProvider returns the best model for a provider based on strategy.
 func (r *SmartRouter) getBestModelForProvider(provider string, strategy StrategyType, availableModels []string) string {
 	availableSet := make(map[string]bool)
 	for _, m := range availableModels {
@@ -631,7 +636,7 @@ func (r *SmartRouter) getBestModelForProvider(provider string, strategy Strategy
 	return candidates[0].Model
 }
 
-// calculateScore calculates weighted score based on strategy
+// calculateScore calculates weighted score based on strategy.
 func (r *SmartRouter) calculateScore(score *ModelScore, strategy StrategyType) float64 {
 	switch strategy {
 	case StrategyQuality:
@@ -651,7 +656,7 @@ func (r *SmartRouter) calculateScore(score *ModelScore, strategy StrategyType) f
 	}
 }
 
-// detectTaskAndSelect detects task type from prompt and selects appropriate model
+// detectTaskAndSelect detects task type from prompt and selects appropriate model.
 func detectTaskAndSelect(prompt string, candidates []*ModelScore, taskRules []TaskRule) string {
 	promptLower := prompt
 
@@ -673,10 +678,10 @@ func detectTaskAndSelect(prompt string, candidates []*ModelScore, taskRules []Ta
 	return ""
 }
 
-// contains checks if s contains substr (case-insensitive)
+// contains checks if s contains substr (case-insensitive).
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) &&
-		(s == substr || len(s) > 0 && containsSubstring(s, substr))
+		(s == substr || s != "" && containsSubstring(s, substr))
 }
 
 func containsSubstring(s, substr string) bool {
@@ -704,7 +709,7 @@ func containsSubstring(s, substr string) bool {
 	return false
 }
 
-// GetAllModelScores returns all model scores
+// GetAllModelScores returns all model scores.
 func (r *SmartRouter) GetAllModelScores() map[string]*ModelScore {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -716,7 +721,7 @@ func (r *SmartRouter) GetAllModelScores() map[string]*ModelScore {
 	return result
 }
 
-// GetAvailableModels returns list of enabled models
+// GetAvailableModels returns list of enabled models.
 func (r *SmartRouter) GetAvailableModels() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -741,7 +746,7 @@ func (r *SmartRouter) GetAvailableModels() []string {
 	return models
 }
 
-// GetTopModels returns top N models for a strategy
+// GetTopModels returns top N models for a strategy.
 func (r *SmartRouter) GetTopModels(strategy StrategyType, n int) []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -765,44 +770,43 @@ func (r *SmartRouter) GetTopModels(strategy StrategyType, n int) []string {
 	return result
 }
 
-// GetDifficultyAssessor returns the difficulty assessor
+// GetDifficultyAssessor returns the difficulty assessor.
 func (r *SmartRouter) GetDifficultyAssessor() *DifficultyAssessor {
 	return r.assessor
 }
 
-// GetCascadeRouter returns the cascade router
+// GetCascadeRouter returns the cascade router.
 func (r *SmartRouter) GetCascadeRouter() *CascadeRouter {
 	return r.cascade
 }
 
-// GetCascadeRules returns all cascade rules
+// GetCascadeRules returns all cascade rules.
 func (r *SmartRouter) GetCascadeRules() map[string]*CascadeRule {
 	return r.cascade.GetCascadeRules()
 }
 
-// GetCascadeRule returns a specific cascade rule
+// GetCascadeRule returns a specific cascade rule.
 func (r *SmartRouter) GetCascadeRule(taskType TaskType, difficulty DifficultyLevel) *CascadeRule {
 	return r.cascade.GetCascadeRule(taskType, difficulty)
 }
 
-// SetCascadeRule sets a cascade rule
+// SetCascadeRule sets a cascade rule.
 func (r *SmartRouter) SetCascadeRule(rule *CascadeRule) {
 	r.cascade.SetCascadeRule(rule)
 }
 
-// DeleteCascadeRule deletes a cascade rule
+// DeleteCascadeRule deletes a cascade rule.
 func (r *SmartRouter) DeleteCascadeRule(taskType TaskType, difficulty DifficultyLevel) bool {
 	return r.cascade.DeleteCascadeRule(taskType, difficulty)
 }
 
-// ResetCascadeRules resets all cascade rules to defaults
+// ResetCascadeRules resets all cascade rules to defaults.
 func (r *SmartRouter) ResetCascadeRules() {
 	r.cascade.ResetCascadeRules()
 }
 
-// SelectModelWithAssessment selects model with difficulty assessment
-// 改动点: 集成难度评估到模型选择
-func (r *SmartRouter) SelectModelWithAssessment(requestedModel string, prompt string, context string, availableModels []string) (string, *AssessmentResult) {
+// 改动点: 集成难度评估到模型选择.
+func (r *SmartRouter) SelectModelWithAssessment(requestedModel, prompt, context string, availableModels []string) (string, *AssessmentResult) {
 	assessment := r.classify(prompt, context)
 
 	// 改动点: 任务类型映射优先于难度策略，确保 /routing 页面映射配置生效
@@ -850,6 +854,7 @@ func (r *SmartRouter) selectMappedModelForTask(taskType TaskType, availableModel
 	return mappedModel
 }
 
+//nolint:gocyclo // legacy branching; keep behavior stable in this lint cleanup.
 func (r *SmartRouter) selectModelByControlFit(assessment *AssessmentResult, availableModels []string) string {
 	if assessment == nil || assessment.ControlSignals == nil || len(assessment.ControlSignals.ModelFit) == 0 {
 		return ""
@@ -904,13 +909,12 @@ func (r *SmartRouter) selectModelByControlFit(assessment *AssessmentResult, avai
 	return bestModel
 }
 
-// SelectModelCascade selects model using cascade routing
-// 改动点: 使用级联路由策略选择模型
-func (r *SmartRouter) SelectModelCascade(ctx context.Context, prompt string, context string, availableModels []string) *CascadeResult {
+// 改动点: 使用级联路由策略选择模型.
+func (r *SmartRouter) SelectModelCascade(ctx context.Context, prompt, context string, availableModels []string) *CascadeResult {
 	return r.cascade.SelectCascadeModel(ctx, prompt, context, availableModels)
 }
 
-// getStrategyForDifficulty returns recommended strategy based on difficulty
+// getStrategyForDifficulty returns recommended strategy based on difficulty.
 func (r *SmartRouter) getStrategyForDifficulty(difficulty DifficultyLevel) StrategyType {
 	switch difficulty {
 	case DifficultyLow:
@@ -953,34 +957,34 @@ func (r *SmartRouter) getStrategyForControlSignals(assessment *AssessmentResult)
 
 	contextLoad := strings.TrimSpace(strings.ToLower(assessment.ControlSignals.ContextLoad))
 	switch contextLoad {
-	case "high":
+	case string(DifficultyHigh):
 		return StrategyQuality, true
-	case "low":
+	case string(DifficultyLow):
 		return StrategySpeed, true
-	case "medium":
+	case string(DifficultyMedium):
 		return StrategyAuto, true
 	default:
 		return StrategyAuto, false
 	}
 }
 
-// AssessDifficulty assesses the difficulty of a prompt
-func (r *SmartRouter) AssessDifficulty(prompt string, context string) *AssessmentResult {
+// AssessDifficulty assesses the difficulty of a prompt.
+func (r *SmartRouter) AssessDifficulty(prompt, context string) *AssessmentResult {
 	return r.classify(prompt, context)
 }
 
-// UpdateModelSuccessRate updates the success rate for a model
+// UpdateModelSuccessRate updates the success rate for a model.
 func (r *SmartRouter) UpdateModelSuccessRate(model string, taskType TaskType, success bool) {
 	r.assessor.UpdateSuccessRate(model, taskType, success)
 }
 
-// GetRecommendedTTL returns recommended cache TTL for a request
-func (r *SmartRouter) GetRecommendedTTL(prompt string, context string) time.Duration {
+// GetRecommendedTTL returns recommended cache TTL for a request.
+func (r *SmartRouter) GetRecommendedTTL(prompt, context string) time.Duration {
 	assessment := r.classify(prompt, context)
 	return assessment.SuggestedTTL
 }
 
-func (r *SmartRouter) classify(prompt string, contextText string) *AssessmentResult {
+func (r *SmartRouter) classify(prompt, contextText string) *AssessmentResult {
 	if r.hybridClassifier == nil {
 		return r.assessor.AssessWithResult(prompt, contextText)
 	}
@@ -993,7 +997,7 @@ func (r *SmartRouter) classify(prompt string, contextText string) *AssessmentRes
 	return result
 }
 
-// GetTaskModelMapping returns the task type to model mapping
+// GetTaskModelMapping returns the task type to model mapping.
 func (r *SmartRouter) GetTaskModelMapping() map[string]string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -1005,7 +1009,7 @@ func (r *SmartRouter) GetTaskModelMapping() map[string]string {
 	return result
 }
 
-// SetTaskModelMapping sets the task type to model mapping
+// SetTaskModelMapping sets the task type to model mapping.
 func (r *SmartRouter) SetTaskModelMapping(mapping map[string]string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1019,7 +1023,7 @@ func (r *SmartRouter) SetTaskModelMapping(mapping map[string]string) {
 	routerLogger.WithField("mapping", mapping).Info("Task model mapping updated")
 }
 
-// GetModelForTaskType returns the model for a specific task type
+// GetModelForTaskType returns the model for a specific task type.
 func (r *SmartRouter) GetModelForTaskType(taskType TaskType) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

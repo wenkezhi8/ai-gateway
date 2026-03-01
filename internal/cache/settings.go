@@ -3,6 +3,8 @@ package cache
 import "time"
 
 // CacheStrategy defines cache matching strategy.
+//
+//nolint:revive // Type name kept for compatibility with persisted config.
 type CacheStrategy string
 
 const (
@@ -19,41 +21,43 @@ type DedupSettings struct {
 }
 
 // CacheSettings represents high-level cache configuration.
+//
+//nolint:revive // Type name kept for compatibility with API schema.
 type CacheSettings struct {
-	Enabled                       bool               `json:"enabled"`
-	Strategy                      CacheStrategy      `json:"strategy"`
-	SimilarityThreshold           float64            `json:"similarity_threshold"` // 0-1
-	DefaultTTLSeconds             int                `json:"default_ttl_seconds"`
-	MaxEntries                    int                `json:"max_entries"`
-	EvictionPolicy                string             `json:"eviction_policy"`
-	VectorEnabled                 bool               `json:"vector_enabled"`
-	VectorDimension               int                `json:"vector_dimension"`
-	VectorQueryTimeoutMs          int                `json:"vector_query_timeout_ms"`
-	VectorThresholds              map[string]float64 `json:"vector_thresholds"`
-	VectorPipelineEnabled         bool               `json:"vector_pipeline_enabled"`
-	VectorStandardKeyVersion      string             `json:"vector_standard_key_version"`
-	VectorEmbeddingProvider       string             `json:"vector_embedding_provider"`
-	VectorOllamaBaseURL           string             `json:"vector_ollama_base_url"`
-	VectorOllamaEmbeddingModel    string             `json:"vector_ollama_embedding_model"`
-	VectorOllamaEmbeddingDimension int               `json:"vector_ollama_embedding_dimension"`
-	VectorOllamaEmbeddingTimeoutMs int               `json:"vector_ollama_embedding_timeout_ms"`
-	VectorOllamaEndpointMode      string             `json:"vector_ollama_endpoint_mode"`
-	VectorWritebackEnabled        bool               `json:"vector_writeback_enabled"`
-	ColdVectorEnabled             bool               `json:"cold_vector_enabled"`
-	ColdVectorQueryEnabled        bool               `json:"cold_vector_query_enabled"`
-	ColdVectorBackend             string             `json:"cold_vector_backend"`
-	ColdVectorDualWriteEnabled    bool               `json:"cold_vector_dual_write_enabled"`
-	ColdVectorSimilarityThreshold float64            `json:"cold_vector_similarity_threshold"`
-	ColdVectorTopK                int                `json:"cold_vector_top_k"`
-	HotMemoryHighWatermarkPercent float64            `json:"hot_memory_high_watermark_percent"`
-	HotMemoryReliefPercent        float64            `json:"hot_memory_relief_percent"`
-	HotToColdBatchSize            int                `json:"hot_to_cold_batch_size"`
-	HotToColdIntervalSeconds      int                `json:"hot_to_cold_interval_seconds"`
-	ColdVectorQdrantURL           string             `json:"cold_vector_qdrant_url"`
-	ColdVectorQdrantAPIKey        string             `json:"cold_vector_qdrant_api_key"`
-	ColdVectorQdrantCollection    string             `json:"cold_vector_qdrant_collection"`
-	ColdVectorQdrantTimeoutMs     int                `json:"cold_vector_qdrant_timeout_ms"`
-	Dedup                         DedupSettings      `json:"dedup"`
+	Enabled                        bool               `json:"enabled"`
+	Strategy                       CacheStrategy      `json:"strategy"`
+	SimilarityThreshold            float64            `json:"similarity_threshold"` // 0-1
+	DefaultTTLSeconds              int                `json:"default_ttl_seconds"`
+	MaxEntries                     int                `json:"max_entries"`
+	EvictionPolicy                 string             `json:"eviction_policy"`
+	VectorEnabled                  bool               `json:"vector_enabled"`
+	VectorDimension                int                `json:"vector_dimension"`
+	VectorQueryTimeoutMs           int                `json:"vector_query_timeout_ms"`
+	VectorThresholds               map[string]float64 `json:"vector_thresholds"`
+	VectorPipelineEnabled          bool               `json:"vector_pipeline_enabled"`
+	VectorStandardKeyVersion       string             `json:"vector_standard_key_version"`
+	VectorEmbeddingProvider        string             `json:"vector_embedding_provider"`
+	VectorOllamaBaseURL            string             `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel     string             `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension int                `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs int                `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode       string             `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled         bool               `json:"vector_writeback_enabled"`
+	ColdVectorEnabled              bool               `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled         bool               `json:"cold_vector_query_enabled"`
+	ColdVectorBackend              string             `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled     bool               `json:"cold_vector_dual_write_enabled"`
+	ColdVectorSimilarityThreshold  float64            `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                 int                `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent  float64            `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent         float64            `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize             int                `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds       int                `json:"hot_to_cold_interval_seconds"`
+	ColdVectorQdrantURL            string             `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey         string             `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection     string             `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs      int                `json:"cold_vector_qdrant_timeout_ms"`
+	Dedup                          DedupSettings      `json:"dedup"`
 }
 
 // DefaultCacheSettings returns recommended default settings.
@@ -84,18 +88,18 @@ func DefaultCacheSettings() CacheSettings {
 		VectorOllamaEmbeddingTimeoutMs: 1500,
 		VectorOllamaEndpointMode:       "auto",
 		VectorWritebackEnabled:         true,
-		ColdVectorEnabled:             false,
-		ColdVectorQueryEnabled:        true,
-		ColdVectorBackend:             ColdVectorBackendSQLite,
-		ColdVectorDualWriteEnabled:    false,
-		ColdVectorSimilarityThreshold: 0.92,
-		ColdVectorTopK:                1,
-		HotMemoryHighWatermarkPercent: 75,
-		HotMemoryReliefPercent:        65,
-		HotToColdBatchSize:            500,
-		HotToColdIntervalSeconds:      30,
-		ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
-		ColdVectorQdrantTimeoutMs:     1500,
+		ColdVectorEnabled:              false,
+		ColdVectorQueryEnabled:         true,
+		ColdVectorBackend:              ColdVectorBackendSQLite,
+		ColdVectorDualWriteEnabled:     false,
+		ColdVectorSimilarityThreshold:  0.92,
+		ColdVectorTopK:                 1,
+		HotMemoryHighWatermarkPercent:  75,
+		HotMemoryReliefPercent:         65,
+		HotToColdBatchSize:             500,
+		HotToColdIntervalSeconds:       30,
+		ColdVectorQdrantCollection:     "ai_gateway_cold_vectors",
+		ColdVectorQdrantTimeoutMs:      1500,
 		Dedup: DedupSettings{
 			Enabled:               true,
 			MaxPending:            1000,

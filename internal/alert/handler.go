@@ -8,19 +8,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Handler handles alert-related HTTP requests
+// Handler handles alert-related HTTP requests.
 type Handler struct {
 	notifier *Notifier
 }
 
-// NewHandler creates a new alert handler
+// NewHandler creates a new alert handler.
 func NewHandler(notifier *Notifier) *Handler {
 	return &Handler{
 		notifier: notifier,
 	}
 }
 
-// WebhookHandler handles Alertmanager webhook requests
+// WebhookHandler handles Alertmanager webhook requests.
 func (h *Handler) WebhookHandler(c *gin.Context) {
 	var payload map[string]interface{}
 	if err := json.NewDecoder(c.Request.Body).Decode(&payload); err != nil {
@@ -58,7 +58,7 @@ func (h *Handler) WebhookHandler(c *gin.Context) {
 	})
 }
 
-// HealthHandler returns the health status of the alert service
+// HealthHandler returns the health status of the alert service.
 func (h *Handler) HealthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "healthy",

@@ -1,7 +1,6 @@
 package security
 
 import (
-	"ai-gateway/pkg/logger"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -11,11 +10,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ai-gateway/pkg/logger"
 )
 
 var securityLogger = logger.WithField("component", "security")
 
-type SecurityConfig struct {
+type Config struct {
 	mu sync.RWMutex
 
 	JWTSecret     string
@@ -26,13 +27,13 @@ type SecurityConfig struct {
 }
 
 var (
-	globalSecurityConfig *SecurityConfig
+	globalSecurityConfig *Config
 	securityConfigOnce   sync.Once
 )
 
-func GetSecurityConfig() *SecurityConfig {
+func GetSecurityConfig() *Config {
 	securityConfigOnce.Do(func() {
-		globalSecurityConfig = &SecurityConfig{
+		globalSecurityConfig = &Config{
 			APIKeys: make(map[string]string),
 		}
 		globalSecurityConfig.load()
@@ -40,12 +41,12 @@ func GetSecurityConfig() *SecurityConfig {
 	return globalSecurityConfig
 }
 
-func (c *SecurityConfig) load() {
+func (c *Config) load() {
 	c.JWTSecret = os.Getenv("JWT_SECRET")
 	c.EncryptionKey = os.Getenv("AI_GATEWAY_ENCRYPTION_KEY")
 
 	if allowInsecure := os.Getenv("ALLOW_INSECURE"); allowInsecure != "" {
-		c.AllowInsecure = strings.ToLower(allowInsecure) == "true"
+		c.AllowInsecure = strings.EqualFold(allowInsecure, "true")
 	}
 
 	for _, env := range os.Environ() {
@@ -61,7 +62,7 @@ func (c *SecurityConfig) load() {
 	}
 }
 
-func (c *SecurityConfig) Validate() error {
+func (c *Config) Validate() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -92,13 +93,13 @@ func (c *SecurityConfig) Validate() error {
 	return nil
 }
 
-func (c *SecurityConfig) GetJWTSecret() string {
+func (c *Config) GetJWTSecret() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.JWTSecret
 }
 
-func (c *SecurityConfig) GetProviderAPIKey(provider string) string {
+func (c *Config) GetProviderAPIKey(provider string) string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -110,7 +111,7 @@ func (c *SecurityConfig) GetProviderAPIKey(provider string) string {
 	return c.APIKeys[strings.ToLower(provider)]
 }
 
-func (c *SecurityConfig) IsInsecureAllowed() bool {
+func (c *Config) IsInsecureAllowed() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.AllowInsecure
@@ -118,7 +119,10 @@ func (c *SecurityConfig) IsInsecureAllowed() bool {
 
 func generateRandomKey(length int) string {
 	bytes := make([]byte, length)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		securityLogger.WithError(err).Warn("Failed to generate random key")
+		return strings.Repeat("0", length)
+	}
 	return hex.EncodeToString(bytes)[:length]
 }
 
@@ -140,7 +144,7 @@ func GetEnvInt(key string, defaultValue int) int {
 
 func GetEnvBool(key string, defaultValue bool) bool {
 	if value := os.Getenv(key); value != "" {
-		return strings.ToLower(value) == "true" || value == "1"
+		return strings.EqualFold(value, "true") || value == "1"
 	}
 	return defaultValue
 }
@@ -170,13 +174,7 @@ func (s *SecureString) Set(plaintext string) {
 		return
 	}
 
-	encrypted, err := encryptString(plaintext)
-	if err != nil {
-		securityLogger.WithError(err).Error("Failed to encrypt string")
-		s.encrypted = plaintext
-		return
-	}
-	s.encrypted = encrypted
+	s.encrypted = encryptString(plaintext)
 }
 
 func (s *SecureString) Get() string {
@@ -184,11 +182,7 @@ func (s *SecureString) Get() string {
 		return ""
 	}
 
-	decrypted, err := decryptString(s.encrypted)
-	if err != nil {
-		return s.encrypted
-	}
-	return decrypted
+	return decryptString(s.encrypted)
 }
 
 func (s *SecureString) Masked() string {
@@ -199,13 +193,13 @@ func (s *SecureString) Masked() string {
 	return value[:4] + "****" + value[len(value)-4:]
 }
 
-func encryptString(plaintext string) (string, error) {
-	return plaintext + "_enc", nil
+func encryptString(plaintext string) string {
+	return plaintext + "_enc"
 }
 
-func decryptString(ciphertext string) (string, error) {
+func decryptString(ciphertext string) string {
 	if strings.HasSuffix(ciphertext, "_enc") {
-		return strings.TrimSuffix(ciphertext, "_enc"), nil
+		return strings.TrimSuffix(ciphertext, "_enc")
 	}
-	return ciphertext, nil
+	return ciphertext
 }

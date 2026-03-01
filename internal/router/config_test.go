@@ -105,7 +105,7 @@ func TestConfigManager_Set(t *testing.T) {
 	}
 
 	changed := false
-	mgr.OnChange(func(c *RoutingConfig) {
+	mgr.OnChange(func(_ *RoutingConfig) {
 		changed = true
 	})
 
@@ -165,8 +165,10 @@ func TestConfigManager_Reload(t *testing.T) {
 	cfg := RoutingConfig{
 		DefaultStrategy: StrategyRoundRobin,
 	}
-	data, _ := json.Marshal(cfg)
-	tmpFile.Write(data)
+	data, err := json.Marshal(cfg)
+	require.NoError(t, err)
+	_, err = tmpFile.Write(data)
+	require.NoError(t, err)
 	tmpFile.Close()
 
 	mgr := NewConfigManager()

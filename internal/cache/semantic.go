@@ -1,6 +1,6 @@
-// Package cache provides semantic caching with vector similarity matching
-// 改动点: 新增语义缓存模块，支持相似请求复用
-// 持久化：配置 Redis 则用 Redis，否则纯内存
+// Package cache provides semantic caching with vector similarity matching.
+// 改动点: 新增语义缓存模块，支持相似请求复用.
+// 持久化：配置 Redis 则用 Redis，否则纯内存.
 package cache
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// SemanticCacheConfig holds configuration for semantic cache
+// SemanticCacheConfig holds configuration for semantic cache.
 type SemanticCacheConfig struct {
 	Enabled             bool          `json:"enabled"`
 	SimilarityThreshold float64       `json:"similarity_threshold"` // 0-1, default 0.95
@@ -25,7 +25,7 @@ type SemanticCacheConfig struct {
 	VectorDimension     int           `json:"vector_dimension"` // embedding dimension
 }
 
-// SemanticEntry represents a cached semantic entry
+// SemanticEntry represents a cached semantic entry.
 type SemanticEntry struct {
 	ID           string                 `json:"id"`
 	Query        string                 `json:"query"`
@@ -42,19 +42,19 @@ type SemanticEntry struct {
 	Validated    bool                   `json:"validated"`     // 是否已通过质量校验
 }
 
-// QualityChecker defines the interface for cache quality validation
+// QualityChecker defines the interface for cache quality validation.
 type QualityChecker interface {
 	Validate(entry *SemanticEntry) (bool, float64, string)
-	// 返回: 是否通过, 质量评分, 原因
+	// 返回: 是否通过, 质量评分, 原因.
 }
 
-// DefaultQualityChecker provides basic quality validation
+// DefaultQualityChecker provides basic quality validation.
 type DefaultQualityChecker struct {
 	minResponseLength int
 	maxResponseLength int
 }
 
-// NewDefaultQualityChecker creates a new quality checker
+// NewDefaultQualityChecker creates a new quality checker.
 func NewDefaultQualityChecker() *DefaultQualityChecker {
 	return &DefaultQualityChecker{
 		minResponseLength: 10,
@@ -62,14 +62,16 @@ func NewDefaultQualityChecker() *DefaultQualityChecker {
 	}
 }
 
-// Validate checks if a cache entry meets quality standards
+// Validate checks if a cache entry meets quality standards.
+//
+//nolint:gocritic // Keep unnamed return tuple for checker interface compatibility.
 func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, string) {
-	// 1. 响应完整性检查
+	// 1. 响应完整性检查.
 	if len(entry.Response) == 0 {
 		return false, 0, "empty response"
 	}
 
-	// 2. 响应长度检查
+	// 2. 响应长度检查.
 	respLen := len(entry.Response)
 	if respLen < qc.minResponseLength {
 		return false, 30, "response too short"
@@ -78,21 +80,21 @@ func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, 
 		return false, 50, "response too long"
 	}
 
-	// 3. JSON 有效性检查
+	// 3. JSON 有效性检查.
 	var jsonObj interface{}
 	if err := json.Unmarshal(entry.Response, &jsonObj); err != nil {
 		return false, 40, "invalid JSON response"
 	}
 
-	// 4. 基础质量评分
+	// 4. 基础质量评分.
 	baseScore := 70.0
 
-	// 响应长度加分（适中长度更好）
+	// 响应长度加分（适中长度更好）.
 	if respLen > 100 && respLen < 10000 {
 		baseScore += 10
 	}
 
-	// 模型加分（已知高质量模型）
+	// 模型加分（已知高质量模型）.
 	highQualityModels := map[string]bool{
 		"gpt-4": true, "gpt-4o": true, "gpt-4-turbo": true,
 		"claude-3-5-sonnet": true, "claude-3-opus": true,
@@ -102,7 +104,7 @@ func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, 
 		baseScore += 10
 	}
 
-	// 任务类型加分
+	// 任务类型加分.
 	taskTypeBonus := map[string]float64{
 		"math": 10, // 数学结果确定性高
 		"fact": 5,  // 事实查询
@@ -112,7 +114,7 @@ func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, 
 		baseScore += bonus
 	}
 
-	// 确保分数在 0-100 之间
+	// 确保分数在 0-100 之间.
 	if baseScore > 100 {
 		baseScore = 100
 	}
@@ -120,19 +122,21 @@ func (qc *DefaultQualityChecker) Validate(entry *SemanticEntry) (bool, float64, 
 	return true, baseScore, "passed validation"
 }
 
-// FactFreshnessChecker checks if fact-based entries are still fresh
+// FactFreshnessChecker checks if fact-based entries are still fresh.
 type FactFreshnessChecker struct {
 	maxAge time.Duration
 }
 
-// NewFactFreshnessChecker creates a checker for fact-based content
+// NewFactFreshnessChecker creates a checker for fact-based content.
 func NewFactFreshnessChecker() *FactFreshnessChecker {
 	return &FactFreshnessChecker{
 		maxAge: 7 * 24 * time.Hour, // 7 天
 	}
 }
 
-// Validate checks fact freshness
+// Validate checks fact freshness.
+//
+//nolint:gocritic // Keep unnamed return tuple for checker interface compatibility.
 func (fc *FactFreshnessChecker) Validate(entry *SemanticEntry) (bool, float64, string) {
 	if entry.TaskType != "fact" {
 		return true, 100, "not a fact query"
@@ -143,14 +147,14 @@ func (fc *FactFreshnessChecker) Validate(entry *SemanticEntry) (bool, float64, s
 		return false, 50, "fact entry expired"
 	}
 
-	// 根据新鲜度计算评分
+	// 根据新鲜度计算评分.
 	freshnessRatio := 1 - (float64(age) / float64(fc.maxAge))
 	score := 60 + freshnessRatio*40
 
 	return true, score, "fact entry is fresh"
 }
 
-// SemanticCache provides semantic caching with vector similarity
+// SemanticCache provides semantic caching with vector similarity.
 type SemanticCache struct {
 	mu              sync.RWMutex
 	config          SemanticCacheConfig
@@ -163,7 +167,7 @@ type SemanticCache struct {
 	persistCh       chan semanticPersistJob
 }
 
-// SemanticCacheStats tracks semantic cache statistics (internal, contains mutex)
+// SemanticCacheStats tracks semantic cache statistics (internal, contains mutex).
 type SemanticCacheStats struct {
 	mu            sync.RWMutex
 	TotalQueries  int64   `json:"total_queries"`
@@ -173,7 +177,7 @@ type SemanticCacheStats struct {
 	AvgSimilarity float64 `json:"avg_similarity"`
 }
 
-// SemanticCacheStatsData represents cache statistics for external use (no mutex)
+// SemanticCacheStatsData represents cache statistics for external use (no mutex).
 type SemanticCacheStatsData struct {
 	TotalQueries  int64   `json:"total_queries"`
 	CacheHits     int64   `json:"cache_hits"`
@@ -182,14 +186,14 @@ type SemanticCacheStatsData struct {
 	AvgSimilarity float64 `json:"avg_similarity"`
 }
 
-// SemanticCachePersist represents persistent cache data
+// SemanticCachePersist represents persistent cache data.
 type SemanticCachePersist struct {
 	Entries []*SemanticEntry `json:"entries"`
 }
 
 var semanticLogger = logrus.WithField("component", "semantic_cache")
 
-// DefaultSemanticCacheConfig returns default configuration
+// DefaultSemanticCacheConfig returns default configuration.
 func DefaultSemanticCacheConfig() SemanticCacheConfig {
 	return SemanticCacheConfig{
 		Enabled:             true,
@@ -200,8 +204,8 @@ func DefaultSemanticCacheConfig() SemanticCacheConfig {
 	}
 }
 
-// NewSemanticCache creates a new semantic cache
-// backend: 可选的 Redis 缓存后端，用于持久化
+// NewSemanticCache creates a new semantic cache.
+// backend: 可选的 Redis 缓存后端，用于持久化.
 func NewSemanticCache(config SemanticCacheConfig, backend Cache) *SemanticCache {
 	cache := &SemanticCache{
 		config:          config,
@@ -213,7 +217,7 @@ func NewSemanticCache(config SemanticCacheConfig, backend Cache) *SemanticCache 
 		persistCh:       make(chan semanticPersistJob, 512),
 	}
 
-	// 如果有后端，从后端加载缓存
+	// 如果有后端，从后端加载缓存.
 	if backend != nil {
 		cache.loadFromBackend()
 		go cache.persistLoop()
@@ -235,9 +239,11 @@ func (c *SemanticCache) UpdateConfig(config SemanticCacheConfig) {
 	}
 }
 
-// Get retrieves a semantically similar cached response
-// 改动点: 使用向量相似度匹配相似请求
-func (c *SemanticCache) Get(ctx context.Context, query string, queryVector []float64) (*SemanticEntry, float64) {
+// Get retrieves a semantically similar cached response.
+// 改动点: 使用向量相似度匹配相似请求.
+//
+//nolint:gocritic // Return tuple shape is part of cache query API.
+func (c *SemanticCache) Get(_ context.Context, _ string, queryVector []float64) (*SemanticEntry, float64) {
 	if !c.config.Enabled {
 		return nil, 0
 	}
@@ -254,7 +260,7 @@ func (c *SemanticCache) Get(ctx context.Context, query string, queryVector []flo
 	bestSimilarity := 0.0
 
 	for _, entry := range c.index {
-		// Skip expired entries
+		// Skip expired entries.
 		if now.After(entry.ExpiresAt) {
 			continue
 		}
@@ -293,9 +299,9 @@ func (c *SemanticCache) Get(ctx context.Context, query string, queryVector []flo
 	return nil, 0
 }
 
-// Set stores a response in the semantic cache
-// 改动点: 添加质量校验，只有通过校验的响应才会被缓存
-func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []float64, response json.RawMessage, model, provider, taskType string, ttl time.Duration) string {
+// Set stores a response in the semantic cache.
+// 改动点: 添加质量校验，只有通过校验的响应才会被缓存.
+func (c *SemanticCache) Set(_ context.Context, query string, queryVector []float64, response json.RawMessage, model, provider, taskType string, ttl time.Duration) string {
 	if !c.config.Enabled {
 		return ""
 	}
@@ -322,7 +328,7 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 		Validated:    false,
 	}
 
-	// 质量校验
+	// 质量校验.
 	if c.qualityChecker != nil {
 		passed, score, reason := c.qualityChecker.Validate(entry)
 		entry.QualityScore = score
@@ -338,7 +344,7 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 			return "" // 不缓存低质量响应
 		}
 
-		// 低于最低质量分阈值也不缓存
+		// 低于最低质量分阈值也不缓存.
 		if score < c.minQualityScore {
 			semanticLogger.WithFields(logrus.Fields{
 				"query_id":          id,
@@ -353,7 +359,7 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Check if we need to evict
+	// Check if we need to evict.
 	if len(c.entries) >= c.config.MaxEntries {
 		c.evictOldest()
 	}
@@ -361,7 +367,7 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 	c.entries[id] = entry
 	c.index = append(c.index, entry)
 
-	// 如果有后端，存储到后端
+	// 如果有后端，存储到后端.
 	if c.backend != nil {
 		data, err := json.Marshal(entry)
 		if err == nil {
@@ -393,21 +399,21 @@ func (c *SemanticCache) Set(ctx context.Context, query string, queryVector []flo
 	return id
 }
 
-// GetByID retrieves an entry by ID
+// GetByID retrieves an entry by ID.
 func (c *SemanticCache) GetByID(id string) *SemanticEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.entries[id]
 }
 
-// Delete removes an entry from the cache
+// Delete removes an entry from the cache.
 func (c *SemanticCache) Delete(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if _, ok := c.entries[id]; ok {
 		delete(c.entries, id)
-		// Remove from index
+		// Remove from index.
 		for i, e := range c.index {
 			if e.ID == id {
 				c.index = append(c.index[:i], c.index[i+1:]...)
@@ -420,7 +426,7 @@ func (c *SemanticCache) Delete(id string) {
 	}
 }
 
-// Clear removes all entries
+// Clear removes all entries.
 func (c *SemanticCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -429,40 +435,40 @@ func (c *SemanticCache) Clear() {
 	c.index = make([]*SemanticEntry, 0)
 }
 
-// loadFromBackend loads cache entries from the backend (Redis)
-// 改动点: 从 Redis 加载缓存，无 Redis 则跳过
+// loadFromBackend loads cache entries from the backend (Redis).
+// 改动点: 从 Redis 加载缓存，无 Redis 则跳过.
 func (c *SemanticCache) loadFromBackend() {
 	if c.backend == nil {
 		semanticLogger.Debug("No backend configured, starting with empty cache")
 		return
 	}
 
-	// 从 Redis 加载所有语义缓存条目
-	// 注意：Redis 不支持遍历所有 key，所以这里需要特殊处理
-	// 实际使用中，可以在启动时从 Redis 加载热点缓存
+	// 从 Redis 加载所有语义缓存条目.
+	// 注意：Redis 不支持遍历所有 key，所以这里需要特殊处理.
+	// 实际使用中，可以在启动时从 Redis 加载热点缓存.
 	semanticLogger.Info("Backend configured, will load entries on demand")
 }
 
-// GetBackend returns the backend cache
+// GetBackend returns the backend cache.
 func (c *SemanticCache) GetBackend() Cache {
 	return c.backend
 }
 
-// SetQualityChecker sets the quality checker
+// SetQualityChecker sets the quality checker.
 func (c *SemanticCache) SetQualityChecker(checker QualityChecker) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.qualityChecker = checker
 }
 
-// SetMinQualityScore sets the minimum quality score threshold
+// SetMinQualityScore sets the minimum quality score threshold.
 func (c *SemanticCache) SetMinQualityScore(score float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.minQualityScore = score
 }
 
-// GetQualityConfig returns current quality configuration
+// GetQualityConfig returns current quality configuration.
 func (c *SemanticCache) GetQualityConfig() map[string]interface{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -472,7 +478,7 @@ func (c *SemanticCache) GetQualityConfig() map[string]interface{} {
 	}
 }
 
-// InvalidateLowQuality removes entries below the quality threshold
+// InvalidateLowQuality removes entries below the quality threshold.
 func (c *SemanticCache) InvalidateLowQuality() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -485,7 +491,7 @@ func (c *SemanticCache) InvalidateLowQuality() int {
 		}
 	}
 
-	// Rebuild index
+	// Rebuild index.
 	c.index = make([]*SemanticEntry, 0, len(c.entries))
 	for _, entry := range c.entries {
 		c.index = append(c.index, entry)
@@ -498,7 +504,7 @@ func (c *SemanticCache) InvalidateLowQuality() int {
 	return count
 }
 
-// Cleanup removes expired entries
+// Cleanup removes expired entries.
 func (c *SemanticCache) Cleanup() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -513,7 +519,7 @@ func (c *SemanticCache) Cleanup() int {
 		}
 	}
 
-	// Rebuild index
+	// Rebuild index.
 	c.index = make([]*SemanticEntry, 0, len(c.entries))
 	for _, entry := range c.entries {
 		c.index = append(c.index, entry)
@@ -529,7 +535,7 @@ func (c *SemanticCache) Cleanup() int {
 	return count
 }
 
-// GetStats returns cache statistics (copy without mutex)
+// GetStats returns cache statistics (copy without mutex).
 func (c *SemanticCache) GetStats() SemanticCacheStatsData {
 	c.stats.mu.RLock()
 	defer c.stats.mu.RUnlock()
@@ -542,7 +548,7 @@ func (c *SemanticCache) GetStats() SemanticCacheStatsData {
 	}
 }
 
-// cosineSimilarity calculates cosine similarity between two vectors
+// cosineSimilarity calculates cosine similarity between two vectors.
 func (c *SemanticCache) cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) || len(a) == 0 {
 		return 0
@@ -562,13 +568,13 @@ func (c *SemanticCache) cosineSimilarity(a, b []float64) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// evictOldest removes the oldest entries when cache is full
+// evictOldest removes the oldest entries when cache is full.
 func (c *SemanticCache) evictOldest() {
 	if len(c.entries) == 0 {
 		return
 	}
 
-	// Find oldest entry with lowest hit count
+	// Find oldest entry with lowest hit count.
 	var oldest *SemanticEntry
 	for _, entry := range c.entries {
 		if oldest == nil ||
@@ -580,7 +586,7 @@ func (c *SemanticCache) evictOldest() {
 
 	if oldest != nil {
 		delete(c.entries, oldest.ID)
-		// Remove from index
+		// Remove from index.
 		for i, e := range c.index {
 			if e.ID == oldest.ID {
 				c.index = append(c.index[:i], c.index[i+1:]...)
@@ -593,14 +599,14 @@ func (c *SemanticCache) evictOldest() {
 	}
 }
 
-// generateSemanticID generates a unique ID for a semantic entry
+// generateSemanticID generates a unique ID for a semantic entry.
 func generateSemanticID(query, model string) string {
 	data := query + ":" + model + ":" + time.Now().Format("20060102")
 	hash := sha256.Sum256([]byte(data))
 	return string(hash[:16])
 }
 
-// IncrementHitCount increments the hit count for an entry
+// IncrementHitCount increments the hit count for an entry.
 func (c *SemanticCache) IncrementHitCount(id string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -610,7 +616,7 @@ func (c *SemanticCache) IncrementHitCount(id string) {
 	}
 }
 
-// GetEntries returns all entries (for debugging)
+// GetEntries returns all entries (for debugging).
 func (c *SemanticCache) GetEntries() []*SemanticEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -622,14 +628,14 @@ func (c *SemanticCache) GetEntries() []*SemanticEntry {
 	return result
 }
 
-// Size returns the number of entries in the cache
+// Size returns the number of entries in the cache.
 func (c *SemanticCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.entries)
 }
 
-// SetTTL updates the TTL for an entry
+// SetTTL updates the TTL for an entry.
 func (c *SemanticCache) SetTTL(id string, ttl time.Duration) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -653,12 +659,14 @@ func (c *SemanticCache) persistLoop() {
 			m.SetSemanticPersistQueueDepth("semantic", len(c.persistCh))
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = c.backend.Set(ctx, job.key, job.data, job.ttl)
+		if err := c.backend.Set(ctx, job.key, job.data, job.ttl); err != nil {
+			semanticLogger.WithError(err).WithField("key", job.key).Warn("Semantic cache persist failed")
+		}
 		cancel()
 	}
 }
 
-// FindSimilar finds entries similar to the given query vector
+// FindSimilar finds entries similar to the given query vector.
 func (c *SemanticCache) FindSimilar(queryVector []float64, limit int) []*SemanticEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -679,7 +687,7 @@ func (c *SemanticCache) FindSimilar(queryVector []float64, limit int) []*Semanti
 		}
 	}
 
-	// Sort by similarity
+	// Sort by similarity.
 	for i := 0; i < len(scored); i++ {
 		for j := i + 1; j < len(scored); j++ {
 			if scored[j].similarity > scored[i].similarity {
@@ -688,7 +696,7 @@ func (c *SemanticCache) FindSimilar(queryVector []float64, limit int) []*Semanti
 		}
 	}
 
-	// Return top N
+	// Return top N.
 	result := make([]*SemanticEntry, 0, limit)
 	for i := 0; i < len(scored) && i < limit; i++ {
 		result = append(result, scored[i].entry)

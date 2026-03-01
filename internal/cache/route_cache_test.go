@@ -1,3 +1,4 @@
+//nolint:errcheck // Test setup calls are intentionally best-effort.
 package cache
 
 import (

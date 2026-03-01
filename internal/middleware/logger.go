@@ -1,11 +1,13 @@
+//nolint:godot // Legacy comments are kept terse in this file.
 package middleware
 
 import (
-	"ai-gateway/pkg/logger"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+
+	"ai-gateway/pkg/logger"
 )
 
 var log = logger.WithField("component", "middleware")

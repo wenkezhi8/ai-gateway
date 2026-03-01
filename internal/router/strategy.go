@@ -1,3 +1,4 @@
+//nolint:godot
 package router
 
 import (
@@ -6,12 +7,12 @@ import (
 
 // Request represents a routing request with context
 type Request struct {
-	Model       string                 `json:"model"`
-	UserID      string                 `json:"user_id"`
-	Messages    []Message              `json:"messages"`
-	Extra       map[string]interface{} `json:"-"`
-	TokensUsed  int                    `json:"tokens_used"`
-	Priority    int                    `json:"priority"`
+	Model      string                 `json:"model"`
+	UserID     string                 `json:"user_id"`
+	Messages   []Message              `json:"messages"`
+	Extra      map[string]interface{} `json:"-"`
+	TokensUsed int                    `json:"tokens_used"`
+	Priority   int                    `json:"priority"`
 }
 
 // Message represents a chat message
@@ -23,15 +24,15 @@ type Message struct {
 // ProviderInfo extends Provider with routing metadata
 type ProviderInfo struct {
 	provider.Provider
-	Weight      int     `json:"weight"`
-	Priority    int     `json:"priority"`
-	Cost        float64 `json:"cost"`
-	IsPrimary   bool    `json:"is_primary"`
-	Healthy     bool    `json:"healthy"`
-	QuotaUsed   int64   `json:"quota_used"`
-	QuotaLimit  int64   `json:"quota_limit"`
-	LastError   error   `json:"-"`
-	LastUsed    int64   `json:"last_used"` // Unix timestamp
+	Weight     int     `json:"weight"`
+	Priority   int     `json:"priority"`
+	Cost       float64 `json:"cost"`
+	IsPrimary  bool    `json:"is_primary"`
+	Healthy    bool    `json:"healthy"`
+	QuotaUsed  int64   `json:"quota_used"`
+	QuotaLimit int64   `json:"quota_limit"`
+	LastError  error   `json:"-"`
+	LastUsed   int64   `json:"last_used"` // Unix timestamp
 }
 
 // Available returns true if the provider is available for routing

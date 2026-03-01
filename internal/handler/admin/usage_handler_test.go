@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"ai-gateway/internal/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"ai-gateway/internal/storage"
 )
 
 func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
@@ -61,7 +62,7 @@ func TestUsageHandler_GetUsageLogs_FilterByExperimentAndDomain(t *testing.T) {
 	r := gin.New()
 	r.GET("/admin/usage/logs", handler.GetUsageLogs)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/usage/logs?experiment_tag=exp-a&domain_tag=finance", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/logs?experiment_tag=exp-a&domain_tag=finance", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -127,7 +128,7 @@ func TestUsageHandler_GetUsageStats_FilterByRangeModelAndTaskType(t *testing.T) 
 	r := gin.New()
 	r.GET("/admin/usage/stats", handler.GetUsageStats)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?range=7d&model=qwen2.5:3b&task_type=chat", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?range=7d&model=qwen2.5:3b&task_type=chat", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

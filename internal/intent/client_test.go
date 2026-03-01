@@ -14,7 +14,7 @@ func TestIntentClient_Infer_Success(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"intent":"calc","slots":{"expr":"1+1"},"standard_key":"intent:calc:expr=1+1","embedding":[0.1,0.2],"embedding_dim":2,"confidence":0.99,"engine_version":"v1"}`))
+		mustWriteBody(t, w, `{"intent":"calc","slots":{"expr":"1+1"},"standard_key":"intent:calc:expr=1+1","embedding":[0.1,0.2],"embedding_dim":2,"confidence":0.99,"engine_version":"v1"}`)
 	}))
 	defer srv.Close()
 
@@ -36,9 +36,9 @@ func TestIntentClient_Infer_Success(t *testing.T) {
 }
 
 func TestIntentClient_Infer_InvalidJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"intent":`))
+		mustWriteBody(t, w, `{"intent":`)
 	}))
 	defer srv.Close()
 
@@ -54,9 +54,9 @@ func TestIntentClient_Infer_InvalidJSON(t *testing.T) {
 }
 
 func TestIntentClient_Infer_DimensionMismatch(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"intent":"qa","slots":{},"standard_key":"intent:qa","embedding":[0.1,0.2,0.3],"embedding_dim":3,"confidence":0.9,"engine_version":"v1"}`))
+		mustWriteBody(t, w, `{"intent":"qa","slots":{},"standard_key":"intent:qa","embedding":[0.1,0.2,0.3],"embedding_dim":3,"confidence":0.9,"engine_version":"v1"}`)
 	}))
 	defer srv.Close()
 
@@ -73,10 +73,10 @@ func TestIntentClient_Infer_DimensionMismatch(t *testing.T) {
 }
 
 func TestIntentClient_Infer_Timeout(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(120 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"intent":"qa","slots":{},"standard_key":"intent:qa","embedding":[0.1],"embedding_dim":1,"confidence":0.9,"engine_version":"v1"}`))
+		mustWriteBody(t, w, `{"intent":"qa","slots":{},"standard_key":"intent:qa","embedding":[0.1],"embedding_dim":1,"confidence":0.9,"engine_version":"v1"}`)
 	}))
 	defer srv.Close()
 
@@ -91,3 +91,9 @@ func TestIntentClient_Infer_Timeout(t *testing.T) {
 	}
 }
 
+func mustWriteBody(t *testing.T, w http.ResponseWriter, body string) {
+	t.Helper()
+	if _, err := w.Write([]byte(body)); err != nil {
+		t.Fatalf("write response body: %v", err)
+	}
+}
