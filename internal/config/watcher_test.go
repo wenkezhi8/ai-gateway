@@ -53,15 +53,21 @@ func TestConfigWatcher_OnReload(t *testing.T) {
 	require.NoError(t, err)
 	defer watcher.Close()
 
-	reloadCalled := false
+	reloadCalled := make(chan struct{}, 1)
 	watcher.OnReload(func(c *Config) {
-		reloadCalled = true
+		select {
+		case reloadCalled <- struct{}{}:
+		default:
+		}
 	})
 
 	watcher.ReloadManually()
 
-	time.Sleep(50 * time.Millisecond)
-	assert.True(t, reloadCalled)
+	select {
+	case <-reloadCalled:
+	case <-time.After(1 * time.Second):
+		t.Fatal("expected reload callback to be called")
+	}
 }
 
 func TestConfigWatcher_ReloadManually(t *testing.T) {

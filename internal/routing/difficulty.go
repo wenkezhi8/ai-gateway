@@ -279,7 +279,10 @@ func (a *DifficultyAssessor) assessByHistory(prompt string) float64 {
 
 	// 检查历史成功率
 	key := "default:" + string(taskType)
-	if rate, ok := a.historySuccessRate[key]; ok {
+	a.mu.RLock()
+	rate, ok := a.historySuccessRate[key]
+	a.mu.RUnlock()
+	if ok {
 		if rate < 0.7 {
 			return 20 // 历史成功率低，增加难度
 		} else if rate > 0.95 {

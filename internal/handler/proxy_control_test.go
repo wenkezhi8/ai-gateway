@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -299,6 +300,7 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 }
 
 type proxyTierHotStore struct {
+	mu         sync.RWMutex
 	upsertDocs []*cache.VectorCacheDocument
 }
 
@@ -313,7 +315,9 @@ func (s *proxyTierHotStore) VectorSearch(ctx context.Context, intent string, vec
 func (s *proxyTierHotStore) Upsert(ctx context.Context, doc *cache.VectorCacheDocument) error {
 	if doc != nil {
 		cp := *doc
+		s.mu.Lock()
 		s.upsertDocs = append(s.upsertDocs, &cp)
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -329,6 +333,12 @@ func (s *proxyTierHotStore) MemoryUsagePercent(ctx context.Context) (float64, er
 }
 func (s *proxyTierHotStore) ListMigrationCandidates(ctx context.Context, batchSize int) ([]*cache.VectorCacheDocument, error) {
 	return nil, nil
+}
+
+func (s *proxyTierHotStore) UpsertCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.upsertDocs)
 }
 
 type proxyTierColdStore struct {
@@ -439,12 +449,12 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if len(hot.upsertDocs) > 0 {
+		if hot.UpsertCount() > 0 {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if len(hot.upsertDocs) == 0 {
+	if hot.UpsertCount() == 0 {
 		t.Fatal("expected cold hit to promote document back to hot tier")
 	}
 }
