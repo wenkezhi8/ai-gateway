@@ -6,6 +6,7 @@ import (
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
 	"ai-gateway/internal/storage"
+	vectordb "ai-gateway/internal/vector-db"
 
 	"github.com/gin-gonic/gin"
 )
@@ -30,6 +31,7 @@ type Handlers struct {
 	Usage       *UsageHandler
 	Settings    *SettingsHandler
 	Trace       *TraceHandler
+	VectorDB    *vectordb.CollectionHandler
 }
 
 // NewHandlers creates all admin handlers.
@@ -55,7 +57,7 @@ func NewHandlers(
 		Cache:       NewCacheHandler(cacheManager),
 		Knowledge:   NewKnowledgeHandler(storage.GetSQLiteStorage().GetDB()),
 		Dashboard:   NewDashboardHandler(registry, accountManager, cacheManager),
-		SmartRouter: NewRouterHandler(smartRouter),
+		SmartRouter: NewRouterHandler(smartRouter, cacheManager),
 		APIKey:      NewAPIKeyHandler(),
 		Upload:      NewUploadHandler(),
 		Alert:       NewAlertHandler(),
@@ -64,6 +66,7 @@ func NewHandlers(
 		Usage:       usageHandler,
 		Settings:    NewSettingsHandler(""),
 		Trace:       NewTraceHandler(storage.GetSQLiteStorage().GetDB()),
+		VectorDB:    vectordb.NewCollectionHandler(vectordb.NewService()),
 	}
 	// 改动点: 定时健康检测并触发告警
 	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
@@ -151,9 +154,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	routerGroup.GET("/classifier/health", handlers.SmartRouter.GetClassifierHealth)
 	routerGroup.GET("/classifier/stats", handlers.SmartRouter.GetClassifierStats)
 	routerGroup.GET("/classifier/models", handlers.SmartRouter.GetClassifierModels)
-	routerGroup.GET("/intent-engine/config", handlers.SmartRouter.GetIntentEngineConfig)
-	routerGroup.PUT("/intent-engine/config", handlers.SmartRouter.UpdateIntentEngineConfig)
-	routerGroup.GET("/intent-engine/health", handlers.SmartRouter.GetIntentEngineHealth)
+	routerGroup.GET("/ollama/dual-model/config", handlers.SmartRouter.GetOllamaDualModelConfig)
+	routerGroup.PUT("/ollama/dual-model/config", handlers.SmartRouter.UpdateOllamaDualModelConfig)
 	routerGroup.POST("/classifier/switch", handlers.SmartRouter.SwitchClassifierModel)
 	routerGroup.POST("/classifier/switch-async", handlers.SmartRouter.SwitchClassifierModelAsync)
 	routerGroup.GET("/classifier/switch-tasks/:taskId", handlers.SmartRouter.GetSwitchClassifierTask)
@@ -306,4 +308,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	settings := r.Group("/settings")
 	settings.GET("/ui", handlers.Settings.GetUISettings)
 	settings.PUT("/ui", handlers.Settings.UpdateUISettings)
+
+	// Vector DB collection routes
+	vectorDBCollectionsGroup := r.Group("/vector-db/collections")
+	vectorDBCollectionsGroup.POST("", handlers.VectorDB.CreateCollection)
+	vectorDBCollectionsGroup.GET("", handlers.VectorDB.ListCollections)
+	vectorDBCollectionsGroup.GET("/:name", handlers.VectorDB.GetCollection)
+	vectorDBCollectionsGroup.PUT("/:name", handlers.VectorDB.UpdateCollection)
+	vectorDBCollectionsGroup.DELETE("/:name", handlers.VectorDB.DeleteCollection)
 }

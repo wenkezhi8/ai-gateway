@@ -179,7 +179,7 @@ func TestUsageHandler_ClearUsageLogs(t *testing.T) {
 	r := gin.New()
 	r.DELETE("/admin/usage/logs", handler.ClearUsageLogs)
 
-	req := httptest.NewRequest(http.MethodDelete, "/admin/usage/logs", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/admin/usage/logs", http.NoBody)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 

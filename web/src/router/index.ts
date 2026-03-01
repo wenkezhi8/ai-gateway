@@ -100,6 +100,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '缓存管理', icon: 'Box' }
       },
       {
+        path: '/vector-db/collections',
+        name: 'VectorDBCollections',
+        component: () => import('@/views/vector-db/collections/index.vue'),
+        meta: { title: '向量集合', icon: 'Collection' }
+      },
+      {
         path: '/knowledge/documents',
         name: 'KnowledgeDocuments',
         component: () => import('@/views/knowledge/documents/index.vue'),

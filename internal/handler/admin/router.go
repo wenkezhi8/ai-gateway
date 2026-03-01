@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ai-gateway/internal/cache"
 
 	"ai-gateway/internal/constants"
 	"ai-gateway/internal/routing"
@@ -23,16 +24,16 @@ import (
 // RouterHandler handles smart router configuration requests.
 type RouterHandler struct {
 	router          *routing.SmartRouter
+	cacheManager    *cache.Manager
 	mu              sync.RWMutex
 	switchTaskStore *classifierSwitchTaskStore
 	nowFn           func() time.Time
 	sleepFn         func(time.Duration)
 	probeSwitchFn   func(targetModel, originalModel string) error
-	intentEngineCfg IntentEngineConfig
 }
 
 // NewRouterHandler creates a new router handler.
-func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
+func NewRouterHandler(router *routing.SmartRouter, cacheManager *cache.Manager) *RouterHandler {
 	taskStore, err := newClassifierSwitchTaskStore(constants.ClassifierSwitchTaskDBPath)
 	if err != nil {
 		panic(fmt.Sprintf("failed to initialize classifier switch task store: %v", err))
@@ -40,14 +41,13 @@ func NewRouterHandler(router *routing.SmartRouter) *RouterHandler {
 
 	h := &RouterHandler{
 		router:          router,
+		cacheManager:    cacheManager,
 		switchTaskStore: taskStore,
-		intentEngineCfg: defaultIntentEngineConfig(),
 	}
 	h.nowFn = time.Now
 	h.sleepFn = time.Sleep
 	h.probeSwitchFn = h.probeAndApplyClassifierSwitch
 	h.loadConfig()
-	h.loadIntentEngineConfig()
 	return h
 }
 
@@ -98,15 +98,6 @@ type UpdateModelScoreRequest struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-// IntentEngineConfig represents local intent-engine runtime config.
-type IntentEngineConfig struct {
-	Enabled           bool   `json:"enabled"`
-	BaseURL           string `json:"base_url"`
-	TimeoutMs         int    `json:"timeout_ms"`
-	Language          string `json:"language"`
-	ExpectedDimension int    `json:"expected_dimension"`
-}
-
 // PersistedRouterConfig is the structure stored for UI routing mode selection.
 type PersistedRouterConfig struct {
 	UseAutoMode     string                   `json:"use_auto_mode"`
@@ -117,7 +108,6 @@ type PersistedRouterConfig struct {
 
 const routerUIConfigFile = constants.RouterUIConfigFilePath
 const routerConfigFile = constants.RouterConfigFilePath
-const intentEngineConfigFile = constants.IntentEngineConfigFilePath
 const autoModeAuto = "auto"
 const autoModeFixed = "fixed"
 
@@ -279,58 +269,6 @@ func containsModel(models []string, model string) bool {
 		}
 	}
 	return false
-}
-
-func defaultIntentEngineConfig() IntentEngineConfig {
-	return IntentEngineConfig{
-		Enabled:           false,
-		BaseURL:           "http://127.0.0.1:18566",
-		TimeoutMs:         1500,
-		Language:          "zh-CN",
-		ExpectedDimension: 1024,
-	}
-}
-
-func (h *RouterHandler) loadIntentEngineConfig() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	cfg := defaultIntentEngineConfig()
-	data, err := os.ReadFile(intentEngineConfigFile)
-	if err == nil && len(data) > 0 {
-		var persisted IntentEngineConfig
-		if json.Unmarshal(data, &persisted) == nil {
-			if strings.TrimSpace(persisted.BaseURL) != "" {
-				cfg.BaseURL = strings.TrimSpace(persisted.BaseURL)
-			}
-			if persisted.TimeoutMs > 0 {
-				cfg.TimeoutMs = persisted.TimeoutMs
-			}
-			if strings.TrimSpace(persisted.Language) != "" {
-				cfg.Language = strings.TrimSpace(persisted.Language)
-			}
-			if persisted.ExpectedDimension > 0 {
-				cfg.ExpectedDimension = persisted.ExpectedDimension
-			}
-			cfg.Enabled = persisted.Enabled
-		}
-	}
-	h.intentEngineCfg = cfg
-}
-
-func (h *RouterHandler) saveIntentEngineConfig() error {
-	h.mu.RLock()
-	cfg := h.intentEngineCfg
-	h.mu.RUnlock()
-
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(intentEngineConfigFile), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(intentEngineConfigFile, data, 0640)
 }
 
 func (h *RouterHandler) migrateLegacyRouterConfig() {
@@ -538,29 +476,105 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 	})
 }
 
-type UpdateIntentEngineConfigRequest struct {
-	Enabled           *bool   `json:"enabled"`
-	BaseURL           *string `json:"base_url"`
-	TimeoutMs         *int    `json:"timeout_ms"`
-	Language          *string `json:"language"`
-	ExpectedDimension *int    `json:"expected_dimension"`
+type OllamaDualModelConfig struct {
+	ClassifierEnabled              bool     `json:"classifier_enabled"`
+	ClassifierBaseURL              string   `json:"classifier_base_url"`
+	ClassifierActiveModel          string   `json:"classifier_active_model"`
+	ClassifierCandidateModels      []string `json:"classifier_candidate_models"`
+	ClassifierTimeoutMs            int      `json:"classifier_timeout_ms"`
+	VectorPipelineEnabled          bool     `json:"vector_pipeline_enabled"`
+	VectorOllamaBaseURL            string   `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel     string   `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension int      `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs int      `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode       string   `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled         bool     `json:"vector_writeback_enabled"`
 }
 
-// GET /api/admin/router/intent-engine/config.
-func (h *RouterHandler) GetIntentEngineConfig(c *gin.Context) {
-	h.mu.RLock()
-	cfg := h.intentEngineCfg
-	h.mu.RUnlock()
+type UpdateOllamaDualModelConfigRequest struct {
+	ClassifierEnabled              *bool    `json:"classifier_enabled"`
+	ClassifierBaseURL              *string  `json:"classifier_base_url"`
+	ClassifierActiveModel          *string  `json:"classifier_active_model"`
+	ClassifierCandidateModels      []string `json:"classifier_candidate_models"`
+	ClassifierTimeoutMs            *int     `json:"classifier_timeout_ms"`
+	VectorPipelineEnabled          *bool    `json:"vector_pipeline_enabled"`
+	VectorOllamaBaseURL            *string  `json:"vector_ollama_base_url"`
+	VectorOllamaEmbeddingModel     *string  `json:"vector_ollama_embedding_model"`
+	VectorOllamaEmbeddingDimension *int     `json:"vector_ollama_embedding_dimension"`
+	VectorOllamaEmbeddingTimeoutMs *int     `json:"vector_ollama_embedding_timeout_ms"`
+	VectorOllamaEndpointMode       *string  `json:"vector_ollama_endpoint_mode"`
+	VectorWritebackEnabled         *bool    `json:"vector_writeback_enabled"`
+}
 
+func normalizeClassifierCandidateModels(models []string) []string {
+	normalized := make([]string, 0, len(models))
+	seen := make(map[string]struct{})
+	for _, model := range models {
+		value := strings.TrimSpace(model)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	return normalized
+}
+
+func hasDualVectorPatch(req *UpdateOllamaDualModelConfigRequest) bool {
+	if req == nil {
+		return false
+	}
+
+	return req.VectorPipelineEnabled != nil ||
+		req.VectorOllamaBaseURL != nil ||
+		req.VectorOllamaEmbeddingModel != nil ||
+		req.VectorOllamaEmbeddingDimension != nil ||
+		req.VectorOllamaEmbeddingTimeoutMs != nil ||
+		req.VectorOllamaEndpointMode != nil ||
+		req.VectorWritebackEnabled != nil
+}
+
+func (h *RouterHandler) buildDualModelConfig(ctx context.Context) OllamaDualModelConfig {
+	classifierCfg := h.router.GetClassifierConfig()
+	classifierCfg.CandidateModels = resolveClassifierModels(ctx, &classifierCfg)
+
+	settings := cache.DefaultCacheSettings()
+	if h.cacheManager != nil {
+		settings = h.cacheManager.GetSettings()
+	}
+
+	return OllamaDualModelConfig{
+		ClassifierEnabled:              classifierCfg.Enabled,
+		ClassifierBaseURL:              classifierCfg.BaseURL,
+		ClassifierActiveModel:          classifierCfg.ActiveModel,
+		ClassifierCandidateModels:      classifierCfg.CandidateModels,
+		ClassifierTimeoutMs:            classifierCfg.TimeoutMs,
+		VectorPipelineEnabled:          settings.VectorPipelineEnabled,
+		VectorOllamaBaseURL:            settings.VectorOllamaBaseURL,
+		VectorOllamaEmbeddingModel:     settings.VectorOllamaEmbeddingModel,
+		VectorOllamaEmbeddingDimension: settings.VectorOllamaEmbeddingDimension,
+		VectorOllamaEmbeddingTimeoutMs: settings.VectorOllamaEmbeddingTimeoutMs,
+		VectorOllamaEndpointMode:       settings.VectorOllamaEndpointMode,
+		VectorWritebackEnabled:         settings.VectorWritebackEnabled,
+	}
+}
+
+// GET /api/admin/router/ollama/dual-model/config.
+func (h *RouterHandler) GetOllamaDualModelConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    cfg,
+		"data":    h.buildDualModelConfig(c.Request.Context()),
 	})
 }
 
-// PUT /api/admin/router/intent-engine/config.
-func (h *RouterHandler) UpdateIntentEngineConfig(c *gin.Context) {
-	var req UpdateIntentEngineConfigRequest
+// PUT /api/admin/router/ollama/dual-model/config.
+//
+//nolint:gocyclo // Keep request patch application in one handler for atomic update.
+func (h *RouterHandler) UpdateOllamaDualModelConfig(c *gin.Context) {
+	var req UpdateOllamaDualModelConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -572,120 +586,207 @@ func (h *RouterHandler) UpdateIntentEngineConfig(c *gin.Context) {
 		return
 	}
 
-	h.mu.Lock()
-	if req.Enabled != nil {
-		h.intentEngineCfg.Enabled = *req.Enabled
+	classifierCfg := h.router.GetClassifierConfig()
+	classifierChanged := false
+	if req.ClassifierEnabled != nil {
+		classifierCfg.Enabled = *req.ClassifierEnabled
+		classifierChanged = true
 	}
-	if req.BaseURL != nil && strings.TrimSpace(*req.BaseURL) != "" {
-		h.intentEngineCfg.BaseURL = strings.TrimSpace(*req.BaseURL)
+	if req.ClassifierBaseURL != nil {
+		value := strings.TrimSpace(*req.ClassifierBaseURL)
+		if value == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_classifier_base_url",
+					"message": "classifier_base_url cannot be empty",
+				},
+			})
+			return
+		}
+		classifierCfg.BaseURL = value
+		classifierChanged = true
 	}
-	if req.TimeoutMs != nil && *req.TimeoutMs > 0 {
-		h.intentEngineCfg.TimeoutMs = *req.TimeoutMs
+	if req.ClassifierActiveModel != nil {
+		value := strings.TrimSpace(*req.ClassifierActiveModel)
+		if value == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_classifier_active_model",
+					"message": "classifier_active_model cannot be empty",
+				},
+			})
+			return
+		}
+		classifierCfg.ActiveModel = value
+		classifierChanged = true
 	}
-	if req.Language != nil && strings.TrimSpace(*req.Language) != "" {
-		h.intentEngineCfg.Language = strings.TrimSpace(*req.Language)
+	if req.ClassifierCandidateModels != nil {
+		normalized := normalizeClassifierCandidateModels(req.ClassifierCandidateModels)
+		if len(normalized) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_classifier_candidate_models",
+					"message": "classifier_candidate_models cannot be empty",
+				},
+			})
+			return
+		}
+		classifierCfg.CandidateModels = normalized
+		classifierChanged = true
 	}
-	if req.ExpectedDimension != nil && *req.ExpectedDimension > 0 {
-		h.intentEngineCfg.ExpectedDimension = *req.ExpectedDimension
-	}
-	h.mu.Unlock()
-
-	if err := h.saveIntentEngineConfig(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error": gin.H{
-				"code":    "save_failed",
-				"message": err.Error(),
-			},
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "intent engine config updated",
-	})
-}
-
-// GET /api/admin/router/intent-engine/health.
-func (h *RouterHandler) GetIntentEngineHealth(c *gin.Context) {
-	h.mu.RLock()
-	cfg := h.intentEngineCfg
-	h.mu.RUnlock()
-
-	if !cfg.Enabled {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"enabled": false,
-				"healthy": false,
-				"message": "intent engine disabled",
-			},
-		})
-		return
-	}
-
-	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 1500 * time.Millisecond
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.BaseURL, "/")+"/health", http.NoBody)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   gin.H{"code": "request_build_failed", "message": err.Error()},
-		})
-		return
+	if req.ClassifierTimeoutMs != nil {
+		if *req.ClassifierTimeoutMs <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "invalid_classifier_timeout_ms",
+					"message": "classifier_timeout_ms must be positive",
+				},
+			})
+			return
+		}
+		classifierCfg.TimeoutMs = *req.ClassifierTimeoutMs
+		classifierChanged = true
 	}
 
-	start := time.Now()
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"data": gin.H{
-				"enabled":    true,
-				"healthy":    false,
-				"latency_ms": time.Since(start).Milliseconds(),
-				"message":    err.Error(),
-			},
-		})
-		return
+	if classifierChanged {
+		classifierCfg.CandidateModels = mergeClassifierCandidateModels(classifierCfg.ActiveModel, classifierCfg.CandidateModels)
+		h.router.SetClassifierConfig(classifierCfg)
+		h.loadConfig()
+		h.mu.Lock()
+		persistedConfig.Classifier = classifierCfg
+		h.mu.Unlock()
+		if err := h.saveConfig(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "save_failed",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		if err := h.router.SaveRouterConfigToFile(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "save_failed",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
 	}
-	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"success": false,
-			"error":   gin.H{"code": "read_response_failed", "message": err.Error()},
-		})
-		return
-	}
-	payload := gin.H{
-		"enabled":    true,
-		"healthy":    resp.StatusCode >= 200 && resp.StatusCode < 300,
-		"status":     resp.StatusCode,
-		"latency_ms": time.Since(start).Milliseconds(),
-	}
-	if len(body) > 0 {
-		var parsed map[string]any
-		if err := json.Unmarshal(body, &parsed); err == nil {
-			for k, v := range parsed {
-				payload[k] = v
+	if hasDualVectorPatch(&req) {
+		if h.cacheManager == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "cache_manager_unavailable",
+					"message": "cache manager is unavailable",
+				},
+			})
+			return
+		}
+
+		settings := h.cacheManager.GetSettings()
+		settings.VectorEmbeddingProvider = "ollama"
+
+		if req.VectorPipelineEnabled != nil {
+			settings.VectorPipelineEnabled = *req.VectorPipelineEnabled
+		}
+		if req.VectorOllamaBaseURL != nil {
+			value := strings.TrimSpace(*req.VectorOllamaBaseURL)
+			if value == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "invalid_vector_ollama_base_url",
+						"message": "vector_ollama_base_url cannot be empty",
+					},
+				})
+				return
 			}
-		} else {
-			payload["raw"] = strings.TrimSpace(string(body))
+			settings.VectorOllamaBaseURL = value
+		}
+		if req.VectorOllamaEmbeddingModel != nil {
+			value := strings.TrimSpace(*req.VectorOllamaEmbeddingModel)
+			if value == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "invalid_vector_ollama_embedding_model",
+						"message": "vector_ollama_embedding_model cannot be empty",
+					},
+				})
+				return
+			}
+			settings.VectorOllamaEmbeddingModel = value
+		}
+		if req.VectorOllamaEmbeddingDimension != nil {
+			if *req.VectorOllamaEmbeddingDimension <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "invalid_vector_ollama_embedding_dimension",
+						"message": "vector_ollama_embedding_dimension must be positive",
+					},
+				})
+				return
+			}
+			settings.VectorOllamaEmbeddingDimension = *req.VectorOllamaEmbeddingDimension
+		}
+		if req.VectorOllamaEmbeddingTimeoutMs != nil {
+			if *req.VectorOllamaEmbeddingTimeoutMs <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "invalid_vector_ollama_embedding_timeout_ms",
+						"message": "vector_ollama_embedding_timeout_ms must be positive",
+					},
+				})
+				return
+			}
+			settings.VectorOllamaEmbeddingTimeoutMs = *req.VectorOllamaEmbeddingTimeoutMs
+		}
+		if req.VectorOllamaEndpointMode != nil {
+			value := strings.ToLower(strings.TrimSpace(*req.VectorOllamaEndpointMode))
+			if value != cache.OllamaEndpointModeAuto && value != cache.OllamaEndpointModeEmbed && value != cache.OllamaEndpointModeEmbeddings {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "invalid_vector_ollama_endpoint_mode",
+						"message": "vector_ollama_endpoint_mode must be auto/embed/embeddings",
+					},
+				})
+				return
+			}
+			settings.VectorOllamaEndpointMode = value
+		}
+		if req.VectorWritebackEnabled != nil {
+			settings.VectorWritebackEnabled = *req.VectorWritebackEnabled
+		}
+
+		h.cacheManager.UpdateSettings(settings)
+		if err := persistVectorCacheSettings(&settings); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "save_failed",
+					"message": err.Error(),
+				},
+			})
+			return
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    payload,
+		"data":    h.buildDualModelConfig(c.Request.Context()),
 	})
 }
 

@@ -216,6 +216,7 @@ const menuItems = [
   { path: '/trace', title: '请求链路追踪', icon: 'Share' },
   { path: '/routing', title: '路由策略', icon: 'Guide' },
   { path: '/cache', title: '缓存管理', icon: 'Box' },
+  { path: '/vector-db/collections', title: '向量集合', icon: 'Collection' },
   { path: '/knowledge/documents', title: '知识库文档', icon: 'Document' },
   { path: '/knowledge/chat', title: '知识库问答', icon: 'ChatDotRound' },
   { path: '/knowledge/config', title: '知识库配置', icon: 'Setting' },

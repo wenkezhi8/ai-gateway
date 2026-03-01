@@ -91,7 +91,6 @@ type ProxyHandler struct {
 	deduplicator      *cache.RequestDeduplicator
 	semanticCache     *cache.SemanticCache
 	modelMappingCache *cache.ModelMappingCache
-	intentClient      *intent.Client
 	vectorStore       cache.VectorCacheStore
 	vectorPipeline    *VectorPipeline
 	textNormalizer    *cache.TextNormalizer
@@ -124,17 +123,6 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		TTL:     24 * time.Hour,
 	})
 
-	intentCfg := intent.Config{Enabled: false}
-	if cfg != nil {
-		intentCfg = intent.Config{
-			Enabled:           cfg.IntentEngine.Enabled,
-			BaseURL:           cfg.IntentEngine.BaseURL,
-			Timeout:           time.Duration(cfg.IntentEngine.TimeoutMs) * time.Millisecond,
-			Language:          cfg.IntentEngine.Language,
-			ExpectedDimension: cfg.IntentEngine.ExpectedDimension,
-		}
-	}
-
 	var vectorStore cache.VectorCacheStore
 	if cacheManager != nil {
 		vectorStore = cacheManager.GetVectorStore()
@@ -162,7 +150,6 @@ func NewProxyHandler(cfg *config.Config, accountManager *limiter.AccountManager,
 		deduplicator:      cache.GetRequestDeduplicator(),
 		semanticCache:     semanticCache,
 		modelMappingCache: modelMappingCache,
-		intentClient:      intent.NewClient(intentCfg),
 		vectorStore:       vectorStore,
 		vectorPipeline:    vectorPipeline,
 		textNormalizer:    textNormalizer,
@@ -357,7 +344,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
 
-	// V2 cache read path: intent-engine + Redis Stack exact/vector retrieval.
+	// V2 cache read path: Ollama dual-model pipeline + Redis Stack exact/vector retrieval.
 	cacheV2Start := time.Now()
 	intentResult, v2CachedBody, v2CacheHit, v2HitLayer, v2HitKey := h.processCacheV2Read(
 		c.Request.Context(),
@@ -1717,7 +1704,10 @@ func (h *ProxyHandler) handleStreamResponse(
 						},
 					},
 				}
-				responseBody, _ := json.Marshal(responsePayload)
+				responseBody, marshalErr := json.Marshal(responsePayload)
+				if marshalErr != nil {
+					responseBody = []byte("{}")
+				}
 				aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
 				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
 					"duration_ms":          time.Since(startTime).Milliseconds(),
@@ -2072,7 +2062,10 @@ func (h *ProxyHandler) handleStreamResponse(
 					},
 				},
 			}
-			responseBody, _ := json.Marshal(responsePayload)
+			responseBody, marshalErr := json.Marshal(responsePayload)
+			if marshalErr != nil {
+				responseBody = []byte("{}")
+			}
 			aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
 			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
 				"duration_ms":          time.Since(startTime).Milliseconds(),
