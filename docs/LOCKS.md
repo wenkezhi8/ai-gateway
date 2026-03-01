@@ -31,6 +31,7 @@
 |---|---|---|---|---|---|---|---|---|---|
 | codex | codex | usage-saved-token-stats | codex/parallel-dev-20260301 | .worktrees/codex-parallel-dev-20260301 | internal/storage/sqlite.go, internal/storage/sqlite_test.go, internal/handler/admin/usage.go, internal/handler/admin/usage_handler_test.go, web/src/views/usage/index.vue, web/src/views/usage/usage-overview.ts, web/src/views/usage/usage-overview.test.ts | RELEASED | 2026-03-01 09:20 | 2026-03-01 09:35 | /usage 命中节省 Token 与 stats 同口径改造 |
 | codex | codex | cache-hit-token-fix | codex/cache-hit-token-fix | .worktrees/codex-cache-hit-token-fix | internal/handler/proxy.go, internal/handler/proxy_test.go, internal/handler/proxy_extended_test.go | RELEASED | 2026-03-01 09:54 | 2026-03-01 09:58 | 修复缓存命中 token 统计为 0（含入/出 Token） |
+| codex | codex | streaming-trace-recording | codex/streaming-trace-recording | .worktrees/codex-streaming-trace-recording | internal/handler/proxy.go, internal/handler/proxy_test.go, docs/LOCKS.md | RELEASED | 2026-03-01 13:21 | 2026-03-01 13:26 | 修复流式请求缺少 http.response 追踪记录 |
 
 ## 5. 历史记录
 
