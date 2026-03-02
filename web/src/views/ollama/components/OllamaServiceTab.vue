@@ -88,7 +88,7 @@
             <template #header>
               <div class="card-header">运行中模型</div>
             </template>
-            <el-empty v-if="ctx.ollamaSetup.running_models.length === 0" description="当前无运行模型（请先发起一次推理请求或执行 ollama run）" />
+            <el-empty v-if="ctx.ollamaSetup.running_models.length === 0" description="当前无运行模型（请先预热模型：发起一次推理请求或执行 ollama run）" />
             <el-tag v-for="item in ctx.ollamaSetup.running_models" :key="item" type="success" class="item-tag">{{ item }}</el-tag>
 
             <el-descriptions v-if="ctx.ollamaSetup.running_model_details.length > 0" :column="1" border size="small" style="margin-top: 12px">

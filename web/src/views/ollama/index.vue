@@ -11,6 +11,28 @@
       </el-button>
     </div>
 
+    <div class="running-overview">
+      <div class="running-head">
+        <span class="running-title">运行中模型总览</span>
+        <el-tag :type="ctx.ollamaSetup.running_models.length > 0 ? 'success' : 'info'" effect="plain">
+          {{ ctx.ollamaSetup.running_models.length }} 个模型
+        </el-tag>
+      </div>
+      <div v-if="ctx.ollamaSetup.running_models.length > 0" class="running-list">
+        <el-tag v-for="model in ctx.ollamaSetup.running_models" :key="model" type="success" class="running-tag">
+          {{ model }}
+        </el-tag>
+        <span class="running-vram" v-if="ctx.ollamaSetup.running_vram_bytes_total > 0">
+          总显存占用 {{ ctx.formatVramBytes(ctx.ollamaSetup.running_vram_bytes_total) }}
+        </span>
+      </div>
+      <el-empty
+        v-else
+        :image-size="40"
+        description="当前无运行模型（请先预热模型：发起一次推理请求或执行 ollama run）"
+      />
+    </div>
+
     <OllamaServiceTab :ctx="ctx" />
 
     <div class="panel">
@@ -71,6 +93,42 @@ const ctx = proxyRefs(useOllamaConsole())
     border: 1px solid var(--el-border-color-lighter);
     border-radius: 16px;
     padding: 16px;
+  }
+
+  .running-overview {
+    background: var(--el-fill-color-blank);
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+
+  .running-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .running-title {
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  .running-list {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .running-tag {
+    margin-right: 0;
+  }
+
+  .running-vram {
+    color: var(--el-text-color-secondary);
+    font-size: 12px;
   }
 
   :deep(.page-card) {
