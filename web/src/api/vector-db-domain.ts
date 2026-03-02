@@ -344,6 +344,11 @@ export async function retryImportJob(id: string) {
   return unwrapEnvelope<ImportJob>(raw, { allowPlain: true })
 }
 
+export async function cancelImportJob(id: string) {
+  const raw = await request.post(`/admin/vector-db/import-jobs/${encodeURIComponent(id)}/cancel`)
+  return unwrapEnvelope<ImportJob>(raw, { allowPlain: true })
+}
+
 export async function retryFailedImportJobs(limit = 20) {
   const raw = await request.post(`/admin/vector-db/import-jobs/retry-failed?limit=${encodeURIComponent(String(limit))}`)
   return unwrapEnvelope<{ jobs: ImportJob[]; total: number }>(raw, { allowPlain: true })

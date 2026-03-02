@@ -33,6 +33,7 @@
 | codex | codex | cache-hit-token-fix | codex/cache-hit-token-fix | .worktrees/codex-cache-hit-token-fix | internal/handler/proxy.go, internal/handler/proxy_test.go, internal/handler/proxy_extended_test.go | RELEASED | 2026-03-01 09:54 | 2026-03-01 09:58 | 修复缓存命中 token 统计为 0（含入/出 Token） |
 | codex | codex | usage-volcengine-token-repair | codex/session-20260301-103420 | .worktrees/codex-20260301-103420 | internal/provider/volcengine/**, internal/handler/proxy.go, internal/storage/sqlite.go, internal/handler/admin/usage.go, web/src/views/usage/index.vue, web/src/constants/pages/usage.ts | RELEASED | 2026-03-01 11:03 | 2026-03-01 11:20 | 修复 volcengine token=0 并新增 usage_source 标记 |
 | codex | codex | streaming-trace-recording | codex/streaming-trace-recording | .worktrees/codex-streaming-trace-recording | internal/handler/proxy.go, internal/handler/proxy_test.go, docs/LOCKS.md | RELEASED | 2026-03-01 13:21 | 2026-03-01 13:26 | 修复流式请求缺少 http.response 追踪记录 |
+| codex | codex | vector-db-b-alignment | codex/vector-db-b-alignment | .worktrees/codex-20260302-vector-db-b-alignment | internal/vector-db/{import_job.go,collection_handler.go,import_job_test.go}, internal/handler/admin/admin.go, web/src/views/vector-db/{import/**,monitoring/**}, web/src/router/index.ts, web/src/api/vector-db-domain.ts, docs/{API_REFERENCE.md,USER_GUIDE.md}, docs/plans/*vector-db* | RELEASED | 2026-03-02 08:10 | 2026-03-02 08:30 | 项目书B口径收口（导入取消/子组件结构/监控alerts子页/文档矩阵） |
 
 ## 5. 历史记录
 

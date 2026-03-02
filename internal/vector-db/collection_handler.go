@@ -52,6 +52,7 @@ func RegisterImportJobRoutes(r *gin.RouterGroup, handler *CollectionHandler) {
 	jobs.PUT("/:id/status", handler.UpdateImportJobStatus)
 	jobs.POST("/:id/run", handler.RunImportJob)
 	jobs.POST("/:id/retry", handler.RetryImportJob)
+	jobs.POST("/:id/cancel", handler.CancelImportJob)
 	jobs.POST("/retry-failed", handler.RetryFailedImportJobs)
 	jobs.GET("/:id/errors", handler.GetImportJobErrors)
 }
@@ -273,6 +274,17 @@ func (h *CollectionHandler) RunImportJob(c *gin.Context) {
 // RetryImportJob handles POST /api/admin/vector-db/import-jobs/:id/retry.
 func (h *CollectionHandler) RetryImportJob(c *gin.Context) {
 	job, err := h.service.RetryImportJob(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": job})
+}
+
+// CancelImportJob handles POST /api/admin/vector-db/import-jobs/:id/cancel.
+func (h *CollectionHandler) CancelImportJob(c *gin.Context) {
+	job, err := h.service.CancelImportJob(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		h.respondServiceError(c, err)
 		return

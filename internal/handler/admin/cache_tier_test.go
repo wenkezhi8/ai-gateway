@@ -140,7 +140,7 @@ func TestCacheHandler_VectorTierConfigEndpoints_ShouldGetAndUpdate(t *testing.T)
 	router.GET("/api/admin/router/vector/tier/config", handler.GetVectorTierConfig)
 	router.PUT("/api/admin/router/vector/tier/config", handler.UpdateVectorTierConfig)
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/config", nil)
+	getReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/config", http.NoBody)
 	getW := httptest.NewRecorder()
 	router.ServeHTTP(getW, getReq)
 	if getW.Code != http.StatusOK {
@@ -265,7 +265,7 @@ func TestCacheHandler_VectorTierRoutes_ShouldOnlyExistUnderRouterGroup(t *testin
 	routerGroup.GET("/vector/tier/stats", handler.GetVectorTierStats)
 
 	// 新路径可用（即便 tier store 未初始化，也应由 handler 返回 200 + enabled=false）
-	newReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/stats", nil)
+	newReq := httptest.NewRequest(http.MethodGet, "/api/admin/router/vector/tier/stats", http.NoBody)
 	newW := httptest.NewRecorder()
 	router.ServeHTTP(newW, newReq)
 	if newW.Code != http.StatusOK {
@@ -273,7 +273,7 @@ func TestCacheHandler_VectorTierRoutes_ShouldOnlyExistUnderRouterGroup(t *testin
 	}
 
 	// 旧路径未注册，应为 404
-	oldReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", nil)
+	oldReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/vector/tier/stats", http.NoBody)
 	oldW := httptest.NewRecorder()
 	router.ServeHTTP(oldW, oldReq)
 	if oldW.Code != http.StatusNotFound {

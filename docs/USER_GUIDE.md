@@ -276,10 +276,10 @@ print(response.choices[0].message.content)
 
 控制台中的向量模块包含：
 
-- 向量集合：创建、编辑、索引参数调整（HNSW/IVF）
+- 向量集合：创建、编辑、索引参数调整（HNSW/IVF）、Pinia 状态管理与 ECharts 规模趋势图
 - 向量检索：文本检索（自动向量化）、向量相似度搜索、推荐、按 ID 获取
-- 向量导入：JSON/CSV/PDF 导入任务查看与重试
-- 向量监控：指标总览与告警规则 CRUD
+- 向量导入：JSON/CSV/PDF 独立导入器、拖拽上传、字段映射、任务查看、失败重试与运行中取消
+- 向量监控：指标总览页 + 告警规则独立管理页（`/vector-db/monitoring/alerts`）+ 多渠道通知联调
 - 向量权限：为检索接口配置 admin/editor/viewer/reader 角色权限
 - 备份恢复：创建备份任务、触发恢复、失败任务重试、策略化保留清理
 - 向量审计：按资源类型/资源 ID/动作筛选审计日志

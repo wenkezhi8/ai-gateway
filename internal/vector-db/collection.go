@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	internalqdrant "ai-gateway/internal/qdrant"
@@ -140,9 +141,11 @@ func (b *qdrantBackend) GetByID(ctx context.Context, collectionName, id string) 
 
 // Service handles collection CRUD.
 type Service struct {
-	repo     CollectionRepository
-	backend  CollectionBackend
-	embedder TextEmbedder
+	repo        CollectionRepository
+	backend     CollectionBackend
+	embedder    TextEmbedder
+	searchMu    sync.RWMutex
+	searchCache map[string]SearchVectorsResponse
 }
 
 type ServiceConfig struct {
@@ -183,7 +186,7 @@ func NewServiceWithConfig(cfg ServiceConfig) *Service {
 
 // NewServiceWithDeps creates service with explicit dependencies.
 func NewServiceWithDeps(repo CollectionRepository, backend CollectionBackend) *Service {
-	return &Service{repo: repo, backend: backend, embedder: newDeterministicTextEmbedder()}
+	return &Service{repo: repo, backend: backend, embedder: newDeterministicTextEmbedder(), searchCache: make(map[string]SearchVectorsResponse)}
 }
 
 func (s *Service) GetRepository() CollectionRepository {

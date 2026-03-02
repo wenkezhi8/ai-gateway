@@ -9,11 +9,12 @@ var (
 
 // SearchVectorsRequest defines vector search input.
 type SearchVectorsRequest struct {
-	CollectionName string    `json:"collection_name"`
-	TopK           int       `json:"top_k"`
-	MinScore       float32   `json:"min_score"`
-	Vector         []float32 `json:"vector"`
-	Text           string    `json:"text"`
+	CollectionName string         `json:"collection_name"`
+	TopK           int            `json:"top_k"`
+	MinScore       float32        `json:"min_score"`
+	Vector         []float32      `json:"vector"`
+	Text           string         `json:"text"`
+	Filters        map[string]any `json:"filters"`
 }
 
 // RecommendVectorsRequest defines recommendation input.

@@ -12,6 +12,7 @@ func RegisterMonitoringRoutes(r *gin.RouterGroup, handler *CollectionHandler) {
 	rules := r.Group("/vector-db/alerts/rules")
 	rules.GET("", handler.ListAlertRules)
 	rules.POST("", handler.CreateAlertRule)
+	rules.POST("/notify-test", handler.NotifyAlertChannels)
 	rules.PUT("/:id", handler.UpdateAlertRule)
 	rules.DELETE("/:id", handler.DeleteAlertRule)
 
@@ -83,4 +84,20 @@ func (h *CollectionHandler) GetVectorMetricsSummary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": summary})
+}
+
+//nolint:dupl // Request bind + service call pattern mirrors other create-style handlers.
+func (h *CollectionHandler) NotifyAlertChannels(c *gin.Context) {
+	var req NotifyAlertChannelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		logrus.WithError(err).Warn("invalid notify alert channels request")
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": err.Error()})
+		return
+	}
+	resp, err := h.service.NotifyAlertChannels(c.Request.Context(), &req)
+	if err != nil {
+		h.respondServiceError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": resp})
 }

@@ -121,3 +121,75 @@ func (s *Service) GetVectorMetricsSummary(ctx context.Context) (*MetricsSummary,
 		EnabledRules:     enabled,
 	}, nil
 }
+
+func (s *Service) NotifyAlertChannels(ctx context.Context, req *NotifyAlertChannelsRequest) (*NotifyAlertChannelsResponse, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository is required")
+	}
+	if req == nil {
+		return nil, fmt.Errorf("request is required")
+	}
+	ruleName := strings.TrimSpace(req.RuleName)
+	if ruleName == "" {
+		return nil, fmt.Errorf("rule_name is required")
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		return nil, fmt.Errorf("message is required")
+	}
+	channels := normalizeAlertChannels(req.Channels)
+	if len(channels) == 0 {
+		return nil, fmt.Errorf("channels is required")
+	}
+	operator := strings.TrimSpace(req.Operator)
+	if operator == "" {
+		operator = "system"
+	}
+
+	sent := 0
+	for _, channel := range channels {
+		details := fmt.Sprintf("rule=%s channel=%s message=%s", ruleName, channel, message)
+		audit := &AuditLog{
+			UserID:       operator,
+			Action:       "alert_notify",
+			ResourceType: "alert_rule",
+			ResourceID:   ruleName,
+			Details:      details,
+		}
+		if err := s.repo.CreateAuditLog(ctx, audit); err != nil {
+			return nil, err
+		}
+		sent++
+	}
+
+	return &NotifyAlertChannelsResponse{
+		RuleName: ruleName,
+		Channels: channels,
+		Total:    len(channels),
+		Sent:     sent,
+		Failed:   len(channels) - sent,
+	}, nil
+}
+
+func normalizeAlertChannels(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+	normalized := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		channel := strings.ToLower(strings.TrimSpace(item))
+		if channel == "" {
+			continue
+		}
+		if channel != "webhook" && channel != "email" && channel != "console" {
+			continue
+		}
+		if _, ok := seen[channel]; ok {
+			continue
+		}
+		seen[channel] = struct{}{}
+		normalized = append(normalized, channel)
+	}
+	return normalized
+}
