@@ -100,78 +100,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '缓存管理', icon: 'Box' }
       },
       {
-        path: '/vector-db/collections',
-        name: 'VectorDBCollections',
-        component: () => import('@/views/vector-db/collections/index.vue'),
-        meta: { title: '向量集合', icon: 'Collection' }
-      },
-      {
-        path: '/vector-db/search',
-        name: 'VectorDBSearch',
-        component: () => import('@/views/vector-db/search/index.vue'),
-        meta: { title: '向量检索', icon: 'Search' }
-      },
-      {
-        path: '/vector-db/import',
-        name: 'VectorDBImport',
-        component: () => import('@/views/vector-db/import/index.vue'),
-        meta: { title: '向量导入', icon: 'Upload' }
-      },
-      {
-        path: '/vector-db/monitoring',
-        name: 'VectorDBMonitoring',
-        component: () => import('@/views/vector-db/monitoring/index.vue'),
-        meta: { title: '向量监控', icon: 'DataLine' }
-      },
-      {
-        path: '/vector-db/monitoring/alerts',
-        name: 'VectorDBMonitoringAlerts',
-        component: () => import('@/views/vector-db/monitoring/alerts.vue'),
-        meta: { title: '向量告警', icon: 'Bell' }
-      },
-      {
-        path: '/vector-db/permissions',
-        name: 'VectorDBPermissions',
-        component: () => import('@/views/vector-db/permissions/index.vue'),
-        meta: { title: '向量权限', icon: 'Key' }
-      },
-      {
-        path: '/vector-db/backup',
-        name: 'VectorDBBackup',
-        component: () => import('@/views/vector-db/backup/index.vue'),
-        meta: { title: '备份恢复', icon: 'Folder' }
-      },
-      {
-        path: '/vector-db/audit',
-        name: 'VectorDBAudit',
-        component: () => import('@/views/vector-db/audit/index.vue'),
-        meta: { title: '向量审计', icon: 'Tickets' }
-      },
-      {
-        path: '/vector-db/visualization',
-        name: 'VectorDBVisualization',
-        component: () => import('@/views/vector-db/visualization/index.vue'),
-        meta: { title: '向量可视化', icon: 'DataAnalysis' }
-      },
-      {
-        path: '/knowledge/documents',
-        name: 'KnowledgeDocuments',
-        component: () => import('@/views/knowledge/documents/index.vue'),
-        meta: { title: '知识库文档', icon: 'Document' }
-      },
-      {
-        path: '/knowledge/chat',
-        name: 'KnowledgeChat',
-        component: () => import('@/views/knowledge/chat/index.vue'),
-        meta: { title: '知识库问答', icon: 'ChatDotRound' }
-      },
-      {
-        path: '/knowledge/config',
-        name: 'KnowledgeConfig',
-        component: () => import('@/views/knowledge/config/index.vue'),
-        meta: { title: '知识库配置', icon: 'Setting' }
-      },
-      {
         path: '/alerts',
         name: 'Alerts',
         component: () => import('@/views/alerts/index.vue'),
@@ -230,6 +158,92 @@ const routes: RouteRecordRaw[] = [
         name: 'Settings',
         component: () => import('@/views/settings/index.vue'),
         meta: { title: '系统设置', icon: 'Setting' }
+      }
+    ]
+  },
+  {
+    path: '/vector-db',
+    component: () => import('@/components/Layout/VectorDBLayout.vue'),
+    redirect: '/vector-db/collections',
+    children: [
+      {
+        path: 'collections',
+        name: 'VectorDBCollections',
+        component: () => import('@/views/vector-db/collections/index.vue'),
+        meta: { title: '向量集合', icon: 'Collection' }
+      },
+      {
+        path: 'search',
+        name: 'VectorDBSearch',
+        component: () => import('@/views/vector-db/search/index.vue'),
+        meta: { title: '向量检索', icon: 'Search' }
+      },
+      {
+        path: 'import',
+        name: 'VectorDBImport',
+        component: () => import('@/views/vector-db/import/index.vue'),
+        meta: { title: '向量导入', icon: 'Upload' }
+      },
+      {
+        path: 'monitoring',
+        name: 'VectorDBMonitoring',
+        component: () => import('@/views/vector-db/monitoring/index.vue'),
+        meta: { title: '向量监控', icon: 'DataLine' }
+      },
+      {
+        path: 'monitoring/alerts',
+        name: 'VectorDBMonitoringAlerts',
+        component: () => import('@/views/vector-db/monitoring/alerts.vue'),
+        meta: { title: '向量告警', icon: 'Bell' }
+      },
+      {
+        path: 'permissions',
+        name: 'VectorDBPermissions',
+        component: () => import('@/views/vector-db/permissions/index.vue'),
+        meta: { title: '向量权限', icon: 'Key' }
+      },
+      {
+        path: 'backup',
+        name: 'VectorDBBackup',
+        component: () => import('@/views/vector-db/backup/index.vue'),
+        meta: { title: '备份恢复', icon: 'Folder' }
+      },
+      {
+        path: 'audit',
+        name: 'VectorDBAudit',
+        component: () => import('@/views/vector-db/audit/index.vue'),
+        meta: { title: '向量审计', icon: 'Tickets' }
+      },
+      {
+        path: 'visualization',
+        name: 'VectorDBVisualization',
+        component: () => import('@/views/vector-db/visualization/index.vue'),
+        meta: { title: '向量可视化', icon: 'DataAnalysis' }
+      }
+    ]
+  },
+  {
+    path: '/knowledge',
+    component: () => import('@/components/Layout/KnowledgeLayout.vue'),
+    redirect: '/knowledge/documents',
+    children: [
+      {
+        path: 'documents',
+        name: 'KnowledgeDocuments',
+        component: () => import('@/views/knowledge/documents/index.vue'),
+        meta: { title: '知识库文档', icon: 'Document' }
+      },
+      {
+        path: 'chat',
+        name: 'KnowledgeChat',
+        component: () => import('@/views/knowledge/chat/index.vue'),
+        meta: { title: '知识库问答', icon: 'ChatDotRound' }
+      },
+      {
+        path: 'config',
+        name: 'KnowledgeConfig',
+        component: () => import('@/views/knowledge/config/index.vue'),
+        meta: { title: '知识库配置', icon: 'Setting' }
       }
     ]
   },

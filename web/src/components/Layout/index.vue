@@ -73,6 +73,22 @@
             </router-link>
           </el-tooltip>
 
+          <!-- 向量管理 -->
+          <el-tooltip content="向量管理控制台" placement="bottom">
+            <a :href="vectorDBConsoleURL" class="docs-btn">
+              <el-icon :size="18"><DataAnalysis /></el-icon>
+              <span class="docs-text">向量管理</span>
+            </a>
+          </el-tooltip>
+
+          <!-- 知识库 -->
+          <el-tooltip content="知识库控制台" placement="bottom">
+            <a :href="knowledgeConsoleURL" class="docs-btn">
+              <el-icon :size="18"><Document /></el-icon>
+              <span class="docs-text">知识库</span>
+            </a>
+          </el-tooltip>
+
           <!-- GitHub 仓库 -->
           <el-tooltip content="GitHub 仓库" placement="bottom">
             <a href="https://github.com/wenkezhi8/ai-gateway" target="_blank" class="github-btn">
@@ -204,6 +220,8 @@ const wechatQrLoadError = ref(false)
 const wechatQrSrc = '/logos/wechat-group-qr.png'
 const dashboardRoute = DASHBOARD_ROUTE
 const docsRoute = DOCS_ROUTE
+const vectorDBConsoleURL = '/vector-db'
+const knowledgeConsoleURL = '/knowledge'
 
 const menuItems = [
   { path: DASHBOARD_ROUTE, title: '监控仪表盘', icon: 'Monitor' },
@@ -216,17 +234,6 @@ const menuItems = [
   { path: '/trace', title: '请求链路追踪', icon: 'Share' },
   { path: '/routing', title: '路由策略', icon: 'Guide' },
   { path: '/cache', title: '缓存管理', icon: 'Box' },
-  { path: '/vector-db/collections', title: '向量集合', icon: 'Collection' },
-  { path: '/vector-db/search', title: '向量检索', icon: 'Search' },
-  { path: '/vector-db/import', title: '向量导入', icon: 'Upload' },
-  { path: '/vector-db/monitoring', title: '向量监控', icon: 'DataLine' },
-  { path: '/vector-db/permissions', title: '向量权限', icon: 'Key' },
-  { path: '/vector-db/backup', title: '备份恢复', icon: 'Folder' },
-  { path: '/vector-db/audit', title: '向量审计', icon: 'Tickets' },
-  { path: '/vector-db/visualization', title: '向量可视化', icon: 'DataAnalysis' },
-  { path: '/knowledge/documents', title: '知识库文档', icon: 'Document' },
-  { path: '/knowledge/chat', title: '知识库问答', icon: 'ChatDotRound' },
-  { path: '/knowledge/config', title: '知识库配置', icon: 'Setting' },
   { path: '/alerts', title: '告警管理', icon: 'Bell' },
   { path: '/settings', title: '系统设置', icon: 'Setting' }
 ]
