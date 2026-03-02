@@ -321,6 +321,45 @@ func TestVectorDBService_RetryImportJob_WhenExceeded_ShouldFail(t *testing.T) {
 	}
 }
 
+func TestVectorDBService_CancelImportJob_ShouldTransitToCancelled(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{importJobs: map[string]*ImportJob{
+		"job_1": {
+			ID:         "job_1",
+			Status:     ImportJobStatusRunning,
+			RetryCount: 0,
+			MaxRetries: 3,
+		},
+	}}
+
+	svc := NewServiceWithDeps(repo, &mockBackend{})
+	job, err := svc.CancelImportJob(context.Background(), "job_1")
+	if err != nil {
+		t.Fatalf("CancelImportJob() error = %v", err)
+	}
+	if job.Status != ImportJobStatusCanceled {
+		t.Fatalf("CancelImportJob() status=%s, want %s", job.Status, ImportJobStatusCanceled)
+	}
+}
+
+func TestVectorDBService_CancelImportJob_WhenCompleted_ShouldFail(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{importJobs: map[string]*ImportJob{
+		"job_1": {
+			ID:     "job_1",
+			Status: ImportJobStatusCompleted,
+		},
+	}}
+
+	svc := NewServiceWithDeps(repo, &mockBackend{})
+	_, err := svc.CancelImportJob(context.Background(), "job_1")
+	if err == nil {
+		t.Fatal("CancelImportJob() should fail for completed job")
+	}
+}
+
 func TestCollectionHandler_ImportJobsRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -426,6 +465,37 @@ func TestCollectionHandler_ImportJobsRoutes(t *testing.T) {
 	r.ServeHTTP(retryW, retryReq)
 	if retryW.Code != http.StatusOK {
 		t.Fatalf("POST retry status = %d, want %d", retryW.Code, http.StatusOK)
+	}
+
+	cancelReq := httptest.NewRequest(http.MethodPost, "/api/admin/vector-db/import-jobs/"+jobID+"/cancel", http.NoBody)
+	cancelW := httptest.NewRecorder()
+	r.ServeHTTP(cancelW, cancelReq)
+	if cancelW.Code != http.StatusBadRequest {
+		t.Fatalf("POST cancel status = %d, want %d", cancelW.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCollectionHandler_CancelImportJobRoute_ShouldReturn200(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	repo := &mockRepo{importJobs: map[string]*ImportJob{
+		"job_1": {
+			ID:     "job_1",
+			Status: ImportJobStatusRunning,
+		},
+	}}
+	h := NewCollectionHandler(NewServiceWithDeps(repo, &mockBackend{}))
+
+	group := r.Group("/api/admin")
+	RegisterImportJobRoutes(group, h)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/vector-db/import-jobs/job_1/cancel", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("POST cancel status = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 

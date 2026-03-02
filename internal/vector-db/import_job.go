@@ -250,6 +250,33 @@ func (s *Service) RetryImportJob(ctx context.Context, id string) (*ImportJob, er
 	return s.RunImportJob(ctx, jobID)
 }
 
+func (s *Service) CancelImportJob(ctx context.Context, id string) (*ImportJob, error) {
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository is required")
+	}
+	jobID := strings.TrimSpace(id)
+	if jobID == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+
+	job, err := s.repo.GetImportJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	if job.Status != ImportJobStatusPending && job.Status != ImportJobStatusRunning && job.Status != ImportJobStatusRetrying {
+		return nil, fmt.Errorf("cancel is only allowed for pending, running or retrying jobs")
+	}
+
+	now := time.Now().UTC()
+	status := UpdateImportJobStatusRequest{Status: ImportJobStatusCanceled, CompletedAt: &now}
+	if err := s.repo.UpdateImportJobStatus(ctx, jobID, &status); err != nil {
+		return nil, err
+	}
+
+	return s.repo.GetImportJob(ctx, jobID)
+}
+
 func (s *Service) RetryFailedImportJobs(ctx context.Context, limit int) ([]ImportJob, error) {
 	if s.repo == nil {
 		return nil, fmt.Errorf("repository is required")

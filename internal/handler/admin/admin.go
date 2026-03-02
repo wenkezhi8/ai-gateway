@@ -334,6 +334,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	vectorDBImportJobsGroup.PUT("/:id/status", handlers.VectorDB.UpdateImportJobStatus)
 	vectorDBImportJobsGroup.POST("/:id/run", handlers.VectorDB.RunImportJob)
 	vectorDBImportJobsGroup.POST("/:id/retry", handlers.VectorDB.RetryImportJob)
+	vectorDBImportJobsGroup.POST("/:id/cancel", handlers.VectorDB.CancelImportJob)
 	vectorDBImportJobsGroup.POST("/retry-failed", handlers.VectorDB.RetryFailedImportJobs)
 	vectorDBImportJobsGroup.GET("/:id/errors", handlers.VectorDB.GetImportJobErrors)
 

@@ -203,8 +203,8 @@ func (e *vectorTierValidationError) Error() string {
 	return e.message
 }
 
-// ClearCache clears all caches
-// DELETE /api/admin/cache
+// ClearCache clears all caches.
+// DELETE /api/admin/cache.
 func (h *CacheHandler) ClearCache(c *gin.Context) {
 	cacheType := c.Query("type") // request, context, route, usage, response, all
 
@@ -454,7 +454,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 		ColdVectorQdrantCollection:    req.ColdVectorQdrantCollection,
 		ColdVectorQdrantTimeoutMs:     req.ColdVectorQdrantTimeoutMs,
 	}
-	if err := h.applyVectorTierConfigToSettings(&settings, tierReq); err != nil {
+	if err := h.applyVectorTierConfigToSettings(&settings, &tierReq); err != nil {
 		code := "invalid_vector_tier_config"
 		message := err.Error()
 		if vErr, ok := err.(*vectorTierValidationError); ok {
@@ -484,7 +484,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 
 	// Apply base cache settings
 	h.manager.UpdateSettings(settings)
-	h.applyTieredStoreRuntimeSettings(settings)
+	h.applyTieredStoreRuntimeSettings(&settings)
 
 	// Optional per-cache TTL overrides
 	if req.RequestTTL != nil && h.manager.RequestCache != nil {
@@ -520,7 +520,7 @@ func (h *CacheHandler) UpdateCacheConfig(c *gin.Context) {
 }
 
 // GetVectorTierConfig returns vector hot/cold tier configuration.
-// GET /api/admin/router/vector/tier/config
+// GET /api/admin/router/vector/tier/config.
 func (h *CacheHandler) GetVectorTierConfig(c *gin.Context) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -528,12 +528,12 @@ func (h *CacheHandler) GetVectorTierConfig(c *gin.Context) {
 	settings := h.manager.GetSettings()
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    h.buildVectorTierConfigResponse(settings),
+		"data":    h.buildVectorTierConfigResponse(&settings),
 	})
 }
 
 // UpdateVectorTierConfig updates vector hot/cold tier configuration.
-// PUT /api/admin/router/vector/tier/config
+// PUT /api/admin/router/vector/tier/config.
 func (h *CacheHandler) UpdateVectorTierConfig(c *gin.Context) {
 	var req VectorTierConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -551,7 +551,7 @@ func (h *CacheHandler) UpdateVectorTierConfig(c *gin.Context) {
 	defer h.mu.Unlock()
 
 	settings := h.manager.GetSettings()
-	if err := h.applyVectorTierConfigToSettings(&settings, req); err != nil {
+	if err := h.applyVectorTierConfigToSettings(&settings, &req); err != nil {
 		code := "invalid_vector_tier_config"
 		message := err.Error()
 		if vErr, ok := err.(*vectorTierValidationError); ok {
@@ -569,7 +569,7 @@ func (h *CacheHandler) UpdateVectorTierConfig(c *gin.Context) {
 	}
 
 	h.manager.UpdateSettings(settings)
-	h.applyTieredStoreRuntimeSettings(settings)
+	h.applyTieredStoreRuntimeSettings(&settings)
 	if err := persistVectorCacheSettings(&settings); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -585,11 +585,14 @@ func (h *CacheHandler) UpdateVectorTierConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    h.buildVectorTierConfigResponse(settings),
+		"data":    h.buildVectorTierConfigResponse(&settings),
 	})
 }
 
-func (h *CacheHandler) buildVectorTierConfigResponse(settings cache.CacheSettings) gin.H {
+func (h *CacheHandler) buildVectorTierConfigResponse(settings *cache.CacheSettings) gin.H {
+	if settings == nil {
+		return gin.H{}
+	}
 	return gin.H{
 		"cold_vector_enabled":               settings.ColdVectorEnabled,
 		"cold_vector_query_enabled":         settings.ColdVectorQueryEnabled,
@@ -608,12 +611,16 @@ func (h *CacheHandler) buildVectorTierConfigResponse(settings cache.CacheSetting
 	}
 }
 
-func (h *CacheHandler) applyVectorTierConfigToSettings(settings *cache.CacheSettings, req VectorTierConfigRequest) error {
+//nolint:gocyclo // Vector tier request has many optional fields requiring explicit bounded updates.
+func (h *CacheHandler) applyVectorTierConfigToSettings(settings *cache.CacheSettings, req *VectorTierConfigRequest) error {
 	if settings == nil {
 		return &vectorTierValidationError{
 			code:    "invalid_settings",
 			message: "cache settings is nil",
 		}
+	}
+	if req == nil {
+		return &vectorTierValidationError{code: "invalid_request", message: "request is nil"}
 	}
 
 	if req.ColdVectorEnabled != nil {
@@ -699,9 +706,12 @@ func (h *CacheHandler) applyVectorTierConfigToSettings(settings *cache.CacheSett
 	return nil
 }
 
-func (h *CacheHandler) applyTieredStoreRuntimeSettings(settings cache.CacheSettings) {
+func (h *CacheHandler) applyTieredStoreRuntimeSettings(settings *cache.CacheSettings) {
+	if settings == nil {
+		return
+	}
 	if tiered := h.manager.GetTieredVectorStore(); tiered != nil {
-		tiered.UpdateConfig(cache.TieredConfigFromSettings(settings))
+		tiered.UpdateConfig(cache.TieredConfigFromSettings(*settings))
 		qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
 			URL:        settings.ColdVectorQdrantURL,
 			APIKey:     settings.ColdVectorQdrantAPIKey,
@@ -714,7 +724,7 @@ func (h *CacheHandler) applyTieredStoreRuntimeSettings(settings cache.CacheSetti
 }
 
 // GetVectorTierStats returns hot/cold tier runtime stats.
-// GET /api/admin/router/vector/tier/stats
+// GET /api/admin/router/vector/tier/stats.
 func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -759,7 +769,7 @@ func respondVectorStoreStatsSuccess(c *gin.Context, stats any) {
 }
 
 // TriggerVectorTierMigrate triggers one hot->cold migration round.
-// POST /api/admin/router/vector/tier/migrate
+// POST /api/admin/router/vector/tier/migrate.
 func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {
@@ -792,7 +802,7 @@ func (h *CacheHandler) TriggerVectorTierMigrate(c *gin.Context) {
 }
 
 // PromoteVectorTierEntry promotes one cold cache document back into hot tier.
-// POST /api/admin/router/vector/tier/promote
+// POST /api/admin/router/vector/tier/promote.
 func (h *CacheHandler) PromoteVectorTierEntry(c *gin.Context) {
 	store := h.manager.GetTieredVectorStore()
 	if store == nil {

@@ -444,6 +444,7 @@ func main() {
 - 集合管理：`/api/admin/vector-db/collections`
   - 清空集合：`POST /api/admin/vector-db/collections/:name/empty`
 - 导入任务：`/api/admin/vector-db/import-jobs`
+  - 取消任务：`POST /api/admin/vector-db/import-jobs/:id/cancel`
 - 审计查询：`GET /api/admin/vector-db/audit/logs`
 - 监控汇总：`GET /api/admin/vector-db/metrics/summary`
 - 告警规则：`/api/admin/vector-db/alerts/rules`

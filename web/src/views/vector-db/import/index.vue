@@ -12,6 +12,23 @@
 
     <el-card shadow="never">
       <template #header>
+        <span>导入器</span>
+      </template>
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="JSON 导入" name="json">
+          <JsonImporter :collections="collections" :submitting="creating" @create="onCreateJob" />
+        </el-tab-pane>
+        <el-tab-pane label="CSV 导入" name="csv">
+          <CsvImporter :collections="collections" :submitting="creating" @create="onCreateJob" />
+        </el-tab-pane>
+        <el-tab-pane label="PDF 导入" name="pdf">
+          <PdfImporter :collections="collections" :submitting="creating" @create="onCreateJob" />
+        </el-tab-pane>
+      </el-tabs>
+    </el-card>
+
+    <el-card shadow="never">
+      <template #header>
         <div class="header-row">
           <span>最近导入任务</span>
           <el-button :loading="loading" @click="loadJobs">刷新</el-button>
@@ -37,6 +54,19 @@
         <el-table-column label="进度" width="140">
           <template #default="{ row }">{{ row.processed_records }}/{{ row.total_records }}</template>
         </el-table-column>
+        <el-table-column label="操作" width="120">
+          <template #default="{ row }">
+            <el-button
+              v-if="canCancel(row.status)"
+              link
+              type="danger"
+              :loading="cancelingId === row.id"
+              @click="onCancelJob(row.id)"
+            >
+              取消
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
@@ -45,12 +75,28 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listImportJobs, type ImportJob } from '@/api/vector-db-domain'
+import { ElMessage } from 'element-plus'
+import {
+  cancelImportJob,
+  createImportJob,
+  listImportJobs,
+  listVectorCollections,
+  type CreateImportJobPayload,
+  type ImportJob,
+  type ImportJobStatus
+} from '@/api/vector-db-domain'
+import JsonImporter from './JsonImporter.vue'
+import CsvImporter from './CsvImporter.vue'
+import PdfImporter from './PdfImporter.vue'
 
 const router = useRouter()
 const loading = ref(false)
 const error = ref(false)
 const jobs = ref<ImportJob[]>([])
+const collections = ref<string[]>([])
+const activeTab = ref('json')
+const creating = ref(false)
+const cancelingId = ref('')
 
 async function loadJobs() {
   loading.value = true
@@ -65,10 +111,50 @@ async function loadJobs() {
   }
 }
 
+async function loadCollections() {
+  try {
+    const data = await listVectorCollections({ limit: 200 })
+    collections.value = (data.collections || []).map((item) => item.name)
+  } catch {
+    collections.value = []
+  }
+}
+
+function canCancel(status: ImportJobStatus) {
+  return status === 'pending' || status === 'running' || status === 'retrying'
+}
+
+async function onCreateJob(payload: CreateImportJobPayload) {
+  if (!payload.collection_name || !payload.file_name || !payload.file_path) {
+    ElMessage.warning('请先补全导入参数')
+    return
+  }
+  creating.value = true
+  try {
+    await createImportJob(payload)
+    ElMessage.success('导入任务已创建')
+    await loadJobs()
+  } finally {
+    creating.value = false
+  }
+}
+
+async function onCancelJob(id: string) {
+  cancelingId.value = id
+  try {
+    await cancelImportJob(id)
+    ElMessage.success('导入任务已取消')
+    await loadJobs()
+  } finally {
+    cancelingId.value = ''
+  }
+}
+
 function goToCollections() {
   void router.push('/vector-db/collections')
 }
 
+void loadCollections()
 void loadJobs()
 </script>
 

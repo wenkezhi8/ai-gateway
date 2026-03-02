@@ -124,6 +124,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '向量监控', icon: 'DataLine' }
       },
       {
+        path: '/vector-db/monitoring/alerts',
+        name: 'VectorDBMonitoringAlerts',
+        component: () => import('@/views/vector-db/monitoring/alerts.vue'),
+        meta: { title: '向量告警', icon: 'Bell' }
+      },
+      {
         path: '/vector-db/permissions',
         name: 'VectorDBPermissions',
         component: () => import('@/views/vector-db/permissions/index.vue'),
