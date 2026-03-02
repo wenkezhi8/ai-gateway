@@ -59,3 +59,58 @@ cd web && npm run test:unit
 - `/ollama` 三个 Tab 功能可用，文案与结构与需求一致。
 - `/routing` 不再承载 Ollama、双模型、向量管理 UI。
 - 前端 typecheck/build/unit tests 全通过。
+
+## 执行回填（已完成）
+
+### 交付状态
+
+- 状态：已完成
+- 完成时间：2026-03-03
+- 关联提交：`9a4f24c9`
+
+### 已完成项对照
+
+1. 新建 `useOllamaConsole`，承接 Ollama/意图路由/向量管理状态与动作。已完成。
+2. 新建 `web/src/views/ollama/components/` 下四个组件：`TabStateView.vue`、`OllamaServiceTab.vue`、`IntentRoutingTab.vue`、`VectorManagementTab.vue`。已完成。
+3. 重写 `web/src/views/ollama/index.vue` 为三 Tab 控制台（`Ollama`、`意图路由`、`向量管理`）。已完成。
+4. 精简 `web/src/views/routing/index.vue`，去除模型管理与向量管理 Tab。已完成。
+5. 删除 `web/src/views/routing/components/` 中旧的 Ollama/双模型/向量组件。已完成。
+6. 更新并迁移前端单测，覆盖新页面结构与关键文案。已完成。
+
+### 关键文件
+
+- 新增：
+  - `web/src/views/ollama/composables/useOllamaConsole.ts`
+  - `web/src/views/ollama/components/TabStateView.vue`
+  - `web/src/views/ollama/components/OllamaServiceTab.vue`
+  - `web/src/views/ollama/components/IntentRoutingTab.vue`
+  - `web/src/views/ollama/components/VectorManagementTab.vue`
+  - `web/src/views/ollama/intent-routing-config.test.ts`
+  - `web/src/views/ollama/ollama-stop-button.test.ts`
+  - `web/src/views/ollama/ollama-running-model.test.ts`
+  - `web/src/views/ollama/vector-scope.test.ts`
+- 修改：
+  - `web/src/views/ollama/index.vue`
+  - `web/src/views/ollama/index.test.ts`
+  - `web/src/views/routing/index.vue`
+  - `web/src/views/routing/composables/useRoutingConsole.ts`
+  - `web/src/api/routing-domain.ts`
+  - `web/src/views/routing/routing-tabs-layout.test.ts`
+- 删除：
+  - `web/src/views/routing/components/OllamaTab.vue`
+  - `web/src/views/routing/components/ModelManagementTab.vue`
+  - `web/src/views/routing/components/VectorManagementTab.vue`
+  - `web/src/views/routing/routing-dual-model-management.test.ts`
+  - `web/src/views/routing/routing-vector-scope.test.ts`
+
+### 验证记录
+
+执行命令：
+
+```bash
+cd web && npm run typecheck
+cd web && npm run build
+cd web && npm run test:unit
+```
+
+结果：全部通过（`60` files / `172` tests）。
