@@ -35,6 +35,16 @@
     </el-card>
 
     <el-card shadow="never" class="content-card">
+      <template #header>
+        <div class="section-header">
+          <span>Collection 规模趋势（ECharts）</span>
+          <span class="chart-meta">总集合 {{ vectorDbStore.collectionCount }} / 总向量 {{ formatNumber(vectorDbStore.totalVectors) }}</span>
+        </div>
+      </template>
+      <div ref="collectionTrendChartRef" class="collection-trend-chart" />
+    </el-card>
+
+    <el-card shadow="never" class="content-card">
       <template v-if="loading">
         <el-skeleton :rows="6" animated />
       </template>
@@ -331,9 +341,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import IndexSettingsDialog from './IndexSettingsDialog.vue'
+import { useVectorDbStore } from '@/store/domain/vector-db'
 import {
   createImportJob,
   createVectorCollection,
@@ -411,6 +423,10 @@ const filters = reactive({
   status: ''
 })
 
+const vectorDbStore = useVectorDbStore()
+const collectionTrendChartRef = ref<HTMLDivElement | null>(null)
+let collectionTrendChart: echarts.ECharts | null = null
+
 const dialogVisible = ref(false)
 const editing = ref(false)
 const editingName = ref('')
@@ -481,11 +497,39 @@ async function loadCollections() {
       status: filters.status || undefined
     })
     collections.value = data.collections || []
+    vectorDbStore.setCollections(collections.value)
+    await nextTick()
+    renderCollectionTrendChart()
   } catch {
     error.value = true
   } finally {
     loading.value = false
   }
+}
+
+function renderCollectionTrendChart() {
+  if (!collectionTrendChartRef.value) {
+    return
+  }
+  if (!collectionTrendChart) {
+    collectionTrendChart = echarts.init(collectionTrendChartRef.value)
+  }
+  const topItems = [...collections.value].sort((a, b) => (b.vector_count || 0) - (a.vector_count || 0)).slice(0, 8)
+  collectionTrendChart.setOption({
+    tooltip: { trigger: 'axis' },
+    xAxis: {
+      type: 'category',
+      data: topItems.map((item) => item.name)
+    },
+    yAxis: { type: 'value' },
+    series: [
+      {
+        type: 'bar',
+        data: topItems.map((item) => item.vector_count || 0),
+        itemStyle: { color: '#409eff' }
+      }
+    ]
+  })
 }
 
 async function loadImportJobs() {
@@ -837,8 +881,21 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value || 0)
 }
 
-void loadCollections()
-void loadImportJobs()
+onMounted(() => {
+  void loadCollections()
+  void loadImportJobs()
+  window.addEventListener('resize', resizeCollectionTrendChart)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', resizeCollectionTrendChart)
+  collectionTrendChart?.dispose()
+  collectionTrendChart = null
+})
+
+function resizeCollectionTrendChart() {
+  collectionTrendChart?.resize()
+}
 </script>
 
 <style scoped>
@@ -886,6 +943,16 @@ void loadImportJobs()
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.chart-meta {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.collection-trend-chart {
+  width: 100%;
+  height: 280px;
 }
 
 .section-actions {

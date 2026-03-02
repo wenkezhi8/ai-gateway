@@ -2,6 +2,7 @@ package vectordb
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -88,5 +89,40 @@ func TestRBACService_CheckPermission_WhenKeyDisabled_ShouldDeny(t *testing.T) {
 	}
 	if allowed {
 		t.Fatal("CheckPermission() = true, want false")
+	}
+}
+
+func TestRBACService_ListAndDeleteAPIKeys_ShouldWork(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{vectorAPIKeys: map[string]*VectorAPIKey{}}
+	now := time.Now().UTC()
+	hash := hashAPIKey("list-delete-key")
+	repo.vectorAPIKeys[hash] = &VectorAPIKey{ID: 7, KeyHash: hash, Role: "reader", Enabled: true, CreatedAt: now, UpdatedAt: now}
+
+	service := NewRBACService(repo)
+	items, err := service.ListAPIKeys(context.Background())
+	if err != nil {
+		t.Fatalf("ListAPIKeys() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("ListAPIKeys() len=%d, want 1", len(items))
+	}
+
+	if err := service.DeleteAPIKey(context.Background(), 7); err != nil {
+		t.Fatalf("DeleteAPIKey() error = %v", err)
+	}
+	if err := service.DeleteAPIKey(context.Background(), 7); !errors.Is(err, ErrVectorAPIKeyNotFound) {
+		t.Fatalf("DeleteAPIKey() err=%v, want ErrVectorAPIKeyNotFound", err)
+	}
+}
+
+func TestRBACService_DeleteAPIKey_WhenIDInvalid_ShouldFail(t *testing.T) {
+	t.Parallel()
+
+	service := NewRBACService(&mockRepo{})
+	err := service.DeleteAPIKey(context.Background(), 0)
+	if err == nil {
+		t.Fatal("DeleteAPIKey() should fail for non-positive id")
 	}
 }

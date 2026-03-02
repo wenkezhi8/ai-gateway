@@ -124,6 +124,34 @@ func TestVectorDBService_SearchVectors_WhenBackendSuccess_ShouldReturnResults(t 
 	}
 }
 
+func TestVectorDBService_SearchVectors_WhenFiltersProvided_ShouldFilterByPayload(t *testing.T) {
+	t.Parallel()
+
+	backend := &mockSearchBackend{
+		searchResp: []SearchResult{
+			{ID: "vec-1", Score: 0.91, Payload: map[string]any{"doc_type": "faq", "lang": "zh"}},
+			{ID: "vec-2", Score: 0.88, Payload: map[string]any{"doc_type": "guide", "lang": "en"}},
+		},
+	}
+	svc := NewServiceWithDeps(&mockRepo{}, backend)
+
+	resp, err := svc.SearchVectors(context.Background(), &SearchVectorsRequest{
+		CollectionName: "docs",
+		TopK:           5,
+		Vector:         []float32{0.1, 0.2, 0.3},
+		Filters:        map[string]any{"doc_type": "faq"},
+	})
+	if err != nil {
+		t.Fatalf("SearchVectors() error = %v", err)
+	}
+	if resp.Total != 1 {
+		t.Fatalf("SearchVectors() total=%d, want 1", resp.Total)
+	}
+	if resp.Results[0].ID != "vec-1" {
+		t.Fatalf("SearchVectors() first result id=%s, want vec-1", resp.Results[0].ID)
+	}
+}
+
 func TestVectorDBService_SearchVectors_WhenTextSearchProvided_ShouldEmbedAndSearch(t *testing.T) {
 	t.Parallel()
 
@@ -160,6 +188,24 @@ func TestVectorDBService_SearchVectors_WhenBackendError_ShouldWrap(t *testing.T)
 	}
 	if !strings.Contains(err.Error(), "search vectors failed") {
 		t.Fatalf("SearchVectors() err=%v, want wrapped context", err)
+	}
+}
+
+func TestVectorDBService_SearchVectors_WhenRepeatedRequest_ShouldHitCache(t *testing.T) {
+	t.Parallel()
+
+	backend := &mockSearchBackend{searchResp: []SearchResult{{ID: "vec-1", Score: 0.9}}}
+	svc := NewServiceWithDeps(&mockRepo{}, backend)
+	req := &SearchVectorsRequest{CollectionName: "docs", TopK: 3, Vector: []float32{0.1, 0.2}}
+
+	if _, err := svc.SearchVectors(context.Background(), req); err != nil {
+		t.Fatalf("first SearchVectors() error = %v", err)
+	}
+	if _, err := svc.SearchVectors(context.Background(), req); err != nil {
+		t.Fatalf("second SearchVectors() error = %v", err)
+	}
+	if backend.searchCalls != 1 {
+		t.Fatalf("backend.searchCalls=%d, want 1", backend.searchCalls)
 	}
 }
 

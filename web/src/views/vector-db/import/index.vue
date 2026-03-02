@@ -30,6 +30,29 @@
     <el-card shadow="never">
       <template #header>
         <div class="header-row">
+          <span>文件上传与字段映射</span>
+          <el-tag type="info">字段映射</el-tag>
+        </div>
+      </template>
+      <el-upload
+        drag
+        action="#"
+        :auto-upload="false"
+        :show-file-list="false"
+        :on-change="handleUploadChange"
+      >
+        <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽文件到此处，或 <em>点击上传</em></div>
+      </el-upload>
+      <el-table :data="fieldMappings" stripe style="margin-top: 12px">
+        <el-table-column prop="source" label="源字段" min-width="180" />
+        <el-table-column prop="target" label="目标字段" min-width="180" />
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never">
+      <template #header>
+        <div class="header-row">
           <span>最近导入任务</span>
           <el-button :loading="loading" @click="loadJobs">刷新</el-button>
         </div>
@@ -73,7 +96,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
+import { UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -97,6 +121,19 @@ const collections = ref<string[]>([])
 const activeTab = ref('json')
 const creating = ref(false)
 const cancelingId = ref('')
+const fieldMappings = reactive([
+  { source: 'text', target: 'content' },
+  { source: 'title', target: 'title' },
+  { source: 'tags', target: 'tags' }
+])
+
+function handleUploadChange(file: { name?: string }) {
+  const fileName = file.name || ''
+  if (!fileName) {
+    return
+  }
+  ElMessage.success(`已选择文件：${fileName}`)
+}
 
 async function loadJobs() {
   loading.value = true

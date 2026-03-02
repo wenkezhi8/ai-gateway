@@ -448,13 +448,14 @@ func main() {
 - 审计查询：`GET /api/admin/vector-db/audit/logs`
 - 监控汇总：`GET /api/admin/vector-db/metrics/summary`
 - 告警规则：`/api/admin/vector-db/alerts/rules`
+  - 多渠道通知联调：`POST /api/admin/vector-db/alerts/rules/notify-test`
 - 索引配置：`GET|PUT /api/admin/vector-db/index-config/:name`
 - 权限管理：`/api/admin/vector-db/permissions`
 - 备份恢复：`/api/admin/vector-db/backups`
   - 备份策略执行：`POST /api/admin/vector-db/backups/policy/run`
 - 可视化采样：`GET /api/admin/vector-db/visualization/scatter`
 
-说明：`POST /api/v1/vector/collections/:name/search` 现已支持 `text` 参数，服务端会将文本转换为向量后执行检索。
+说明：`POST /api/v1/vector/collections/:name/search` 现已支持 `text` 与 `filters` 参数，服务端会将文本转换为向量后执行检索，并按 payload 过滤结果。
 
 可视化示例请求：
 

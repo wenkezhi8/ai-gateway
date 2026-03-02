@@ -92,3 +92,26 @@ func TestMonitoringService_GetMetricsSummary_ShouldReturnAggregates(t *testing.T
 		t.Fatalf("GetVectorMetricsSummary() summary=%+v", summary)
 	}
 }
+
+func TestMonitoringService_NotifyAlertChannels_ShouldSupportMultiChannels(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{}
+	svc := NewServiceWithDeps(repo, &mockBackend{})
+
+	result, err := svc.NotifyAlertChannels(context.Background(), &NotifyAlertChannelsRequest{
+		RuleName: "high-latency",
+		Message:  "search_p95_ms exceeded",
+		Channels: []string{"webhook", "email", "console"},
+		Operator: "tester",
+	})
+	if err != nil {
+		t.Fatalf("NotifyAlertChannels() error = %v", err)
+	}
+	if result.Total != 3 || result.Sent != 3 {
+		t.Fatalf("NotifyAlertChannels() result=%+v", result)
+	}
+	if len(repo.auditLogs) != 3 {
+		t.Fatalf("NotifyAlertChannels() audit logs=%d, want 3", len(repo.auditLogs))
+	}
+}

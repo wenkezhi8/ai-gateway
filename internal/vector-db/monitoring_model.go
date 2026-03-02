@@ -41,3 +41,18 @@ type MetricsSummary struct {
 	AlertRulesTotal  int               `json:"alert_rules_total"`
 	EnabledRules     int               `json:"enabled_rules"`
 }
+
+type NotifyAlertChannelsRequest struct {
+	RuleName string   `json:"rule_name" binding:"required"`
+	Message  string   `json:"message" binding:"required"`
+	Channels []string `json:"channels" binding:"required"`
+	Operator string   `json:"operator"`
+}
+
+type NotifyAlertChannelsResponse struct {
+	RuleName string   `json:"rule_name"`
+	Channels []string `json:"channels"`
+	Total    int      `json:"total"`
+	Sent     int      `json:"sent"`
+	Failed   int      `json:"failed"`
+}
