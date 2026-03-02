@@ -1,7 +1,7 @@
-import { useRoutingConsole } from '@/views/routing/composables/useRoutingConsole'
+import { useOllamaConsoleCore } from './useOllamaConsoleCore'
 
 export function useOllamaConsole() {
-  const ctx = useRoutingConsole()
+  const ctx = useOllamaConsoleCore()
 
   async function reloadAllPanels() {
     await Promise.all([

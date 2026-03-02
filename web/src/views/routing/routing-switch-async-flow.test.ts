@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 describe('routing classifier async switch flow', () => {
   it('should use async switch domain api and friendly timeout message', () => {
-    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/ollama/composables/useOllamaConsoleCore.ts'), 'utf-8')
 
     expect(logicFile).toContain('switchClassifierModelAsync')
     expect(logicFile).toContain('getClassifierSwitchTask')

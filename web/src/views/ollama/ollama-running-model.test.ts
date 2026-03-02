@@ -5,7 +5,7 @@ import { join } from 'node:path'
 describe('ollama running model visibility', () => {
   it('shows running model details and polling controls', () => {
     const tabFile = readFileSync(join(process.cwd(), 'src/views/ollama/components/OllamaServiceTab.vue'), 'utf-8')
-    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/ollama/composables/useOllamaConsoleCore.ts'), 'utf-8')
 
     expect(tabFile).toContain('当前运行模型')
     expect(tabFile).toContain('运行中模型')

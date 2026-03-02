@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 describe('ollama vector scope', () => {
   it('contains vector model management and hot-cold tier controls', () => {
-    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/ollama/composables/useOllamaConsoleCore.ts'), 'utf-8')
     const tabFile = readFileSync(join(process.cwd(), 'src/views/ollama/components/VectorManagementTab.vue'), 'utf-8')
 
     expect(tabFile).toContain('向量模型管理')

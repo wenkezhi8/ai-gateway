@@ -5,7 +5,7 @@ import { join } from 'node:path'
 describe('ollama intent routing config', () => {
   it('contains classifier, task mapping and cascade sections', () => {
     const tabFile = readFileSync(join(process.cwd(), 'src/views/ollama/components/IntentRoutingTab.vue'), 'utf-8')
-    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/ollama/composables/useOllamaConsoleCore.ts'), 'utf-8')
     const constantsFile = readFileSync(join(process.cwd(), 'src/constants/routing.ts'), 'utf-8')
 
     expect(tabFile).toContain('意图模型配置')
