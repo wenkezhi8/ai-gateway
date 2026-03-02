@@ -9,6 +9,12 @@ describe('ollama intent routing config', () => {
     const constantsFile = readFileSync(join(process.cwd(), 'src/constants/routing.ts'), 'utf-8')
 
     expect(tabFile).toContain('意图模型配置')
+    expect(tabFile).toContain('切换模型')
+    expect(tabFile).toContain('启动模型')
+    expect(tabFile).toContain('@click="ctx.startClassifierModel"')
+    expect(tabFile).not.toContain('@click="ctx.startOllama"')
+    expect(tabFile).not.toContain('下载模型')
+    expect(tabFile).not.toContain('删除模型')
     expect(tabFile).toContain('任务类型模型映射')
     expect(tabFile).toContain('级联路由策略')
     expect(tabFile).toContain('v-for="task in ctx.taskTypes"')
@@ -23,6 +29,7 @@ describe('ollama intent routing config', () => {
 
     expect(logicFile).toContain('getOllamaDualModelConfig')
     expect(logicFile).toContain('updateOllamaDualModelConfig')
+    expect(logicFile).toContain('async function startClassifierModel()')
     expect(logicFile).toContain('createDefaultTaskModelMapping')
   })
 })

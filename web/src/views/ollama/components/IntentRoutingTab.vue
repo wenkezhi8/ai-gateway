@@ -147,6 +147,7 @@
           <div class="header-actions" style="margin-bottom: 12px">
             <el-button type="primary" :loading="ctx.classifierSaving" @click="ctx.saveClassifierConfig">保存分类器配置</el-button>
             <el-button :loading="ctx.classifierSwitching" @click="ctx.switchClassifierModel">切换模型</el-button>
+            <el-button type="warning" :loading="ctx.classifierSwitching" @click="ctx.startClassifierModel">启动模型</el-button>
             <el-button link @click="ctx.loadClassifierHealth">健康检查</el-button>
           </div>
 

@@ -17,13 +17,13 @@ describe('ollama running model visibility', () => {
     expect(logicFile).toContain('running_model_details')
   })
 
-  it('shows intent/vector switches at top and persists config', () => {
+  it('does not show removed intent/vector switches', () => {
     const tabFile = readFileSync(join(process.cwd(), 'src/views/ollama/components/OllamaServiceTab.vue'), 'utf-8')
 
-    expect(tabFile).toContain('启用意图分类器')
-    expect(tabFile).toContain('启用向量 Pipeline')
-    expect(tabFile).toContain('dualModelConfig.classifier_enabled')
-    expect(tabFile).toContain('dualModelConfig.vector_pipeline_enabled')
-    expect(tabFile).toContain('saveDualModelConfigData')
+    expect(tabFile).not.toContain('启用意图分类器')
+    expect(tabFile).not.toContain('启用向量 Pipeline')
+    expect(tabFile).not.toContain('dualModelConfig.classifier_enabled')
+    expect(tabFile).not.toContain('dualModelConfig.vector_pipeline_enabled')
+    expect(tabFile).not.toContain('saveDualModelConfigData')
   })
 })

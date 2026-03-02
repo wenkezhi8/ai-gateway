@@ -61,7 +61,6 @@ interface ModelOption {
 const classifierSwitchPollIntervalMs = 2000
 const classifierSwitchLoadingMessage = '正在加载模型，首次可能较慢（最多180秒）'
 const classifierSwitchTimeoutMessage = '模型加载超时，请继续等待Ollama完成加载后重试'
-const ollamaStatusPollIntervalMs = 8000
 
 type PanelKey = 'policy' | 'ollama' | 'models' | 'vector'
 
@@ -532,6 +531,42 @@ export function useOllamaConsoleCore() {
     }
   }
 
+  async function switchVectorModel(options: { silent?: boolean } = {}) {
+    const vectorModel = (dualModelConfig.vector_ollama_embedding_model || '').trim()
+    if (!vectorModel) {
+      handleApiError(new Error('请选择要切换的向量模型'), '切换向量模型失败')
+      return false
+    }
+
+    dualModelSaving.value = true
+    try {
+      await updateOllamaDualModelConfig({
+        vector_pipeline_enabled: dualModelConfig.vector_pipeline_enabled,
+        vector_ollama_base_url: dualModelConfig.vector_ollama_base_url,
+        vector_ollama_embedding_model: vectorModel,
+        vector_ollama_embedding_dimension: Number(dualModelConfig.vector_ollama_embedding_dimension || 1024),
+        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || 1500),
+        vector_ollama_endpoint_mode: dualModelConfig.vector_ollama_endpoint_mode,
+        vector_writeback_enabled: dualModelConfig.vector_writeback_enabled
+      })
+      dualModelConfig.vector_ollama_embedding_model = vectorModel
+      await Promise.all([
+        loadDualModelConfigData(),
+        loadVectorPipelineHealthData(),
+        loadVectorStatsData()
+      ])
+      if (!options.silent) {
+        handleSuccess('向量模型切换成功')
+      }
+      return true
+    } catch (e) {
+      handleApiError(e, '切换向量模型失败')
+      return false
+    } finally {
+      dualModelSaving.value = false
+    }
+  }
+
   async function loadOllamaSetupStatus() {
     ollamaRefreshing.value = true
     try {
@@ -579,6 +614,26 @@ export function useOllamaConsoleCore() {
       ollamaStarting.value = false
       await loadOllamaSetupStatus()
       await loadClassifierHealth()
+    }
+  }
+
+  async function startVectorModel() {
+    ollamaStarting.value = true
+    try {
+      const switched = await switchVectorModel({ silent: true })
+      if (!switched) return
+      await startOllamaApi()
+      handleSuccess('向量模型启动成功')
+    } catch (e) {
+      handleApiError(e, '启动向量模型失败')
+    } finally {
+      ollamaStarting.value = false
+      await Promise.all([
+        loadOllamaSetupStatus(),
+        loadClassifierHealth(),
+        loadVectorPipelineHealthData(),
+        loadVectorStatsData()
+      ])
     }
   }
 
@@ -679,6 +734,16 @@ export function useOllamaConsoleCore() {
     } finally {
       classifierSwitching.value = false
     }
+  }
+
+  async function startClassifierModel() {
+    const preferredModel = (classifierSwitchModel.value || dualModelConfig.classifier_active_model || classifierConfig.active_model || '').trim()
+    if (!preferredModel) {
+      handleApiError(new Error('请选择要启动的分类模型'), '启动分类模型失败')
+      return
+    }
+    classifierSwitchModel.value = preferredModel
+    await switchClassifierModel()
   }
 
   async function pollClassifierSwitchTask(taskId: string) {
@@ -1048,9 +1113,6 @@ export function useOllamaConsoleCore() {
   onMounted(async () => {
     switchPollingCancelled.value = false
     await reloadAllPanels()
-    if (!ollamaStatusPollTimer) {
-      ollamaStatusPollTimer = window.setInterval(loadOllamaSetupStatus, ollamaStatusPollIntervalMs)
-    }
   })
 
   onUnmounted(() => {
@@ -1058,14 +1120,9 @@ export function useOllamaConsoleCore() {
     if (autoSaveTimer) {
       window.clearTimeout(autoSaveTimer)
     }
-    if (ollamaStatusPollTimer) {
-      window.clearInterval(ollamaStatusPollTimer)
-      ollamaStatusPollTimer = null
-    }
   })
 
   let autoSaveTimer: number | null = null
-  let ollamaStatusPollTimer: number | null = null
   const autoSaveDelayMs = 800
 
   function scheduleAutoSave() {
@@ -1155,13 +1212,16 @@ export function useOllamaConsoleCore() {
     loadClassifierStats,
     loadDualModelConfigData,
     saveDualModelConfigData,
+    switchVectorModel,
     loadOllamaSetupStatus,
     installOllama,
     startOllama,
+    startVectorModel,
     stopOllama,
     pullOllamaModel,
     deleteOllamaModel,
     saveClassifierConfig,
+    startClassifierModel,
     switchClassifierModel,
     saveTaskMapping,
     triggerOptimization,

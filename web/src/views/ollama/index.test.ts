@@ -3,13 +3,21 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 describe('ollama page', () => {
-  it('contains consolidated ollama console tabs', () => {
+  it('renders service panel above intent/vector tabs', () => {
     const file = resolve(process.cwd(), 'src/views/ollama/index.vue')
     const content = readFileSync(file, 'utf-8')
+    const serviceTabIndex = content.indexOf('<OllamaServiceTab :ctx="ctx" />')
+    const tabsIndex = content.indexOf('<el-tabs v-model="activeTab" class="console-tabs">')
 
     expect(content).toContain('Ollama 控制台')
-    expect(content).toContain('label="Ollama"')
+    expect(content).toContain('<OllamaServiceTab :ctx="ctx" />')
+    expect(content).toContain('<el-tabs v-model="activeTab" class="console-tabs">')
+    expect(serviceTabIndex).toBeGreaterThanOrEqual(0)
+    expect(tabsIndex).toBeGreaterThanOrEqual(0)
+    expect(serviceTabIndex).toBeLessThan(tabsIndex)
+    expect(content).toContain("const activeTab = ref('intent')")
     expect(content).toContain('label="意图路由"')
     expect(content).toContain('label="向量管理"')
+    expect(content).not.toContain('label="Ollama"')
   })
 })

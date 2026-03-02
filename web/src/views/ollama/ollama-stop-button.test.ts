@@ -8,6 +8,8 @@ describe('ollama service stop button', () => {
     const logicFile = readFileSync(join(process.cwd(), 'src/views/ollama/composables/useOllamaConsoleCore.ts'), 'utf-8')
 
     expect(tabFile).toContain('停止服务')
+    expect(tabFile).not.toContain('启用意图分类器')
+    expect(tabFile).not.toContain('启用向量 Pipeline')
     expect(logicFile).toContain('stopOllamaApi')
   })
 })

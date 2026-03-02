@@ -11,7 +11,11 @@
           <template #header>
             <div class="card-header">
               <span>向量模型管理</span>
-              <el-button type="primary" size="small" :loading="ctx.dualModelSaving" @click="ctx.saveDualModelConfigData">保存配置</el-button>
+              <div class="header-actions">
+                <el-button size="small" :loading="ctx.dualModelSaving" @click="ctx.switchVectorModel">切换模型</el-button>
+                <el-button size="small" :loading="ctx.ollamaStarting" @click="ctx.startVectorModel">启动模型</el-button>
+                <el-button type="primary" size="small" :loading="ctx.dualModelSaving" @click="ctx.saveDualModelConfigData">保存配置</el-button>
+              </div>
             </div>
           </template>
 

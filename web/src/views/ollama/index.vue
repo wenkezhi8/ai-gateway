@@ -11,12 +11,10 @@
       </el-button>
     </div>
 
+    <OllamaServiceTab :ctx="ctx" />
+
     <div class="panel">
       <el-tabs v-model="activeTab" class="console-tabs">
-        <el-tab-pane label="Ollama" name="ollama">
-          <OllamaServiceTab :ctx="ctx" />
-        </el-tab-pane>
-
         <el-tab-pane label="意图路由" name="intent">
           <IntentRoutingTab :ctx="ctx" />
         </el-tab-pane>
@@ -38,7 +36,7 @@ import IntentRoutingTab from './components/IntentRoutingTab.vue'
 import VectorManagementTab from './components/VectorManagementTab.vue'
 import { useOllamaConsole } from './composables/useOllamaConsole'
 
-const activeTab = ref('ollama')
+const activeTab = ref('intent')
 const ctx = proxyRefs(useOllamaConsole())
 </script>
 
