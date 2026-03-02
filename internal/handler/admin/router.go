@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -34,6 +35,7 @@ type RouterHandler struct {
 	sleepFn           func(time.Duration)
 	probeSwitchFn     func(targetModel, originalModel string) error
 	ollamaMonitorOnce sync.Once
+	ollamaPreloadOnce sync.Once
 }
 
 // NewRouterHandler creates a new router handler.
@@ -313,6 +315,121 @@ func (h *RouterHandler) ensureOllamaMonitorStarted() {
 					fmt.Printf("ollama monitor auto-restart failed: %v\n", err)
 				}
 				cancel()
+			}
+		}()
+	})
+}
+
+func normalizePreloadTargetKinds(targets []service.PreloadTargetKind) []service.PreloadTargetKind {
+	if len(targets) == 0 {
+		return []service.PreloadTargetKind{service.PreloadTargetIntent, service.PreloadTargetEmbedding}
+	}
+	normalized := make([]service.PreloadTargetKind, 0, len(targets))
+	seen := make(map[service.PreloadTargetKind]struct{}, len(targets))
+	for _, target := range targets {
+		kind := service.PreloadTargetKind(strings.ToLower(strings.TrimSpace(string(target))))
+		if kind != service.PreloadTargetIntent && kind != service.PreloadTargetEmbedding {
+			continue
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		normalized = append(normalized, kind)
+	}
+	if len(normalized) == 0 {
+		return []service.PreloadTargetKind{service.PreloadTargetIntent, service.PreloadTargetEmbedding}
+	}
+	return normalized
+}
+
+func (h *RouterHandler) buildOllamaPreloadTargets(targets []service.PreloadTargetKind) []service.PreloadTarget {
+	requestedTargets := normalizePreloadTargetKinds(targets)
+	result := make([]service.PreloadTarget, 0, len(requestedTargets))
+
+	classifierCfg := routing.DefaultClassifierConfig()
+	if h.router != nil {
+		classifierCfg = h.router.GetClassifierConfig()
+	}
+	classifierBaseURL := strings.TrimSpace(classifierCfg.BaseURL)
+	if classifierBaseURL == "" {
+		classifierBaseURL = constants.ClassifierDefaultBaseURL
+	}
+
+	cacheSettings := cache.DefaultCacheSettings()
+	if h.cacheManager != nil {
+		cacheSettings = h.cacheManager.GetSettings()
+	}
+	vectorBaseURL := strings.TrimSpace(cacheSettings.VectorOllamaBaseURL)
+	if vectorBaseURL == "" {
+		vectorBaseURL = classifierBaseURL
+	}
+
+	for _, target := range requestedTargets {
+		switch target {
+		case service.PreloadTargetIntent:
+			model := strings.TrimSpace(classifierCfg.ActiveModel)
+			if model == "" {
+				continue
+			}
+			result = append(result, service.PreloadTarget{Kind: service.PreloadTargetIntent, Model: model, BaseURL: classifierBaseURL})
+		case service.PreloadTargetEmbedding:
+			model := strings.TrimSpace(cacheSettings.VectorOllamaEmbeddingModel)
+			if model == "" {
+				continue
+			}
+			result = append(result, service.PreloadTarget{
+				Kind:                  service.PreloadTargetEmbedding,
+				Model:                 model,
+				BaseURL:               vectorBaseURL,
+				EmbeddingEndpointMode: cacheSettings.VectorOllamaEndpointMode,
+			})
+		}
+	}
+
+	return result
+}
+
+func (h *RouterHandler) preloadOllamaModels(ctx context.Context, targets []service.PreloadTargetKind) []service.PreloadResult {
+	if h.ollamaService == nil {
+		return []service.PreloadResult{}
+	}
+	resolvedTargets := h.buildOllamaPreloadTargets(targets)
+	timeoutSeconds := h.ollamaService.GetConfig().Preload.TimeoutSeconds
+	return h.ollamaService.PreloadModels(ctx, resolvedTargets, timeoutSeconds)
+}
+
+func (h *RouterHandler) ensureOllamaPreloadStarted() {
+	if h.ollamaService == nil {
+		return
+	}
+	cfg := h.ollamaService.GetConfig()
+	if !cfg.Preload.AutoOnStartup {
+		return
+	}
+
+	h.ollamaPreloadOnce.Do(func() {
+		go func() {
+			classifierCfg := routing.DefaultClassifierConfig()
+			if h.router != nil {
+				classifierCfg = h.router.GetClassifierConfig()
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Preload.TimeoutSeconds)*time.Second)
+			defer cancel()
+
+			if _, err := h.ollamaService.Start(ctx, &classifierCfg); err != nil {
+				fmt.Printf("ollama auto preload startup failed: %v\n", err)
+				return
+			}
+
+			results := h.preloadOllamaModels(ctx, cfg.Preload.Targets)
+			for _, item := range results {
+				if item.Status != "success" {
+					fmt.Printf("ollama auto preload failed: kind=%s model=%s error=%s\n", item.Kind, item.Model, item.Error)
+					continue
+				}
+				fmt.Printf("ollama auto preload success: kind=%s model=%s duration_ms=%d\n", item.Kind, item.Model, item.DurationMs)
 			}
 		}()
 	})
@@ -1453,13 +1570,19 @@ type ollamaSetupRequest struct {
 type updateOllamaRuntimeConfigRequest struct {
 	StartupMode           *service.StartupMode   `json:"startup_mode,omitempty"`
 	AutoDetectPriority    []service.StartupMode  `json:"auto_detect_priority,omitempty"`
+	Preload               *service.PreloadConfig `json:"preload,omitempty"`
 	Monitoring            *service.MonitorConfig `json:"monitoring,omitempty"`
 	StartupTimeoutSeconds *int                   `json:"startup_timeout_seconds,omitempty"`
 	HealthCheckTimeoutMs  *int                   `json:"health_check_timeout_ms,omitempty"`
 }
 
+type preloadOllamaModelsRequest struct {
+	Targets []service.PreloadTargetKind `json:"targets,omitempty"`
+}
+
 func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	h.ensureOllamaMonitorStarted()
+	h.ensureOllamaPreloadStarted()
 
 	cfg := h.router.GetClassifierConfig()
 	model := strings.TrimSpace(c.Query("model"))
@@ -1549,6 +1672,7 @@ func (h *RouterHandler) GetOllamaRuntimeConfig(c *gin.Context) {
 	c.JSON(200, gin.H{"success": true, "data": gin.H{"config": config, "monitoring_stats": monitor}})
 }
 
+//nolint:gocyclo // Keep runtime config patch validation in one place for atomic updates.
 func (h *RouterHandler) UpdateOllamaRuntimeConfig(c *gin.Context) {
 	var req updateOllamaRuntimeConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1562,6 +1686,9 @@ func (h *RouterHandler) UpdateOllamaRuntimeConfig(c *gin.Context) {
 	}
 	if len(req.AutoDetectPriority) > 0 {
 		next.AutoDetectPriority = req.AutoDetectPriority
+	}
+	if req.Preload != nil {
+		next.Preload = *req.Preload
 	}
 	if req.Monitoring != nil {
 		next.Monitoring = *req.Monitoring
@@ -1581,6 +1708,19 @@ func (h *RouterHandler) UpdateOllamaRuntimeConfig(c *gin.Context) {
 		return
 	}
 
+	if len(next.Preload.Targets) > 0 {
+		for _, target := range next.Preload.Targets {
+			if target != service.PreloadTargetIntent && target != service.PreloadTargetEmbedding {
+				c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_preload_target", "message": "preload.targets must contain intent/embedding only"}})
+				return
+			}
+		}
+	}
+	if next.Preload.TimeoutSeconds <= 0 {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_preload_timeout", "message": "preload.timeout_seconds must be positive"}})
+		return
+	}
+
 	updated := h.ollamaService.UpdateConfig(&next)
 	if err := saveOllamaRuntimeConfig(&updated); err != nil {
 		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "persist_failed", "message": err.Error()}})
@@ -1588,7 +1728,81 @@ func (h *RouterHandler) UpdateOllamaRuntimeConfig(c *gin.Context) {
 	}
 
 	h.ensureOllamaMonitorStarted()
+	h.ensureOllamaPreloadStarted()
 	c.JSON(200, gin.H{"success": true, "message": "ollama runtime config updated", "data": updated})
+}
+
+//nolint:gocyclo // Keep preload flow and error mapping in one handler.
+func (h *RouterHandler) PreloadOllamaModels(c *gin.Context) {
+	if h.ollamaService == nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "service_unavailable", "message": "ollama service unavailable"}})
+		return
+	}
+
+	var req preloadOllamaModelsRequest
+	if c.Request.Body != nil {
+		if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+			c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+			return
+		}
+	}
+
+	for _, target := range req.Targets {
+		if target != service.PreloadTargetIntent && target != service.PreloadTargetEmbedding {
+			c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_preload_target", "message": "targets must contain intent/embedding only"}})
+			return
+		}
+	}
+
+	classifierCfg := routing.DefaultClassifierConfig()
+	if h.router != nil {
+		classifierCfg = h.router.GetClassifierConfig()
+	}
+	if _, err := h.ollamaService.Start(c.Request.Context(), &classifierCfg); err != nil {
+		var startErr *service.StartError
+		if errors.As(err, &startErr) {
+			statusCode := 500
+			if startErr.Code == "manual_mode" || startErr.Code == "unsupported_os" || startErr.Code == "app_not_installed" || startErr.Code == "ollama_not_installed" || startErr.Code == "startup_mode_unavailable" {
+				statusCode = 400
+			}
+			c.JSON(statusCode, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    startErr.Code,
+					"message": startErr.Message,
+					"hint":    startErr.Hint,
+				},
+			})
+			return
+		}
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "start_failed", "message": err.Error()}})
+		return
+	}
+
+	requestedTargets := req.Targets
+	if len(requestedTargets) == 0 {
+		requestedTargets = h.ollamaService.GetConfig().Preload.Targets
+	}
+	results := h.preloadOllamaModels(c.Request.Context(), requestedTargets)
+
+	successCount := 0
+	for _, item := range results {
+		if item.Status == "success" {
+			successCount++
+			fmt.Printf("ollama preload success: kind=%s model=%s duration_ms=%d\n", item.Kind, item.Model, item.DurationMs)
+			continue
+		}
+		fmt.Printf("ollama preload failed: kind=%s model=%s error=%s\n", item.Kind, item.Model, item.Error)
+	}
+
+	c.JSON(200, gin.H{
+		"success": true,
+		"data": gin.H{
+			"results":       results,
+			"total":         len(results),
+			"success_count": successCount,
+		},
+	})
 }
 
 func (h *RouterHandler) InstallOllama(c *gin.Context) {
@@ -1657,10 +1871,12 @@ func (h *RouterHandler) StartOllama(c *gin.Context) {
 	}
 
 	if result.AlreadyRunning {
+		h.ensureOllamaPreloadStarted()
 		c.JSON(200, gin.H{"success": true, "message": "ollama already running"})
 		return
 	}
 
+	h.ensureOllamaPreloadStarted()
 	c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": result.Output, "startup_mode": result.StartupMode, "command": result.Command}})
 }
 

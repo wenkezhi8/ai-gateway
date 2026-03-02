@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getOllamaRuntimeConfig, updateOllamaRuntimeConfig } from './routing-domain'
+import { getOllamaRuntimeConfig, preloadOllamaModels, updateOllamaRuntimeConfig } from './routing-domain'
 
 const requestMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -16,6 +16,7 @@ vi.mock('./request', () => ({
 describe('routing domain ollama runtime apis', () => {
   beforeEach(() => {
     requestMock.get.mockReset()
+    requestMock.post.mockReset()
     requestMock.put.mockReset()
   })
 
@@ -24,7 +25,12 @@ describe('routing domain ollama runtime apis', () => {
       success: true,
       data: {
         config: {
-          startup_mode: 'auto'
+          startup_mode: 'auto',
+          preload: {
+            auto_on_startup: false,
+            targets: ['intent', 'embedding'],
+            timeout_seconds: 180
+          }
         },
         monitoring_stats: {
           health_status: 'healthy'
@@ -53,5 +59,20 @@ describe('routing domain ollama runtime apis', () => {
     const data = await updateOllamaRuntimeConfig(payload)
     expect(requestMock.put).toHaveBeenCalledWith('/admin/router/ollama/runtime-config', payload)
     expect(data.startup_mode).toBe('cli')
+  })
+
+  it('should trigger ollama preload endpoint', async () => {
+    requestMock.post.mockResolvedValue({
+      success: true,
+      data: {
+        results: [
+          { kind: 'intent', model: 'qwen2.5:0.5b-instruct', status: 'success', duration_ms: 120 }
+        ]
+      }
+    })
+
+    const data = await preloadOllamaModels({ targets: ['intent', 'embedding'] })
+    expect(requestMock.post).toHaveBeenCalledWith('/admin/router/ollama/preload', { targets: ['intent', 'embedding'] })
+    expect(Array.isArray(data.results)).toBe(true)
   })
 })

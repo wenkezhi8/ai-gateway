@@ -44,8 +44,8 @@ func TestOllamaChatRequest_KeepAliveDisabledUnload(t *testing.T) {
 		t.Fatalf("chat failed: %v", err)
 	}
 
-	if keepAlive != "-1" {
-		t.Fatalf("keep_alive = %q, want %q", keepAlive, "-1")
+	if keepAlive != "-1m" {
+		t.Fatalf("keep_alive = %q, want %q", keepAlive, "-1m")
 	}
 }
 

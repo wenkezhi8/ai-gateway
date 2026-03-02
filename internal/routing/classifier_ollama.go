@@ -146,7 +146,7 @@ func (o *OllamaTaskClassifier) chat(ctx context.Context, model, content string) 
 		},
 		Stream:    false,
 		Format:    "json",
-		KeepAlive: "-1",
+		KeepAlive: "-1m",
 	}
 
 	payload, err := json.Marshal(reqBody)

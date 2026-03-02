@@ -1,8 +1,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +27,13 @@ const (
 	healthStatusHealthy   = "healthy"
 	healthStatusUnhealthy = "unhealthy"
 	healthStatusDisabled  = "disabled"
+
+	preloadStatusSuccess = "success"
+	preloadStatusFailed  = "failed"
+
+	embeddingEndpointModeAuto       = "auto"
+	embeddingEndpointModeEmbed      = "embed"
+	embeddingEndpointModeEmbeddings = "embeddings"
 )
 
 type StartupMode string
@@ -42,9 +53,38 @@ type MonitorConfig struct {
 	RestartCooldownSeconds int  `json:"restart_cooldown_seconds"`
 }
 
+type PreloadTargetKind string
+
+const (
+	PreloadTargetIntent    PreloadTargetKind = "intent"
+	PreloadTargetEmbedding PreloadTargetKind = "embedding"
+)
+
+type PreloadConfig struct {
+	AutoOnStartup  bool                `json:"auto_on_startup"`
+	Targets        []PreloadTargetKind `json:"targets"`
+	TimeoutSeconds int                 `json:"timeout_seconds"`
+}
+
+type PreloadTarget struct {
+	Kind                  PreloadTargetKind `json:"kind"`
+	Model                 string            `json:"model"`
+	BaseURL               string            `json:"base_url"`
+	EmbeddingEndpointMode string            `json:"embedding_endpoint_mode,omitempty"`
+}
+
+type PreloadResult struct {
+	Kind       PreloadTargetKind `json:"kind"`
+	Model      string            `json:"model"`
+	Status     string            `json:"status"`
+	DurationMs int64             `json:"duration_ms"`
+	Error      string            `json:"error,omitempty"`
+}
+
 type OllamaServiceConfig struct {
 	StartupMode           StartupMode   `json:"startup_mode"`
 	AutoDetectPriority    []StartupMode `json:"auto_detect_priority"`
+	Preload               PreloadConfig `json:"preload"`
 	Monitoring            MonitorConfig `json:"monitoring"`
 	StartupTimeoutSeconds int           `json:"startup_timeout_seconds"`
 	HealthCheckTimeoutMs  int           `json:"health_check_timeout_ms"`
@@ -105,6 +145,11 @@ func DefaultOllamaServiceConfig() OllamaServiceConfig {
 	return OllamaServiceConfig{
 		StartupMode:        StartupModeAuto,
 		AutoDetectPriority: []StartupMode{StartupModeApp, StartupModeCLI},
+		Preload: PreloadConfig{
+			AutoOnStartup:  false,
+			Targets:        []PreloadTargetKind{PreloadTargetIntent, PreloadTargetEmbedding},
+			TimeoutSeconds: 180,
+		},
 		Monitoring: MonitorConfig{
 			Enabled:                true,
 			CheckIntervalSeconds:   30,
@@ -293,6 +338,158 @@ func (s *OllamaService) CheckAndAutoRestart(ctx context.Context, cfg *routing.Cl
 	return nil
 }
 
+func (s *OllamaService) PreloadModels(ctx context.Context, targets []PreloadTarget, timeoutSeconds int) []PreloadResult {
+	if len(targets) == 0 {
+		return []PreloadResult{}
+	}
+
+	effectiveTimeoutSeconds := timeoutSeconds
+	if effectiveTimeoutSeconds <= 0 {
+		effectiveTimeoutSeconds = s.GetConfig().Preload.TimeoutSeconds
+	}
+	if effectiveTimeoutSeconds <= 0 {
+		effectiveTimeoutSeconds = 180
+	}
+
+	results := make([]PreloadResult, 0, len(targets))
+	seen := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		model := strings.TrimSpace(target.Model)
+		if model == "" {
+			continue
+		}
+		if _, ok := seen[model]; ok {
+			continue
+		}
+		seen[model] = struct{}{}
+
+		start := time.Now()
+		err := s.preloadOne(ctx, target, effectiveTimeoutSeconds)
+		result := PreloadResult{
+			Kind:       target.Kind,
+			Model:      model,
+			DurationMs: time.Since(start).Milliseconds(),
+			Status:     preloadStatusSuccess,
+		}
+		if err != nil {
+			result.Status = preloadStatusFailed
+			result.Error = err.Error()
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func (s *OllamaService) preloadOne(ctx context.Context, target PreloadTarget, timeoutSeconds int) error {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 180
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	baseURL := strings.TrimSpace(target.BaseURL)
+	if baseURL == "" {
+		baseURL = constants.ClassifierDefaultBaseURL
+	}
+
+	switch target.Kind {
+	case PreloadTargetIntent:
+		return s.preloadIntentModel(requestCtx, baseURL, target.Model)
+	case PreloadTargetEmbedding:
+		return s.preloadEmbeddingModel(requestCtx, baseURL, target.Model, target.EmbeddingEndpointMode)
+	default:
+		return fmt.Errorf("unsupported preload target kind: %s", target.Kind)
+	}
+}
+
+func (s *OllamaService) preloadIntentModel(ctx context.Context, baseURL, model string) error {
+	payload := map[string]any{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "warmup"},
+		},
+		"stream":     false,
+		"keep_alive": "-1m",
+	}
+	responseBody, statusCode, err := s.postOllamaJSON(ctx, baseURL, "/api/chat", payload)
+	if err != nil {
+		return err
+	}
+	if statusCode >= http.StatusBadRequest {
+		return fmt.Errorf("ollama /api/chat status %d: %s", statusCode, extractOllamaError(responseBody))
+	}
+	if message := extractOllamaErrorFromSuccess(responseBody); message != "" {
+		return fmt.Errorf("ollama /api/chat preload failed: %s", message)
+	}
+	return nil
+}
+
+func (s *OllamaService) preloadEmbeddingModel(ctx context.Context, baseURL, model, mode string) error {
+	normalizedMode := normalizeEmbeddingEndpointMode(mode)
+	if normalizedMode == embeddingEndpointModeEmbed {
+		return s.preloadEmbeddingByPath(ctx, baseURL, model, "/api/embed")
+	}
+	if normalizedMode == embeddingEndpointModeEmbeddings {
+		return s.preloadEmbeddingByPath(ctx, baseURL, model, "/api/embeddings")
+	}
+
+	if err := s.preloadEmbeddingByPath(ctx, baseURL, model, "/api/embed"); err == nil {
+		return nil
+	}
+	return s.preloadEmbeddingByPath(ctx, baseURL, model, "/api/embeddings")
+}
+
+func (s *OllamaService) preloadEmbeddingByPath(ctx context.Context, baseURL, model, path string) error {
+	payload := map[string]any{
+		"model":      model,
+		"keep_alive": "-1m",
+	}
+	if path == "/api/embed" {
+		payload["input"] = "warmup"
+	} else {
+		payload["prompt"] = "warmup"
+	}
+
+	responseBody, statusCode, err := s.postOllamaJSON(ctx, baseURL, path, payload)
+	if err != nil {
+		return err
+	}
+	if statusCode >= http.StatusBadRequest {
+		return fmt.Errorf("ollama %s status %d: %s", path, statusCode, extractOllamaError(responseBody))
+	}
+	if message := extractOllamaErrorFromSuccess(responseBody); message != "" {
+		return fmt.Errorf("ollama %s preload failed: %s", path, message)
+	}
+	return nil
+}
+
+func (s *OllamaService) postOllamaJSON(ctx context.Context, baseURL, path string, payload map[string]any) (responseBody []byte, statusCode int, err error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal ollama preload payload: %w", err)
+	}
+
+	endpoint := strings.TrimRight(baseURL, "/") + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, fmt.Errorf("build ollama preload request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("call ollama preload endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	responseBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, resp.StatusCode, fmt.Errorf("read ollama preload response: %w", err)
+	}
+	return responseBody, resp.StatusCode, nil
+}
+
 func (s *OllamaService) resolveStartCommand() (StartupMode, string, error) {
 	s.mu.RLock()
 	cfg := s.config
@@ -374,6 +571,13 @@ func normalizeConfig(cfg *OllamaServiceConfig) OllamaServiceConfig {
 	if len(normalized.AutoDetectPriority) == 0 {
 		normalized.AutoDetectPriority = []StartupMode{StartupModeApp, StartupModeCLI}
 	}
+	if len(normalized.Preload.Targets) == 0 {
+		normalized.Preload.Targets = []PreloadTargetKind{PreloadTargetIntent, PreloadTargetEmbedding}
+	}
+	normalized.Preload.Targets = normalizePreloadTargets(normalized.Preload.Targets)
+	if normalized.Preload.TimeoutSeconds <= 0 {
+		normalized.Preload.TimeoutSeconds = 180
+	}
 	if normalized.Monitoring.CheckIntervalSeconds <= 0 {
 		normalized.Monitoring.CheckIntervalSeconds = 30
 	}
@@ -405,6 +609,64 @@ func hintForMode(mode StartupMode) string {
 	default:
 		return "请检查 Ollama 安装和运行状态"
 	}
+}
+
+func normalizePreloadTargets(targets []PreloadTargetKind) []PreloadTargetKind {
+	if len(targets) == 0 {
+		return []PreloadTargetKind{PreloadTargetIntent, PreloadTargetEmbedding}
+	}
+	normalized := make([]PreloadTargetKind, 0, len(targets))
+	seen := make(map[PreloadTargetKind]struct{}, len(targets))
+	for _, target := range targets {
+		value := PreloadTargetKind(strings.ToLower(strings.TrimSpace(string(target))))
+		if value != PreloadTargetIntent && value != PreloadTargetEmbedding {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	if len(normalized) == 0 {
+		return []PreloadTargetKind{PreloadTargetIntent, PreloadTargetEmbedding}
+	}
+	return normalized
+}
+
+func normalizeEmbeddingEndpointMode(mode string) string {
+	normalized := strings.ToLower(strings.TrimSpace(mode))
+	if normalized == embeddingEndpointModeEmbed || normalized == embeddingEndpointModeEmbeddings {
+		return normalized
+	}
+	return embeddingEndpointModeAuto
+}
+
+func extractOllamaError(body []byte) string {
+	if len(body) == 0 {
+		return "empty response"
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err == nil {
+		if value, ok := payload["error"].(string); ok && strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return strings.TrimSpace(string(body))
+}
+
+func extractOllamaErrorFromSuccess(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	if value, ok := payload["error"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
 }
 
 func defaultCommandExists(name string) bool {

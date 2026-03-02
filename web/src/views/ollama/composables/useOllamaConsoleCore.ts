@@ -20,6 +20,7 @@ import {
   deleteOllamaModel as deleteOllamaModelApi,
   promoteVectorTierEntry,
   pullOllamaModel as pullOllamaModelApi,
+  preloadOllamaModels,
   putTaskModelMapping,
   startOllama as startOllamaApi,
   stopOllama as stopOllamaApi,
@@ -31,6 +32,8 @@ import {
   updateOllamaDualModelConfig,
   updateRouterConfig,
   type OllamaMonitoringStats,
+  type OllamaPreloadResult,
+  type OllamaPreloadTarget,
   type OllamaRuntimeConfig,
   type OllamaStartupMode
 } from '@/api/routing-domain'
@@ -104,7 +107,9 @@ export function useOllamaConsoleCore() {
   const ollamaDeleting = ref(false)
   const ollamaRefreshing = ref(false)
   const ollamaConfigSaving = ref(false)
+  const ollamaPreloading = ref(false)
   const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
+  const ollamaPreloadResults = ref<OllamaPreloadResult[]>([])
   const vectorRefreshing = ref(false)
   const vectorRebuilding = ref(false)
   const vectorTierConfigSaving = ref(false)
@@ -237,6 +242,11 @@ export function useOllamaConsoleCore() {
   const ollamaRuntimeConfig = reactive<OllamaRuntimeConfig>({
     startup_mode: 'auto',
     auto_detect_priority: ['app', 'cli'],
+    preload: {
+      auto_on_startup: false,
+      targets: ['intent', 'embedding'],
+      timeout_seconds: 180
+    },
     monitoring: {
       enabled: true,
       check_interval_seconds: 30,
@@ -652,6 +662,15 @@ export function useOllamaConsoleCore() {
       ollamaRuntimeConfig.auto_detect_priority = Array.isArray(config.auto_detect_priority)
         ? config.auto_detect_priority
         : ['app', 'cli']
+      const preload = config.preload || {}
+      ollamaRuntimeConfig.preload.auto_on_startup = Boolean(preload.auto_on_startup)
+      ollamaRuntimeConfig.preload.targets = Array.isArray(preload.targets)
+        ? preload.targets.filter((item: string) => item === 'intent' || item === 'embedding')
+        : ['intent', 'embedding']
+      if (ollamaRuntimeConfig.preload.targets.length === 0) {
+        ollamaRuntimeConfig.preload.targets = ['intent', 'embedding']
+      }
+      ollamaRuntimeConfig.preload.timeout_seconds = Number(preload.timeout_seconds || 180)
       ollamaRuntimeConfig.monitoring.enabled = Boolean(config.monitoring?.enabled ?? true)
       ollamaRuntimeConfig.monitoring.check_interval_seconds = Number(config.monitoring?.check_interval_seconds || 30)
       ollamaRuntimeConfig.monitoring.auto_restart = Boolean(config.monitoring?.auto_restart ?? true)
@@ -670,6 +689,11 @@ export function useOllamaConsoleCore() {
       await updateOllamaRuntimeConfig({
         startup_mode: ollamaRuntimeConfig.startup_mode,
         auto_detect_priority: ollamaRuntimeConfig.auto_detect_priority,
+        preload: {
+          auto_on_startup: ollamaRuntimeConfig.preload.auto_on_startup,
+          targets: ollamaRuntimeConfig.preload.targets,
+          timeout_seconds: Number(ollamaRuntimeConfig.preload.timeout_seconds || 180)
+        },
         monitoring: {
           enabled: ollamaRuntimeConfig.monitoring.enabled,
           check_interval_seconds: Number(ollamaRuntimeConfig.monitoring.check_interval_seconds || 30),
@@ -687,6 +711,28 @@ export function useOllamaConsoleCore() {
       handleApiError(new Error(detail), '保存 Ollama 启动配置失败')
     } finally {
       ollamaConfigSaving.value = false
+    }
+  }
+
+  async function preloadConfiguredOllamaModels() {
+    ollamaPreloading.value = true
+    try {
+      const payload = await preloadOllamaModels({
+        targets: ollamaRuntimeConfig.preload.targets as OllamaPreloadTarget[]
+      })
+      ollamaPreloadResults.value = Array.isArray(payload?.results) ? payload.results : []
+      const successCount = Number(payload?.success_count || 0)
+      const total = Number(payload?.total || ollamaPreloadResults.value.length)
+      if (successCount === total && total > 0) {
+        handleSuccess(`模型预热完成（${successCount}/${total}）`)
+      } else {
+        handleSuccess(`模型预热已执行（成功 ${successCount}/${total}）`)
+      }
+      await loadOllamaSetupStatus()
+    } catch (e) {
+      handleApiError(e, '模型预热失败')
+    } finally {
+      ollamaPreloading.value = false
     }
   }
 
@@ -1277,7 +1323,9 @@ export function useOllamaConsoleCore() {
     ollamaDeleting,
     ollamaRefreshing,
     ollamaConfigSaving,
+    ollamaPreloading,
     ollamaModelInput,
+    ollamaPreloadResults,
     vectorRefreshing,
     vectorRebuilding,
     vectorTierConfigSaving,
@@ -1325,6 +1373,7 @@ export function useOllamaConsoleCore() {
     stopOllama,
     pullOllamaModel,
     deleteOllamaModel,
+    preloadConfiguredOllamaModels,
     saveOllamaRuntimeConfig,
     saveClassifierConfig,
     startClassifierModel,

@@ -11,12 +11,35 @@ export interface OllamaRuntimeMonitoringConfig {
   restart_cooldown_seconds: number
 }
 
+export type OllamaPreloadTarget = 'intent' | 'embedding'
+
+export interface OllamaRuntimePreloadConfig {
+  auto_on_startup: boolean
+  targets: OllamaPreloadTarget[]
+  timeout_seconds: number
+}
+
 export interface OllamaRuntimeConfig {
   startup_mode: OllamaStartupMode
   auto_detect_priority: OllamaStartupMode[]
+  preload: OllamaRuntimePreloadConfig
   monitoring: OllamaRuntimeMonitoringConfig
   startup_timeout_seconds: number
   health_check_timeout_ms: number
+}
+
+export interface OllamaPreloadResult {
+  kind: OllamaPreloadTarget
+  model: string
+  status: 'success' | 'failed'
+  duration_ms: number
+  error?: string
+}
+
+export interface OllamaPreloadResponse {
+  results: OllamaPreloadResult[]
+  total: number
+  success_count: number
 }
 
 export interface OllamaMonitoringStats {
@@ -116,6 +139,11 @@ export async function getOllamaRuntimeConfig() {
 export async function updateOllamaRuntimeConfig(payload: Partial<OllamaRuntimeConfig>) {
   const raw = await request.put('/admin/router/ollama/runtime-config', payload)
   return unwrapEnvelope<OllamaRuntimeConfig>(raw, { allowPlain: true })
+}
+
+export async function preloadOllamaModels(payload?: { targets?: OllamaPreloadTarget[] }) {
+  const raw = await request.post('/admin/router/ollama/preload', payload || {})
+  return unwrapEnvelope<OllamaPreloadResponse>(raw, { allowPlain: true })
 }
 
 export async function installOllama() {

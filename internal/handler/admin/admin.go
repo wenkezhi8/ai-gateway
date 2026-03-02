@@ -168,6 +168,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	routerGroup.GET("/ollama/status", handlers.SmartRouter.GetOllamaSetupStatus)
 	routerGroup.GET("/ollama/runtime-config", handlers.SmartRouter.GetOllamaRuntimeConfig)
 	routerGroup.PUT("/ollama/runtime-config", handlers.SmartRouter.UpdateOllamaRuntimeConfig)
+	routerGroup.POST("/ollama/preload", handlers.SmartRouter.PreloadOllamaModels)
 	routerGroup.POST("/ollama/install", handlers.SmartRouter.InstallOllama)
 	routerGroup.POST("/ollama/start", handlers.SmartRouter.StartOllama)
 	routerGroup.POST("/ollama/stop", handlers.SmartRouter.StopOllama)

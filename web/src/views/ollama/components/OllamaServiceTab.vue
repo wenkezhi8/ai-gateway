@@ -45,6 +45,52 @@
         </el-col>
       </el-row>
 
+      <el-card shadow="never" class="inner-card preload-card">
+        <template #header>
+          <div class="card-header">模型预热</div>
+        </template>
+        <el-row :gutter="12" class="preload-row">
+          <el-col :span="8">
+            <el-switch
+              v-model="ctx.ollamaRuntimeConfig.preload.auto_on_startup"
+              active-text="启动时自动预热"
+              inactive-text="仅手动预热"
+            />
+          </el-col>
+          <el-col :span="10">
+            <el-checkbox-group v-model="ctx.ollamaRuntimeConfig.preload.targets">
+              <el-checkbox label="intent">意图模型</el-checkbox>
+              <el-checkbox label="embedding">Embedding 模型</el-checkbox>
+            </el-checkbox-group>
+          </el-col>
+          <el-col :span="6" class="preload-timeout-col">
+            <el-input-number
+              v-model="ctx.ollamaRuntimeConfig.preload.timeout_seconds"
+              :min="30"
+              :max="600"
+              :step="30"
+              controls-position="right"
+            />
+            <span class="preload-timeout-label">单模型超时(秒)</span>
+          </el-col>
+        </el-row>
+        <el-row :gutter="12" class="preload-row">
+          <el-col :span="24" class="preload-action-col">
+            <el-button type="primary" :loading="ctx.ollamaPreloading" @click="ctx.preloadConfiguredOllamaModels">立即预热</el-button>
+          </el-col>
+        </el-row>
+        <el-descriptions v-if="ctx.ollamaPreloadResults.length > 0" border :column="1" size="small" style="margin-top: 8px">
+          <el-descriptions-item v-for="item in ctx.ollamaPreloadResults" :key="`${item.kind}-${item.model}`" :label="`预热结果 · ${item.kind}`">
+            <el-tag :type="item.status === 'success' ? 'success' : 'danger'" style="margin-right: 8px">
+              {{ item.status === 'success' ? '成功' : '失败' }}
+            </el-tag>
+            <span style="margin-right: 8px">{{ item.model }}</span>
+            <span style="margin-right: 8px">耗时 {{ item.duration_ms }} ms</span>
+            <span v-if="item.error">{{ item.error }}</span>
+          </el-descriptions-item>
+        </el-descriptions>
+      </el-card>
+
       <el-row :gutter="12" style="margin-bottom: 12px">
         <el-col :span="24">
           <el-tag :type="ctx.ollamaSetup.installed ? 'success' : 'warning'" style="margin-right: 8px">
@@ -245,6 +291,31 @@ watch([pollEnabled, pollIntervalSeconds], () => {
 .config-action-col {
   display: flex;
   justify-content: flex-end;
+}
+
+.preload-card {
+  margin-bottom: 12px;
+}
+
+.preload-row {
+  margin-bottom: 10px;
+}
+
+.preload-action-col {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.preload-timeout-col {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.preload-timeout-label {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
 }
 
 .poll-label,
