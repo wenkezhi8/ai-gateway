@@ -912,7 +912,20 @@ openclaw-cn gateway restart</code></pre>
         <div class="doc-section">
           <h2>支持的服务商</h2>
           
-          <div class="provider-grid">
+          <div v-if="providersLoading" class="providers-state">
+            <el-skeleton :rows="5" animated />
+          </div>
+          <div v-else-if="providersError" class="providers-state">
+            <el-result icon="error" title="服务商加载失败" :sub-title="providersError">
+              <template #extra>
+                <el-button type="primary" @click="loadProviders">重试</el-button>
+              </template>
+            </el-result>
+          </div>
+          <div v-else-if="providers.length === 0" class="providers-state">
+            <el-empty description="暂无服务商数据" />
+          </div>
+          <div v-else class="provider-grid">
             <div class="provider-card" v-for="provider in providers" :key="provider.name">
               <div class="provider-header">
                 <span class="provider-name">{{ provider.name }}</span>
@@ -1245,9 +1258,9 @@ openclaw-cn gateway restart</code></pre>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DOCS_PROVIDERS } from '@/constants/pages/docs'
+import { getPublicProviders } from '@/api/provider'
 
 type LegacyTab = 'quickstart' | 'api' | 'sdk' | 'providers' | 'admin' | 'errors'
 
@@ -1265,7 +1278,39 @@ const activeTab = ref<LegacyTab>(props.initialTab)
 const hideHeader = props.hideHeader
 const hideTabs = props.hideTabs
 
-const providers = DOCS_PROVIDERS
+type LegacyProvider = {
+  name: string
+  enabled: boolean
+  models: string[]
+  endpoint: string
+}
+
+const providers = ref<LegacyProvider[]>([])
+const providersLoading = ref(false)
+const providersError = ref('')
+
+async function loadProviders() {
+  providersLoading.value = true
+  providersError.value = ''
+  try {
+    const list = await getPublicProviders()
+    providers.value = list.map(item => ({
+      name: item.label,
+      enabled: true,
+      models: item.default_model ? [item.default_model] : [],
+      endpoint: item.id
+    }))
+  } catch (error) {
+    providers.value = []
+    providersError.value = error instanceof Error ? error.message : 'PUBLIC_PROVIDERS_LOAD_FAILED'
+  } finally {
+    providersLoading.value = false
+  }
+}
+
+onMounted(() => {
+  void loadProviders()
+})
 
 const copyCode = async (id: string) => {
   const element = document.getElementById(`code-${id}`)
@@ -1559,6 +1604,10 @@ const copyCode = async (id: string) => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
+  margin: 16px 0;
+}
+
+.providers-state {
   margin: 16px 0;
 }
 

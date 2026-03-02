@@ -90,7 +90,20 @@ $ curl /api/admin/dashboard/realtime
           <h2>服务商与模型统一接入</h2>
           <p>一套鉴权、一套监控、一套路由策略，覆盖主流模型服务商。</p>
         </div>
-        <div class="provider-matrix">
+        <div v-if="providersLoading" class="provider-state">
+          <el-skeleton :rows="4" animated />
+        </div>
+        <div v-else-if="providersError" class="provider-state">
+          <el-result icon="error" title="服务商加载失败" :sub-title="providersError">
+            <template #extra>
+              <el-button type="primary" @click="loadProviders">重试</el-button>
+            </template>
+          </el-result>
+        </div>
+        <div v-else-if="providers.length === 0" class="provider-state">
+          <el-empty description="暂无服务商数据" />
+        </div>
+        <div v-else class="provider-matrix">
           <article v-for="provider in providers" :key="provider.name" class="provider-item">
             <img :src="provider.logo" :alt="provider.name" />
             <div>
@@ -134,6 +147,8 @@ $ curl /api/admin/dashboard/realtime
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import { getPublicProviders } from '@/api/provider'
 import { DOCS_ROUTE, LOGIN_ROUTE } from '@/constants/navigation'
 
 const loginRoute = LOGIN_ROUTE
@@ -172,14 +187,31 @@ const capabilities = [
   }
 ]
 
-const providers = [
-  { name: 'OpenAI', note: 'GPT 系列', logo: '/logos/openai.svg' },
-  { name: 'Anthropic', note: 'Claude 系列', logo: '/logos/anthropic.svg' },
-  { name: 'DeepSeek', note: '通用与代码模型', logo: '/logos/deepseek.svg' },
-  { name: 'Qwen', note: '通义系列', logo: '/logos/qwen.svg' },
-  { name: 'Zhipu', note: 'GLM 系列', logo: '/logos/zhipu.svg' },
-  { name: 'Volcengine', note: '豆包系列', logo: '/logos/volcengine.svg' }
-]
+const providers = ref<Array<{ name: string; note: string; logo: string }>>([])
+const providersLoading = ref(false)
+const providersError = ref('')
+
+async function loadProviders() {
+  providersLoading.value = true
+  providersError.value = ''
+  try {
+    const list = await getPublicProviders()
+    providers.value = list.map(item => ({
+      name: item.label,
+      note: item.default_model ? `默认模型: ${item.default_model}` : '可用模型由后端配置',
+      logo: item.logo
+    }))
+  } catch (error) {
+    providers.value = []
+    providersError.value = error instanceof Error ? error.message : 'PUBLIC_PROVIDERS_LOAD_FAILED'
+  } finally {
+    providersLoading.value = false
+  }
+}
+
+onMounted(() => {
+  void loadProviders()
+})
 </script>
 
 <style scoped>
@@ -499,6 +531,10 @@ const providers = [
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
+}
+
+.provider-state {
+  margin-top: 0.95rem;
 }
 
 .provider-item {
