@@ -413,15 +413,22 @@ async function loadSettings() {
   try {
     // Fetch model labels using composable
     await fetchModelLabels()
-    
+
     const publicProviders = await getPublicProviders().catch(() => [])
     const providerMetaMap = new Map(
       publicProviders.map(item => [item.id, item])
     )
 
+    const providerDefaults = await request
+      .get<{ success: boolean; data: Record<string, string> }>('/admin/router/provider-defaults', { silent: true } as any)
+      .then((res: any) => ((res as any).success && (res as any).data ? (res as any).data : {}))
+      .catch(() => ({}))
+
     // Load model scores from backend - this is the single source of truth
-    const modelsRes = await request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any)
-    
+    const modelsRes = await request
+      .get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any)
+      .catch(() => ({ success: false, data: [] }))
+
     // Group models by provider
     const modelsByProvider: Record<string, string[]> = {}
     if ((modelsRes as any).success && (modelsRes as any).data) {
@@ -437,15 +444,15 @@ async function loadSettings() {
         }
       }
     }
-    
+
     // Build provider settings from backend models and provider metadata
-    const providerIds = new Set<string>([...providerMetaMap.keys(), ...Object.keys(modelsByProvider)])
+    const providerIds = new Set<string>([...providerMetaMap.keys(), ...Object.keys(modelsByProvider), ...Object.keys(providerDefaults)])
     const newSettings: ProviderSetting[] = []
 
     for (const providerId of providerIds) {
       const meta = providerMetaMap.get(providerId)
       const models = modelsByProvider[providerId] || []
-      const defaultModel = meta?.default_model || models[0] || ''
+      const defaultModel = providerDefaults[providerId] || meta?.default_model || models[0] || ''
 
       newSettings.push({
         id: providerId,
@@ -459,16 +466,6 @@ async function loadSettings() {
     }
 
     providerSettings.value = newSettings
-    
-    // Load provider defaults
-    const defaultsRes = await request.get<{ success: boolean; data: Record<string, string> }>('/admin/router/provider-defaults', { silent: true } as any)
-    if ((defaultsRes as any).success && (defaultsRes as any).data) {
-      providerSettings.value.forEach(p => {
-        if ((defaultsRes as any).data[p.id]) {
-          p.defaultModel = (defaultsRes as any).data[p.id]
-        }
-      })
-    }
   } catch (e) {
     console.error('Failed to load settings:', e)
   } finally {
