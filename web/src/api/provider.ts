@@ -1,4 +1,5 @@
 import { request } from './request'
+import { unwrapEnvelope } from './envelope'
 
 export interface ProviderType {
   id: string
@@ -29,8 +30,46 @@ interface ProviderTypesResponse {
 
 interface PublicProvidersResponse {
   success: boolean
-  data?: PublicProviderInfo[]
+  data?: PublicProviderInfo[] | { providers?: Array<{ id?: string; name?: string; label?: string; color?: string; logo?: string; default_model?: string; models?: string[] }> }
   error?: string
+}
+
+function normalizePublicProviders(payload: PublicProvidersResponse['data']): PublicProviderInfo[] {
+  if (Array.isArray(payload)) {
+    return payload
+      .filter((item): item is PublicProviderInfo => Boolean(item?.id))
+      .map((item) => {
+        const normalized: PublicProviderInfo = {
+          id: String(item.id),
+          label: String(item.label || item.id),
+          color: String(item.color || ''),
+          logo: String(item.logo || '')
+        }
+        if (item.default_model) {
+          normalized.default_model = item.default_model
+        }
+        return normalized
+      })
+  }
+
+  const providers = Array.isArray(payload?.providers) ? payload.providers : []
+  return providers.reduce<PublicProviderInfo[]>((acc, item) => {
+      const id = String(item.id || item.name || '').trim()
+      if (!id) return acc
+      const firstModel = Array.isArray(item.models) && item.models.length > 0 ? item.models[0] : undefined
+      const normalized: PublicProviderInfo = {
+        id,
+        label: String(item.label || id),
+        color: String(item.color || ''),
+        logo: String(item.logo || '')
+      }
+      const defaultModel = item.default_model || firstModel
+      if (defaultModel) {
+        normalized.default_model = defaultModel
+      }
+      acc.push(normalized)
+      return acc
+    }, [])
 }
 
 export async function getProviderTypes(): Promise<ProviderType[]> {
@@ -42,11 +81,13 @@ export async function getProviderTypes(): Promise<ProviderType[]> {
 }
 
 export async function getPublicProviders(): Promise<PublicProviderInfo[]> {
-  const response = await request.get<PublicProvidersResponse>('/v1/config/providers')
-  if (!response?.success || !response.data) {
-    throw new Error(response?.error || 'PUBLIC_PROVIDERS_LOAD_FAILED')
+  const raw = await request.get<PublicProvidersResponse>('/v1/config/providers')
+  if (raw && typeof raw === 'object' && 'success' in raw && (raw as PublicProvidersResponse).success === false) {
+    const message = (raw as PublicProvidersResponse).error
+    throw new Error(typeof message === 'string' && message ? message : 'PUBLIC_PROVIDERS_LOAD_FAILED')
   }
-  return response.data
+  const payload = unwrapEnvelope<PublicProvidersResponse['data']>(raw, { allowPlain: true })
+  return normalizePublicProviders(payload)
 }
 
 // 服务商相关API

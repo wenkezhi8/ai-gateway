@@ -70,6 +70,33 @@ describe('provider api', () => {
     expect(data[0]!.id).toBe('openai')
   })
 
+  it('should normalize nested public providers payload from gateway', async () => {
+    requestMock.get.mockResolvedValue({
+      success: true,
+      data: {
+        providers: [
+          {
+            name: 'openai',
+            models: ['gpt-4o'],
+            enabled: true
+          }
+        ]
+      }
+    })
+
+    const data = await getPublicProviders()
+
+    expect(data).toEqual([
+      {
+        id: 'openai',
+        label: 'openai',
+        color: '',
+        logo: '',
+        default_model: 'gpt-4o'
+      }
+    ])
+  })
+
   it('should throw when public providers response is not successful', async () => {
     requestMock.get.mockResolvedValue({
       success: false,
