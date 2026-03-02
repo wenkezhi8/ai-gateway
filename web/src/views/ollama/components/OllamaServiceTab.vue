@@ -13,6 +13,39 @@
         </div>
       </template>
 
+      <el-row :gutter="16" class="toggle-row">
+        <el-col :span="12">
+          <el-card shadow="never" class="toggle-card">
+            <div class="toggle-item">
+              <div class="toggle-info">
+                <span class="toggle-label">启用意图分类器</span>
+                <span class="toggle-desc">自动识别用户意图并选择合适模型</span>
+              </div>
+              <el-switch
+                :model-value="ctx.dualModelConfig.classifier_enabled"
+                :loading="ctx.dualModelSaving"
+                @change="onClassifierEnableChange"
+              />
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :span="12">
+          <el-card shadow="never" class="toggle-card">
+            <div class="toggle-item">
+              <div class="toggle-info">
+                <span class="toggle-label">启用向量 Pipeline</span>
+                <span class="toggle-desc">使用向量检索提升缓存命中率</span>
+              </div>
+              <el-switch
+                :model-value="ctx.dualModelConfig.vector_pipeline_enabled"
+                :loading="ctx.dualModelSaving"
+                @change="onVectorPipelineEnableChange"
+              />
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+
       <div class="poll-row">
         <el-switch v-model="pollEnabled" active-text="自动轮询" inactive-text="手动刷新" />
         <el-select v-model="pollIntervalSeconds" style="width: 180px" :disabled="!pollEnabled">
@@ -88,7 +121,7 @@
             <template #header>
               <div class="card-header">运行中模型</div>
             </template>
-            <el-empty v-if="ctx.ollamaSetup.running_models.length === 0" description="当前无运行模型" />
+            <el-empty v-if="ctx.ollamaSetup.running_models.length === 0" description="当前无运行模型（请先发起一次推理请求或执行 ollama run）" />
             <el-tag v-for="item in ctx.ollamaSetup.running_models" :key="item" type="success" class="item-tag">{{ item }}</el-tag>
 
             <el-descriptions v-if="ctx.ollamaSetup.running_model_details.length > 0" :column="1" border size="small" style="margin-top: 12px">
@@ -139,6 +172,16 @@ function startPolling() {
   }, pollIntervalSeconds.value * 1000)
 }
 
+async function onClassifierEnableChange(value: boolean) {
+  props.ctx.dualModelConfig.classifier_enabled = value
+  await props.ctx.saveDualModelConfigData()
+}
+
+async function onVectorPipelineEnableChange(value: boolean) {
+  props.ctx.dualModelConfig.vector_pipeline_enabled = value
+  await props.ctx.saveDualModelConfigData()
+}
+
 onMounted(() => {
   startPolling()
 })
@@ -164,6 +207,37 @@ watch([pollEnabled, pollIntervalSeconds], () => {
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.toggle-row {
+  margin-bottom: 12px;
+}
+
+.toggle-card {
+  border: 1px solid var(--el-border-color-lighter);
+}
+
+.toggle-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.toggle-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.toggle-label {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.toggle-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .poll-label,
