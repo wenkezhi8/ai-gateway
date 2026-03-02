@@ -37,8 +37,8 @@ describe('cache domain vector apis', () => {
 
     const data = await getCacheTaskTTLConfig()
     expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/task-ttl')
-    expect(data.task_types[0].key).toBe('fact')
-    expect(data.model_options[0].models).toEqual(['gpt-4o'])
+    expect(data.task_types[0]!.key).toBe('fact')
+    expect(data.model_options[0]!.models).toEqual(['gpt-4o'])
   })
 
   it('should throw when cache task ttl config response fails', async () => {

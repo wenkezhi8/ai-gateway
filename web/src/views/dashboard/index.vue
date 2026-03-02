@@ -321,7 +321,7 @@ import {
   type DashboardAlert
 } from '@/api/metrics'
 import { formatDuration } from '@/utils/format-duration'
-import { DASHBOARD_FALLBACK_SERIES, DASHBOARD_PROVIDER_COLORS } from '@/constants/pages/dashboard'
+import { DASHBOARD_PROVIDER_COLORS } from '@/constants/pages/dashboard'
 
 const loading = ref(false)
 const loadError = ref(false)
@@ -511,10 +511,6 @@ const initLineChart = (data: any[] = []) => {
     return rate.toFixed(1)
   }) : []
 
-  const defaultTimestamps = [...DASHBOARD_FALLBACK_SERIES.timestamps]
-  const defaultRequests = [...DASHBOARD_FALLBACK_SERIES.requests]
-  const defaultSuccessRates = [...DASHBOARD_FALLBACK_SERIES.successRates]
-
   const option = {
     tooltip: {
       trigger: 'axis',
@@ -537,7 +533,7 @@ const initLineChart = (data: any[] = []) => {
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: timestamps.length > 0 ? timestamps : defaultTimestamps,
+      data: timestamps,
       axisLine: { lineStyle: { color: theme.axisLineColor } },
       axisLabel: { color: theme.textColor }
     },
@@ -574,7 +570,7 @@ const initLineChart = (data: any[] = []) => {
             { offset: 1, color: 'rgba(0, 122, 255, 0.05)' }
           ])
         },
-        data: requests.length > 0 ? requests : defaultRequests
+        data: requests
       },
       {
         name: '成功率',
@@ -585,7 +581,7 @@ const initLineChart = (data: any[] = []) => {
         yAxisIndex: 1,
         lineStyle: { width: 2, color: '#34C759' },
         itemStyle: { color: '#34C759' },
-        data: successRates.length > 0 ? successRates : defaultSuccessRates
+        data: successRates
       }
     ]
   }

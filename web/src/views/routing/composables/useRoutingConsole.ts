@@ -219,7 +219,7 @@ export function useRoutingConsole() {
   const config = reactive({
     mode: 'auto',
     defaultStrategy: 'auto',
-    defaultModel: 'deepseek-chat'
+    defaultModel: ''
   })
 
   const taskModelMapping = reactive<Record<string, { enabled: boolean, model: string }>>({
@@ -335,7 +335,7 @@ export function useRoutingConsole() {
       const data: any = await getRouterConfig()
       if (data) {
         config.defaultStrategy = data.default_strategy || 'auto'
-        config.defaultModel = data.default_model || 'deepseek-chat'
+        config.defaultModel = data.default_model || ''
         const mode = data.use_auto_mode
         if (typeof mode === 'string') {
           config.mode = mode
