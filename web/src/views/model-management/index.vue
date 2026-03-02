@@ -333,10 +333,10 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
 import { updateModelManagementUiSettings } from '@/api/settings-domain'
+import { getPublicProviders } from '@/api/provider'
 import { useModelLabels } from '@/composables/useModelLabels'
 import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
-  MODEL_MANAGEMENT_DEFAULT_PROVIDERS,
   MODEL_MANAGEMENT_DEFAULT_SCORE,
   MODEL_MANAGEMENT_FALLBACK_COLOR
 } from '@/constants/pages/model-management'
@@ -406,8 +406,6 @@ const modelRules: FormRules = {
   model: [{ required: true, message: '请输入模型名称', trigger: 'blur' }]
 }
 
-const defaultProviders: ProviderSetting[] = MODEL_MANAGEMENT_DEFAULT_PROVIDERS.map(p => ({ ...p }))
-
 const providerSettings = ref<ProviderSetting[]>([])
 
 async function loadSettings() {
@@ -416,6 +414,11 @@ async function loadSettings() {
     // Fetch model labels using composable
     await fetchModelLabels()
     
+    const publicProviders = await getPublicProviders().catch(() => [])
+    const providerMetaMap = new Map(
+      publicProviders.map(item => [item.id, item])
+    )
+
     // Load model scores from backend - this is the single source of truth
     const modelsRes = await request.get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any)
     
@@ -435,33 +438,26 @@ async function loadSettings() {
       }
     }
     
-    // Build provider settings from backend models
-    const defaultIds = new Set(defaultProviders.map(p => p.id))
+    // Build provider settings from backend models and provider metadata
+    const providerIds = new Set<string>([...providerMetaMap.keys(), ...Object.keys(modelsByProvider)])
     const newSettings: ProviderSetting[] = []
-    
-    // Add known providers with their models (no fallback to defaults - deleted models should stay deleted)
-    for (const p of defaultProviders) {
-      const models = modelsByProvider[p.id] || []
+
+    for (const providerId of providerIds) {
+      const meta = providerMetaMap.get(providerId)
+      const models = modelsByProvider[providerId] || []
+      const defaultModel = meta?.default_model || models[0] || ''
+
       newSettings.push({
-        ...p,
-        models: models
+        id: providerId,
+        label: meta?.label || providerId,
+        color: meta?.color || MODEL_MANAGEMENT_FALLBACK_COLOR,
+        logo: meta?.logo || '',
+        defaultModel,
+        models,
+        custom: !meta
       })
     }
-    
-    // Add unknown providers from backend
-    for (const [providerId, models] of Object.entries(modelsByProvider)) {
-      if (!defaultIds.has(providerId) && models && models.length > 0) {
-        newSettings.push({
-          id: providerId,
-          label: providerId,
-          color: MODEL_MANAGEMENT_FALLBACK_COLOR,
-          defaultModel: models[0] || '',
-          models: models,
-          custom: true
-        })
-      }
-    }
-    
+
     providerSettings.value = newSettings
     
     // Load provider defaults

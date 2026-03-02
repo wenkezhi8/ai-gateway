@@ -104,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import TabStateView from './TabStateView.vue'
 
@@ -112,7 +112,12 @@ const props = defineProps<{
   ctx: any
 }>()
 
-const commonModels = ['qwen2.5:0.5b-instruct', 'llama3.2:3b', 'deepseek-r1:7b', 'nomic-embed-text']
+const commonModels = computed(() => {
+  const models = Array.isArray(props.ctx.ollamaSetup?.models) ? props.ctx.ollamaSetup.models : []
+  const current = String(props.ctx.ollamaSetup?.model || '').trim()
+  const merged = Array.from(new Set([...models, current].filter(Boolean)))
+  return merged.slice(0, 6)
+})
 const pollIntervalOptions = [5, 10, 15, 30, 60]
 const pollEnabled = ref(true)
 const pollIntervalSeconds = ref(10)

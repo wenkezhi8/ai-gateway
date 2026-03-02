@@ -188,8 +188,8 @@
 import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { accountApi } from '@/api/account'
+import { getProviderTypes } from '@/api/provider'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
-import { ACCOUNT_PROVIDER_OPTIONS } from '@/constants/pages/accounts'
 
 interface Account {
   id: number
@@ -210,7 +210,7 @@ const pageSize = ref(10)
 const total = ref(100)
 const loading = ref(false)
 
-const providers = [...ACCOUNT_PROVIDER_OPTIONS]
+const providers = ref<string[]>([])
 
 const accounts = ref<Account[]>([])
 
@@ -271,23 +271,21 @@ const copyApiKey = async (key: string) => {
 }
 
 const getProviderTagType = (provider: string) => {
-  const types: Record<string, string> = {
-    OpenAI: 'primary',
-    Azure: 'info',
-    Anthropic: 'success',
-    Google: 'warning',
-    '火山方舟': 'danger',
-    '阿里云通义千问': 'warning',
-    '百度文心一言': 'primary',
-    '智谱AI': 'primary',
-    '腾讯混元': 'info',
-    '月之暗面': 'info',
-    MiniMax: 'primary',
-    '百川智能': 'primary',
-    '讯飞星火': 'danger',
-    DeepSeek: 'primary'
+  const levels = ['primary', 'success', 'warning', 'danger', 'info'] as const
+  const normalized = provider.trim().toLowerCase()
+  const hash = Array.from(normalized).reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+  return levels[hash % levels.length]
+}
+
+const loadProviders = async () => {
+  try {
+    const providerTypes = await getProviderTypes()
+    providers.value = providerTypes
+      .map(item => item.label)
+      .filter(Boolean)
+  } catch (error) {
+    handleApiError(error, '加载服务商列表失败')
   }
-  return types[provider] || ''
 }
 
 const getQuotaStatus = (percentage: number) => {
@@ -447,6 +445,12 @@ const fetchAccounts = async () => {
         remark: a.remark || ''
       }))
       total.value = data.length
+
+      const accountProviders = Array.from(new Set(accounts.value.map(item => item.provider).filter(Boolean)))
+      if (accountProviders.length > 0) {
+        const merged = new Set([...providers.value, ...accountProviders])
+        providers.value = Array.from(merged)
+      }
     }
   } catch (error) {
     handleApiError(error, '加载账号列表失败')
@@ -456,7 +460,7 @@ const fetchAccounts = async () => {
 }
 
 onMounted(() => {
-  fetchAccounts()
+  void Promise.all([loadProviders(), fetchAccounts()])
 })
 </script>
 

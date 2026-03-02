@@ -803,7 +803,6 @@ import {
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
 import {
-  CACHE_TASK_TYPE_OPTIONS,
   type CacheTaskTTLItem
 } from '@/constants/pages/cache'
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
@@ -885,7 +884,7 @@ const cacheConfig = reactive<Record<string, any>>({
   } as Record<string, number>
 })
 
-const cacheTaskTypeOptions = ref(CACHE_TASK_TYPE_OPTIONS.map(item => ({ ...item })))
+const cacheTaskTypeOptions = ref<Array<{ label: string; value: CacheTaskTTLItem['key'] }>>([])
 
 const ruleModelOptions = ref<Array<{ label: string; options: Array<{ label: string; value: string }> }>>([])
 

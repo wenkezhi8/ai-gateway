@@ -2,14 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { ACCOUNT_PROVIDER_OPTIONS } from './pages/accounts'
 import { OPS_TIME_TABS } from './pages/ops'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from './pages/settings'
 import { USAGE_CSV_HEADER } from './pages/usage'
 
 describe('pages static config extraction', () => {
-  it('should expose accounts provider options', () => {
-    expect(ACCOUNT_PROVIDER_OPTIONS.length).toBeGreaterThan(5)
+  it('should load accounts provider options from api instead of constants', () => {
+    const accountsViewFile = readFileSync(join(process.cwd(), 'src/views/accounts/index.vue'), 'utf-8')
+    expect(accountsViewFile).toContain('getProviderTypes')
+    expect(accountsViewFile).not.toContain('ACCOUNT_PROVIDER_OPTIONS')
   })
 
   it('should expose ops time tabs', () => {
