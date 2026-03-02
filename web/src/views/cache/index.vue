@@ -27,6 +27,19 @@
       </div>
     </div>
 
+    <el-alert
+      v-if="cacheMetaError"
+      type="error"
+      :closable="false"
+      class="backend-alert"
+      title="缓存任务元数据加载失败"
+    >
+      <template #default>
+        {{ cacheMetaError }}
+        <el-button type="danger" link @click="loadCacheTaskMeta">重试</el-button>
+      </template>
+    </el-alert>
+
     <!-- 改动点: 统计概览卡片 -->
     <div class="stats-grid">
       <div v-for="stat in summaryStats" :key="stat.title" class="stat-card">
@@ -196,7 +209,7 @@
                   <el-select v-model="entriesFilter.type" placeholder="任务类型" clearable style="width: 150px" @change="handleEntriesTypeChange">
                     <el-option label="全部" value="" />
                     <el-option
-                      v-for="taskType in CACHE_TASK_TYPE_OPTIONS"
+                      v-for="taskType in cacheTaskTypeOptions"
                       :key="taskType.value"
                       :label="taskType.label"
                       :value="taskType.value"
@@ -640,7 +653,7 @@
         <el-form-item label="任务类型" prop="task_type">
           <el-select v-model="warmupForm.task_type" placeholder="选择任务类型" style="width: 100%">
             <el-option
-              v-for="taskType in CACHE_TASK_TYPE_OPTIONS"
+              v-for="taskType in cacheTaskTypeOptions"
               :key="taskType.value"
               :label="taskType.label"
               :value="taskType.value"
@@ -679,7 +692,7 @@
           <el-select v-model="ruleForm.modelFilter" placeholder="选择模型（可选）" clearable style="width: 100%">
             <el-option label="所有模型" value="" />
             <el-option-group
-              v-for="group in CACHE_RULE_MODEL_OPTIONS"
+              v-for="group in ruleModelOptions"
               :key="group.label"
               :label="group.label"
             >
@@ -777,6 +790,7 @@ import {
   getCacheHealth,
   getCacheRules,
   getCacheStats,
+  getCacheTaskTTLConfig,
   getVectorStats,
   getSemanticSignatures,
   rebuildVectorIndex,
@@ -788,11 +802,7 @@ import {
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
 import {
-  CACHE_DEFAULT_TASK_TTL,
-  CACHE_RULE_MODEL_OPTIONS,
   CACHE_TASK_TYPE_OPTIONS,
-  CACHE_TASK_TTL_ITEMS,
-  CACHE_WARMUP_DEFAULTS,
   type CacheTaskTTLItem
 } from '@/constants/pages/cache'
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
@@ -827,6 +837,8 @@ interface HotCache {
 }
 
 const loading = ref(false)
+const cacheMetaLoading = ref(false)
+const cacheMetaError = ref('')
 const activeTab = ref('entries')
 const ttlSaving = ref(false)
 const ruleDialogVisible = ref(false)
@@ -870,8 +882,12 @@ const cacheConfig = reactive<Record<string, any>>({
   } as Record<string, number>
 })
 
+const cacheTaskTypeOptions = ref(CACHE_TASK_TYPE_OPTIONS.map(item => ({ ...item })))
+
+const ruleModelOptions = ref<Array<{ label: string; options: Array<{ label: string; value: string }> }>>([])
+
 const ttlTaskTypeList = ref<CacheTaskTTLItem[]>(
-  CACHE_TASK_TTL_ITEMS.map(item => ({ ...item }))
+  []
 )
 
 const redisHealth = reactive({
@@ -994,9 +1010,9 @@ const warmupForm = reactive({
   task_type: 'fact',
   user_message: '',
   ai_response: '',
-  model: CACHE_WARMUP_DEFAULTS.model,
-  provider: CACHE_WARMUP_DEFAULTS.provider,
-  ttl: CACHE_DEFAULT_TASK_TTL.fact
+  model: '',
+  provider: '',
+  ttl: 24
 })
 const warmupRules = {
   task_type: [{ required: true, message: '请选择任务类型', trigger: 'change' }],
@@ -1429,14 +1445,66 @@ async function loadCacheConfig() {
   }
 }
 
+async function loadCacheTaskMeta() {
+  cacheMetaLoading.value = true
+  cacheMetaError.value = ''
+  try {
+    const data = await getCacheTaskTTLConfig()
+    const taskTypes = Array.isArray(data.task_types) ? data.task_types : []
+    const modelGroups = Array.isArray(data.model_options) ? data.model_options : []
+
+    cacheTaskTypeOptions.value = taskTypes.map(item => ({
+      label: item.label,
+      value: item.key as CacheTaskTTLItem['key']
+    }))
+
+    ttlTaskTypeList.value = taskTypes.map(item => ({
+      key: item.key as CacheTaskTTLItem['key'],
+      name: item.label,
+      description: item.description,
+      ttl: item.default_ttl
+    }))
+
+    ruleModelOptions.value = modelGroups.map(group => ({
+      label: group.provider_label,
+      options: (group.models || []).map(model => ({ label: model, value: model }))
+    }))
+
+    const firstGroup = modelGroups[0]
+    const firstModel = firstGroup?.models?.[0] || ''
+    if (!warmupForm.model) {
+      warmupForm.model = firstModel
+    }
+    if (!warmupForm.provider) {
+      warmupForm.provider = firstGroup?.provider_id || ''
+    }
+    const factTask = taskTypes.find(item => item.key === 'fact')
+    if (factTask) {
+      warmupForm.ttl = factTask.default_ttl
+    }
+
+    await loadTTLConfig()
+  } catch (e: any) {
+    cacheMetaError.value = e?.message || '请检查 /admin/cache/task-ttl 接口状态'
+    cacheTaskTypeOptions.value = []
+    ttlTaskTypeList.value = []
+    ruleModelOptions.value = []
+  } finally {
+    cacheMetaLoading.value = false
+  }
+}
+
 async function loadTTLConfig() {
   try {
+    if (ttlTaskTypeList.value.length === 0) {
+      return
+    }
     const data: any = await getTtlConfig()
     if (data?.task_type_defaults) {
       const defaults = data.task_type_defaults as Record<string, number>
       ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
         ...item,
-        ttl: defaults[item.key] ?? CACHE_DEFAULT_TASK_TTL[item.key] ?? 24
+        ttl: defaults[item.key] ?? item.ttl
       }))
     }
   } catch (e) {
@@ -1463,10 +1531,7 @@ async function saveTTLConfig() {
 }
 
 function resetTTLConfig() {
-  ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({
-    ...item,
-    ttl: CACHE_DEFAULT_TASK_TTL[item.key] ?? 24
-  }))
+  ttlTaskTypeList.value = ttlTaskTypeList.value.map(item => ({ ...item }))
   handleSuccess('已恢复默认配置')
 }
 
@@ -1783,6 +1848,10 @@ function getTaskTypeTag(taskType: string): string {
 
 // 获取任务类型名称
 function getTaskTypeName(taskType: string): string {
+  const fromApi = cacheTaskTypeOptions.value.find(item => item.value === taskType)
+  if (fromApi?.label) {
+    return fromApi.label
+  }
   const names: Record<string, string> = {
     fact: '事实',
     code: '代码',
@@ -1910,9 +1979,9 @@ async function exportCacheData() {
 }
 
 onMounted(() => {
+  loadCacheTaskMeta()
   loadCacheStats()
   loadCacheConfig()
-  loadTTLConfig()
   loadCacheHealth()
   loadCacheRules()
   loadCacheEntries()

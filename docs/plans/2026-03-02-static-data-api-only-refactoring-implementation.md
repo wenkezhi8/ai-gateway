@@ -15,9 +15,9 @@
 - [x] Task 1: Provider Types API 契约测试与实现
 - [x] Task 2: providers-accounts 页面迁移到 API
 - [x] Task 3: Provider 常量清理与反硬编码测试
-- [ ] Task 4: Cache Task TTL API 契约测试与实现
-- [ ] Task 5: cache 页面迁移到 API
-- [ ] Task 6: Settings Defaults API 契约测试与实现
+- [x] Task 4: Cache Task TTL API 契约测试与实现
+- [x] Task 5: cache 页面迁移到 API
+- [x] Task 6: Settings Defaults API 契约测试与实现
 - [ ] Task 7: settings 页面迁移到 API
 - [ ] Task 8: Public Providers API 契约测试与实现
 - [ ] Task 9: docs/home 页面迁移到 API

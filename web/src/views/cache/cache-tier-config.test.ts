@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { applyCacheConfigPayload, buildCacheConfigPayload } from './cache-tier-config'
 
@@ -98,5 +100,14 @@ describe('cache tier config helpers', () => {
     expect(model.coldVectorBackend).toBe('qdrant')
     expect(model.hotToColdBatchSize).toBe(128)
     expect(model.coldVectorQdrantCollection).toBe('tier')
+  })
+
+  it('should source ttl and model options from api metadata', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/cache/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('getCacheTaskTTLConfig')
+    expect(viewFile).not.toContain('CACHE_DEFAULT_TASK_TTL')
+    expect(viewFile).not.toContain('CACHE_RULE_MODEL_OPTIONS')
+    expect(viewFile).not.toContain('CACHE_WARMUP_DEFAULTS')
   })
 })
