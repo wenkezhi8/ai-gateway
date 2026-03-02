@@ -16,6 +16,7 @@ import {
   getVectorTierConfig,
   getVectorTierStats,
   installOllama as installOllamaApi,
+  deleteOllamaModel as deleteOllamaModelApi,
   promoteVectorTierEntry,
   pullOllamaModel as pullOllamaModelApi,
   putTaskModelMapping,
@@ -96,6 +97,7 @@ export function useRoutingConsole() {
   const ollamaStarting = ref(false)
   const ollamaStopping = ref(false)
   const ollamaPulling = ref(false)
+  const ollamaDeleting = ref(false)
   const ollamaRefreshing = ref(false)
   const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
   const vectorRefreshing = ref(false)
@@ -208,6 +210,7 @@ export function useRoutingConsole() {
     running: false,
     model: ROUTING_OLLAMA_DEFAULT_MODEL,
     model_installed: false,
+    models: [] as string[],
     running_model: '',
     running_models: [] as string[],
     running_model_details: [] as Array<{ name: string; size_vram: number }>,
@@ -538,6 +541,7 @@ export function useRoutingConsole() {
       ollamaSetup.running = Boolean(payload.running)
       ollamaSetup.model = payload.model || model
       ollamaSetup.model_installed = Boolean(payload.model_installed)
+      ollamaSetup.models = Array.isArray(payload.models) ? payload.models : []
       ollamaSetup.running_models = Array.isArray(payload.running_models) ? payload.running_models : []
       ollamaSetup.running_model_details = Array.isArray(payload.running_model_details) ? payload.running_model_details : []
       ollamaSetup.running_vram_bytes_total = Number(payload.running_vram_bytes_total || 0)
@@ -607,6 +611,24 @@ export function useRoutingConsole() {
       handleApiError(e, '安装模型失败')
     } finally {
       ollamaPulling.value = false
+      await loadOllamaSetupStatus()
+    }
+  }
+
+  async function deleteOllamaModel() {
+    const model = (ollamaModelInput.value || classifierConfig.active_model || ROUTING_OLLAMA_DEFAULT_MODEL).trim()
+    if (!model) {
+      handleApiError(new Error('模型名不能为空'), '删除模型失败')
+      return
+    }
+    ollamaDeleting.value = true
+    try {
+      await deleteOllamaModelApi(model)
+      handleSuccess(`模型删除成功: ${model}`)
+    } catch (e) {
+      handleApiError(e, '删除模型失败')
+    } finally {
+      ollamaDeleting.value = false
       await loadOllamaSetupStatus()
     }
   }
@@ -1093,6 +1115,7 @@ export function useRoutingConsole() {
     ollamaStarting,
     ollamaStopping,
     ollamaPulling,
+    ollamaDeleting,
     ollamaRefreshing,
     ollamaModelInput,
     vectorRefreshing,
@@ -1137,6 +1160,7 @@ export function useRoutingConsole() {
     startOllama,
     stopOllama,
     pullOllamaModel,
+    deleteOllamaModel,
     saveClassifierConfig,
     switchClassifierModel,
     saveTaskMapping,

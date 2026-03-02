@@ -1,0 +1,28 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+describe('ollama intent routing config', () => {
+  it('contains classifier, task mapping and cascade sections', () => {
+    const tabFile = readFileSync(join(process.cwd(), 'src/views/ollama/components/IntentRoutingTab.vue'), 'utf-8')
+    const logicFile = readFileSync(join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'), 'utf-8')
+    const constantsFile = readFileSync(join(process.cwd(), 'src/constants/routing.ts'), 'utf-8')
+
+    expect(tabFile).toContain('意图模型配置')
+    expect(tabFile).toContain('任务类型模型映射')
+    expect(tabFile).toContain('级联路由策略')
+    expect(tabFile).toContain('v-for="task in ctx.taskTypes"')
+    expect(constantsFile).toContain("{ type: 'code', name: '代码生成'")
+    expect(constantsFile).toContain("{ type: 'chat', name: '日常对话'")
+    expect(constantsFile).toContain("{ type: 'reasoning', name: '逻辑推理'")
+    expect(constantsFile).toContain("{ type: 'math', name: '数学计算'")
+    expect(constantsFile).toContain("{ type: 'fact', name: '事实查询'")
+    expect(constantsFile).toContain("{ type: 'creative', name: '创意写作'")
+    expect(constantsFile).toContain("{ type: 'translate', name: '翻译'")
+    expect(constantsFile).toContain("{ type: 'other', name: '其他'")
+
+    expect(logicFile).toContain('getOllamaDualModelConfig')
+    expect(logicFile).toContain('updateOllamaDualModelConfig')
+    expect(logicFile).toContain('createDefaultTaskModelMapping')
+  })
+})

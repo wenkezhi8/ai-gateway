@@ -101,6 +101,11 @@ export async function pullOllamaModel(model: string) {
   return unwrapEnvelope(raw, { allowPlain: true })
 }
 
+export async function deleteOllamaModel(model: string) {
+  const raw = await request.post('/admin/router/ollama/delete', { model })
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
 export async function getFeedbackStats() {
   const raw = await request.get('/admin/feedback/stats')
   return unwrapEnvelope<any>(raw, { allowPlain: true })

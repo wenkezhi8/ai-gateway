@@ -3,13 +3,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 describe('routing tabs layout', () => {
-  it('should organize console tabs without ollama tab', () => {
+  it('should keep routing page focused on route policy only', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/routing/index.vue'), 'utf-8')
 
-    expect(viewFile).toContain('<el-tabs')
-    expect(viewFile).toContain('name="policy"')
-    expect(viewFile).not.toContain('name="ollama"')
-    expect(viewFile).toContain('name="models"')
-    expect(viewFile).toContain('name="vector"')
+    expect(viewFile).toContain('RoutePolicyTab')
+    expect(viewFile).not.toContain('<el-tabs')
+    expect(viewFile).not.toContain('ModelManagementTab')
+    expect(viewFile).not.toContain('VectorManagementTab')
   })
 })

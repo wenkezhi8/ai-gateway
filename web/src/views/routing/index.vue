@@ -26,19 +26,7 @@
     </div>
 
     <div class="panel config-panel">
-      <el-tabs v-model="ctx.activeTab" class="routing-tabs">
-        <el-tab-pane label="路由策略" name="policy">
-          <RoutePolicyTab :ctx="ctx" />
-        </el-tab-pane>
-
-        <el-tab-pane label="模型管理" name="models">
-          <ModelManagementTab :ctx="ctx" />
-        </el-tab-pane>
-
-        <el-tab-pane label="向量管理" name="vector">
-          <VectorManagementTab :ctx="ctx" />
-        </el-tab-pane>
-      </el-tabs>
+      <RoutePolicyTab :ctx="ctx" />
     </div>
   </div>
 </template>
@@ -46,8 +34,6 @@
 <script setup lang="ts">
 import { proxyRefs } from 'vue'
 import RoutePolicyTab from './components/RoutePolicyTab.vue'
-import ModelManagementTab from './components/ModelManagementTab.vue'
-import VectorManagementTab from './components/VectorManagementTab.vue'
 import { useRoutingConsole } from './composables/useRoutingConsole'
 
 const ctx = proxyRefs(useRoutingConsole())
@@ -135,10 +121,6 @@ const ctx = proxyRefs(useRoutingConsole())
     align-items: center;
     font-weight: 600;
     gap: 8px;
-  }
-
-  :deep(.routing-tabs > .el-tabs__header) {
-    margin-bottom: 18px;
   }
 
   @media (max-width: 1200px) {
