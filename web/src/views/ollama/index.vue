@@ -18,6 +18,14 @@
         <div class="card-header">服务状态</div>
       </template>
 
+      <div class="poll-row">
+        <el-switch v-model="pollEnabled" active-text="自动轮询" inactive-text="手动刷新" />
+        <el-select v-model="pollIntervalSeconds" style="width: 180px" :disabled="!pollEnabled">
+          <el-option v-for="option in pollIntervalOptions" :key="option" :label="`${option} 秒`" :value="option" />
+        </el-select>
+        <span class="poll-label">轮询间隔</span>
+      </div>
+
       <div class="status-row">
         <el-tag :type="statusTagType(store.status?.installed)">安装：{{ store.status?.installed ? '已安装' : '未安装' }}</el-tag>
         <el-tag :type="statusTagType(store.status?.running)">服务：{{ store.status?.running ? '运行中' : '未运行' }}</el-tag>
@@ -35,6 +43,20 @@
       <template #header>
         <div class="card-header">模型操作</div>
       </template>
+
+      <div class="preset-row">
+        <span class="preset-title">常用模型</span>
+        <el-button
+          v-for="item in commonModels"
+          :key="item"
+          text
+          type="primary"
+          :disabled="store.operating"
+          @click="modelInput = item"
+        >
+          {{ item }}
+        </el-button>
+      </div>
 
       <div class="action-row">
         <el-input v-model="modelInput" placeholder="输入模型名，如 qwen2.5:0.5b-instruct" />
@@ -74,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { useOllamaStore } from '@/store/domain/ollama'
@@ -82,10 +104,40 @@ import { ROUTING_OLLAMA_DEFAULT_MODEL } from '@/constants/routing'
 
 const store = useOllamaStore()
 const modelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
+const commonModels = ['qwen2.5:0.5b-instruct', 'llama3.2:3b', 'deepseek-r1:7b', 'nomic-embed-text']
+const pollIntervalOptions = [5, 10, 15, 30, 60]
+const pollEnabled = ref(true)
+const pollIntervalSeconds = ref(10)
+
+let pollTimer: number | null = null
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  if (!pollEnabled.value) return
+  pollTimer = window.setInterval(() => {
+    void store.refreshStatus()
+  }, pollIntervalSeconds.value * 1000)
+}
 
 onMounted(async () => {
   store.model = modelInput.value
   await store.refreshStatus()
+  startPolling()
+})
+
+onUnmounted(() => {
+  stopPolling()
+})
+
+watch([pollEnabled, pollIntervalSeconds], () => {
+  startPolling()
 })
 
 function statusTagType(flag: boolean | undefined) {
@@ -174,8 +226,32 @@ async function onDelete() {
   flex-wrap: wrap;
 }
 
+.poll-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.poll-label {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+}
+
 .action-row {
   margin-top: 10px;
+}
+
+.preset-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.preset-title {
+  color: var(--el-text-color-secondary);
 }
 
 .item-tag {

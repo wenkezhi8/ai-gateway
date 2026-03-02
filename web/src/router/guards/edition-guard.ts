@@ -1,4 +1,5 @@
 import { useEditionStore } from '@/store/domain/edition'
+import { canAccessPath } from '@/constants/edition-visibility'
 
 export async function canAccessEditionRoute(path: string): Promise<boolean> {
   const editionStore = useEditionStore()
@@ -6,15 +7,6 @@ export async function canAccessEditionRoute(path: string): Promise<boolean> {
     await editionStore.fetchEditionConfig()
   }
 
-  if (path.startsWith('/vector-db')) {
-    return editionStore.hasVectorDBManagement
-  }
-  if (path.startsWith('/knowledge')) {
-    return editionStore.hasKnowledgeBase
-  }
-  if (path.startsWith('/ollama')) {
-    return editionStore.isStandard || editionStore.isEnterprise
-  }
-
-  return true
+  const currentEdition = editionStore.config?.type ?? 'basic'
+  return canAccessPath(path, currentEdition)
 }

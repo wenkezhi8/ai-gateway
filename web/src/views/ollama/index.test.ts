@@ -12,5 +12,7 @@ describe('ollama page', () => {
     expect(content).toContain('删除模型')
     expect(content).toContain('启动服务')
     expect(content).toContain('停止服务')
+    expect(content).toContain('常用模型')
+    expect(content).toContain('轮询间隔')
   })
 })
