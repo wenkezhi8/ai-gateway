@@ -12,6 +12,9 @@ export async function canAccessEditionRoute(path: string): Promise<boolean> {
   if (path.startsWith('/knowledge')) {
     return editionStore.hasKnowledgeBase
   }
+  if (path.startsWith('/ollama')) {
+    return editionStore.isStandard || editionStore.isEnterprise
+  }
 
   return true
 }

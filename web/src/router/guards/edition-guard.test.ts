@@ -10,6 +10,8 @@ describe('edition guard wiring', () => {
     expect(guardContent).toContain('hasVectorDBManagement')
     expect(guardContent).toContain("path.startsWith('/knowledge')")
     expect(guardContent).toContain('hasKnowledgeBase')
+    expect(guardContent).toContain("path.startsWith('/ollama')")
+    expect(guardContent).toContain('editionStore.isStandard || editionStore.isEnterprise')
 
     const routerFile = resolve(process.cwd(), 'src/router/index.ts')
     const routerContent = readFileSync(routerFile, 'utf-8')

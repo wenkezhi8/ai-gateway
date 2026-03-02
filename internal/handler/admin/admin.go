@@ -170,6 +170,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	routerGroup.POST("/ollama/start", handlers.SmartRouter.StartOllama)
 	routerGroup.POST("/ollama/stop", handlers.SmartRouter.StopOllama)
 	routerGroup.POST("/ollama/pull", handlers.SmartRouter.PullOllamaModel)
+	routerGroup.POST("/ollama/delete", handlers.SmartRouter.DeleteOllamaModel)
 	// Vector tier controls are owned by routing vector management page
 	routerGroup.GET("/vector/tier/config", handlers.Cache.GetVectorTierConfig)
 	routerGroup.PUT("/vector/tier/config", handlers.Cache.UpdateVectorTierConfig)

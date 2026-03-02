@@ -5,6 +5,7 @@ export interface MenuItem {
   path: string
   title: string
   icon: string
+  minEdition?: 'standard' | 'enterprise'
 }
 
 const BASE_MENUS: MenuItem[] = [
@@ -19,9 +20,24 @@ const BASE_MENUS: MenuItem[] = [
   { path: '/routing', title: '路由策略', icon: 'Guide' },
   { path: '/cache', title: '缓存管理', icon: 'Box' },
   { path: '/alerts', title: '告警管理', icon: 'Bell' },
+  { path: '/ollama', title: 'Ollama 管理', icon: 'Cpu', minEdition: 'standard' },
   { path: '/settings', title: '系统设置', icon: 'Setting' }
 ]
 
-export function getMenuItems(_edition: EditionConfig | null): MenuItem[] {
-  return BASE_MENUS
+const EDITION_LEVEL = {
+  basic: 1,
+  standard: 2,
+  enterprise: 3
+} as const
+
+export function getMenuItems(edition: EditionConfig | null): MenuItem[] {
+  if (!edition) {
+    return BASE_MENUS.filter((item) => !item.minEdition)
+  }
+
+  const currentLevel = EDITION_LEVEL[edition.type]
+  return BASE_MENUS.filter((item) => {
+    if (!item.minEdition) return true
+    return currentLevel >= EDITION_LEVEL[item.minEdition]
+  })
 }

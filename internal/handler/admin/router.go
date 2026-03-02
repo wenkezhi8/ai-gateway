@@ -1612,3 +1612,30 @@ func (h *RouterHandler) PullOllamaModel(c *gin.Context) {
 
 	c.JSON(200, gin.H{"success": true, "message": "model installed", "data": gin.H{"model": model, "output": output}})
 }
+
+func (h *RouterHandler) DeleteOllamaModel(c *gin.Context) {
+	var req ollamaSetupRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_model", "message": "model is required"}})
+		return
+	}
+
+	if !commandExists("ollama") {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "ollama_not_installed", "message": "ollama not installed"}})
+		return
+	}
+
+	output, err := runShellCommand(constants.AdminOllamaPullTimeout, fmt.Sprintf("ollama rm %s", model))
+	if err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "delete_failed", "message": err.Error()}, "data": gin.H{"output": output}})
+		return
+	}
+
+	c.JSON(200, gin.H{"success": true, "message": "model deleted", "data": gin.H{"model": model, "output": output}})
+}

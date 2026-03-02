@@ -95,6 +95,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '路由策略', icon: 'Guide' }
       },
       {
+        path: '/ollama',
+        name: 'Ollama',
+        component: () => import('@/views/ollama/index.vue'),
+        meta: { title: 'Ollama 管理', icon: 'Cpu' }
+      },
+      {
         path: '/cache',
         name: 'Cache',
         component: () => import('@/views/cache/index.vue'),

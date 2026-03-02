@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { getMenuItems } from './menu-config'
 
 describe('layout menu config', () => {
-  it('returns 12 base menu items for basic edition', () => {
+  it('basic edition should hide ollama menu', () => {
     const menus = getMenuItems({
       type: 'basic',
       features: {
@@ -17,7 +17,24 @@ describe('layout menu config', () => {
       dependencies: ['redis']
     })
 
-    expect(menus).toHaveLength(12)
+    expect(menus.some((m) => m.path === '/ollama')).toBe(false)
     expect(menus.some((m) => m.path === '/settings')).toBe(true)
+  })
+
+  it('standard edition should show ollama menu', () => {
+    const menus = getMenuItems({
+      type: 'standard',
+      features: {
+        vector_cache: true,
+        vector_db_management: false,
+        knowledge_base: false,
+        cold_hot_tiering: false
+      },
+      display_name: '标准版',
+      description: '',
+      dependencies: ['redis', 'ollama']
+    })
+
+    expect(menus.some((m) => m.path === '/ollama')).toBe(true)
   })
 })

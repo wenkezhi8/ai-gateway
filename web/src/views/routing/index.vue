@@ -3,7 +3,7 @@
     <div class="cache-hero">
       <div class="hero-main">
         <div class="hero-title">路由策略控制台</div>
-        <div class="hero-subtitle">统一管理分类器、Ollama 双模型与向量 Pipeline 状态</div>
+        <div class="hero-subtitle">统一管理分类器、模型映射与向量 Pipeline 状态</div>
       </div>
       <div class="hero-actions">
         <el-button type="primary" @click="ctx.reloadAllPanels">
@@ -31,10 +31,6 @@
           <RoutePolicyTab :ctx="ctx" />
         </el-tab-pane>
 
-        <el-tab-pane label="Ollama" name="ollama">
-          <OllamaTab :ctx="ctx" />
-        </el-tab-pane>
-
         <el-tab-pane label="模型管理" name="models">
           <ModelManagementTab :ctx="ctx" />
         </el-tab-pane>
@@ -50,7 +46,6 @@
 <script setup lang="ts">
 import { proxyRefs } from 'vue'
 import RoutePolicyTab from './components/RoutePolicyTab.vue'
-import OllamaTab from './components/OllamaTab.vue'
 import ModelManagementTab from './components/ModelManagementTab.vue'
 import VectorManagementTab from './components/VectorManagementTab.vue'
 import { useRoutingConsole } from './composables/useRoutingConsole'
