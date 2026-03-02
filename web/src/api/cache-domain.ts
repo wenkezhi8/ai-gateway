@@ -1,6 +1,37 @@
 import { request } from './request'
 import { unwrapEnvelope } from './envelope'
 
+export interface CacheTaskTypeConfig {
+  key: string
+  label: string
+  description: string
+  default_ttl: number
+  ttl_unit: 'hours'
+}
+
+export interface CacheModelOptionGroup {
+  provider_id: string
+  provider_label: string
+  models: string[]
+}
+
+interface CacheTaskTTLConfigResponse {
+  success: boolean
+  data?: {
+    task_types: CacheTaskTypeConfig[]
+    model_options: CacheModelOptionGroup[]
+  }
+  error?: string
+}
+
+export async function getCacheTaskTTLConfig() {
+  const response = await request.get<CacheTaskTTLConfigResponse>('/admin/cache/task-ttl')
+  if (!response?.success || !response.data) {
+    throw new Error(response?.error || 'CACHE_TTL_CONFIG_LOAD_FAILED')
+  }
+  return response.data
+}
+
 export async function getCacheStats() {
   const raw = await request.get('/admin/cache/stats')
   return unwrapEnvelope<any>(raw, { allowPlain: true })

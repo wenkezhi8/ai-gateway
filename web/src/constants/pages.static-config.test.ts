@@ -4,14 +4,8 @@ import { join } from 'node:path'
 
 import { ACCOUNT_PROVIDER_OPTIONS } from './pages/accounts'
 import { OPS_TIME_TABS } from './pages/ops'
-import { DASHBOARD_FALLBACK_SERIES } from './pages/dashboard'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from './pages/settings'
 import { USAGE_CSV_HEADER } from './pages/usage'
-import {
-  PROVIDERS_ACCOUNTS_BASE_TYPES,
-  PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS
-} from './pages/providers-accounts'
-import { PROVIDERS_ENDPOINT_MAP } from './pages/providers'
 
 describe('pages static config extraction', () => {
   it('should expose accounts provider options', () => {
@@ -22,10 +16,12 @@ describe('pages static config extraction', () => {
     expect(OPS_TIME_TABS).toEqual(['1min', '5min', '30min', '1h'])
   })
 
-  it('should expose dashboard fallback time series', () => {
-    expect(DASHBOARD_FALLBACK_SERIES.timestamps.length).toBe(6)
-    expect(DASHBOARD_FALLBACK_SERIES.requests.length).toBe(6)
-    expect(DASHBOARD_FALLBACK_SERIES.successRates.length).toBe(6)
+  it('should remove dashboard fallback series from constants and view', () => {
+    const dashboardConstantsFile = readFileSync(join(process.cwd(), 'src/constants/pages/dashboard.ts'), 'utf-8')
+    const dashboardViewFile = readFileSync(join(process.cwd(), 'src/views/dashboard/index.vue'), 'utf-8')
+
+    expect(dashboardConstantsFile).not.toContain('DASHBOARD_FALLBACK_SERIES')
+    expect(dashboardViewFile).not.toContain('DASHBOARD_FALLBACK_SERIES')
   })
 
   it('should expose settings static options', () => {
@@ -47,15 +43,26 @@ describe('pages static config extraction', () => {
     expect(savedTokenIndex).toBeLessThan(cacheHitIndex)
   })
 
-  it('should expose providers-accounts base types', () => {
-    expect(PROVIDERS_ACCOUNTS_BASE_TYPES.length).toBeGreaterThan(0)
-  })
-
-  it('should use google native default endpoint', () => {
-    expect(PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS.google).toBe(
-      'https://generativelanguage.googleapis.com/v1beta'
+  it('should remove provider business static constants from constants files', () => {
+    const providersAccountsConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/pages/providers-accounts.ts'),
+      'utf-8'
     )
-    expect(PROVIDERS_ENDPOINT_MAP.google).toBe('https://generativelanguage.googleapis.com/v1beta')
+    const providersConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/pages/providers.ts'),
+      'utf-8'
+    )
+
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_BASE_TYPES')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_CODING_PLAN_ENDPOINTS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_PROVIDER_COLORS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_PROVIDER_LOGOS')
+
+    expect(providersConstantsFile).not.toContain('PROVIDERS_AVAILABLE_MODELS')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_ENDPOINT_MAP')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_COLOR_MAP')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_ICON_MAP')
   })
 
   it('should remove hardcoded model defaults from stores', () => {
@@ -96,6 +103,22 @@ describe('pages static config extraction', () => {
 
     expect(docsViewFile).not.toContain('const providers = ref([')
     expect(apiManagementViewFile).not.toContain('const strategies = ref([')
+  })
+
+  it('should source docs and home provider list from public provider api', () => {
+    const docsLegacyViewFile = readFileSync(
+      join(process.cwd(), 'src/views/docs/legacy-content.vue'),
+      'utf-8'
+    )
+    const homeViewFile = readFileSync(join(process.cwd(), 'src/views/home/index.vue'), 'utf-8')
+    const docsConstantsFile = readFileSync(join(process.cwd(), 'src/constants/pages/docs.ts'), 'utf-8')
+
+    expect(docsLegacyViewFile).toContain('getPublicProviders')
+    expect(docsLegacyViewFile).not.toContain('DOCS_PROVIDERS')
+
+    expect(homeViewFile).toContain('getPublicProviders')
+    expect(homeViewFile).not.toContain('const providers = [')
+    expect(docsConstantsFile).not.toContain('DOCS_PROVIDERS')
   })
 
   it('should show google endpoint mode hint in providers accounts view', () => {
@@ -218,6 +241,33 @@ describe('pages static config extraction', () => {
     expect(settingsViewFile).not.toContain('ai-gateway-settings')
     expect(modelManagementViewFile).not.toContain('MODEL_MANAGEMENT_STORAGE_KEY')
     expect(modelManagementViewFile).not.toContain('localStorage.setItem(STORAGE_KEY')
+  })
+
+  it('should load settings defaults from api instead of static defaults factory', () => {
+    const settingsViewFile = readFileSync(join(process.cwd(), 'src/views/settings/index.vue'), 'utf-8')
+    const settingsConstantsFile = readFileSync(join(process.cwd(), 'src/constants/pages/settings.ts'), 'utf-8')
+
+    expect(settingsViewFile).toContain('getSettingsDefaults')
+    expect(settingsViewFile).not.toContain('createSettingsDefaults')
+    expect(settingsViewFile).not.toContain('SETTINGS_DEFAULT_VALUES')
+    expect(settingsConstantsFile).not.toContain('createSettingsDefaults')
+    expect(settingsConstantsFile).not.toContain('SETTINGS_DEFAULT_VALUES')
+  })
+
+  it('should remove deepseek-chat hardcoded model defaults from routing pages', () => {
+    const apiManagementViewFile = readFileSync(
+      join(process.cwd(), 'src/views/api-management/index.vue'),
+      'utf-8'
+    )
+    const routingConsoleFile = readFileSync(
+      join(process.cwd(), 'src/views/routing/composables/useRoutingConsole.ts'),
+      'utf-8'
+    )
+
+    expect(apiManagementViewFile).not.toContain("default_model: 'deepseek-chat'")
+    expect(apiManagementViewFile).not.toContain("data.data.default_model || 'deepseek-chat'")
+    expect(routingConsoleFile).not.toContain("defaultModel: 'deepseek-chat'")
+    expect(routingConsoleFile).not.toContain("data.default_model || 'deepseek-chat'")
   })
 
   it('should enforce api facade boundaries in stores and composables', () => {

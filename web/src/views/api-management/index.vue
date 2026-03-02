@@ -727,7 +727,7 @@ const enabledApiKeys = computed(() => apiKeys.value.filter(k => k.enabled))
 const routerConfig = ref({
   use_auto_mode: 'auto',
   default_strategy: 'auto',
-  default_model: 'deepseek-chat'
+  default_model: ''
 })
 
 const strategies = API_MANAGEMENT_STRATEGIES
@@ -1128,7 +1128,7 @@ async function loadRouterConfig() {
       routerConfig.value = {
         use_auto_mode: data.data.use_auto_mode || 'auto',
         default_strategy: data.data.default_strategy || 'auto',
-        default_model: data.data.default_model || 'deepseek-chat'
+        default_model: data.data.default_model || ''
       }
     }
   } catch (e) {

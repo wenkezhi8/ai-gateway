@@ -1,9 +1,3 @@
-export const DASHBOARD_FALLBACK_SERIES = {
-  timestamps: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'],
-  requests: [0, 0, 0, 0, 0, 0],
-  successRates: [0, 0, 0, 0, 0, 0]
-} as const
-
 export const DASHBOARD_PROVIDER_COLORS: Record<string, string> = {
   openai: '#007AFF',
   anthropic: '#AF52DE',

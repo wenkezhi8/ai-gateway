@@ -1,5 +1,54 @@
 import { request } from './request'
 
+export interface ProviderType {
+  id: string
+  label: string
+  category: 'international' | 'chinese' | 'local'
+  color: string
+  logo: string
+  icon?: string
+  default_endpoint: string
+  coding_endpoint?: string
+  supports_coding_plan: boolean
+  models: string[]
+}
+
+export interface PublicProviderInfo {
+  id: string
+  label: string
+  color: string
+  logo: string
+  default_model?: string
+}
+
+interface ProviderTypesResponse {
+  success: boolean
+  data?: ProviderType[]
+  error?: string
+}
+
+interface PublicProvidersResponse {
+  success: boolean
+  data?: PublicProviderInfo[]
+  error?: string
+}
+
+export async function getProviderTypes(): Promise<ProviderType[]> {
+  const response = await request.get<ProviderTypesResponse>('/admin/providers/types')
+  if (!response?.success || !response.data) {
+    throw new Error(response?.error || 'PROVIDER_TYPES_LOAD_FAILED')
+  }
+  return response.data
+}
+
+export async function getPublicProviders(): Promise<PublicProviderInfo[]> {
+  const response = await request.get<PublicProvidersResponse>('/v1/config/providers')
+  if (!response?.success || !response.data) {
+    throw new Error(response?.error || 'PUBLIC_PROVIDERS_LOAD_FAILED')
+  }
+  return response.data
+}
+
 // 服务商相关API
 export interface Provider {
   id: number
