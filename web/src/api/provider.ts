@@ -13,9 +13,23 @@ export interface ProviderType {
   models: string[]
 }
 
+export interface PublicProviderInfo {
+  id: string
+  label: string
+  color: string
+  logo: string
+  default_model?: string
+}
+
 interface ProviderTypesResponse {
   success: boolean
   data?: ProviderType[]
+  error?: string
+}
+
+interface PublicProvidersResponse {
+  success: boolean
+  data?: PublicProviderInfo[]
   error?: string
 }
 
@@ -23,6 +37,14 @@ export async function getProviderTypes(): Promise<ProviderType[]> {
   const response = await request.get<ProviderTypesResponse>('/admin/providers/types')
   if (!response?.success || !response.data) {
     throw new Error(response?.error || 'PROVIDER_TYPES_LOAD_FAILED')
+  }
+  return response.data
+}
+
+export async function getPublicProviders(): Promise<PublicProviderInfo[]> {
+  const response = await request.get<PublicProvidersResponse>('/v1/config/providers')
+  if (!response?.success || !response.data) {
+    throw new Error(response?.error || 'PUBLIC_PROVIDERS_LOAD_FAILED')
   }
   return response.data
 }

@@ -341,8 +341,8 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, Check } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
-import { getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
-import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS, createSettingsDefaults } from '@/constants/pages/settings'
+import { getSettingsDefaults, getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
+import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from '@/constants/pages/settings'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
 
@@ -352,7 +352,49 @@ const settingsMenu = [...SETTINGS_MENU_ITEMS]
 
 const themeColors = [...THEME_COLOR_OPTIONS]
 
-const settings = reactive(createSettingsDefaults())
+const settings = reactive({
+  theme: 'auto',
+  themeVariant: 'apple',
+  primaryColor: '#007AFF',
+  borderRadius: 16,
+  enableAnimation: true,
+  gateway: {
+    host: '0.0.0.0',
+    port: 8080,
+    timeout: 30,
+    maxConnections: 1000,
+    enableCors: true,
+    corsOrigins: '*'
+  },
+  cache: {
+    enabled: true,
+    type: 'memory',
+    defaultTTL: 3600,
+    maxSize: 1024,
+    redis: {
+      host: 'localhost:6379',
+      password: '',
+      db: 0
+    }
+  },
+  logging: {
+    level: 'info',
+    format: 'json',
+    outputs: ['console'],
+    filePath: '/var/log/ai-gateway',
+    maxFileSize: 100,
+    maxBackups: 7
+  },
+  security: {
+    enabled: true,
+    type: 'apikey',
+    rateLimit: true,
+    rateLimitRPM: 100,
+    ipWhitelist: ''
+  }
+})
+
+const settingsDefaults = ref<Record<string, any> | null>(null)
 
 interface SyncStatus {
   syncing: boolean
@@ -422,6 +464,55 @@ function buildPersistedSettingsPayload() {
   }
 }
 
+function applySettingsDefaults(defaults: Record<string, any>) {
+  settingsDefaults.value = defaults
+  const gateway = defaults.gateway || {}
+  const cache = defaults.cache || {}
+  const logging = defaults.logging || {}
+  const security = defaults.security || {}
+
+  Object.assign(settings.gateway, {
+    host: gateway.host ?? settings.gateway.host,
+    port: gateway.port ?? settings.gateway.port,
+    timeout: gateway.timeout ?? settings.gateway.timeout,
+    maxConnections: gateway.max_connections ?? gateway.maxConnections ?? settings.gateway.maxConnections,
+    enableCors: gateway.enable_cors ?? gateway.enableCors ?? settings.gateway.enableCors,
+    corsOrigins: gateway.cors_origins ?? gateway.corsOrigins ?? settings.gateway.corsOrigins
+  })
+
+  Object.assign(settings.cache, {
+    enabled: cache.enabled ?? settings.cache.enabled,
+    type: cache.type ?? settings.cache.type,
+    defaultTTL: cache.default_ttl ?? cache.defaultTTL ?? settings.cache.defaultTTL,
+    maxSize: cache.max_size ?? cache.maxSize ?? settings.cache.maxSize
+  })
+
+  if (cache.redis) {
+    Object.assign(settings.cache.redis, {
+      host: cache.redis.host ?? settings.cache.redis.host,
+      password: cache.redis.password ?? settings.cache.redis.password,
+      db: cache.redis.db ?? settings.cache.redis.db
+    })
+  }
+
+  Object.assign(settings.logging, {
+    level: logging.level ?? settings.logging.level,
+    format: logging.format ?? settings.logging.format,
+    outputs: Array.isArray(logging.outputs) ? [...logging.outputs] : settings.logging.outputs,
+    filePath: logging.file_path ?? logging.filePath ?? settings.logging.filePath,
+    maxFileSize: logging.max_file_size ?? logging.maxFileSize ?? settings.logging.maxFileSize,
+    maxBackups: logging.max_backups ?? logging.maxBackups ?? settings.logging.maxBackups
+  })
+
+  Object.assign(settings.security, {
+    enabled: security.enabled ?? settings.security.enabled,
+    type: security.type ?? settings.security.type,
+    rateLimit: security.rate_limit ?? security.rateLimit ?? settings.security.rateLimit,
+    rateLimitRPM: security.rate_limit_rpm ?? security.rateLimitRPM ?? settings.security.rateLimitRPM,
+    ipWhitelist: security.ip_whitelist ?? security.ipWhitelist ?? settings.security.ipWhitelist
+  })
+}
+
 // 页面加载时从 localStorage 加载设置
 onMounted(async () => {
   // 同步主题设置
@@ -437,6 +528,9 @@ onMounted(async () => {
 
   // 加载后端持久化的业务设置
   try {
+    const defaults = await getSettingsDefaults()
+    applySettingsDefaults(defaults as Record<string, any>)
+
     const uiSettings = await getUiSettings()
     const parsed = uiSettings?.settings as Record<string, any> | undefined
     if (parsed) {
@@ -453,7 +547,11 @@ onMounted(async () => {
 })
 
 const resetSettings = async () => {
-  Object.assign(settings, createSettingsDefaults())
+  if (!settingsDefaults.value) {
+    ElMessage.error('默认配置未加载，请稍后重试')
+    return
+  }
+  applySettingsDefaults(settingsDefaults.value)
   try {
     await updateGeneralUiSettings(buildPersistedSettingsPayload())
     ElMessage.success('设置已重置为默认值')
