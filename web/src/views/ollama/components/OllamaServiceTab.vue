@@ -21,6 +21,30 @@
         <span class="poll-label">轮询间隔</span>
       </div>
 
+      <el-row :gutter="12" class="config-row">
+        <el-col :span="10">
+          <el-form-item label="启动方式" class="runtime-item">
+            <el-select v-model="ctx.ollamaRuntimeConfig.startup_mode" style="width: 100%">
+              <el-option label="自动检测（优先 App）" value="auto" />
+              <el-option label="使用 Ollama.app" value="app" />
+              <el-option label="使用 CLI" value="cli" />
+              <el-option label="手动启动" value="manual" />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :span="10">
+          <div class="monitor-switch-row">
+            <el-switch v-model="ctx.ollamaRuntimeConfig.monitoring.enabled" active-text="启用监控" inactive-text="关闭监控" />
+            <el-switch v-model="ctx.ollamaRuntimeConfig.monitoring.auto_restart" active-text="自动重启" inactive-text="不自动重启" />
+          </div>
+        </el-col>
+        <el-col :span="4" class="config-action-col">
+          <el-button type="primary" plain :loading="ctx.ollamaConfigSaving" @click="ctx.saveOllamaRuntimeConfig">
+            保存配置
+          </el-button>
+        </el-col>
+      </el-row>
+
       <el-row :gutter="12" style="margin-bottom: 12px">
         <el-col :span="24">
           <el-tag :type="ctx.ollamaSetup.installed ? 'success' : 'warning'" style="margin-right: 8px">
@@ -28,6 +52,9 @@
           </el-tag>
           <el-tag :type="ctx.ollamaSetup.running ? 'success' : 'danger'" style="margin-right: 8px">
             服务状态: {{ ctx.ollamaSetup.running ? '运行中' : '未运行' }}
+          </el-tag>
+          <el-tag type="info" style="margin-right: 8px">
+            启动方式: {{ startupModeLabel(ctx.ollamaSetup.startup_mode) }}
           </el-tag>
           <el-tag :type="ctx.ollamaSetup.model_installed ? 'success' : 'info'">
             模型({{ ctx.ollamaSetup.model }}): {{ ctx.ollamaSetup.model_installed ? '已安装' : '未安装' }}
@@ -72,6 +99,30 @@
         :closable="false"
         style="margin-bottom: 12px"
       />
+
+      <el-alert
+        v-if="ctx.ollamaSetup.last_error"
+        :title="`启动错误: ${ctx.ollamaSetup.last_error}`"
+        type="error"
+        :closable="false"
+        style="margin-bottom: 12px"
+      />
+
+      <el-descriptions border :column="3" size="small" style="margin-bottom: 12px">
+        <el-descriptions-item label="监控状态">
+          <el-tag :type="ctx.ollamaSetup.monitoring_stats.enabled ? 'success' : 'info'">
+            {{ ctx.ollamaSetup.monitoring_stats.enabled ? '已启用' : '已关闭' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="健康状态">
+          <el-tag :type="ctx.ollamaSetup.monitoring_stats.health_status === 'healthy' ? 'success' : 'warning'">
+            {{ ctx.ollamaSetup.monitoring_stats.health_status || 'unknown' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="自动重启次数">
+          {{ ctx.ollamaSetup.monitoring_stats.restart_attempts || 0 }}
+        </el-descriptions-item>
+      </el-descriptions>
 
       <el-row :gutter="16">
         <el-col :span="12">
@@ -139,6 +190,16 @@ function startPolling() {
   }, pollIntervalSeconds.value * 1000)
 }
 
+function startupModeLabel(mode: string): string {
+  const labels: Record<string, string> = {
+    auto: '自动检测',
+    app: 'App',
+    cli: 'CLI',
+    manual: '手动'
+  }
+  return labels[mode] || mode
+}
+
 onMounted(() => {
   startPolling()
 })
@@ -164,6 +225,26 @@ watch([pollEnabled, pollIntervalSeconds], () => {
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.config-row {
+  margin-bottom: 12px;
+}
+
+.runtime-item {
+  margin-bottom: 0;
+}
+
+.monitor-switch-row {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-action-col {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .poll-label,

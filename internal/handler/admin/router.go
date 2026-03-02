@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,19 +18,22 @@ import (
 
 	"ai-gateway/internal/constants"
 	"ai-gateway/internal/routing"
+	"ai-gateway/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
 // RouterHandler handles smart router configuration requests.
 type RouterHandler struct {
-	router          *routing.SmartRouter
-	cacheManager    *cache.Manager
-	mu              sync.RWMutex
-	switchTaskStore *classifierSwitchTaskStore
-	nowFn           func() time.Time
-	sleepFn         func(time.Duration)
-	probeSwitchFn   func(targetModel, originalModel string) error
+	router            *routing.SmartRouter
+	cacheManager      *cache.Manager
+	ollamaService     *service.OllamaService
+	mu                sync.RWMutex
+	switchTaskStore   *classifierSwitchTaskStore
+	nowFn             func() time.Time
+	sleepFn           func(time.Duration)
+	probeSwitchFn     func(targetModel, originalModel string) error
+	ollamaMonitorOnce sync.Once
 }
 
 // NewRouterHandler creates a new router handler.
@@ -43,6 +47,7 @@ func NewRouterHandler(router *routing.SmartRouter, cacheManager *cache.Manager) 
 		router:          router,
 		cacheManager:    cacheManager,
 		switchTaskStore: taskStore,
+		ollamaService:   service.NewOllamaService(loadOllamaRuntimeConfig()),
 	}
 	h.nowFn = time.Now
 	h.sleepFn = time.Sleep
@@ -258,6 +263,61 @@ func checkOllamaRunning(ctx context.Context, cfg *routing.ClassifierConfig) (run
 	return true, models, "ok"
 }
 
+func loadOllamaRuntimeConfig() *service.OllamaServiceConfig {
+	defaults := service.DefaultOllamaServiceConfig()
+	data, err := os.ReadFile(filepath.Clean(constants.OllamaRuntimeConfigFilePath))
+	if err != nil {
+		return &defaults
+	}
+
+	loaded := service.OllamaServiceConfig{}
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		return &defaults
+	}
+	if loaded.StartupMode == "" {
+		return &defaults
+	}
+	return &loaded
+}
+
+func saveOllamaRuntimeConfig(cfg *service.OllamaServiceConfig) error {
+	if err := os.MkdirAll(filepath.Dir(constants.OllamaRuntimeConfigFilePath), 0750); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(constants.OllamaRuntimeConfigFilePath, data, 0640)
+}
+
+func (h *RouterHandler) ensureOllamaMonitorStarted() {
+	h.ollamaMonitorOnce.Do(func() {
+		go func() {
+			for {
+				cfg := h.ollamaService.GetConfig()
+				interval := time.Duration(cfg.Monitoring.CheckIntervalSeconds) * time.Second
+				if interval <= 0 {
+					interval = 30 * time.Second
+				}
+				time.Sleep(interval)
+
+				if !cfg.Monitoring.Enabled {
+					continue
+				}
+
+				classifierCfg := h.router.GetClassifierConfig()
+				ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.HealthCheckTimeoutMs)*time.Millisecond)
+				if err := h.ollamaService.CheckAndAutoRestart(ctx, &classifierCfg); err != nil {
+					fmt.Printf("ollama monitor auto-restart failed: %v\n", err)
+				}
+				cancel()
+			}
+		}()
+	})
+}
+
 func containsModel(models []string, model string) bool {
 	target := strings.TrimSpace(model)
 	if target == "" {
@@ -443,7 +503,7 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 		mode := parseAutoModeJSON(req.UseAutoMode, persistedConfig.UseAutoMode)
 		persistedConfig.UseAutoMode = mode
 		// 同时更新SmartRouter的UseAutoMode布尔值用于向后兼容
-		h.router.SetUseAutoMode(mode == "auto")
+		h.router.SetUseAutoMode(mode == autoModeAuto)
 	}
 	if req.DefaultStrategy != nil {
 		persistedConfig.DefaultStrategy = *req.DefaultStrategy
@@ -1390,7 +1450,17 @@ type ollamaSetupRequest struct {
 	Model string `json:"model"`
 }
 
+type updateOllamaRuntimeConfigRequest struct {
+	StartupMode           *service.StartupMode   `json:"startup_mode,omitempty"`
+	AutoDetectPriority    []service.StartupMode  `json:"auto_detect_priority,omitempty"`
+	Monitoring            *service.MonitorConfig `json:"monitoring,omitempty"`
+	StartupTimeoutSeconds *int                   `json:"startup_timeout_seconds,omitempty"`
+	HealthCheckTimeoutMs  *int                   `json:"health_check_timeout_ms,omitempty"`
+}
+
 func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
+	h.ensureOllamaMonitorStarted()
+
 	cfg := h.router.GetClassifierConfig()
 	model := strings.TrimSpace(c.Query("model"))
 	if model == "" {
@@ -1411,6 +1481,12 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 	message := "ollama not installed"
 
 	if installed {
+		checkCtx, checkCancel := context.WithTimeout(c.Request.Context(), time.Duration(h.ollamaService.GetConfig().HealthCheckTimeoutMs)*time.Millisecond)
+		if err := h.ollamaService.CheckAndAutoRestart(checkCtx, &cfg); err != nil {
+			fmt.Printf("ollama status auto-restart check failed: %v\n", err)
+		}
+		checkCancel()
+
 		runCtx, cancel := context.WithTimeout(c.Request.Context(), constants.AdminOllamaCheckTimeout)
 		defer cancel()
 		var detail string
@@ -1460,8 +1536,59 @@ func (h *RouterHandler) GetOllamaSetupStatus(c *gin.Context) {
 			"keep_alive_disabled":      true,
 			"message":                  message,
 			"os":                       runtime.GOOS,
+			"startup_mode":             h.ollamaService.GetActiveMode(),
+			"last_error":               h.ollamaService.GetLastError(),
+			"monitoring_stats":         h.ollamaService.GetMonitorStatus(),
 		},
 	})
+}
+
+func (h *RouterHandler) GetOllamaRuntimeConfig(c *gin.Context) {
+	config := h.ollamaService.GetConfig()
+	monitor := h.ollamaService.GetMonitorStatus()
+	c.JSON(200, gin.H{"success": true, "data": gin.H{"config": config, "monitoring_stats": monitor}})
+}
+
+func (h *RouterHandler) UpdateOllamaRuntimeConfig(c *gin.Context) {
+	var req updateOllamaRuntimeConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_request", "message": err.Error()}})
+		return
+	}
+
+	next := h.ollamaService.GetConfig()
+	if req.StartupMode != nil {
+		next.StartupMode = *req.StartupMode
+	}
+	if len(req.AutoDetectPriority) > 0 {
+		next.AutoDetectPriority = req.AutoDetectPriority
+	}
+	if req.Monitoring != nil {
+		next.Monitoring = *req.Monitoring
+	}
+	if req.StartupTimeoutSeconds != nil {
+		next.StartupTimeoutSeconds = *req.StartupTimeoutSeconds
+	}
+	if req.HealthCheckTimeoutMs != nil {
+		next.HealthCheckTimeoutMs = *req.HealthCheckTimeoutMs
+	}
+
+	if next.StartupMode != service.StartupModeAuto &&
+		next.StartupMode != service.StartupModeApp &&
+		next.StartupMode != service.StartupModeCLI &&
+		next.StartupMode != service.StartupModeManual {
+		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "invalid_startup_mode", "message": "startup_mode must be auto/app/cli/manual"}})
+		return
+	}
+
+	updated := h.ollamaService.UpdateConfig(&next)
+	if err := saveOllamaRuntimeConfig(&updated); err != nil {
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "persist_failed", "message": err.Error()}})
+		return
+	}
+
+	h.ensureOllamaMonitorStarted()
+	c.JSON(200, gin.H{"success": true, "message": "ollama runtime config updated", "data": updated})
 }
 
 func (h *RouterHandler) InstallOllama(c *gin.Context) {
@@ -1495,50 +1622,46 @@ func (h *RouterHandler) InstallOllama(c *gin.Context) {
 }
 
 func (h *RouterHandler) StartOllama(c *gin.Context) {
+	h.ensureOllamaMonitorStarted()
+
 	cfg := h.router.GetClassifierConfig()
-	runCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-	running, _, _ := checkOllamaRunning(runCtx, &cfg)
-	cancel()
-	if running {
+	result, err := h.ollamaService.Start(c.Request.Context(), &cfg)
+	if err != nil {
+		var startErr *service.StartError
+		if errors.As(err, &startErr) {
+			statusCode := 500
+			switch startErr.Code {
+			case "manual_mode", "unsupported_os", "app_not_installed", "ollama_not_installed", "invalid_startup_mode", "startup_mode_unavailable":
+				statusCode = 400
+			case "start_timeout":
+				statusCode = 503
+			}
+			c.JSON(statusCode, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    startErr.Code,
+					"message": startErr.Message,
+					"hint":    startErr.Hint,
+				},
+				"data": gin.H{
+					"output":       startErr.Output,
+					"startup_mode": startErr.StartupMode,
+					"command":      startErr.Command,
+				},
+			})
+			return
+		}
+
+		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "start_failed", "message": err.Error()}})
+		return
+	}
+
+	if result.AlreadyRunning {
 		c.JSON(200, gin.H{"success": true, "message": "ollama already running"})
 		return
 	}
 
-	if !commandExists("ollama") {
-		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "ollama_not_installed", "message": "ollama not installed"}})
-		return
-	}
-
-	var command string
-	switch runtime.GOOS {
-	case goosDarwin:
-		command = "open -a Ollama"
-	case goosLinux:
-		command = "nohup ollama serve >/tmp/ollama.log 2>&1 &"
-	default:
-		c.JSON(400, gin.H{"success": false, "error": gin.H{"code": "unsupported_os", "message": "current OS is not supported for auto start"}})
-		return
-	}
-
-	output, err := runShellCommand(constants.AdminOllamaStartCommandTimeout, command)
-	if err != nil {
-		c.JSON(500, gin.H{"success": false, "error": gin.H{"code": "start_failed", "message": err.Error()}, "data": gin.H{"output": output}})
-		return
-	}
-
-	deadline := time.Now().Add(constants.AdminOllamaStartReadyDeadline)
-	for time.Now().Before(deadline) {
-		checkCtx, stop := context.WithTimeout(c.Request.Context(), constants.AdminOllamaStartProbeTimeout)
-		alive, _, _ := checkOllamaRunning(checkCtx, &cfg)
-		stop()
-		if alive {
-			c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": output}})
-			return
-		}
-		time.Sleep(constants.AdminOllamaStartProbeInterval)
-	}
-
-	c.JSON(503, gin.H{"success": false, "error": gin.H{"code": "start_timeout", "message": "ollama did not become ready in time"}, "data": gin.H{"output": output}})
+	c.JSON(200, gin.H{"success": true, "message": "ollama started", "data": gin.H{"output": result.Output, "startup_mode": result.StartupMode, "command": result.Command}})
 }
 
 func (h *RouterHandler) StopOllama(c *gin.Context) {

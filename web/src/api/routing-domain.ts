@@ -1,6 +1,33 @@
 import { request } from './request'
 import { unwrapEnvelope } from './envelope'
 
+export type OllamaStartupMode = 'auto' | 'app' | 'cli' | 'manual'
+
+export interface OllamaRuntimeMonitoringConfig {
+  enabled: boolean
+  check_interval_seconds: number
+  auto_restart: boolean
+  max_restart_attempts: number
+  restart_cooldown_seconds: number
+}
+
+export interface OllamaRuntimeConfig {
+  startup_mode: OllamaStartupMode
+  auto_detect_priority: OllamaStartupMode[]
+  monitoring: OllamaRuntimeMonitoringConfig
+  startup_timeout_seconds: number
+  health_check_timeout_ms: number
+}
+
+export interface OllamaMonitoringStats {
+  enabled: boolean
+  health_status: string
+  last_check_time: string
+  restart_attempts: number
+  last_restart_time: string
+  last_error: string
+}
+
 export async function getRouterConfig() {
   const raw = await request.get('/admin/router/config')
   return unwrapEnvelope<any>(raw)
@@ -79,6 +106,16 @@ export async function updateOllamaDualModelConfig(payload: Record<string, unknow
 export async function getOllamaStatus(model: string) {
   const raw = await request.get(`/admin/router/ollama/status?model=${encodeURIComponent(model)}`)
   return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getOllamaRuntimeConfig() {
+  const raw = await request.get('/admin/router/ollama/runtime-config')
+  return unwrapEnvelope<{ config: OllamaRuntimeConfig; monitoring_stats: OllamaMonitoringStats }>(raw, { allowPlain: true })
+}
+
+export async function updateOllamaRuntimeConfig(payload: Partial<OllamaRuntimeConfig>) {
+  const raw = await request.put('/admin/router/ollama/runtime-config', payload)
+  return unwrapEnvelope<OllamaRuntimeConfig>(raw, { allowPlain: true })
 }
 
 export async function installOllama() {

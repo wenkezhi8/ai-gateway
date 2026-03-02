@@ -9,6 +9,7 @@ import {
   getClassifierSwitchTask,
   getFeedbackStats,
   getOllamaDualModelConfig,
+  getOllamaRuntimeConfig,
   getOllamaStatus,
   getRouterConfig,
   getTaskModelMapping,
@@ -26,8 +27,12 @@ import {
   triggerVectorTierMigrate,
   triggerFeedbackOptimization,
   updateVectorTierConfig,
+  updateOllamaRuntimeConfig,
   updateOllamaDualModelConfig,
-  updateRouterConfig
+  updateRouterConfig,
+  type OllamaMonitoringStats,
+  type OllamaRuntimeConfig,
+  type OllamaStartupMode
 } from '@/api/routing-domain'
 import {
   getVectorPipelineHealth,
@@ -98,6 +103,7 @@ export function useOllamaConsoleCore() {
   const ollamaPulling = ref(false)
   const ollamaDeleting = ref(false)
   const ollamaRefreshing = ref(false)
+  const ollamaConfigSaving = ref(false)
   const ollamaModelInput = ref(ROUTING_OLLAMA_DEFAULT_MODEL)
   const vectorRefreshing = ref(false)
   const vectorRebuilding = ref(false)
@@ -215,7 +221,31 @@ export function useOllamaConsoleCore() {
     running_model_details: [] as Array<{ name: string; size_vram: number }>,
     running_vram_bytes_total: 0,
     keep_alive_disabled: false,
-    message: ''
+    message: '',
+    startup_mode: 'auto' as OllamaStartupMode,
+    last_error: '',
+    monitoring_stats: {
+      enabled: true,
+      health_status: 'unknown',
+      last_check_time: '',
+      restart_attempts: 0,
+      last_restart_time: '',
+      last_error: ''
+    } as OllamaMonitoringStats
+  })
+
+  const ollamaRuntimeConfig = reactive<OllamaRuntimeConfig>({
+    startup_mode: 'auto',
+    auto_detect_priority: ['app', 'cli'],
+    monitoring: {
+      enabled: true,
+      check_interval_seconds: 30,
+      auto_restart: true,
+      max_restart_attempts: 3,
+      restart_cooldown_seconds: 10
+    },
+    startup_timeout_seconds: 12,
+    health_check_timeout_ms: 1500
   })
 
   const config = reactive({
@@ -330,6 +360,19 @@ export function useOllamaConsoleCore() {
       return `${(bytes / 1024).toFixed(2)} KiB`
     }
     return `${bytes} B`
+  }
+
+  function extractApiErrorMessage(error: any): string {
+    const backendError = error?.response?.data?.error
+    const message = backendError?.message || error?.response?.data?.message || error?.message
+    const hint = backendError?.hint
+    if (typeof message === 'string' && message.trim()) {
+      if (typeof hint === 'string' && hint.trim()) {
+        return `${message}（${hint}）`
+      }
+      return message
+    }
+    return '请求失败'
   }
 
   async function loadConfig() {
@@ -583,10 +626,67 @@ export function useOllamaConsoleCore() {
       ollamaSetup.running_model = String(payload.running_model || '')
       ollamaSetup.keep_alive_disabled = Boolean(payload.keep_alive_disabled)
       ollamaSetup.message = payload.message || ''
+      ollamaSetup.startup_mode = (payload.startup_mode || 'auto') as OllamaStartupMode
+      ollamaSetup.last_error = String(payload.last_error || '')
+      const stats = payload.monitoring_stats || {}
+      ollamaSetup.monitoring_stats = {
+        enabled: Boolean(stats.enabled),
+        health_status: String(stats.health_status || 'unknown'),
+        last_check_time: String(stats.last_check_time || ''),
+        restart_attempts: Number(stats.restart_attempts || 0),
+        last_restart_time: String(stats.last_restart_time || ''),
+        last_error: String(stats.last_error || '')
+      }
     } catch (e) {
       console.warn('Failed to load ollama setup status:', e)
     } finally {
       ollamaRefreshing.value = false
+    }
+  }
+
+  async function loadOllamaRuntimeConfigData() {
+    try {
+      const payload: any = await getOllamaRuntimeConfig()
+      const config = payload?.config || {}
+      ollamaRuntimeConfig.startup_mode = (config.startup_mode || 'auto') as OllamaStartupMode
+      ollamaRuntimeConfig.auto_detect_priority = Array.isArray(config.auto_detect_priority)
+        ? config.auto_detect_priority
+        : ['app', 'cli']
+      ollamaRuntimeConfig.monitoring.enabled = Boolean(config.monitoring?.enabled ?? true)
+      ollamaRuntimeConfig.monitoring.check_interval_seconds = Number(config.monitoring?.check_interval_seconds || 30)
+      ollamaRuntimeConfig.monitoring.auto_restart = Boolean(config.monitoring?.auto_restart ?? true)
+      ollamaRuntimeConfig.monitoring.max_restart_attempts = Number(config.monitoring?.max_restart_attempts || 3)
+      ollamaRuntimeConfig.monitoring.restart_cooldown_seconds = Number(config.monitoring?.restart_cooldown_seconds || 10)
+      ollamaRuntimeConfig.startup_timeout_seconds = Number(config.startup_timeout_seconds || 12)
+      ollamaRuntimeConfig.health_check_timeout_ms = Number(config.health_check_timeout_ms || 1500)
+    } catch (e) {
+      console.warn('Failed to load ollama runtime config:', e)
+    }
+  }
+
+  async function saveOllamaRuntimeConfig() {
+    ollamaConfigSaving.value = true
+    try {
+      await updateOllamaRuntimeConfig({
+        startup_mode: ollamaRuntimeConfig.startup_mode,
+        auto_detect_priority: ollamaRuntimeConfig.auto_detect_priority,
+        monitoring: {
+          enabled: ollamaRuntimeConfig.monitoring.enabled,
+          check_interval_seconds: Number(ollamaRuntimeConfig.monitoring.check_interval_seconds || 30),
+          auto_restart: ollamaRuntimeConfig.monitoring.auto_restart,
+          max_restart_attempts: Number(ollamaRuntimeConfig.monitoring.max_restart_attempts || 3),
+          restart_cooldown_seconds: Number(ollamaRuntimeConfig.monitoring.restart_cooldown_seconds || 10)
+        },
+        startup_timeout_seconds: Number(ollamaRuntimeConfig.startup_timeout_seconds || 12),
+        health_check_timeout_ms: Number(ollamaRuntimeConfig.health_check_timeout_ms || 1500)
+      })
+      handleSuccess('Ollama 启动配置已更新')
+      await Promise.all([loadOllamaRuntimeConfigData(), loadOllamaSetupStatus()])
+    } catch (e) {
+      const detail = extractApiErrorMessage(e)
+      handleApiError(new Error(detail), '保存 Ollama 启动配置失败')
+    } finally {
+      ollamaConfigSaving.value = false
     }
   }
 
@@ -609,7 +709,9 @@ export function useOllamaConsoleCore() {
       await startOllamaApi()
       handleSuccess('Ollama 启动成功')
     } catch (e) {
-      handleApiError(e, '启动 Ollama 失败')
+      const detail = extractApiErrorMessage(e)
+      ollamaSetup.last_error = detail
+      handleApiError(new Error(detail), '启动 Ollama 失败')
     } finally {
       ollamaStarting.value = false
       await loadOllamaSetupStatus()
@@ -1058,7 +1160,7 @@ export function useOllamaConsoleCore() {
   async function reloadOllamaPanel() {
     markPanelLoading('ollama')
     try {
-      await loadOllamaSetupStatus()
+      await Promise.all([loadOllamaSetupStatus(), loadOllamaRuntimeConfigData()])
       panelState.ollama = 'success'
     } catch (e) {
       panelError.ollama = 'Ollama 状态加载失败'
@@ -1174,6 +1276,7 @@ export function useOllamaConsoleCore() {
     ollamaPulling,
     ollamaDeleting,
     ollamaRefreshing,
+    ollamaConfigSaving,
     ollamaModelInput,
     vectorRefreshing,
     vectorRebuilding,
@@ -1193,6 +1296,7 @@ export function useOllamaConsoleCore() {
     vectorPipelineTestForm,
     vectorPipelineTestResult,
     ollamaSetup,
+    ollamaRuntimeConfig,
     config,
     taskModelMapping,
     strategies,
@@ -1214,12 +1318,14 @@ export function useOllamaConsoleCore() {
     saveDualModelConfigData,
     switchVectorModel,
     loadOllamaSetupStatus,
+    loadOllamaRuntimeConfigData,
     installOllama,
     startOllama,
     startVectorModel,
     stopOllama,
     pullOllamaModel,
     deleteOllamaModel,
+    saveOllamaRuntimeConfig,
     saveClassifierConfig,
     startClassifierModel,
     switchClassifierModel,
