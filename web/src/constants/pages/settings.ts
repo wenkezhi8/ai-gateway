@@ -4,6 +4,7 @@ export const SETTINGS_MENU_ITEMS = [
   { key: 'cache', label: '缓存配置', icon: 'Box' },
   { key: 'logging', label: '日志配置', icon: 'Document' },
   { key: 'security', label: '安全配置', icon: 'Lock' },
+  { key: 'edition', label: '版本管理', icon: 'Grid' },
   { key: 'about', label: '关于', icon: 'InfoFilled' }
 ] as const
 

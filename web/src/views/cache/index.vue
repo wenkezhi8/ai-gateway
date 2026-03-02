@@ -139,7 +139,7 @@
       </div>
     </div>
 
-    <div class="panel signature-section">
+    <div v-if="hasSemanticUI" class="panel signature-section">
       <div class="panel-header">
         <div>
           <div class="panel-title">语义签名命中观察</div>
@@ -158,7 +158,7 @@
       </el-table>
     </div>
 
-    <div class="panel signature-section">
+    <div v-if="hasSemanticUI" class="panel signature-section">
       <div class="panel-header">
         <div>
           <div class="panel-title">向量索引状态</div>
@@ -776,6 +776,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { useEditionStore } from '@/store/domain/edition'
 import {
   addTestCacheEntry,
   cleanupInvalidEntries as cleanupInvalidEntriesApi,
@@ -852,6 +853,8 @@ const hotCacheTotal = ref(100)
 const cacheDetail = ref<CacheTypeDetail | null>(null)
 let detailChart: echarts.ECharts | null = null
 const vectorRebuilding = ref(false)
+const editionStore = useEditionStore()
+const hasSemanticUI = computed(() => editionStore.hasVectorCache)
 
 const overallStats = reactive({
   hitRate: 0,
@@ -1978,15 +1981,21 @@ async function exportCacheData() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  if (!editionStore.config) {
+    await editionStore.fetchEditionConfig()
+  }
+
   loadCacheTaskMeta()
   loadCacheStats()
   loadCacheConfig()
   loadCacheHealth()
   loadCacheRules()
   loadCacheEntries()
-  loadSemanticSignatures()
-  loadVectorStats()
+  if (hasSemanticUI.value) {
+    loadSemanticSignatures()
+    loadVectorStats()
+  }
 })
 
 onUnmounted(() => {

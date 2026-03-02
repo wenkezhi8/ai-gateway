@@ -287,6 +287,17 @@
           </div>
         </el-card>
 
+        <!-- 版本管理 -->
+        <el-card v-show="activeSection === 'edition'" class="settings-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <el-icon :size="20"><Grid /></el-icon>
+              <span>版本管理</span>
+            </div>
+          </template>
+          <EditionSelector />
+        </el-card>
+
         <!-- 关于 -->
         <el-card v-show="activeSection === 'about'" class="settings-card" shadow="never">
           <template #header>
@@ -343,6 +354,7 @@ import { Loading, Check } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import { getSettingsDefaults, getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from '@/constants/pages/settings'
+import EditionSelector from './components/EditionSelector.vue'
 
 const { setTheme, setVariant, currentTheme } = useTheme()
 

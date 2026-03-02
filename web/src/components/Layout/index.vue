@@ -7,7 +7,10 @@
           <el-icon :size="24"><Platform /></el-icon>
         </div>
         <transition name="fade">
-          <span v-show="!isCollapse" class="logo-text">AI Gateway</span>
+          <span v-show="!isCollapse" class="logo-text">
+            AI Gateway
+            <el-tag v-if="editionLabel" size="small" class="edition-tag">{{ editionLabel }}</el-tag>
+          </span>
         </transition>
       </div>
 
@@ -74,7 +77,7 @@
           </el-tooltip>
 
           <!-- 向量管理 -->
-          <el-tooltip content="向量管理控制台" placement="bottom">
+          <el-tooltip v-if="showVectorDBEntry" content="向量管理控制台" placement="bottom">
             <a :href="vectorDBConsoleURL" class="docs-btn">
               <el-icon :size="18"><DataAnalysis /></el-icon>
               <span class="docs-text">向量管理</span>
@@ -82,7 +85,7 @@
           </el-tooltip>
 
           <!-- 知识库 -->
-          <el-tooltip content="知识库控制台" placement="bottom">
+          <el-tooltip v-if="showKnowledgeEntry" content="知识库控制台" placement="bottom">
             <a :href="knowledgeConsoleURL" class="docs-btn">
               <el-icon :size="18"><Document /></el-icon>
               <span class="docs-text">知识库</span>
@@ -198,21 +201,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useTheme } from '@/composables/useTheme'
 import { useUserStore } from '@/store/user'
+import { useEditionStore } from '@/store/domain/edition'
 import {
   DASHBOARD_ROUTE,
   DOCS_ROUTE,
   POST_LOGOUT_REDIRECT,
   SETTINGS_ROUTE
 } from '@/constants/navigation'
+import { getMenuItems } from './menu-config'
 
 const route = useRoute()
 const router = useRouter()
 const { currentTheme, setTheme, setVariant, toggleTheme, isDark } = useTheme()
 const userStore = useUserStore()
+const editionStore = useEditionStore()
 
 const isCollapse = ref(false)
 const notificationCount = ref(3)
@@ -223,20 +229,16 @@ const docsRoute = DOCS_ROUTE
 const vectorDBConsoleURL = '/vector-db'
 const knowledgeConsoleURL = '/knowledge'
 
-const menuItems = [
-  { path: DASHBOARD_ROUTE, title: '监控仪表盘', icon: 'Monitor' },
-  { path: '/ops', title: '运维监控', icon: 'Operation' },
-  { path: '/chat', title: 'AI 对话', icon: 'ChatDotRound' },
-  { path: '/api-management', title: 'API 管理', icon: 'Connection' },
-  { path: '/model-management', title: '模型管理', icon: 'Collection' },
-  { path: '/providers-accounts', title: '账号与限额', icon: 'Key' },
-  { path: '/usage', title: 'API 使用统计', icon: 'DataLine' },
-  { path: '/trace', title: '请求链路追踪', icon: 'Share' },
-  { path: '/routing', title: '路由策略', icon: 'Guide' },
-  { path: '/cache', title: '缓存管理', icon: 'Box' },
-  { path: '/alerts', title: '告警管理', icon: 'Bell' },
-  { path: '/settings', title: '系统设置', icon: 'Setting' }
-]
+const menuItems = computed(() => getMenuItems(editionStore.config))
+const showVectorDBEntry = computed(() => editionStore.hasVectorDBManagement)
+const showKnowledgeEntry = computed(() => editionStore.hasKnowledgeBase)
+const editionLabel = computed(() => editionStore.config?.display_name || '')
+
+onMounted(async () => {
+  if (!editionStore.config) {
+    await editionStore.fetchEditionConfig()
+  }
+})
 
 const resolvePath = (path: string) => {
   return path.startsWith('/') ? path : `/${path}`
@@ -404,6 +406,13 @@ const handleUserCommand = (command: string) => {
     color: white;
     white-space: nowrap;
     letter-spacing: 0.5px;
+  }
+
+  .edition-tag {
+    margin-left: 8px;
+    border: none;
+    background: rgba(255, 255, 255, 0.22);
+    color: #fff;
   }
 }
 

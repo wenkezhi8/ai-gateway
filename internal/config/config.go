@@ -20,6 +20,7 @@ type Config struct {
 	Accounts     []AccountConfig    `json:"accounts"`
 	IntentEngine IntentEngineConfig `json:"intent_engine"`
 	VectorCache  VectorCacheConfig  `json:"vector_cache"`
+	Edition      EditionConfig      `json:"edition"`
 }
 
 // ServerConfig holds HTTP server configuration.
@@ -201,6 +202,7 @@ func DefaultConfig() *Config {
 			ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
 			ColdVectorQdrantTimeoutMs:     1500,
 		},
+		Edition: EditionConfig{Type: string(EditionBasic)},
 	}
 }
 
@@ -667,6 +669,11 @@ func (c *Config) Validate() error {
 		if mode != "auto" && mode != "embed" && mode != "embeddings" {
 			return &ValidationError{Field: "vector_cache.ollama_endpoint_mode", Message: "ollama_endpoint_mode must be auto/embed/embeddings"}
 		}
+	}
+
+	editionType := EditionType(strings.TrimSpace(strings.ToLower(c.Edition.Type)))
+	if _, ok := EditionDefinitions[editionType]; !ok {
+		return &ValidationError{Field: "edition.type", Message: "edition.type must be basic/standard/enterprise"}
 	}
 
 	return nil

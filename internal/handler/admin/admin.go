@@ -34,6 +34,7 @@ type Handlers struct {
 	Usage       *UsageHandler
 	Settings    *SettingsHandler
 	Trace       *TraceHandler
+	Edition     *EditionHandler
 	VectorDB    *vectordb.CollectionHandler
 }
 
@@ -69,6 +70,7 @@ func NewHandlers(
 		Usage:       usageHandler,
 		Settings:    NewSettingsHandler(""),
 		Trace:       NewTraceHandler(storage.GetSQLiteStorage().GetDB()),
+		Edition:     NewEditionHandler(),
 		VectorDB: vectordb.NewCollectionHandler(vectordb.NewServiceWithConfig(vectordb.ServiceConfig{
 			DB:             storage.GetSQLiteStorage().GetDB(),
 			QdrantHTTPAddr: strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_URL")),
@@ -316,6 +318,12 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	settings := r.Group("/settings")
 	settings.GET("/ui", handlers.Settings.GetUISettings)
 	settings.PUT("/ui", handlers.Settings.UpdateUISettings)
+
+	edition := r.Group("/edition")
+	edition.GET("", handlers.Edition.GetEdition)
+	edition.PUT("", handlers.Edition.UpdateEdition)
+	edition.GET("/definitions", handlers.Edition.GetEditionDefinitions)
+	edition.GET("/dependencies", handlers.Edition.CheckDependencies)
 
 	// Vector DB collection routes
 	vectorDBCollectionsGroup := r.Group("/vector-db/collections")

@@ -59,6 +59,21 @@ A unified API gateway for multiple AI service providers with intelligent rate li
 
 Configuration is managed via `configs/config.json`. Environment variables can override file settings.
 
+### Edition Management
+
+The dashboard supports 3 editions: `basic`, `standard`, and `enterprise`.
+
+- Switch path: `Settings -> 版本管理`
+- Default: `basic`
+- Guide: `docs/EDITION-GUIDE.md`
+
+Related admin APIs:
+
+- `GET /api/admin/edition`
+- `PUT /api/admin/edition`
+- `GET /api/admin/edition/definitions`
+- `GET /api/admin/edition/dependencies`
+
 ### Environment Variables
 
 | Variable | Description |

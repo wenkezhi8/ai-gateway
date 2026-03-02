@@ -9,6 +9,7 @@ import {
   PUBLIC_CHAT_ROUTE,
   UNAUTHORIZED_REDIRECT
 } from '@/constants/navigation'
+import { canAccessEditionRoute } from './guards/edition-guard'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -273,7 +274,7 @@ const router = createRouter({
 })
 
 // 路由守卫
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   // 设置页面标题
   document.title = `${to.meta.title || 'AI Gateway'} - AI Gateway`
 
@@ -289,6 +290,12 @@ router.beforeEach((to, _from, next) => {
 
   if (!token && to.path !== LOGIN_ROUTE) {
     next(UNAUTHORIZED_REDIRECT)
+    return
+  }
+
+  const allowed = await canAccessEditionRoute(to.path)
+  if (!allowed) {
+    next(DASHBOARD_ROUTE)
     return
   }
 
