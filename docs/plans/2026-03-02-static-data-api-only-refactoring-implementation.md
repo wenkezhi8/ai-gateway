@@ -18,13 +18,13 @@
 - [x] Task 4: Cache Task TTL API 契约测试与实现
 - [x] Task 5: cache 页面迁移到 API
 - [x] Task 6: Settings Defaults API 契约测试与实现
-- [ ] Task 7: settings 页面迁移到 API
-- [ ] Task 8: Public Providers API 契约测试与实现
-- [ ] Task 9: docs/home 页面迁移到 API
-- [ ] Task 10: dashboard 空状态替换回退数据
-- [ ] Task 11: api-management/routing 移除 `deepseek-chat` 硬编码
-- [ ] Task 12: 全量静态常量清理 + 回归测试完善
-- [ ] Task 13: 门禁验证 + 提交整理
+- [x] Task 7: settings 页面迁移到 API
+- [x] Task 8: Public Providers API 契约测试与实现
+- [x] Task 9: docs/home 页面迁移到 API
+- [x] Task 10: dashboard 空状态替换回退数据
+- [x] Task 11: api-management/routing 移除 `deepseek-chat` 硬编码
+- [x] Task 12: 全量静态常量清理 + 回归测试完善
+- [x] Task 13: 门禁验证 + 提交整理
 
 ---
 
