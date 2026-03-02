@@ -7,11 +7,6 @@ import { OPS_TIME_TABS } from './pages/ops'
 import { DASHBOARD_FALLBACK_SERIES } from './pages/dashboard'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from './pages/settings'
 import { USAGE_CSV_HEADER } from './pages/usage'
-import {
-  PROVIDERS_ACCOUNTS_BASE_TYPES,
-  PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS
-} from './pages/providers-accounts'
-import { PROVIDERS_ENDPOINT_MAP } from './pages/providers'
 
 describe('pages static config extraction', () => {
   it('should expose accounts provider options', () => {
@@ -47,15 +42,26 @@ describe('pages static config extraction', () => {
     expect(savedTokenIndex).toBeLessThan(cacheHitIndex)
   })
 
-  it('should expose providers-accounts base types', () => {
-    expect(PROVIDERS_ACCOUNTS_BASE_TYPES.length).toBeGreaterThan(0)
-  })
-
-  it('should use google native default endpoint', () => {
-    expect(PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS.google).toBe(
-      'https://generativelanguage.googleapis.com/v1beta'
+  it('should remove provider business static constants from constants files', () => {
+    const providersAccountsConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/pages/providers-accounts.ts'),
+      'utf-8'
     )
-    expect(PROVIDERS_ENDPOINT_MAP.google).toBe('https://generativelanguage.googleapis.com/v1beta')
+    const providersConstantsFile = readFileSync(
+      join(process.cwd(), 'src/constants/pages/providers.ts'),
+      'utf-8'
+    )
+
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_BASE_TYPES')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_CODING_PLAN_ENDPOINTS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_PROVIDER_COLORS')
+    expect(providersAccountsConstantsFile).not.toContain('PROVIDERS_ACCOUNTS_PROVIDER_LOGOS')
+
+    expect(providersConstantsFile).not.toContain('PROVIDERS_AVAILABLE_MODELS')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_ENDPOINT_MAP')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_COLOR_MAP')
+    expect(providersConstantsFile).not.toContain('PROVIDERS_ICON_MAP')
   })
 
   it('should remove hardcoded model defaults from stores', () => {

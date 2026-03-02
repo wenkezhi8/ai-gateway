@@ -71,6 +71,19 @@
         </div>
       </template>
 
+      <el-alert
+        v-if="providerMetaError"
+        type="error"
+        :closable="false"
+        class="meta-error-alert"
+        title="服务商元数据加载失败"
+      >
+        <template #default>
+          {{ providerMetaError }}
+          <el-button type="danger" link @click="loadProviderOptions">重试</el-button>
+        </template>
+      </el-alert>
+
       <!-- 工具栏 -->
       <div class="toolbar">
         <div class="toolbar-left">
@@ -90,7 +103,7 @@
           </el-input>
         </div>
         <div class="toolbar-right">
-          <el-button @click="loadAccounts" :loading="accountsLoading">
+          <el-button @click="loadAccounts" :loading="accountsLoading || providerMetaLoading">
             <el-icon><Refresh /></el-icon>
             刷新
           </el-button>
@@ -101,13 +114,13 @@
       <el-table 
         :data="filteredAccounts" 
         class="data-table" 
-        v-loading="accountsLoading"
+        v-loading="accountsLoading || providerMetaLoading"
         :header-cell-style="{ background: 'var(--bg-secondary)', fontWeight: '600' }"
       >
         <el-table-column prop="name" label="账号名称" min-width="180">
           <template #default="{ row }">
             <div class="account-name">
-              <img v-if="providerLogos[detectProvider(row)]" :src="providerLogos[detectProvider(row)]" class="account-logo" />
+              <img v-if="getProviderLogo(detectProvider(row))" :src="getProviderLogo(detectProvider(row))" class="account-logo" />
               <div v-else class="account-avatar" :style="{ background: getProviderColor(row) }">
                 <span class="avatar-text">{{ getProviderLabel(row).charAt(0) }}</span>
               </div>
@@ -121,7 +134,7 @@
         <el-table-column prop="provider" label="服务商" width="150">
           <template #default="{ row }">
             <div class="provider-badge" :style="{ '--provider-color': getProviderColor(row) }">
-              <img v-if="providerLogos[detectProvider(row)]" :src="providerLogos[detectProvider(row)]" class="provider-logo-small" />
+              <img v-if="getProviderLogo(detectProvider(row))" :src="getProviderLogo(detectProvider(row))" class="provider-logo-small" />
               <span v-else class="provider-dot"></span>
               <span class="provider-name">{{ getProviderLabel(row) }}</span>
             </div>
@@ -224,8 +237,8 @@
             <el-option-group label="国际服务商">
               <el-option v-for="p in internationalProviders" :key="p.value" :label="p.label" :value="p.value">
                 <span class="provider-option">
-                  <img v-if="providerLogos[p.value]" :src="providerLogos[p.value]" class="provider-logo" />
-                  <span v-else class="dot" :style="{ background: providerColors[p.value] }"></span>
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
                   {{ p.label }}
                 </span>
               </el-option>
@@ -233,8 +246,8 @@
             <el-option-group label="国内服务商">
               <el-option v-for="p in chineseProviders" :key="p.value" :label="p.label" :value="p.value">
                 <span class="provider-option">
-                  <img v-if="providerLogos[p.value]" :src="providerLogos[p.value]" class="provider-logo" />
-                  <span v-else class="dot" :style="{ background: providerColors[p.value] }"></span>
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
                   {{ p.label }}
                 </span>
               </el-option>
@@ -242,8 +255,8 @@
             <el-option-group label="本地大模型">
               <el-option v-for="p in localProviders" :key="p.value" :label="p.label" :value="p.value">
                 <span class="provider-option">
-                  <img v-if="providerLogos[p.value]" :src="providerLogos[p.value]" class="provider-logo" />
-                  <span v-else class="dot" :style="{ background: providerColors[p.value] }"></span>
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
                   {{ p.label }}
                 </span>
               </el-option>
@@ -251,7 +264,7 @@
             <el-option-group v-if="customProviders.length > 0" label="自定义服务商">
               <el-option v-for="p in customProviders" :key="p.value" :label="p.label" :value="p.value">
                 <span class="provider-option">
-                  <span class="dot" :style="{ background: providerColors[p.value] || '#6B7280' }"></span>
+                  <span class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
                   {{ p.label }}
                 </span>
               </el-option>
@@ -305,18 +318,8 @@ import {
   Key, CircleCheck, CircleClose, Grid, User, Link 
 } from '@element-plus/icons-vue'
 import { accountApi } from '@/api/account'
-import { request } from '@/api/request'
+import { getProviderTypes, type ProviderType } from '@/api/provider'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
-import {
-  PROVIDERS_ACCOUNTS_BASE_TYPES,
-  INTERNATIONAL_PROVIDER_SET,
-  CHINESE_PROVIDER_SET,
-  LOCAL_PROVIDER_SET,
-  PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS,
-  PROVIDERS_ACCOUNTS_CODING_PLAN_ENDPOINTS,
-  PROVIDERS_ACCOUNTS_PROVIDER_COLORS,
-  PROVIDERS_ACCOUNTS_PROVIDER_LOGOS,
-} from '@/constants/pages/providers-accounts'
 
 interface Account {
   id: string
@@ -335,28 +338,30 @@ const selectedProviderFilter = ref('')
 
 const accountsLoading = ref(false)
 const accountSubmitting = ref(false)
+const providerMetaLoading = ref(false)
+const providerMetaError = ref('')
 
-const baseProviderTypes = [...PROVIDERS_ACCOUNTS_BASE_TYPES]
+type ProviderOption = {
+  label: string
+  value: string
+  category: 'international' | 'chinese' | 'local'
+  color: string
+  logo: string
+  default_endpoint: string
+  coding_endpoint?: string
+}
 
-const providerTypes = ref([...baseProviderTypes])
+const providerTypes = ref<ProviderOption[]>([])
 
-const internationalProviderSet = INTERNATIONAL_PROVIDER_SET
-const chineseProviderSet = CHINESE_PROVIDER_SET
-const localProviderSet = LOCAL_PROVIDER_SET
+const internationalProviders = computed(() => providerTypes.value.filter(p => p.category === 'international'))
+const chineseProviders = computed(() => providerTypes.value.filter(p => p.category === 'chinese'))
+const localProviders = computed(() => providerTypes.value.filter(p => p.category === 'local'))
+const customProviders = computed(() => providerTypes.value.filter(p => !['international', 'chinese', 'local'].includes(p.category)))
 
-const internationalProviders = computed(() => providerTypes.value.filter(p => internationalProviderSet.has(p.value)))
-const chineseProviders = computed(() => providerTypes.value.filter(p => chineseProviderSet.has(p.value)))
-const localProviders = computed(() => providerTypes.value.filter(p => localProviderSet.has(p.value)))
-const customProviders = computed(() => providerTypes.value.filter(p => !internationalProviderSet.has(p.value) && !chineseProviderSet.has(p.value) && !localProviderSet.has(p.value)))
-
-const defaultEndpoints: Record<string, string> = { ...PROVIDERS_ACCOUNTS_DEFAULT_ENDPOINTS }
-
-// AI 编程订阅 (Coding Plan) 专用端点
-const codingPlanEndpoints: Record<string, string> = { ...PROVIDERS_ACCOUNTS_CODING_PLAN_ENDPOINTS }
-
-const providerColors: Record<string, string> = { ...PROVIDERS_ACCOUNTS_PROVIDER_COLORS }
-
-const providerLogos: Record<string, string> = { ...PROVIDERS_ACCOUNTS_PROVIDER_LOGOS }
+const providerMetaMap = computed(() => {
+  const entries = providerTypes.value.map(item => [item.value, item] as const)
+  return Object.fromEntries(entries) as Record<string, ProviderOption>
+})
 
 const accounts = ref<Account[]>([])
 
@@ -425,15 +430,19 @@ const detectProvider = (row: { provider: string; base_url: string }): string => 
 
 const getProviderColor = (row: { provider: string; base_url: string }) => {
   const actualProvider = detectProvider(row)
-  return providerColors[actualProvider] || '#6B7280'
+  return providerMetaMap.value[actualProvider]?.color || '#6B7280'
 }
+
+const getProviderPaletteColor = (provider: string) => providerMetaMap.value[provider]?.color || '#6B7280'
+
+const getProviderLogo = (provider: string) => providerMetaMap.value[provider]?.logo || ''
 
 const getProviderLabel = (row: { provider: string; base_url: string }) => {
   const actualProvider = detectProvider(row)
   return providerTypes.value.find(p => p.value === actualProvider)?.label || actualProvider
 }
 
-const getDefaultEndpoint = (provider: string) => defaultEndpoints[provider] || ''
+const getDefaultEndpoint = (provider: string) => providerMetaMap.value[provider]?.default_endpoint || ''
 
 const maskApiKey = (key?: string) => {
   if (!key) return '未设置'
@@ -468,61 +477,36 @@ const loadAccounts = async () => {
 }
 
 const loadProviderOptions = async () => {
-  const providerMap = new Map<string, { label: string; value: string }>()
-  for (const p of baseProviderTypes) {
-    providerMap.set(p.value, p)
-  }
-
+  providerMetaLoading.value = true
+  providerMetaError.value = ''
   try {
-    const modelsRes: any = await accountApi.getList({ page: 1, pageSize: 200 })
-    const accountList = (modelsRes as any)?.data || []
-    for (const account of accountList) {
-      const provider = String(account?.provider || '').trim().toLowerCase()
-      if (!provider) continue
-      if (!providerMap.has(provider)) {
-        providerMap.set(provider, { value: provider, label: provider })
-      }
-    }
-  } catch {
-    // ignore and continue with other sources
+    const data = await getProviderTypes()
+    providerTypes.value = data.map((item: ProviderType) => ({
+      label: item.label,
+      value: item.id,
+      category: item.category,
+      color: item.color,
+      logo: item.logo,
+      default_endpoint: item.default_endpoint,
+      coding_endpoint: item.coding_endpoint
+    }))
+  } catch (e: any) {
+    providerMetaError.value = e?.message || '请检查 /admin/providers/types 接口状态'
+    providerTypes.value = []
+  } finally {
+    providerMetaLoading.value = false
   }
-
-  try {
-    const routerModelsRes: any = await request.get('/admin/router/models', { silent: true } as any)
-    const raw = routerModelsRes?.data || routerModelsRes || []
-    if (Array.isArray(raw)) {
-      for (const row of raw) {
-        const provider = String(row?.provider || '').trim().toLowerCase()
-        if (!provider) continue
-        if (!providerMap.has(provider)) {
-          providerMap.set(provider, { value: provider, label: provider })
-        }
-      }
-    } else if (raw && typeof raw === 'object') {
-      for (const provider of Object.keys(raw)) {
-        const id = String(provider || '').trim().toLowerCase()
-        if (!id) continue
-        if (!providerMap.has(id)) {
-          providerMap.set(id, { value: id, label: id })
-        }
-      }
-    }
-  } catch {
-    // ignore if router models unavailable
-  }
-
-  providerTypes.value = Array.from(providerMap.values())
 }
 
 const handleProviderChange = (provider: string) => {
   // 每次选择服务商时自动更新对应的 API 端点
-  accountForm.base_url = defaultEndpoints[provider] || ''
+  accountForm.base_url = getDefaultEndpoint(provider)
 }
 
 const handleCodingPlanChange = async (row: Account) => {
   try {
-    const defaultEndpoint = defaultEndpoints[row.provider] || ''
-    const codingPlanEndpoint = codingPlanEndpoints[row.provider] || defaultEndpoint
+    const defaultEndpoint = getDefaultEndpoint(row.provider)
+    const codingPlanEndpoint = providerMetaMap.value[row.provider]?.coding_endpoint || defaultEndpoint
     
     // 开启用 coding plan 端点，关闭恢复默认端点
     const newEndpoint = row.coding_plan_enabled ? codingPlanEndpoint : defaultEndpoint
