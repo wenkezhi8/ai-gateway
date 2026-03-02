@@ -12,6 +12,18 @@ export interface UiSettingsPayload {
   settings?: Record<string, unknown>
 }
 
+export interface SettingsDefaultsPayload {
+  gateway: Record<string, unknown>
+  cache: Record<string, unknown>
+  logging: Record<string, unknown>
+  security: Record<string, unknown>
+}
+
+export async function getSettingsDefaults() {
+  const raw = await request.get('/admin/settings/defaults')
+  return unwrapEnvelope<SettingsDefaultsPayload>(raw, { allowPlain: true })
+}
+
 export async function getUiSettings() {
   const raw = await request.get('/admin/settings/ui')
   return unwrapEnvelope<UiSettingsPayload>(raw, { allowPlain: true })

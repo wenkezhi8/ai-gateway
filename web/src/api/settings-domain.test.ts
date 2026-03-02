@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
 import { ApiError } from './envelope'
 import {
   getUiSettings,
+  getSettingsDefaults,
   updateUiSettings,
   updateRoutingUiSettings,
   updateModelManagementUiSettings,
@@ -48,6 +49,33 @@ describe('settings-domain', () => {
       requestMock.get.mockResolvedValue({ routing: { auto_save_enabled: false } })
       const data = await getUiSettings()
       expect(data.routing?.auto_save_enabled).toBe(false)
+    })
+  })
+
+  describe('getSettingsDefaults', () => {
+    it('calls /admin/settings/defaults and unwraps payload', async () => {
+      requestMock.get.mockResolvedValue({
+        success: true,
+        data: {
+          gateway: { host: '0.0.0.0' },
+          cache: { enabled: true },
+          logging: { level: 'info' },
+          security: { enabled: true }
+        }
+      })
+
+      const data = await getSettingsDefaults()
+      expect(requestMock.get).toHaveBeenCalledWith('/admin/settings/defaults')
+      expect(data.gateway.host).toBe('0.0.0.0')
+    })
+
+    it('throws on failed defaults response', async () => {
+      requestMock.get.mockResolvedValue({
+        success: false,
+        error: { code: 'defaults_failed', message: 'defaults failed' }
+      })
+
+      await expect(getSettingsDefaults()).rejects.toThrow(ApiError)
     })
   })
 
