@@ -42,6 +42,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="path" label="路径" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="model" label="模型" width="120">
+          <template #default="{ row }">{{ row.model || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="step_count" label="步骤" width="90">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ row.step_count }}步</el-tag>

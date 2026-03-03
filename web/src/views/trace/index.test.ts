@@ -50,6 +50,7 @@ describe('trace detail view', () => {
     const taskTypeIdx = getIndexOrThrow(viewFile, 'label="任务类型"')
     const methodIdx = getIndexOrThrow(viewFile, 'label="方法"')
     const pathIdx = getIndexOrThrow(viewFile, 'label="路径"')
+    const modelIdx = getIndexOrThrow(viewFile, 'label="模型"')
     const stepIdx = getIndexOrThrow(viewFile, 'label="步骤"')
     const statusIdx = getIndexOrThrow(viewFile, 'label="状态"')
     const durationIdx = getIndexOrThrow(viewFile, 'label="耗时"')
@@ -60,11 +61,23 @@ describe('trace detail view', () => {
     expect(timeIdx).toBeLessThan(taskTypeIdx)
     expect(taskTypeIdx).toBeLessThan(methodIdx)
     expect(methodIdx).toBeLessThan(pathIdx)
-    expect(pathIdx).toBeLessThan(stepIdx)
+    expect(pathIdx).toBeLessThan(modelIdx)
+    expect(modelIdx).toBeLessThan(stepIdx)
     expect(stepIdx).toBeLessThan(statusIdx)
     expect(statusIdx).toBeLessThan(durationIdx)
     expect(durationIdx).toBeLessThan(answerSourceIdx)
     expect(answerSourceIdx).toBeLessThan(requestIdIdx)
     expect(requestIdIdx).toBeLessThan(actionIdx)
+  })
+
+  it('should display model column with correct prop and empty value handling', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
+
+    // 验证模型列的 prop 属性
+    expect(viewFile).toContain('prop="model"')
+    expect(viewFile).toContain('label="模型"')
+
+    // 验证模型列显示 "-" 当值为空时
+    expect(viewFile).toContain('row.model || \'-\'')
   })
 })
