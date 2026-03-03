@@ -745,3 +745,84 @@ func TestSQLiteStorage_ClearUsageLogs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, logs, 0)
 }
+
+func TestSQLiteStorage_UsageLogs_ShouldPersistNewMetaFields(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test-usage-meta.db")
+	store, err := NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id":          "req-meta-1",
+		"timestamp":           time.Now().UnixMilli(),
+		"model":               "gpt-4o-mini",
+		"provider":            "openai",
+		"account":             "openai-prod-account",
+		"user_agent":          "Mozilla/5.0 test-agent",
+		"request_type":        "stream",
+		"inference_intensity": "medium",
+		"tokens":              int64(120),
+		"input_tokens":        int64(70),
+		"output_tokens":       int64(50),
+		"latency_ms":          int64(380),
+		"ttft_ms":             int64(110),
+		"cache_hit":           false,
+		"success":             true,
+		"usage_source":        "actual",
+		"experiment_tag":      "exp-meta",
+		"domain_tag":          "devtools",
+	}))
+
+	logs, err := store.GetUsageLogsWithFilter(storageUsageFilterForTests("exp-meta", "devtools"), 10, 0)
+	require.NoError(t, err)
+	require.Len(t, logs, 1)
+
+	assert.Equal(t, "openai-prod-account", logs[0]["account"])
+	assert.Equal(t, "Mozilla/5.0 test-agent", logs[0]["user_agent"])
+	assert.Equal(t, "stream", logs[0]["request_type"])
+	assert.Equal(t, "medium", logs[0]["inference_intensity"])
+}
+
+func TestSQLiteStorage_EnsureUsageLogsColumns_ShouldAddAccountUserAgentRequestTypeInferenceIntensity(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test-usage-columns.db")
+	store, err := NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	rows, err := store.GetDB().Query(`PRAGMA table_info(usage_logs)`)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	columns := map[string]struct{}{}
+	for rows.Next() {
+		var cid int
+		var name string
+		var colType string
+		var notNull int
+		var dflt interface{}
+		var pk int
+		require.NoError(t, rows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk))
+		columns[name] = struct{}{}
+	}
+	require.NoError(t, rows.Err())
+
+	if _, ok := columns["account"]; !ok {
+		t.Fatalf("expected usage_logs.account column")
+	}
+	if _, ok := columns["user_agent"]; !ok {
+		t.Fatalf("expected usage_logs.user_agent column")
+	}
+	if _, ok := columns["request_type"]; !ok {
+		t.Fatalf("expected usage_logs.request_type column")
+	}
+	if _, ok := columns["inference_intensity"]; !ok {
+		t.Fatalf("expected usage_logs.inference_intensity column")
+	}
+}
+
+func storageUsageFilterForTests(experimentTag, domainTag string) UsageFilter {
+	return UsageFilter{
+		ExperimentTag: experimentTag,
+		DomainTag:     domainTag,
+	}
+}

@@ -44,6 +44,19 @@ describe('pages static config extraction', () => {
     expect(savedTokenIndex).toBeLessThan(cacheHitIndex)
   })
 
+  it('should include request type and inference intensity in usage csv header', () => {
+    const taskTypeIndex = USAGE_CSV_HEADER.indexOf('任务类型')
+    const requestTypeIndex = USAGE_CSV_HEADER.indexOf('请求类型')
+    const intensityIndex = USAGE_CSV_HEADER.indexOf('推理强度')
+    const userAgentIndex = USAGE_CSV_HEADER.indexOf('用户代理')
+    const inputTokenIndex = USAGE_CSV_HEADER.indexOf('入Token')
+
+    expect(requestTypeIndex).toBeGreaterThan(taskTypeIndex)
+    expect(intensityIndex).toBeGreaterThan(requestTypeIndex)
+    expect(userAgentIndex).toBeGreaterThan(intensityIndex)
+    expect(inputTokenIndex).toBeGreaterThan(userAgentIndex)
+  })
+
   it('should remove provider business static constants from constants files', () => {
     const providersAccountsConstantsFile = readFileSync(
       join(process.cwd(), 'src/constants/pages/providers-accounts.ts'),
