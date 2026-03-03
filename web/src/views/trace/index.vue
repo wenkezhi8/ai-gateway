@@ -30,7 +30,12 @@
       </div>
 
       <el-table :data="traces" stripe v-loading="loading">
-        <el-table-column prop="request_id" label="Request ID" width="280" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="时间" width="160">
+          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        </el-table-column>
+        <el-table-column prop="task_type" label="任务类型" width="120">
+          <template #default="{ row }">{{ row.task_type ? formatTaskType(row.task_type) : '-' }}</template>
+        </el-table-column>
         <el-table-column prop="method" label="方法" width="80">
           <template #default="{ row }">
             <el-tag size="small" :type="getMethodType(row.method)">{{ row.method }}</el-tag>
@@ -49,24 +54,19 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="duration_ms" label="耗时" width="100">
+          <template #default="{ row }">{{ formatDuration(row.duration_ms) }}</template>
+        </el-table-column>
         <el-table-column prop="answer_source" label="AI回复来源" width="120">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">{{ getAnswerSourceLabel(row.answer_source) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="duration_ms" label="耗时" width="100">
-          <template #default="{ row }">{{ formatDuration(row.duration_ms) }}</template>
-        </el-table-column>
-        <el-table-column prop="created_at" label="时间" width="160">
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="100">
+        <el-table-column prop="request_id" label="Request ID" width="280" show-overflow-tooltip />
+        <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="viewDetail(row)">详情</el-button>
           </template>
-        </el-table-column>
-        <el-table-column prop="task_type" label="任务类型" width="120">
-          <template #default="{ row }">{{ row.task_type ? formatTaskType(row.task_type) : '-' }}</template>
         </el-table-column>
       </el-table>
 
