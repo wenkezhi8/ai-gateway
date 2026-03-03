@@ -56,6 +56,20 @@ describe('provider api', () => {
     await expect(getProviderTypes()).rejects.toThrow('PROVIDER_TYPES_LOAD_FAILED')
   })
 
+  it('should throw when provider types payload misses required fields', async () => {
+    requestMock.get.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'openai',
+          label: 'OpenAI'
+        }
+      ]
+    })
+
+    await expect(getProviderTypes()).rejects.toThrow('PROVIDER_TYPES_INVALID_PAYLOAD')
+  })
+
   it('should fetch public providers from /v1/config/providers', async () => {
     requestMock.get.mockResolvedValue({
       success: true,

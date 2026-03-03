@@ -89,6 +89,19 @@ type ProviderResponse struct {
 	LastCheck    time.Time `json:"last_check,omitempty"`
 }
 
+// ProviderTypeResponse represents provider metadata for account forms.
+type ProviderTypeResponse struct {
+	ID                 string   `json:"id"`
+	Label              string   `json:"label"`
+	Category           string   `json:"category"`
+	Color              string   `json:"color"`
+	Logo               string   `json:"logo"`
+	DefaultEndpoint    string   `json:"default_endpoint"`
+	CodingEndpoint     string   `json:"coding_endpoint"`
+	SupportsCodingPlan bool     `json:"supports_coding_plan"`
+	Models             []string `json:"models"`
+}
+
 // ProviderTestResult represents provider connectivity test result.
 type ProviderTestResult struct {
 	Success      bool      `json:"success"`

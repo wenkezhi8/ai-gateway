@@ -73,10 +73,10 @@
 
       <el-alert
         v-if="providerMetaError"
-        type="error"
+        :type="providerMetaAlertType"
         :closable="false"
         class="meta-error-alert"
-        title="服务商元数据加载失败"
+        :title="providerMetaAlertTitle"
       >
         <template #default>
           {{ providerMetaError }}
@@ -318,8 +318,14 @@ import {
   Key, CircleCheck, CircleClose, Grid, User, Link 
 } from '@element-plus/icons-vue'
 import { accountApi } from '@/api/account'
-import { getProviderTypes, type ProviderType } from '@/api/provider'
+import { getProviderTypes, getPublicProviders } from '@/api/provider'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
+import {
+  buildProviderOptions,
+  inferProviderFromAccountBaseURL,
+  normalizeProviderID,
+  type ProviderOption
+} from './provider-options'
 
 interface Account {
   id: string
@@ -340,23 +346,15 @@ const accountsLoading = ref(false)
 const accountSubmitting = ref(false)
 const providerMetaLoading = ref(false)
 const providerMetaError = ref('')
-
-type ProviderOption = {
-  label: string
-  value: string
-  category: 'international' | 'chinese' | 'local'
-  color: string
-  logo: string
-  default_endpoint: string
-  coding_endpoint?: string
-}
+const providerMetaAlertType = ref<'error' | 'warning'>('error')
+const providerMetaAlertTitle = ref('服务商元数据加载失败')
 
 const providerTypes = ref<ProviderOption[]>([])
 
 const internationalProviders = computed(() => providerTypes.value.filter(p => p.category === 'international'))
 const chineseProviders = computed(() => providerTypes.value.filter(p => p.category === 'chinese'))
 const localProviders = computed(() => providerTypes.value.filter(p => p.category === 'local'))
-const customProviders = computed(() => providerTypes.value.filter(p => !['international', 'chinese', 'local'].includes(p.category)))
+const customProviders = computed(() => providerTypes.value.filter(p => p.category === 'custom'))
 
 const providerMetaMap = computed(() => {
   const entries = providerTypes.value.map(item => [item.value, item] as const)
@@ -413,22 +411,14 @@ const accountRules: FormRules = {
   }]
 }
 
-const detectProvider = (row: { provider: string; base_url: string }): string => {
-  const url = row.base_url || ''
-  if (url.includes('deepseek.com')) return 'deepseek'
-  if (url.includes('openai.com')) return 'openai'
-  if (url.includes('anthropic.com')) return 'anthropic'
-  if (url.includes('volces.com') || url.includes('volcengine')) return 'volcengine'
-  if (url.includes('dashscope.aliyuncs.com') || url.includes('aliyun')) return 'qwen'
-  if (url.includes('zhipuai.cn') || url.includes('bigmodel.cn')) return 'zhipu'
-  if (url.includes('moonshot.cn') || url.includes('kimi.ai')) return 'moonshot'
-  if (url.includes('minimax')) return 'minimax'
-  if (url.includes('baichuan')) return 'baichuan'
-  if (url.includes('googleapis.com')) return 'google'
-  return row.provider
+const detectProvider = (row: { provider: string; base_url?: string }): string => {
+  const inferred = inferProviderFromAccountBaseURL(row.base_url)
+  if (inferred) return inferred
+  const normalized = normalizeProviderID(row.provider)
+  return normalized || row.provider
 }
 
-const getProviderColor = (row: { provider: string; base_url: string }) => {
+const getProviderColor = (row: { provider: string; base_url?: string }) => {
   const actualProvider = detectProvider(row)
   return providerMetaMap.value[actualProvider]?.color || '#6B7280'
 }
@@ -437,9 +427,9 @@ const getProviderPaletteColor = (provider: string) => providerMetaMap.value[prov
 
 const getProviderLogo = (provider: string) => providerMetaMap.value[provider]?.logo || ''
 
-const getProviderLabel = (row: { provider: string; base_url: string }) => {
+const getProviderLabel = (row: { provider: string; base_url?: string }) => {
   const actualProvider = detectProvider(row)
-  return providerTypes.value.find(p => p.value === actualProvider)?.label || actualProvider
+  return providerTypes.value.find(p => p.value === actualProvider)?.label || actualProvider || row.provider
 }
 
 const getDefaultEndpoint = (provider: string) => providerMetaMap.value[provider]?.default_endpoint || ''
@@ -479,20 +469,41 @@ const loadAccounts = async () => {
 const loadProviderOptions = async () => {
   providerMetaLoading.value = true
   providerMetaError.value = ''
+  providerMetaAlertType.value = 'error'
+  providerMetaAlertTitle.value = '服务商元数据加载失败'
+
   try {
-    const data = await getProviderTypes()
-    providerTypes.value = data.map((item: ProviderType) => ({
-      label: item.label,
-      value: item.id,
-      category: item.category,
-      color: item.color,
-      logo: item.logo,
-      default_endpoint: item.default_endpoint,
-      coding_endpoint: item.coding_endpoint
-    }))
+    const [typesResult, publicResult, accountsResult] = await Promise.allSettled([
+      getProviderTypes(),
+      getPublicProviders(),
+      accountApi.getList()
+    ])
+
+    const typeList = typesResult.status === 'fulfilled' ? typesResult.value : []
+    const publicProviders = publicResult.status === 'fulfilled' ? publicResult.value : []
+    const accountList = accountsResult.status === 'fulfilled' ? ((accountsResult.value as any).data || []) : []
+
+    providerTypes.value = buildProviderOptions({
+      types: typeList,
+      publicProviders,
+      accounts: accountList
+    })
+
+    if (typesResult.status === 'rejected') {
+      const reason = typesResult.reason?.message || '请检查 /admin/providers/types 接口状态'
+      if (providerTypes.value.length > 0) {
+        providerMetaAlertType.value = 'warning'
+        providerMetaAlertTitle.value = '服务商元数据已降级'
+        providerMetaError.value = `${reason}，已使用 providers/accounts 降级数据`
+      } else {
+        providerMetaError.value = reason
+      }
+    }
   } catch (e: any) {
     providerMetaError.value = e?.message || '请检查 /admin/providers/types 接口状态'
-    providerTypes.value = []
+    if (!providerTypes.value.length) {
+      providerTypes.value = []
+    }
   } finally {
     providerMetaLoading.value = false
   }

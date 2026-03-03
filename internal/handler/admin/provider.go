@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,6 +41,430 @@ func normalizeProviderKey(input string) string {
 
 func sameProvider(left, right string) bool {
 	return normalizeProviderKey(left) != "" && normalizeProviderKey(left) == normalizeProviderKey(right)
+}
+
+const (
+	providerCategoryInternational = "international"
+	providerCategoryChinese       = "chinese"
+	providerCategoryLocal         = "local"
+	providerCategoryCustom        = "custom"
+)
+
+var providerTypeCatalog = map[string]ProviderTypeResponse{
+	"openai": {
+		ID:                 "openai",
+		Label:              "OpenAI",
+		Category:           providerCategoryInternational,
+		Color:              "#10A37F",
+		Logo:               "/logos/openai.svg",
+		DefaultEndpoint:    "https://api.openai.com/v1",
+		CodingEndpoint:     "https://api.openai.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"gpt-4o", "gpt-4o-mini"},
+	},
+	"anthropic": {
+		ID:                 "anthropic",
+		Label:              "Anthropic Claude",
+		Category:           providerCategoryInternational,
+		Color:              "#CC785C",
+		Logo:               "/logos/anthropic.svg",
+		DefaultEndpoint:    "https://api.anthropic.com/v1",
+		CodingEndpoint:     "https://api.anthropic.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"},
+	},
+	"azure-openai": {
+		ID:                 "azure-openai",
+		Label:              "Azure OpenAI",
+		Category:           providerCategoryInternational,
+		Color:              "#0078D4",
+		Logo:               "/logos/azure.svg",
+		DefaultEndpoint:    "https://your-resource.openai.azure.com",
+		CodingEndpoint:     "https://your-resource.openai.azure.com",
+		SupportsCodingPlan: true,
+		Models:             []string{"gpt-4o", "gpt-4o-mini"},
+	},
+	"google": {
+		ID:                 "google",
+		Label:              "Google Gemini",
+		Category:           providerCategoryInternational,
+		Color:              "#4285F4",
+		Logo:               "/logos/google.svg",
+		DefaultEndpoint:    "https://generativelanguage.googleapis.com/v1beta",
+		CodingEndpoint:     "https://generativelanguage.googleapis.com/v1beta/openai",
+		SupportsCodingPlan: true,
+		Models:             []string{"gemini-2.0-flash", "gemini-1.5-pro"},
+	},
+	"mistral": {
+		ID:                 "mistral",
+		Label:              "Mistral AI",
+		Category:           providerCategoryInternational,
+		Color:              "#FF7000",
+		Logo:               "/logos/mistral.svg",
+		DefaultEndpoint:    "https://api.mistral.ai/v1",
+		CodingEndpoint:     "https://api.mistral.ai/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"mistral-large-latest", "mistral-medium-latest"},
+	},
+	"deepseek": {
+		ID:                 "deepseek",
+		Label:              "DeepSeek",
+		Category:           providerCategoryChinese,
+		Color:              "#4D6BFE",
+		Logo:               "/logos/deepseek.svg",
+		DefaultEndpoint:    "https://api.deepseek.com/v1",
+		CodingEndpoint:     "https://api.deepseek.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"deepseek-chat", "deepseek-reasoner"},
+	},
+	"qwen": {
+		ID:                 "qwen",
+		Label:              "阿里云通义千问",
+		Category:           providerCategoryChinese,
+		Color:              "#FF6A00",
+		Logo:               "/logos/qwen.svg",
+		DefaultEndpoint:    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		CodingEndpoint:     "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"qwen-max", "qwen-plus"},
+	},
+	"zhipu": {
+		ID:                 "zhipu",
+		Label:              "智谱AI",
+		Category:           providerCategoryChinese,
+		Color:              "#3657ED",
+		Logo:               "/logos/zhipu.svg",
+		DefaultEndpoint:    "https://open.bigmodel.cn/api/paas/v4",
+		CodingEndpoint:     "https://open.bigmodel.cn/api/paas/v4",
+		SupportsCodingPlan: true,
+		Models:             []string{"glm-4-plus", "glm-4-air"},
+	},
+	"moonshot": {
+		ID:                 "moonshot",
+		Label:              "月之暗面 (Kimi)",
+		Category:           providerCategoryChinese,
+		Color:              "#1A1A1A",
+		Logo:               "/logos/moonshot.svg",
+		DefaultEndpoint:    "https://api.moonshot.cn/v1",
+		CodingEndpoint:     "https://api.moonshot.cn/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"kimi-k2.5", "moonshot-v1-8k"},
+	},
+	"minimax": {
+		ID:                 "minimax",
+		Label:              "MiniMax",
+		Category:           providerCategoryChinese,
+		Color:              "#615CED",
+		Logo:               "/logos/minimax.svg",
+		DefaultEndpoint:    "https://api.minimax.chat/v1",
+		CodingEndpoint:     "https://api.minimax.chat/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"abab6.5s-chat", "abab6.5g-chat"},
+	},
+	"baichuan": {
+		ID:                 "baichuan",
+		Label:              "百川智能",
+		Category:           providerCategoryChinese,
+		Color:              "#0066FF",
+		Logo:               "/logos/baichuan.svg",
+		DefaultEndpoint:    "https://api.baichuan-ai.com/v1",
+		CodingEndpoint:     "https://api.baichuan-ai.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"Baichuan4", "Baichuan3-Turbo"},
+	},
+	"volcengine": {
+		ID:                 "volcengine",
+		Label:              "火山方舟 (豆包)",
+		Category:           providerCategoryChinese,
+		Color:              "#FF4D4F",
+		Logo:               "/logos/volcengine.svg",
+		DefaultEndpoint:    "https://ark.cn-beijing.volces.com/api/v3",
+		CodingEndpoint:     "https://ark.cn-beijing.volces.com/api/v3",
+		SupportsCodingPlan: true,
+		Models:             []string{"doubao-pro-32k", "doubao-lite-32k"},
+	},
+	"ernie": {
+		ID:                 "ernie",
+		Label:              "百度文心一言",
+		Category:           providerCategoryChinese,
+		Color:              "#2932E1",
+		Logo:               "/logos/ernie.svg",
+		DefaultEndpoint:    "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+		CodingEndpoint:     "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+		SupportsCodingPlan: true,
+		Models:             []string{"ernie-4.0", "ernie-3.5-8k"},
+	},
+	"hunyuan": {
+		ID:                 "hunyuan",
+		Label:              "腾讯混元",
+		Category:           providerCategoryChinese,
+		Color:              "#00A3FF",
+		Logo:               "/logos/hunyuan.svg",
+		DefaultEndpoint:    "https://api.hunyuan.cloud.tencent.com/v1",
+		CodingEndpoint:     "https://api.hunyuan.cloud.tencent.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"hunyuan-turbo", "hunyuan-pro"},
+	},
+	"spark": {
+		ID:                 "spark",
+		Label:              "讯飞星火",
+		Category:           providerCategoryChinese,
+		Color:              "#E60012",
+		Logo:               "/logos/spark.svg",
+		DefaultEndpoint:    "https://spark-api-open.xf-yun.com/v1",
+		CodingEndpoint:     "https://spark-api-open.xf-yun.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"spark-4.0-ultra", "spark-3.5-max"},
+	},
+	"yi": {
+		ID:                 "yi",
+		Label:              "零一万物",
+		Category:           providerCategoryChinese,
+		Color:              "#00D4AA",
+		Logo:               "/logos/yi.svg",
+		DefaultEndpoint:    "https://api.lingyiwanwu.com/v1",
+		CodingEndpoint:     "https://api.lingyiwanwu.com/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"yi-large", "yi-medium"},
+	},
+	"ollama": {
+		ID:                 "ollama",
+		Label:              "Ollama",
+		Category:           providerCategoryLocal,
+		Color:              "#10B981",
+		Logo:               "/logos/ollama.svg",
+		DefaultEndpoint:    "http://localhost:11434/v1",
+		CodingEndpoint:     "http://localhost:11434/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"qwen2.5-coder", "llama3.1"},
+	},
+	"lmstudio": {
+		ID:                 "lmstudio",
+		Label:              "LM Studio",
+		Category:           providerCategoryLocal,
+		Color:              "#3B82F6",
+		Logo:               "/logos/lmstudio.svg",
+		DefaultEndpoint:    "http://localhost:1234/v1",
+		CodingEndpoint:     "http://localhost:1234/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"local-model"},
+	},
+	"local": {
+		ID:                 "local",
+		Label:              "本地模型",
+		Category:           providerCategoryLocal,
+		Color:              "#6B7280",
+		Logo:               "/logos/local.svg",
+		DefaultEndpoint:    "http://localhost:11434/v1",
+		CodingEndpoint:     "http://localhost:11434/v1",
+		SupportsCodingPlan: true,
+		Models:             []string{"local-model"},
+	},
+}
+
+func normalizeProviderID(input string) string {
+	normalized := strings.TrimSpace(strings.ToLower(input))
+	if normalized == "claude" {
+		return "anthropic"
+	}
+	return normalized
+}
+
+func inferProviderFromBaseURL(rawURL string) string {
+	baseURL := strings.ToLower(strings.TrimSpace(rawURL))
+	if baseURL == "" {
+		return ""
+	}
+
+	switch {
+	case strings.Contains(baseURL, "deepseek.com"):
+		return "deepseek"
+	case strings.Contains(baseURL, "openai.com"):
+		return "openai"
+	case strings.Contains(baseURL, "anthropic.com"):
+		return "anthropic"
+	case strings.Contains(baseURL, "volces.com") || strings.Contains(baseURL, "volcengine"):
+		return "volcengine"
+	case strings.Contains(baseURL, "dashscope.aliyuncs.com") || strings.Contains(baseURL, "aliyun"):
+		return "qwen"
+	case strings.Contains(baseURL, "zhipuai.cn") || strings.Contains(baseURL, "bigmodel.cn"):
+		return "zhipu"
+	case strings.Contains(baseURL, "moonshot.cn") || strings.Contains(baseURL, "kimi.ai"):
+		return "moonshot"
+	case strings.Contains(baseURL, "minimax"):
+		return "minimax"
+	case strings.Contains(baseURL, "baichuan"):
+		return "baichuan"
+	case strings.Contains(baseURL, "googleapis.com"):
+		return "google"
+	case strings.Contains(baseURL, "localhost:11434") || strings.Contains(baseURL, "127.0.0.1:11434") || strings.Contains(baseURL, "ollama"):
+		return "ollama"
+	case strings.Contains(baseURL, "localhost:1234") || strings.Contains(baseURL, "127.0.0.1:1234") || strings.Contains(baseURL, "lmstudio"):
+		return "lmstudio"
+	default:
+		return ""
+	}
+}
+
+func inferCategory(providerID string) string {
+	normalized := normalizeProviderID(providerID)
+	if normalized == "" {
+		return providerCategoryCustom
+	}
+	if item, ok := providerTypeCatalog[normalized]; ok && item.Category != "" {
+		return item.Category
+	}
+
+	switch normalized {
+	case "openai", "anthropic", "azure-openai", "google", "mistral":
+		return providerCategoryInternational
+	case "deepseek", "qwen", "zhipu", "moonshot", "minimax", "baichuan", "volcengine", "ernie", "hunyuan", "spark", "yi":
+		return providerCategoryChinese
+	case "ollama", "lmstudio", "local":
+		return providerCategoryLocal
+	default:
+		return providerCategoryCustom
+	}
+}
+
+func mergeProviderTypes(base map[string]ProviderTypeResponse, registry *provider.Registry, manager *limiter.AccountManager) []ProviderTypeResponse {
+	merged := make(map[string]ProviderTypeResponse, len(base))
+
+	for id, item := range base {
+		normalized := normalizeProviderID(id)
+		if normalized == "" {
+			continue
+		}
+		item.ID = normalized
+		if item.Label == "" {
+			item.Label = normalized
+		}
+		if item.Category == "" {
+			item.Category = inferCategory(normalized)
+		}
+		if item.CodingEndpoint == "" {
+			item.CodingEndpoint = item.DefaultEndpoint
+		}
+		item.Models = uniqueSortedStrings(item.Models)
+		merged[normalized] = item
+	}
+
+	mergeOne := func(providerID string, models []string) {
+		normalized := normalizeProviderID(providerID)
+		if normalized == "" {
+			return
+		}
+
+		item, ok := merged[normalized]
+		if !ok {
+			item = ProviderTypeResponse{
+				ID:                 normalized,
+				Label:              normalized,
+				Category:           inferCategory(normalized),
+				Color:              "#6B7280",
+				Logo:               "",
+				DefaultEndpoint:    "",
+				CodingEndpoint:     "",
+				SupportsCodingPlan: false,
+				Models:             []string{},
+			}
+		}
+
+		if item.Category == "" {
+			item.Category = inferCategory(normalized)
+		}
+		if item.CodingEndpoint == "" {
+			item.CodingEndpoint = item.DefaultEndpoint
+		}
+		item.Models = uniqueSortedStrings(append(item.Models, models...))
+		merged[normalized] = item
+	}
+
+	if registry != nil {
+		for _, p := range registry.List() {
+			mergeOne(p.Name(), p.Models())
+		}
+	}
+
+	if manager != nil {
+		for _, account := range manager.GetAllAccounts() {
+			providerID := strings.TrimSpace(account.Provider)
+			if providerID == "" {
+				providerID = strings.TrimSpace(account.ProviderType)
+			}
+			if inferred := inferProviderFromBaseURL(account.BaseURL); inferred != "" {
+				providerID = inferred
+			}
+			mergeOne(providerID, nil)
+		}
+	}
+
+	result := make([]ProviderTypeResponse, 0, len(merged))
+	for _, item := range merged {
+		if item.Models == nil {
+			item.Models = []string{}
+		}
+		if item.Category == "" {
+			item.Category = inferCategory(item.ID)
+		}
+		if item.CodingEndpoint == "" {
+			item.CodingEndpoint = item.DefaultEndpoint
+		}
+		result = append(result, item)
+	}
+
+	categoryOrder := map[string]int{
+		providerCategoryInternational: 0,
+		providerCategoryChinese:       1,
+		providerCategoryLocal:         2,
+		providerCategoryCustom:        3,
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		leftOrder, leftOK := categoryOrder[result[i].Category]
+		rightOrder, rightOK := categoryOrder[result[j].Category]
+		if !leftOK {
+			leftOrder = 99
+		}
+		if !rightOK {
+			rightOrder = 99
+		}
+		if leftOrder != rightOrder {
+			return leftOrder < rightOrder
+		}
+
+		leftLabel := strings.ToLower(strings.TrimSpace(result[i].Label))
+		rightLabel := strings.ToLower(strings.TrimSpace(result[j].Label))
+		if leftLabel != rightLabel {
+			return leftLabel < rightLabel
+		}
+		return result[i].ID < result[j].ID
+	})
+
+	return result
+}
+
+func uniqueSortedStrings(items []string) []string {
+	if len(items) == 0 {
+		return []string{}
+	}
+
+	seen := make(map[string]struct{}, len(items))
+	result := make([]string, 0, len(items))
+	for _, item := range items {
+		value := strings.TrimSpace(item)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+
+	sort.Strings(result)
+	return result
 }
 
 func (h *ProviderHandler) removeProviderFromConfig(providerName string) (bool, error) {
@@ -137,6 +562,16 @@ func (h *ProviderHandler) ListProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
+	})
+}
+
+// GET /api/admin/providers/types.
+func (h *ProviderHandler) GetProviderTypes(c *gin.Context) {
+	providerTypes := mergeProviderTypes(providerTypeCatalog, h.registry, h.manager)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    providerTypes,
 	})
 }
 

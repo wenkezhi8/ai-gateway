@@ -4,7 +4,7 @@ import { unwrapEnvelope } from './envelope'
 export interface ProviderType {
   id: string
   label: string
-  category: 'international' | 'chinese' | 'local'
+  category: 'international' | 'chinese' | 'local' | 'custom'
   color: string
   logo: string
   icon?: string
@@ -33,6 +33,8 @@ interface PublicProvidersResponse {
   data?: PublicProviderInfo[] | { providers?: Array<{ id?: string; name?: string; label?: string; color?: string; logo?: string; default_model?: string; models?: string[] }> }
   error?: string
 }
+
+const PROVIDER_TYPE_CATEGORIES = new Set<ProviderType['category']>(['international', 'chinese', 'local', 'custom'])
 
 const PROVIDER_LOGO_FILE_MAP: Record<string, string> = {
   'azure-openai': 'azure',
@@ -83,10 +85,29 @@ function normalizePublicProviders(payload: PublicProvidersResponse['data']): Pub
     }, [])
 }
 
+function isProviderType(value: unknown): value is ProviderType {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return (
+    typeof item.id === 'string' &&
+    typeof item.label === 'string' &&
+    typeof item.category === 'string' &&
+    PROVIDER_TYPE_CATEGORIES.has(item.category as ProviderType['category']) &&
+    typeof item.color === 'string' &&
+    typeof item.logo === 'string' &&
+    typeof item.default_endpoint === 'string' &&
+    typeof item.supports_coding_plan === 'boolean' &&
+    Array.isArray(item.models)
+  )
+}
+
 export async function getProviderTypes(): Promise<ProviderType[]> {
   const response = await request.get<ProviderTypesResponse>('/admin/providers/types')
-  if (!response?.success || !response.data) {
+  if (!response?.success || !Array.isArray(response.data)) {
     throw new Error(response?.error || 'PROVIDER_TYPES_LOAD_FAILED')
+  }
+  if (!response.data.every(isProviderType)) {
+    throw new Error('PROVIDER_TYPES_INVALID_PAYLOAD')
   }
   return response.data
 }

@@ -117,6 +117,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	// Provider management routes
 	providers := r.Group("/providers")
 	providers.GET("", handlers.Provider.ListProviders)
+	providers.GET("/types", handlers.Provider.GetProviderTypes)
 	providers.GET("/configs", handlers.Account.GetProviderConfigs)
 	providers.POST("", handlers.Provider.CreateProvider)
 	providers.GET("/strategies", handlers.Routing.GetStrategies)
