@@ -110,6 +110,7 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 			RequestID    string `json:"request_id"`
 			AnswerSource string `json:"answer_source"`
 			TaskType     string `json:"task_type"`
+			Model        string `json:"model"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -135,7 +136,15 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-classifier", "analysis")
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-v2", "chat")
+
+	// Verify model field is returned
+	for _, row := range resp.Data {
+		if row.Model != "gpt-4o-mini" {
+			t.Fatalf("request %s model=%s want=gpt-4o-mini", row.RequestID, row.Model)
+		}
+	}
 }
+
 
 func TestTraceHandler_ClearTraces_ShouldDeleteAllAndReturnDeleted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
