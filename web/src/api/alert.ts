@@ -24,6 +24,11 @@ export interface Alert {
   status: 'pending' | 'resolved'
   ruleId?: string
   resolvedAt?: string
+  dedup_key?: string
+  first_triggered_at?: string
+  last_triggered_at?: string
+  trigger_count?: number
+  auto_resolved?: boolean
 }
 
 export interface AlertStats {
@@ -37,6 +42,7 @@ export interface ResolveSimilarAlertsRequest {
   level: string
   source: string
   message: string
+  dedup_key?: string
 }
 
 export const alertApi = {

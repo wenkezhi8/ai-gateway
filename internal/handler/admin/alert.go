@@ -45,14 +45,19 @@ type AlertCondition struct {
 
 // AlertRecord represents an alert history record.
 type AlertRecord struct {
-	ID         string `json:"id"`
-	Time       string `json:"time"`
-	Level      string `json:"level"` // critical, warning, info
-	Source     string `json:"source"`
-	Message    string `json:"message"`
-	Status     string `json:"status"` // pending, resolved
-	RuleID     string `json:"ruleId,omitempty"`
-	ResolvedAt string `json:"resolvedAt,omitempty"`
+	ID               string `json:"id"`
+	Time             string `json:"time"`
+	Level            string `json:"level"` // critical, warning, info
+	Source           string `json:"source"`
+	Message          string `json:"message"`
+	Status           string `json:"status"` // pending, resolved
+	RuleID           string `json:"ruleId,omitempty"`
+	ResolvedAt       string `json:"resolvedAt,omitempty"`
+	DedupKey         string `json:"dedup_key,omitempty"`
+	FirstTriggeredAt string `json:"first_triggered_at,omitempty"`
+	LastTriggeredAt  string `json:"last_triggered_at,omitempty"`
+	TriggerCount     int    `json:"trigger_count,omitempty"`
+	AutoResolved     bool   `json:"auto_resolved,omitempty"`
 }
 
 // AlertStats represents alert statistics.
@@ -64,9 +69,10 @@ type AlertStats struct {
 }
 
 type resolveSimilarAlertsRequest struct {
-	Level   string `json:"level"`
-	Source  string `json:"source"`
-	Message string `json:"message"`
+	Level    string `json:"level"`
+	Source   string `json:"source"`
+	Message  string `json:"message"`
+	DedupKey string `json:"dedup_key"`
 }
 
 // AlertHandler handles alert-related requests.
@@ -83,6 +89,7 @@ type AlertHandler struct {
 const (
 	defaultAlertCooldown = 5 * time.Minute
 	alertLevelWarning    = "warning"
+	alertStatusPending   = "pending"
 	alertStatusResolved  = "resolved"
 )
 
@@ -177,6 +184,7 @@ func (h *AlertHandler) loadData() {
 
 	h.rules = data.Rules
 	h.alerts = data.Alerts
+	h.compactLegacyAlertsOnce()
 }
 
 // saveData saves alert data to file.
@@ -439,18 +447,23 @@ func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
 	level := strings.TrimSpace(req.Level)
 	source := strings.TrimSpace(req.Source)
 	message := strings.TrimSpace(req.Message)
-	if level == "" || source == "" || message == "" {
+	dedupKey := strings.TrimSpace(req.DedupKey)
+	if level == "" || source == "" || (dedupKey == "" && message == "") {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_request",
-				"message": "level, source and message are required",
+				"message": "level and source are required, and either dedup_key or message must be provided",
 			},
 		})
 		return
 	}
 
-	targetKey := buildAlertDedupKey(level, source, message)
+	targetDedup := dedupKey
+	if targetDedup == "" {
+		targetDedup = buildAlertDedupKey(level, source, message)
+	}
+	targetKey := buildAlertDedupKey(level, source, targetDedup)
 	resolvedAt := time.Now().Format(time.RFC3339)
 	affected := 0
 
@@ -460,11 +473,16 @@ func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
 		if alert.Status == alertStatusResolved {
 			continue
 		}
-		if buildAlertDedupKey(alert.Level, alert.Source, alert.Message) != targetKey {
+		if strings.TrimSpace(alert.Level) != level || strings.TrimSpace(alert.Source) != source {
+			continue
+		}
+		alertDedup := resolveAlertDedupKey(*alert)
+		if alertDedup != targetDedup {
 			continue
 		}
 		alert.Status = alertStatusResolved
 		alert.ResolvedAt = resolvedAt
+		alert.AutoResolved = false
 		affected++
 	}
 	if affected > 0 {
@@ -524,23 +542,160 @@ func (h *AlertHandler) AddAlert(level, source, message string) {
 		}
 		h.lastAlerts[key] = now
 	}
+	h.upsertAlertLocked(level, source, "", message, now)
+}
 
-	alert := AlertRecord{
-		ID:      "alert-" + generateID(),
-		Time:    now.Format(time.RFC3339),
-		Level:   level,
-		Source:  source,
-		Message: message,
-		Status:  "pending",
+func (h *AlertHandler) UpsertAlert(level, source, dedupKey, message string, now time.Time) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.upsertAlertLocked(level, source, dedupKey, message, now)
+}
+
+func (h *AlertHandler) upsertAlertLocked(level, source, dedupKey, message string, now time.Time) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	level = strings.TrimSpace(level)
+	source = strings.TrimSpace(source)
+	message = strings.TrimSpace(message)
+	dedupKey = strings.TrimSpace(dedupKey)
+	if dedupKey == "" {
+		dedupKey = buildAlertDedupKey(level, source, message)
+	}
+	nowStr := now.Format(time.RFC3339)
+
+	for i := range h.alerts {
+		alert := &h.alerts[i]
+		if alert.Status != alertStatusPending {
+			continue
+		}
+		if strings.TrimSpace(alert.Level) != level || strings.TrimSpace(alert.Source) != source {
+			continue
+		}
+		if resolveAlertDedupKey(*alert) != dedupKey {
+			continue
+		}
+
+		if alert.FirstTriggeredAt == "" {
+			if alert.Time != "" {
+				alert.FirstTriggeredAt = alert.Time
+			} else {
+				alert.FirstTriggeredAt = nowStr
+			}
+		}
+		alert.LastTriggeredAt = nowStr
+		if alert.TriggerCount <= 0 {
+			alert.TriggerCount = 1
+		}
+		alert.TriggerCount++
+		alert.Message = message
+		alert.DedupKey = dedupKey
+		h.saveData()
+		return
 	}
 
-	h.alerts = append(h.alerts, alert)
+	h.alerts = append(h.alerts, AlertRecord{
+		ID:               "alert-" + generateID(),
+		Time:             nowStr,
+		Level:            level,
+		Source:           source,
+		Message:          message,
+		Status:           alertStatusPending,
+		DedupKey:         dedupKey,
+		FirstTriggeredAt: nowStr,
+		LastTriggeredAt:  nowStr,
+		TriggerCount:     1,
+	})
 
-	// Keep only last 1000 alerts
 	if len(h.alerts) > 1000 {
 		h.alerts = h.alerts[len(h.alerts)-1000:]
 	}
 
+	h.saveData()
+}
+
+func (h *AlertHandler) ResolveByDedupKey(source, dedupKey string, auto bool) int {
+	source = strings.TrimSpace(source)
+	dedupKey = strings.TrimSpace(dedupKey)
+	if source == "" || dedupKey == "" {
+		return 0
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	resolvedAt := time.Now().Format(time.RFC3339)
+	affected := 0
+	for i := range h.alerts {
+		alert := &h.alerts[i]
+		if alert.Status == alertStatusResolved {
+			continue
+		}
+		if strings.TrimSpace(alert.Source) != source {
+			continue
+		}
+		if resolveAlertDedupKey(*alert) != dedupKey {
+			continue
+		}
+		alert.Status = alertStatusResolved
+		alert.ResolvedAt = resolvedAt
+		alert.AutoResolved = auto
+		affected++
+	}
+
+	if affected > 0 {
+		h.saveData()
+	}
+
+	return affected
+}
+
+func (h *AlertHandler) compactLegacyAlertsOnce() {
+	if len(h.alerts) == 0 {
+		return
+	}
+
+	normalized := make([]AlertRecord, 0, len(h.alerts))
+	pendingAggIndex := map[string]int{}
+
+	for _, alert := range h.alerts {
+		if alert.DedupKey == "" {
+			if inferred := inferSystemHealthDedupKey(alert.Level, alert.Source, alert.Message); inferred != "" {
+				alert.DedupKey = inferred
+			} else {
+				alert.DedupKey = buildAlertDedupKey(alert.Level, alert.Source, alert.Message)
+			}
+		}
+		if alert.TriggerCount <= 0 {
+			alert.TriggerCount = 1
+		}
+		if alert.FirstTriggeredAt == "" {
+			alert.FirstTriggeredAt = alert.Time
+		}
+		if alert.LastTriggeredAt == "" {
+			alert.LastTriggeredAt = alert.Time
+		}
+
+		if strings.TrimSpace(alert.Source) == "system" && alert.Status == alertStatusPending {
+			aggKey := buildAlertDedupKey(alert.Level, alert.Source, alert.DedupKey)
+			if idx, ok := pendingAggIndex[aggKey]; ok {
+				target := &normalized[idx]
+				target.TriggerCount += alert.TriggerCount
+				target.FirstTriggeredAt = pickEarlierTime(target.FirstTriggeredAt, alert.FirstTriggeredAt)
+				newLast := pickLaterTime(target.LastTriggeredAt, alert.LastTriggeredAt)
+				if newLast != target.LastTriggeredAt {
+					target.LastTriggeredAt = newLast
+					target.Message = alert.Message
+				}
+				continue
+			}
+			pendingAggIndex[aggKey] = len(normalized)
+		}
+
+		normalized = append(normalized, alert)
+	}
+
+	h.alerts = normalized
 	h.saveData()
 }
 
@@ -553,4 +708,92 @@ func buildAlertDedupKey(parts ...string) string {
 		normalized = append(normalized, strings.TrimSpace(part))
 	}
 	return strings.Join(normalized, "|")
+}
+
+func resolveAlertDedupKey(alert AlertRecord) string {
+	dedupKey := strings.TrimSpace(alert.DedupKey)
+	if dedupKey != "" {
+		return dedupKey
+	}
+	if inferred := inferSystemHealthDedupKey(alert.Level, alert.Source, alert.Message); inferred != "" {
+		return inferred
+	}
+	return buildAlertDedupKey(alert.Level, alert.Source, alert.Message)
+}
+
+func inferSystemHealthDedupKey(level, source, message string) string {
+	if strings.TrimSpace(source) != "system" {
+		return ""
+	}
+	msg := strings.ToLower(strings.TrimSpace(message))
+	if msg == "" {
+		return ""
+	}
+
+	switch {
+	case strings.Contains(msg, "内存使用率过高"):
+		return "memory_critical"
+	case strings.Contains(msg, "内存使用率偏高"):
+		return "memory_warning"
+	case strings.Contains(msg, "goroutine 数过高"):
+		return "goroutine_critical"
+	case strings.Contains(msg, "goroutine 数偏高"):
+		return "goroutine_warning"
+	case strings.Contains(msg, "gc 暂停过长"):
+		return "gc_pause_critical"
+	case strings.Contains(msg, "gc 暂停偏长"):
+		return "gc_pause_warning"
+	case strings.Contains(msg, "memory") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
+		return "memory_critical"
+	case strings.Contains(msg, "memory"):
+		return "memory_warning"
+	case strings.Contains(msg, "goroutine") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
+		return "goroutine_critical"
+	case strings.Contains(msg, "goroutine"):
+		return "goroutine_warning"
+	case strings.Contains(msg, "gc") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
+		return "gc_pause_critical"
+	case strings.Contains(msg, "gc"):
+		return "gc_pause_warning"
+	default:
+		return ""
+	}
+}
+
+func pickLaterTime(a, b string) string {
+	ta := parseRFC3339OrZero(a)
+	tb := parseRFC3339OrZero(b)
+	if ta.IsZero() {
+		return b
+	}
+	if tb.IsZero() {
+		return a
+	}
+	if tb.After(ta) {
+		return b
+	}
+	return a
+}
+
+func pickEarlierTime(a, b string) string {
+	ta := parseRFC3339OrZero(a)
+	tb := parseRFC3339OrZero(b)
+	if ta.IsZero() {
+		return b
+	}
+	if tb.IsZero() {
+		return a
+	}
+	if tb.Before(ta) {
+		return b
+	}
+	return a
+}
+
+func parseRFC3339OrZero(v string) time.Time {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(v))
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }

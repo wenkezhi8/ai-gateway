@@ -185,6 +185,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	// Cache management routes
 	cacheGroup := r.Group("/cache")
 	cacheGroup.GET("/stats", handlers.Cache.GetCacheStats)
+	cacheGroup.GET("/task-ttl", handlers.Cache.GetCacheTaskTTL)
 	cacheGroup.DELETE("", handlers.Cache.ClearCache)
 	cacheGroup.GET("/config", handlers.Cache.GetCacheConfig)
 	cacheGroup.PUT("/config", handlers.Cache.UpdateCacheConfig)

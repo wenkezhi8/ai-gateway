@@ -42,13 +42,16 @@ type OpsHandler struct {
 	healthMonitorStarted bool
 	healthStop           chan struct{}
 	lastAlerts           map[string]time.Time
+	recoverySince        map[string]time.Time
 	lastGCCount          uint32
 	lastGCPauseTotalNs   uint64
 }
 
 const (
-	goosDarwin = "darwin"
-	goosLinux  = "linux"
+	goosDarwin           = "darwin"
+	goosLinux            = "linux"
+	healthAlertThrottle  = 5 * time.Minute
+	healthRecoveryWindow = 3 * time.Minute
 )
 
 type RequestMetric struct {
@@ -169,6 +172,7 @@ func NewOpsHandler() *OpsHandler {
 		lastCleanup:    time.Now(),
 		lastMinuteTime: time.Now(),
 		lastAlerts:     make(map[string]time.Time),
+		recoverySince:  make(map[string]time.Time),
 	}
 }
 
@@ -570,24 +574,96 @@ func (h *OpsHandler) runHealthCheck(alertHandler *AlertHandler, dashboardHandler
 
 	const memoryWarning = 80.0
 	const memoryCritical = 95.0
+	memoryCriticalActive := resources.MemoryUsage >= memoryCritical
+	memoryWarningActive := resources.MemoryUsage >= memoryWarning && resources.MemoryUsage < memoryCritical
+	h.handleHealthSignal(
+		"memory_critical",
+		memoryCriticalActive,
+		"critical",
+		fmt.Sprintf("内存使用率过高: %.1f%%", resources.MemoryUsage),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
+	h.handleHealthSignal(
+		"memory_warning",
+		memoryWarningActive,
+		"warning",
+		fmt.Sprintf("内存使用率偏高: %.1f%%", resources.MemoryUsage),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
 
-	if resources.MemoryUsage >= memoryCritical {
-		h.emitHealthAlert("memory_critical", "critical", fmt.Sprintf("内存使用率过高: %.1f%%", resources.MemoryUsage), now, alertHandler, dashboardHandler)
-	} else if resources.MemoryUsage >= memoryWarning {
-		h.emitHealthAlert("memory_warning", "warning", fmt.Sprintf("内存使用率偏高: %.1f%%", resources.MemoryUsage), now, alertHandler, dashboardHandler)
-	}
-
-	if resources.Goroutines >= resources.GoroutineCrit {
-		h.emitHealthAlert("goroutine_critical", "critical", fmt.Sprintf("Goroutine 数过高: %d", resources.Goroutines), now, alertHandler, dashboardHandler)
-	} else if resources.Goroutines >= resources.GoroutineWarn {
-		h.emitHealthAlert("goroutine_warning", "warning", fmt.Sprintf("Goroutine 数偏高: %d", resources.Goroutines), now, alertHandler, dashboardHandler)
-	}
+	goroutineCriticalActive := resources.Goroutines >= resources.GoroutineCrit
+	goroutineWarningActive := resources.Goroutines >= resources.GoroutineWarn && resources.Goroutines < resources.GoroutineCrit
+	h.handleHealthSignal(
+		"goroutine_critical",
+		goroutineCriticalActive,
+		"critical",
+		fmt.Sprintf("Goroutine 数过高: %d", resources.Goroutines),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
+	h.handleHealthSignal(
+		"goroutine_warning",
+		goroutineWarningActive,
+		"warning",
+		fmt.Sprintf("Goroutine 数偏高: %d", resources.Goroutines),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
 
 	pauseDeltaMs := float64(pauseDelta) / 1e6
-	if pauseDeltaMs >= 2000 {
-		h.emitHealthAlert("gc_pause_critical", "critical", fmt.Sprintf("GC 暂停过长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta), now, alertHandler, dashboardHandler)
-	} else if pauseDeltaMs >= 500 {
-		h.emitHealthAlert("gc_pause_warning", "warning", fmt.Sprintf("GC 暂停偏长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta), now, alertHandler, dashboardHandler)
+	gcPauseCriticalActive := pauseDeltaMs >= 2000
+	gcPauseWarningActive := pauseDeltaMs >= 500 && pauseDeltaMs < 2000
+	h.handleHealthSignal(
+		"gc_pause_critical",
+		gcPauseCriticalActive,
+		"critical",
+		fmt.Sprintf("GC 暂停过长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
+	h.handleHealthSignal(
+		"gc_pause_warning",
+		gcPauseWarningActive,
+		"warning",
+		fmt.Sprintf("GC 暂停偏长: %.0fms (周期内 GC 次数 %d)", pauseDeltaMs, gcDelta),
+		now,
+		alertHandler,
+		dashboardHandler,
+	)
+}
+
+func (h *OpsHandler) handleHealthSignal(key string, active bool, level, message string, now time.Time, alertHandler *AlertHandler, dashboardHandler *DashboardHandler) {
+	if active {
+		h.healthMu.Lock()
+		delete(h.recoverySince, key)
+		h.healthMu.Unlock()
+		h.emitHealthAlert(key, level, message, now, alertHandler, dashboardHandler)
+		return
+	}
+
+	h.healthMu.Lock()
+	since, exists := h.recoverySince[key]
+	if !exists {
+		h.recoverySince[key] = now
+		h.healthMu.Unlock()
+		return
+	}
+	if now.Sub(since) < healthRecoveryWindow {
+		h.healthMu.Unlock()
+		return
+	}
+	delete(h.recoverySince, key)
+	h.healthMu.Unlock()
+
+	if alertHandler != nil {
+		alertHandler.ResolveByDedupKey("system", key, true)
 	}
 }
 
@@ -596,13 +672,13 @@ func (h *OpsHandler) emitHealthAlert(key, level, message string, now time.Time, 
 	defer h.healthMu.Unlock()
 
 	last, ok := h.lastAlerts[key]
-	if ok && now.Sub(last) < 5*time.Minute {
+	if ok && now.Sub(last) < healthAlertThrottle {
 		return
 	}
 	h.lastAlerts[key] = now
 
 	if alertHandler != nil {
-		alertHandler.AddAlert(level, "system", message)
+		alertHandler.UpsertAlert(level, "system", key, message, now)
 	}
 	if dashboardHandler != nil {
 		dashboardHandler.AddAlert(AlertListItem{

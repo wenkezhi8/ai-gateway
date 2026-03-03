@@ -24,6 +24,11 @@ interface CacheTaskTTLConfigResponse {
   error?: string
 }
 
+export function isCacheTaskTTLNotFoundError(error: unknown): boolean {
+  const status = (error as { response?: { status?: number } })?.response?.status
+  return status === 404
+}
+
 export async function getCacheTaskTTLConfig() {
   const response = await request.get<CacheTaskTTLConfigResponse>('/admin/cache/task-ttl')
   if (!response?.success || !response.data) {

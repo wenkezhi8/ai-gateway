@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ai-gateway/internal/cache"
+	"ai-gateway/internal/models"
 	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
@@ -189,6 +190,200 @@ func parseRedisHitStats(info string) (hits, misses int64) {
 		}
 	}
 	return hits, misses
+}
+
+type cacheTaskTypeMeta struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	DefaultTTL  int    `json:"default_ttl"`
+	TTLUnit     string `json:"ttl_unit"`
+}
+
+type cacheModelOptionGroup struct {
+	ProviderID    string   `json:"provider_id"`
+	ProviderLabel string   `json:"provider_label"`
+	Models        []string `json:"models"`
+}
+
+var cacheTaskTypeMetaDefs = map[string]struct {
+	label       string
+	description string
+}{
+	"fact":      {label: "事实查询", description: "稳定事实问答与知识检索"},
+	"code":      {label: "代码生成", description: "代码生成、修复与重构"},
+	"math":      {label: "数学计算", description: "公式推导与数值计算"},
+	"chat":      {label: "通用对话", description: "开放式聊天与闲聊"},
+	"creative":  {label: "创意写作", description: "文案创作与灵感扩展"},
+	"reasoning": {label: "逻辑推理", description: "多步推理与复杂分析"},
+	"translate": {label: "翻译改写", description: "多语言翻译与文本改写"},
+	"long_text": {label: "长文本", description: "长文总结、抽取与改写"},
+	"unknown":   {label: "其他任务", description: "未分类或混合场景"},
+}
+
+var cacheTaskTypeOrder = []string{
+	"fact",
+	"code",
+	"math",
+	"chat",
+	"creative",
+	"reasoning",
+	"translate",
+	"long_text",
+	"unknown",
+}
+
+var providerDisplayLabelMap = map[string]string{
+	"openai":     "OpenAI",
+	"anthropic":  "Anthropic",
+	"deepseek":   "DeepSeek",
+	"qwen":       "Qwen",
+	"zhipu":      "Zhipu",
+	"moonshot":   "Moonshot",
+	"minimax":    "MiniMax",
+	"baichuan":   "Baichuan",
+	"volcengine": "Volcengine",
+	"ernie":      "ERNIE",
+	"yi":         "Yi",
+	"google":     "Google",
+	"mistral":    "Mistral",
+	"hunyuan":    "Hunyuan",
+	"spark":      "Spark",
+}
+
+// GetCacheTaskTTL returns cache task ttl metadata for cache page.
+// GET /api/admin/cache/task-ttl.
+func (h *CacheHandler) GetCacheTaskTTL(c *gin.Context) {
+	ttlConfig := routing.DefaultTTLConfig()
+	if router := routing.GetGlobalSmartRouter(); router != nil {
+		if assessor := router.GetDifficultyAssessor(); assessor != nil {
+			ttlConfig = assessor.GetTTLConfig()
+		}
+	}
+
+	modelOptions := []cacheModelOptionGroup{}
+	if router := routing.GetGlobalSmartRouter(); router != nil {
+		modelOptions = buildModelOptionsFromScores(router.GetAllModelScores())
+	}
+	if len(modelOptions) == 0 {
+		modelOptions = buildModelOptionsFromProviderModels()
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"task_types":    buildTaskTypeMetaFromTTLConfig(ttlConfig),
+			"model_options": modelOptions,
+		},
+	})
+}
+
+func buildTaskTypeMetaFromTTLConfig(ttlConfig *routing.TTLConfig) []cacheTaskTypeMeta {
+	if ttlConfig == nil {
+		ttlConfig = routing.DefaultTTLConfig()
+	}
+
+	taskTypes := make([]cacheTaskTypeMeta, 0, len(cacheTaskTypeOrder))
+	for _, key := range cacheTaskTypeOrder {
+		metaDef, ok := cacheTaskTypeMetaDefs[key]
+		if !ok {
+			continue
+		}
+		ttlHours := 0
+		if ttl, ok := ttlConfig.TaskTypeDefaults[routing.TaskType(key)]; ok {
+			ttlHours = int(ttl / time.Hour)
+			if ttlHours < 0 {
+				ttlHours = 0
+			}
+		}
+		taskTypes = append(taskTypes, cacheTaskTypeMeta{
+			Key:         key,
+			Label:       metaDef.label,
+			Description: metaDef.description,
+			DefaultTTL:  ttlHours,
+			TTLUnit:     "hours",
+		})
+	}
+
+	return taskTypes
+}
+
+func buildModelOptionsFromScores(scores map[string]*routing.ModelScore) []cacheModelOptionGroup {
+	providerModels := map[string]map[string]struct{}{}
+	for _, score := range scores {
+		if score == nil || !score.Enabled {
+			continue
+		}
+		providerID := strings.ToLower(strings.TrimSpace(score.Provider))
+		model := strings.TrimSpace(score.Model)
+		if providerID == "" || model == "" {
+			continue
+		}
+		if _, ok := providerModels[providerID]; !ok {
+			providerModels[providerID] = map[string]struct{}{}
+		}
+		providerModels[providerID][model] = struct{}{}
+	}
+
+	providerIDs := make([]string, 0, len(providerModels))
+	for providerID, modelsSet := range providerModels {
+		if len(modelsSet) == 0 {
+			continue
+		}
+		providerIDs = append(providerIDs, providerID)
+	}
+	sort.Strings(providerIDs)
+
+	groups := make([]cacheModelOptionGroup, 0, len(providerIDs))
+	for _, providerID := range providerIDs {
+		modelsSet := providerModels[providerID]
+		modelList := make([]string, 0, len(modelsSet))
+		for model := range modelsSet {
+			modelList = append(modelList, model)
+		}
+		sort.Strings(modelList)
+		groups = append(groups, cacheModelOptionGroup{
+			ProviderID:    providerID,
+			ProviderLabel: resolveProviderLabel(providerID),
+			Models:        modelList,
+		})
+	}
+
+	return groups
+}
+
+func buildModelOptionsFromProviderModels() []cacheModelOptionGroup {
+	providerIDs := make([]string, 0, len(models.ProviderModels))
+	for providerID, modelList := range models.ProviderModels {
+		if len(modelList) == 0 {
+			continue
+		}
+		providerIDs = append(providerIDs, providerID)
+	}
+	sort.Strings(providerIDs)
+
+	groups := make([]cacheModelOptionGroup, 0, len(providerIDs))
+	for _, providerID := range providerIDs {
+		modelList := append([]string(nil), models.ProviderModels[providerID]...)
+		sort.Strings(modelList)
+		groups = append(groups, cacheModelOptionGroup{
+			ProviderID:    providerID,
+			ProviderLabel: resolveProviderLabel(providerID),
+			Models:        modelList,
+		})
+	}
+
+	return groups
+}
+
+func resolveProviderLabel(providerID string) string {
+	if label, ok := providerDisplayLabelMap[providerID]; ok {
+		return label
+	}
+	if providerID == "" {
+		return ""
+	}
+	return strings.ToUpper(providerID[:1]) + providerID[1:]
 }
 
 type vectorTierValidationError struct {

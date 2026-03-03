@@ -102,6 +102,16 @@
               </template>
             </el-table-column>
             <el-table-column prop="message" label="告警信息" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="trigger_count" label="持续次数" width="90">
+              <template #default="{ row }">
+                <span>{{ row.trigger_count || 1 }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="last_triggered_at" label="最后触发" width="160">
+              <template #default="{ row }">
+                <span class="time-text">{{ row.last_triggered_at || row.time }}</span>
+              </template>
+            </el-table-column>
             <el-table-column prop="status" label="状态" width="90">
               <template #default="{ row }">
                 <el-tag :type="row.status === 'resolved' ? 'success' : 'warning'" size="small">
@@ -262,6 +272,9 @@ interface Alert {
   source: string
   message: string
   status: string
+  dedup_key?: string
+  trigger_count?: number
+  last_triggered_at?: string
 }
 
 const selectedLevel = ref('')
@@ -452,6 +465,7 @@ const resolveSimilar = async (alert: Alert) => {
     )
 
     const raw = await alertApi.resolveSimilar({
+      dedup_key: alert.dedup_key || undefined,
       level: alert.level,
       source: alert.source,
       message: alert.message
@@ -507,24 +521,10 @@ const fetchAlerts = async () => {
     const res = await alertApi.getHistory(params)
     const data = (res as any)?.data || res
     if (data?.list) {
-      alerts.value = data.list.map((a: any) => ({
-        id: a.id,
-        time: a.time,
-        level: a.level,
-        source: a.source,
-        message: a.message,
-        status: a.status
-      }))
+      alerts.value = data.list.map((a: any) => normalizeAlert(a))
       total.value = data.total || alerts.value.length
     } else if (Array.isArray(data)) {
-      alerts.value = data.map((a: any) => ({
-        id: a.id,
-        time: a.time,
-        level: a.level,
-        source: a.source,
-        message: a.message,
-        status: a.status
-      }))
+      alerts.value = data.map((a: any) => normalizeAlert(a))
     }
   } catch (error) {
     console.warn('Failed to fetch alerts:', error)
@@ -532,6 +532,18 @@ const fetchAlerts = async () => {
     loading.value = false
   }
 }
+
+const normalizeAlert = (a: any): Alert => ({
+  id: a.id,
+  time: a.time,
+  level: a.level,
+  source: a.source,
+  message: a.message,
+  status: a.status,
+  dedup_key: a.dedup_key,
+  trigger_count: Number(a.trigger_count || 1),
+  last_triggered_at: a.last_triggered_at || a.time
+})
 
 const fetchStats = async () => {
   try {

@@ -36,4 +36,22 @@ describe('alert api', () => {
       message: 'cpu high'
     })
   })
+
+  it('posts resolve-similar request with dedup_key when provided', async () => {
+    requestMock.post.mockResolvedValue({ success: true, data: { affected: 5 } })
+
+    await alertApi.resolveSimilar({
+      level: 'warning',
+      source: 'system',
+      message: 'ignored message',
+      dedup_key: 'memory_warning'
+    })
+
+    expect(requestMock.post).toHaveBeenCalledWith('/admin/alerts/resolve-similar', {
+      level: 'warning',
+      source: 'system',
+      message: 'ignored message',
+      dedup_key: 'memory_warning'
+    })
+  })
 })

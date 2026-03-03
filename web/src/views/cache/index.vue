@@ -28,15 +28,15 @@
     </div>
 
     <el-alert
-      v-if="cacheMetaError"
-      type="error"
+      v-if="cacheMetaError || cacheMetaWarning"
+      :type="cacheMetaError ? 'error' : 'warning'"
       :closable="false"
       class="backend-alert"
-      title="缓存任务元数据加载失败"
+      :title="cacheMetaError ? '缓存任务元数据加载失败' : '缓存任务元数据兼容模式'"
     >
       <template #default>
-        {{ cacheMetaError }}
-        <el-button type="danger" link @click="loadCacheTaskMeta">重试</el-button>
+        {{ cacheMetaError || cacheMetaWarning }}
+        <el-button :type="cacheMetaError ? 'danger' : 'warning'" link @click="loadCacheTaskMeta">重试</el-button>
       </template>
     </el-alert>
 
@@ -792,6 +792,7 @@ import {
   getCacheRules,
   getCacheStats,
   getCacheTaskTTLConfig,
+  isCacheTaskTTLNotFoundError,
   getVectorStats,
   getSemanticSignatures,
   rebuildVectorIndex,
@@ -800,6 +801,7 @@ import {
   updateCacheRule,
   updateTtlConfig
 } from '@/api/cache-domain'
+import { getPublicProviders } from '@/api/provider'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
 import {
@@ -808,6 +810,7 @@ import {
 import { buildCacheTypeCards, type CacheTypeCard, type CacheTypeState } from '@/utils/cache-type-meta'
 import { extractAIResponseFull, extractUserMessageFull } from './cache-content-parser'
 import { applyCacheConfigPayload, buildCacheConfigPayload } from './cache-tier-config'
+import { resolveCacheTaskMetaLoadResult } from './cache-task-meta'
 import * as echarts from 'echarts'
 
 interface CacheTypeDetail extends CacheTypeCard {
@@ -839,6 +842,7 @@ interface HotCache {
 const loading = ref(false)
 const cacheMetaLoading = ref(false)
 const cacheMetaError = ref('')
+const cacheMetaWarning = ref('')
 const activeTab = ref('entries')
 const ttlSaving = ref(false)
 const ruleDialogVisible = ref(false)
@@ -1450,29 +1454,71 @@ async function loadCacheConfig() {
 async function loadCacheTaskMeta() {
   cacheMetaLoading.value = true
   cacheMetaError.value = ''
+  cacheMetaWarning.value = ''
+
+  let taskTypes: Array<{ key: string; label: string; description: string; default_ttl: number; ttl_unit: 'hours' }> = []
+  let modelGroups: Array<{ provider_id: string; provider_label: string; models: string[] }> = []
+  let publicProviders: Array<{ id: string; label: string; color: string; logo: string; default_model?: string }> = []
+  let isTaskTTL404 = false
+
   try {
     const data = await getCacheTaskTTLConfig()
-    const taskTypes = Array.isArray(data.task_types) ? data.task_types : []
-    const modelGroups = Array.isArray(data.model_options) ? data.model_options : []
+    taskTypes = Array.isArray(data.task_types) ? data.task_types : []
+    modelGroups = Array.isArray(data.model_options) ? data.model_options : []
+  } catch (e: any) {
+    if (isCacheTaskTTLNotFoundError(e)) {
+      isTaskTTL404 = true
+      try {
+        publicProviders = await getPublicProviders()
+      } catch (fallbackError) {
+        console.warn('Failed to load public providers in fallback mode:', fallbackError)
+        publicProviders = []
+      }
+    } else {
+      cacheMetaError.value = e?.message || '请检查 /admin/cache/task-ttl 接口状态'
+      cacheTaskTypeOptions.value = []
+      ttlTaskTypeList.value = []
+      ruleModelOptions.value = []
+      return
+    }
+  }
 
-    cacheTaskTypeOptions.value = taskTypes.map(item => ({
+  try {
+    const resolved = resolveCacheTaskMetaLoadResult({
+      isTaskTTL404,
+      taskTypes,
+      modelOptions: modelGroups,
+      publicProviders,
+      ttlDefaults: {}
+    })
+
+    if (resolved.mode === 'error') {
+      cacheMetaError.value = resolved.errorMessage || '请检查 /admin/cache/task-ttl 接口状态'
+      cacheTaskTypeOptions.value = []
+      ttlTaskTypeList.value = []
+      ruleModelOptions.value = []
+      return
+    }
+
+    cacheMetaWarning.value = resolved.warningMessage
+    cacheTaskTypeOptions.value = resolved.taskTypes.map(item => ({
       label: item.label,
       value: item.key as CacheTaskTTLItem['key']
     }))
 
-    ttlTaskTypeList.value = taskTypes.map(item => ({
+    ttlTaskTypeList.value = resolved.taskTypes.map(item => ({
       key: item.key as CacheTaskTTLItem['key'],
       name: item.label,
       description: item.description,
       ttl: item.default_ttl
     }))
 
-    ruleModelOptions.value = modelGroups.map(group => ({
+    ruleModelOptions.value = resolved.modelOptions.map(group => ({
       label: group.provider_label,
       options: (group.models || []).map(model => ({ label: model, value: model }))
     }))
 
-    const firstGroup = modelGroups[0]
+    const firstGroup = resolved.modelOptions[0]
     const firstModel = firstGroup?.models?.[0] || ''
     if (!warmupForm.model) {
       warmupForm.model = firstModel
@@ -1480,7 +1526,7 @@ async function loadCacheTaskMeta() {
     if (!warmupForm.provider) {
       warmupForm.provider = firstGroup?.provider_id || ''
     }
-    const factTask = taskTypes.find(item => item.key === 'fact')
+    const factTask = resolved.taskTypes.find(item => item.key === 'fact')
     if (factTask) {
       warmupForm.ttl = factTask.default_ttl
     }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getCacheTaskTTLConfig, getVectorStats } from './cache-domain'
+import { getCacheTaskTTLConfig, getVectorStats, isCacheTaskTTLNotFoundError } from './cache-domain'
 
 const requestMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -48,5 +48,11 @@ describe('cache domain vector apis', () => {
     })
 
     await expect(getCacheTaskTTLConfig()).rejects.toThrow('CACHE_TTL_CONFIG_LOAD_FAILED')
+  })
+
+  it('should identify 404 error from cache task ttl request', () => {
+    expect(isCacheTaskTTLNotFoundError({ response: { status: 404 } })).toBe(true)
+    expect(isCacheTaskTTLNotFoundError({ response: { status: 500 } })).toBe(false)
+    expect(isCacheTaskTTLNotFoundError(null)).toBe(false)
   })
 })
