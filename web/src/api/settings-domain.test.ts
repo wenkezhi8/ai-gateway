@@ -33,7 +33,7 @@ describe('settings-domain', () => {
         data: { routing: { auto_save_enabled: true } }
       })
       const data = await getUiSettings()
-      expect(requestMock.get).toHaveBeenCalledWith('/admin/settings/ui')
+      expect(requestMock.get).toHaveBeenCalledWith('/api/admin/settings/ui')
       expect(data.routing?.auto_save_enabled).toBe(true)
     })
 
@@ -65,7 +65,7 @@ describe('settings-domain', () => {
       })
 
       const data = await getSettingsDefaults()
-      expect(requestMock.get).toHaveBeenCalledWith('/admin/settings/defaults')
+      expect(requestMock.get).toHaveBeenCalledWith('/api/admin/settings/defaults')
       expect(data.gateway.host).toBe('0.0.0.0')
     })
 
@@ -86,7 +86,7 @@ describe('settings-domain', () => {
         data: { routing: { auto_save_enabled: true } }
       })
       const data = await updateUiSettings({ routing: { auto_save_enabled: true } })
-      expect(requestMock.put).toHaveBeenCalledWith('/admin/settings/ui', { routing: { auto_save_enabled: true } })
+      expect(requestMock.put).toHaveBeenCalledWith('/api/admin/settings/ui', { routing: { auto_save_enabled: true } })
       expect(data.routing?.auto_save_enabled).toBe(true)
     })
 
@@ -109,7 +109,7 @@ describe('settings-domain', () => {
     it('calls updateUiSettings with routing payload', async () => {
       requestMock.put.mockResolvedValue({ success: true, data: { routing: { auto_save_enabled: true } } })
       await updateRoutingUiSettings({ auto_save_enabled: true })
-      expect(requestMock.put).toHaveBeenCalledWith('/admin/settings/ui', { routing: { auto_save_enabled: true } })
+      expect(requestMock.put).toHaveBeenCalledWith('/api/admin/settings/ui', { routing: { auto_save_enabled: true } })
     })
   })
 
@@ -117,7 +117,7 @@ describe('settings-domain', () => {
     it('calls updateUiSettings with model_management payload', async () => {
       requestMock.put.mockResolvedValue({ success: true, data: { model_management: { last_saved_at: '2026-02-28' } } })
       await updateModelManagementUiSettings({ last_saved_at: '2026-02-28' })
-      expect(requestMock.put).toHaveBeenCalledWith('/admin/settings/ui', { model_management: { last_saved_at: '2026-02-28' } })
+      expect(requestMock.put).toHaveBeenCalledWith('/api/admin/settings/ui', { model_management: { last_saved_at: '2026-02-28' } })
     })
   })
 
@@ -125,7 +125,7 @@ describe('settings-domain', () => {
     it('calls updateUiSettings with settings payload', async () => {
       requestMock.put.mockResolvedValue({ success: true, data: { settings: { theme: 'dark' } } })
       await updateGeneralUiSettings({ theme: 'dark' })
-      expect(requestMock.put).toHaveBeenCalledWith('/admin/settings/ui', { settings: { theme: 'dark' } })
+      expect(requestMock.put).toHaveBeenCalledWith('/api/admin/settings/ui', { settings: { theme: 'dark' } })
     })
   })
 })
@@ -152,7 +152,7 @@ describe('updateGeneralUiSettingsThrottled', () => {
     await Promise.all([p1, p2])
 
     expect(requestMock.put).toHaveBeenCalledTimes(1)
-    expect(requestMock.put).toHaveBeenCalledWith('/admin/settings/ui', { settings: { a: 1, b: 2 } })
+    expect(requestMock.put).toHaveBeenCalledWith('/api/admin/settings/ui', { settings: { a: 1, b: 2 } })
   })
 
   it('resolves all promises with same result', async () => {

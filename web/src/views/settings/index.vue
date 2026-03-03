@@ -21,6 +21,34 @@
 
       <!-- 右侧设置内容 -->
       <el-col :span="18">
+        <el-skeleton v-if="isInitialLoading" :rows="8" animated class="settings-state" />
+        <el-result
+          v-else-if="showHardError"
+          class="settings-state"
+          icon="error"
+          title="设置加载失败"
+          sub-title="默认配置与已保存设置均加载失败，请重试"
+        >
+          <template #extra>
+            <el-button type="primary" @click="loadSettings">重试加载</el-button>
+          </template>
+        </el-result>
+        <el-empty v-else-if="showEmptyState" class="settings-state" description="暂无可用设置数据">
+          <el-button type="primary" @click="loadSettings">重新加载</el-button>
+        </el-empty>
+        <template v-else>
+          <el-alert
+            v-if="showSoftWarning"
+            class="settings-warning"
+            type="warning"
+            :closable="false"
+            show-icon
+            :title="softWarningText"
+          >
+            <template #default>
+              <el-button link type="warning" @click="loadSettings">重试加载</el-button>
+            </template>
+          </el-alert>
         <!-- 外观设置 -->
         <el-card v-show="activeSection === 'appearance'" class="settings-card" shadow="never">
           <template #header>
@@ -339,20 +367,21 @@
 
         <!-- 保存按钮 -->
         <div class="settings-actions">
-          <el-button @click="resetSettings">重置</el-button>
+          <el-button @click="resetSettings" :disabled="!settingsDefaults" :title="defaultsLoadError ? '默认配置加载失败，暂不可重置' : ''">重置</el-button>
           <el-button type="primary" @click="saveSettings">保存设置</el-button>
         </div>
+        </template>
       </el-col>
     </el-row>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, Check } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
-import { getSettingsDefaults, getUiSettings, updateGeneralUiSettings } from '@/api/settings-domain'
+import { getSettingsDefaults, getUiSettings, updateGeneralUiSettings, type SettingsDefaultsPayload } from '@/api/settings-domain'
 import { SETTINGS_MENU_ITEMS, THEME_COLOR_OPTIONS } from '@/constants/pages/settings'
 import EditionSelector from './components/EditionSelector.vue'
 
@@ -406,7 +435,55 @@ const settings = reactive({
   }
 })
 
-const settingsDefaults = ref<Record<string, any> | null>(null)
+const settingsDefaults = ref<SettingsDefaultsPayload | null>(null)
+const isInitialLoading = ref(true)
+const defaultsLoadError = ref('')
+const uiLoadError = ref('')
+const hasDefaultsSettings = ref(false)
+const hasUiPersistedSettings = ref(false)
+
+const showHardError = computed(() => Boolean(defaultsLoadError.value && uiLoadError.value))
+const showEmptyState = computed(
+  () => !isInitialLoading.value && !showHardError.value && !hasDefaultsSettings.value && !hasUiPersistedSettings.value
+)
+const showSoftWarning = computed(
+  () => !isInitialLoading.value && !showHardError.value && Boolean(defaultsLoadError.value || uiLoadError.value)
+)
+const softWarningText = computed(() => {
+  if (defaultsLoadError.value && !uiLoadError.value) {
+    return '默认配置加载失败，已使用当前页面设置，可继续保存'
+  }
+  if (!defaultsLoadError.value && uiLoadError.value) {
+    return '已保存设置加载失败，当前显示默认配置，可继续编辑并保存'
+  }
+  return '设置加载存在异常，请重试'
+})
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+function pickString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function pickNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function pickBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function pickStringArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) {
+    return fallback
+  }
+  return value.filter((item): item is string => typeof item === 'string')
+}
 
 interface SyncStatus {
   syncing: boolean
@@ -476,53 +553,151 @@ function buildPersistedSettingsPayload() {
   }
 }
 
-function applySettingsDefaults(defaults: Record<string, any>) {
+function applySettingsDefaults(defaults: SettingsDefaultsPayload) {
   settingsDefaults.value = defaults
-  const gateway = defaults.gateway || {}
-  const cache = defaults.cache || {}
-  const logging = defaults.logging || {}
-  const security = defaults.security || {}
+  hasDefaultsSettings.value = Object.keys(defaults).length > 0
+
+  const gateway = asRecord(defaults.gateway) ?? {}
+  const cache = asRecord(defaults.cache) ?? {}
+  const logging = asRecord(defaults.logging) ?? {}
+  const security = asRecord(defaults.security) ?? {}
 
   Object.assign(settings.gateway, {
-    host: gateway.host ?? settings.gateway.host,
-    port: gateway.port ?? settings.gateway.port,
-    timeout: gateway.timeout ?? settings.gateway.timeout,
-    maxConnections: gateway.max_connections ?? gateway.maxConnections ?? settings.gateway.maxConnections,
-    enableCors: gateway.enable_cors ?? gateway.enableCors ?? settings.gateway.enableCors,
-    corsOrigins: gateway.cors_origins ?? gateway.corsOrigins ?? settings.gateway.corsOrigins
+    host: pickString(gateway.host, settings.gateway.host),
+    port: pickNumber(gateway.port, settings.gateway.port),
+    timeout: pickNumber(gateway.timeout, settings.gateway.timeout),
+    maxConnections: pickNumber(gateway.max_connections ?? gateway.maxConnections, settings.gateway.maxConnections),
+    enableCors: pickBoolean(gateway.enable_cors ?? gateway.enableCors, settings.gateway.enableCors),
+    corsOrigins: pickString(gateway.cors_origins ?? gateway.corsOrigins, settings.gateway.corsOrigins)
   })
 
   Object.assign(settings.cache, {
-    enabled: cache.enabled ?? settings.cache.enabled,
-    type: cache.type ?? settings.cache.type,
-    defaultTTL: cache.default_ttl ?? cache.defaultTTL ?? settings.cache.defaultTTL,
-    maxSize: cache.max_size ?? cache.maxSize ?? settings.cache.maxSize
+    enabled: pickBoolean(cache.enabled, settings.cache.enabled),
+    type: pickString(cache.type, settings.cache.type),
+    defaultTTL: pickNumber(cache.default_ttl ?? cache.defaultTTL, settings.cache.defaultTTL),
+    maxSize: pickNumber(cache.max_size ?? cache.maxSize, settings.cache.maxSize)
   })
 
-  if (cache.redis) {
+  const redis = asRecord(cache.redis)
+  if (redis) {
     Object.assign(settings.cache.redis, {
-      host: cache.redis.host ?? settings.cache.redis.host,
-      password: cache.redis.password ?? settings.cache.redis.password,
-      db: cache.redis.db ?? settings.cache.redis.db
+      host: pickString(redis.host, settings.cache.redis.host),
+      password: pickString(redis.password, settings.cache.redis.password),
+      db: pickNumber(redis.db, settings.cache.redis.db)
     })
   }
 
   Object.assign(settings.logging, {
-    level: logging.level ?? settings.logging.level,
-    format: logging.format ?? settings.logging.format,
-    outputs: Array.isArray(logging.outputs) ? [...logging.outputs] : settings.logging.outputs,
-    filePath: logging.file_path ?? logging.filePath ?? settings.logging.filePath,
-    maxFileSize: logging.max_file_size ?? logging.maxFileSize ?? settings.logging.maxFileSize,
-    maxBackups: logging.max_backups ?? logging.maxBackups ?? settings.logging.maxBackups
+    level: pickString(logging.level, settings.logging.level),
+    format: pickString(logging.format, settings.logging.format),
+    outputs: pickStringArray(logging.outputs, settings.logging.outputs),
+    filePath: pickString(logging.file_path ?? logging.filePath, settings.logging.filePath),
+    maxFileSize: pickNumber(logging.max_file_size ?? logging.maxFileSize, settings.logging.maxFileSize),
+    maxBackups: pickNumber(logging.max_backups ?? logging.maxBackups, settings.logging.maxBackups)
   })
 
   Object.assign(settings.security, {
-    enabled: security.enabled ?? settings.security.enabled,
-    type: security.type ?? settings.security.type,
-    rateLimit: security.rate_limit ?? security.rateLimit ?? settings.security.rateLimit,
-    rateLimitRPM: security.rate_limit_rpm ?? security.rateLimitRPM ?? settings.security.rateLimitRPM,
-    ipWhitelist: security.ip_whitelist ?? security.ipWhitelist ?? settings.security.ipWhitelist
+    enabled: pickBoolean(security.enabled, settings.security.enabled),
+    type: pickString(security.type, settings.security.type),
+    rateLimit: pickBoolean(security.rate_limit ?? security.rateLimit, settings.security.rateLimit),
+    rateLimitRPM: pickNumber(security.rate_limit_rpm ?? security.rateLimitRPM, settings.security.rateLimitRPM),
+    ipWhitelist: pickString(security.ip_whitelist ?? security.ipWhitelist, settings.security.ipWhitelist)
   })
+}
+
+function applyPersistedUiSettings(uiSettings: Record<string, unknown> | undefined) {
+  if (!uiSettings || Object.keys(uiSettings).length === 0) {
+    hasUiPersistedSettings.value = false
+    return
+  }
+
+  hasUiPersistedSettings.value = true
+  if (typeof uiSettings.borderRadius === 'number') {
+    settings.borderRadius = uiSettings.borderRadius
+  }
+  if (typeof uiSettings.enableAnimation === 'boolean') {
+    settings.enableAnimation = uiSettings.enableAnimation
+  }
+
+  const gateway = asRecord(uiSettings.gateway)
+  if (gateway) {
+    Object.assign(settings.gateway, {
+      host: pickString(gateway.host, settings.gateway.host),
+      port: pickNumber(gateway.port, settings.gateway.port),
+      timeout: pickNumber(gateway.timeout, settings.gateway.timeout),
+      maxConnections: pickNumber(gateway.maxConnections, settings.gateway.maxConnections),
+      enableCors: pickBoolean(gateway.enableCors, settings.gateway.enableCors),
+      corsOrigins: pickString(gateway.corsOrigins, settings.gateway.corsOrigins)
+    })
+  }
+
+  const cache = asRecord(uiSettings.cache)
+  if (cache) {
+    Object.assign(settings.cache, {
+      enabled: pickBoolean(cache.enabled, settings.cache.enabled),
+      type: pickString(cache.type, settings.cache.type),
+      defaultTTL: pickNumber(cache.defaultTTL, settings.cache.defaultTTL),
+      maxSize: pickNumber(cache.maxSize, settings.cache.maxSize)
+    })
+
+    const redis = asRecord(cache.redis)
+    if (redis) {
+      Object.assign(settings.cache.redis, {
+        host: pickString(redis.host, settings.cache.redis.host),
+        password: pickString(redis.password, settings.cache.redis.password),
+        db: pickNumber(redis.db, settings.cache.redis.db)
+      })
+    }
+  }
+
+  const logging = asRecord(uiSettings.logging)
+  if (logging) {
+    Object.assign(settings.logging, {
+      level: pickString(logging.level, settings.logging.level),
+      format: pickString(logging.format, settings.logging.format),
+      outputs: pickStringArray(logging.outputs, settings.logging.outputs),
+      filePath: pickString(logging.filePath, settings.logging.filePath),
+      maxFileSize: pickNumber(logging.maxFileSize, settings.logging.maxFileSize),
+      maxBackups: pickNumber(logging.maxBackups, settings.logging.maxBackups)
+    })
+  }
+
+  const security = asRecord(uiSettings.security)
+  if (security) {
+    Object.assign(settings.security, {
+      enabled: pickBoolean(security.enabled, settings.security.enabled),
+      type: pickString(security.type, settings.security.type),
+      rateLimit: pickBoolean(security.rateLimit, settings.security.rateLimit),
+      rateLimitRPM: pickNumber(security.rateLimitRPM, settings.security.rateLimitRPM),
+      ipWhitelist: pickString(security.ipWhitelist, settings.security.ipWhitelist)
+    })
+  }
+}
+
+async function loadSettings() {
+  isInitialLoading.value = true
+  defaultsLoadError.value = ''
+  uiLoadError.value = ''
+
+  const [defaultsResult, uiResult] = await Promise.allSettled([getSettingsDefaults(), getUiSettings()])
+
+  if (defaultsResult.status === 'fulfilled') {
+    applySettingsDefaults(defaultsResult.value)
+  } else {
+    settingsDefaults.value = null
+    hasDefaultsSettings.value = false
+    defaultsLoadError.value = '默认配置加载失败'
+  }
+
+  if (uiResult.status === 'fulfilled') {
+    const parsed = uiResult.value?.settings as Record<string, unknown> | undefined
+    applyPersistedUiSettings(parsed)
+  } else {
+    hasUiPersistedSettings.value = false
+    uiLoadError.value = '已保存设置加载失败'
+  }
+
+  isInitialLoading.value = false
 }
 
 // 页面加载时从 localStorage 加载设置
@@ -538,24 +713,7 @@ onMounted(async () => {
     applyPrimaryColor(savedPrimaryColor)
   }
 
-  // 加载后端持久化的业务设置
-  try {
-    const defaults = await getSettingsDefaults()
-    applySettingsDefaults(defaults as Record<string, any>)
-
-    const uiSettings = await getUiSettings()
-    const parsed = uiSettings?.settings as Record<string, any> | undefined
-    if (parsed) {
-      if (parsed.borderRadius) settings.borderRadius = parsed.borderRadius
-      if (parsed.enableAnimation !== undefined) settings.enableAnimation = parsed.enableAnimation
-      if (parsed.gateway) Object.assign(settings.gateway, parsed.gateway)
-      if (parsed.cache) Object.assign(settings.cache, parsed.cache)
-      if (parsed.logging) Object.assign(settings.logging, parsed.logging)
-      if (parsed.security) Object.assign(settings.security, parsed.security)
-    }
-  } catch (e) {
-    console.error('Failed to load settings:', e)
-  }
+  await loadSettings()
 })
 
 const resetSettings = async () => {

@@ -58,6 +58,10 @@ export const API = {
     API_KEYS: '/api/admin/api-keys',
     FEEDBACK: '/api/admin/feedback',
     ALERTS: '/api/admin/alerts',
+    SETTINGS: {
+      DEFAULTS: '/api/admin/settings/defaults',
+      UI: '/api/admin/settings/ui',
+    },
   },
   
   // 子路径

@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"ai-gateway/internal/constants"
 
 	"github.com/gin-gonic/gin"
 )
@@ -141,5 +145,54 @@ func TestSettingsUI_InvalidPayload(t *testing.T) {
 	}
 	if resp.Error.Code == "" {
 		t.Fatalf("error.code should not be empty")
+	}
+}
+
+func TestSettingsDefaults_Get_ShouldReturnContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := NewSettingsHandler(filepath.Join(t.TempDir(), "ui-settings.json"))
+	router := gin.New()
+	router.GET("/api/admin/settings/defaults", handler.GetSettingsDefaults)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/settings/defaults", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool                   `json:"success"`
+		Data    map[string]interface{} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("success = false, want true")
+	}
+
+	for _, key := range []string{"gateway", "cache", "logging", "security"} {
+		if _, ok := resp.Data[key]; !ok {
+			t.Fatalf("data.%s missing", key)
+		}
+	}
+}
+
+func TestRegisterRoutes_ShouldExposeSettingsDefaultsEndpoint(t *testing.T) {
+	if constants.AdminSettingsDefaults != "/api/admin/settings/defaults" {
+		t.Fatalf("AdminSettingsDefaults = %q", constants.AdminSettingsDefaults)
+	}
+
+	adminFile := filepath.Join("..", "..", "handler", "admin", "admin.go")
+	content, err := os.ReadFile(adminFile)
+	if err != nil {
+		t.Fatalf("read admin.go failed: %v", err)
+	}
+
+	if !strings.Contains(string(content), "settings.GET(\"/defaults\", handlers.Settings.GetSettingsDefaults)") {
+		t.Fatalf("defaults route registration missing in RegisterRoutes")
 	}
 }

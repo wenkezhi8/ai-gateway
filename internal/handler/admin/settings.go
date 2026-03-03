@@ -124,6 +124,13 @@ func (h *SettingsHandler) GetUISettings(c *gin.Context) {
 	})
 }
 
+func (h *SettingsHandler) GetSettingsDefaults(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    constants.SettingsDefaults,
+	})
+}
+
 // UpdateUISettings handles PUT /api/admin/settings/ui.
 func (h *SettingsHandler) UpdateUISettings(c *gin.Context) {
 	var req updateUISettingsRequest

@@ -1,5 +1,6 @@
 import { request } from './request'
 import { unwrapEnvelope } from './envelope'
+import { API } from '@/constants/api'
 
 export interface UiSettingsPayload {
   routing?: {
@@ -20,17 +21,17 @@ export interface SettingsDefaultsPayload {
 }
 
 export async function getSettingsDefaults() {
-  const raw = await request.get('/admin/settings/defaults')
+  const raw = await request.get(API.ADMIN.SETTINGS.DEFAULTS)
   return unwrapEnvelope<SettingsDefaultsPayload>(raw, { allowPlain: true })
 }
 
 export async function getUiSettings() {
-  const raw = await request.get('/admin/settings/ui')
+  const raw = await request.get(API.ADMIN.SETTINGS.UI)
   return unwrapEnvelope<UiSettingsPayload>(raw, { allowPlain: true })
 }
 
 export async function updateUiSettings(payload: UiSettingsPayload) {
-  const raw = await request.put('/admin/settings/ui', payload)
+  const raw = await request.put(API.ADMIN.SETTINGS.UI, payload)
   return unwrapEnvelope<UiSettingsPayload>(raw, { allowPlain: true })
 }
 

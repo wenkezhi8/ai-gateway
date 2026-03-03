@@ -326,6 +326,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 
 	// UI settings routes
 	settings := r.Group("/settings")
+	settings.GET("/defaults", handlers.Settings.GetSettingsDefaults)
 	settings.GET("/ui", handlers.Settings.GetUISettings)
 	settings.PUT("/ui", handlers.Settings.UpdateUISettings)
 
