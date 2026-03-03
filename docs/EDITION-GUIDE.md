@@ -4,6 +4,8 @@
 
 AI Gateway 支持三个版本，系统设置中可直接切换：
 
+- 默认版本：`standard`
+
 - 基础版（`basic`）
   - 纯网关能力
   - 依赖：Redis

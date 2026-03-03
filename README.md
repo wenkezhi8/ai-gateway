@@ -64,7 +64,7 @@ Configuration is managed via `configs/config.json`. Environment variables can ov
 The dashboard supports 3 editions: `basic`, `standard`, and `enterprise`.
 
 - Switch path: `Settings -> 版本管理`
-- Default: `basic`
+- Default: `standard`
 - Guide: `docs/EDITION-GUIDE.md`
 - `Ollama 管理` 页面：标准版与企业版可见（侧边栏菜单）
 - `向量管理` / `知识库` 入口：仅企业版可见（Header 入口）

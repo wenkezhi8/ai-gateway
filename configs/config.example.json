@@ -74,5 +74,8 @@
     "cold_vector_qdrant_api_key": "",
     "cold_vector_qdrant_collection": "ai_gateway_cold_vectors",
     "cold_vector_qdrant_timeout_ms": 1500
+  },
+  "edition": {
+    "type": "standard"
   }
 }
