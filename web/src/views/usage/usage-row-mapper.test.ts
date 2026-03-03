@@ -33,7 +33,8 @@ describe('usage-row-mapper', () => {
 
     expect(row.accountName).toBe('acc-alpha')
     expect(row.provider).toBe('provider-x')
-    expect(row.requestType).toBe('stream')
+    expect(row.taskType).toBe('编程')
+    expect(row.requestType).toBe('流式')
     expect(row.inferenceIntensity).toBe('high')
     expect(row.userAgent).toBe('Mozilla/5.0')
     expect(row.inputTokens).toBe(120)
@@ -64,7 +65,8 @@ describe('usage-row-mapper', () => {
     )
 
     expect(row.accountName).toBe('账户Y')
-    expect(row.requestType).toBe('nonstream')
+    expect(row.taskType).toBe('对话')
+    expect(row.requestType).toBe('非流式')
     expect(row.inferenceIntensity).toBe('-')
     expect(row.userAgent).toBe('-')
     expect(row.inputTokens).toBe(30)

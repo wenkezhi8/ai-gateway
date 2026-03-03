@@ -76,6 +76,32 @@ function formatDateTime(time: number): string {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
+function toTaskTypeLabel(taskType: string | undefined): string {
+  const raw = (taskType || '-').trim()
+  if (!raw || raw === '-') return '-'
+
+  const labels: Record<string, string> = {
+    code: '编程',
+    coding: '编程',
+    chat: '对话',
+    conversation: '对话',
+    analysis: '分析',
+    creative: '创作',
+    math: '数学'
+  }
+  return labels[raw.toLowerCase()] || raw
+}
+
+function toRequestTypeLabel(requestType: string | undefined): string {
+  const raw = (requestType || '-').trim()
+  if (!raw || raw === '-') return '-'
+
+  const normalized = raw.toLowerCase().replace('-', '_')
+  if (normalized === 'stream') return '流式'
+  if (normalized === 'non_stream' || normalized === 'nonstream') return '非流式'
+  return raw
+}
+
 export function mapUsageLogToRow(
   log: UsageLogPayload,
   accountNameMap: Map<string, string>
@@ -102,8 +128,8 @@ export function mapUsageLogToRow(
     firstTokenSeconds: ttftMs / 1000,
     totalDurationSeconds: latencyMs / 1000,
     model: (log.model || '-').trim() || '-',
-    taskType: (log.task_type || '-').trim() || '-',
-    requestType: (log.request_type || log.type || '-').trim() || '-',
+    taskType: toTaskTypeLabel(log.task_type),
+    requestType: toRequestTypeLabel(log.request_type || log.type),
     inferenceIntensity: (log.inference_intensity || '-').trim() || '-',
     userAgent: (log.user_agent || '-').trim() || '-',
     inputTokens,
