@@ -387,6 +387,10 @@ func TestProxyHandler_ChatCompletions_StreamShouldRecordHTTPResponseSpan(t *test
 	assert.Equal(t, "hello stream", attrs["user_message_preview"])
 	assert.Equal(t, "hello stream", attrs["user_message_full"])
 	assert.Equal(t, false, attrs["user_message_truncated"])
+
+	providerAttrs := fetchOperationAttrs(t, db, requestID, "provider.chat")
+	assert.Equal(t, true, providerAttrs["success"])
+	assert.Equal(t, true, providerAttrs["stream"])
 }
 
 func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan(t *testing.T) {
@@ -429,6 +433,11 @@ func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan
 	assert.Equal(t, "trigger fallback", attrs["user_message_preview"])
 	assert.Equal(t, "trigger fallback", attrs["user_message_full"])
 	assert.Equal(t, false, attrs["user_message_truncated"])
+
+	providerAttrs := fetchOperationAttrs(t, db, requestID, "provider.chat")
+	assert.Equal(t, true, providerAttrs["success"])
+	assert.Equal(t, false, providerAttrs["stream"])
+	assert.Equal(t, true, providerAttrs["fallback_from_stream"])
 }
 
 func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
@@ -512,6 +521,23 @@ func fetchHTTPResponseAttrs(t *testing.T, db *sql.DB, requestID string) map[stri
 
 	var attrsRaw string
 	err := db.QueryRow(`SELECT attributes FROM request_traces WHERE request_id = ? AND operation = 'http.response' ORDER BY created_at DESC LIMIT 1`, requestID).Scan(&attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+	return attrs
+}
+
+func fetchOperationAttrs(t *testing.T, db *sql.DB, requestID, operation string) map[string]interface{} {
+	t.Helper()
+
+	var count int
+	err := db.QueryRow(`SELECT COUNT(1) FROM request_traces WHERE request_id = ? AND operation = ?`, requestID, operation).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	var attrsRaw string
+	err = db.QueryRow(`SELECT attributes FROM request_traces WHERE request_id = ? AND operation = ? ORDER BY created_at DESC LIMIT 1`, requestID, operation).Scan(&attrsRaw)
 	require.NoError(t, err)
 
 	attrs := map[string]interface{}{}

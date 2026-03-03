@@ -1766,6 +1766,11 @@ func (h *ProxyHandler) handleStreamResponse(
 	c.Header("X-Local-Cache-Hit", "0")
 
 	ctx := c.Request.Context()
+	providerProtocol := p.Name()
+	providerLabel := strings.TrimSpace(providerName)
+	if providerLabel == "" {
+		providerLabel = providerProtocol
+	}
 
 	// Get stream channel from provider
 	streamReq := req
@@ -1882,6 +1887,19 @@ func (h *ProxyHandler) handleStreamResponse(
 				c.SSEvent("message", streamResp)
 				c.Writer.Flush()
 			}
+
+			if h.traceRecorder != nil {
+				h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+					"duration_ms":   time.Since(startTime).Milliseconds(),
+					"model":         req.Model,
+					"provider":      providerLabel,
+					"provider_type": providerProtocol,
+					"provider_name": providerLabel,
+					"stream":        true,
+					"success":       true,
+				})
+			}
+
 			// Send [DONE] marker
 			c.SSEvent("message", "[DONE]")
 			c.Writer.Flush()
@@ -2119,6 +2137,19 @@ func (h *ProxyHandler) handleStreamResponse(
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
 			return
+		}
+
+		if h.traceRecorder != nil {
+			h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+				"duration_ms":          time.Since(startTime).Milliseconds(),
+				"model":                nonStreamReq.Model,
+				"provider":             providerLabel,
+				"provider_type":        providerProtocol,
+				"provider_name":        providerLabel,
+				"stream":               false,
+				"success":              true,
+				"fallback_from_stream": true,
+			})
 		}
 
 		resolvedUsage, usageSource := resolveUsageWithFallback(
