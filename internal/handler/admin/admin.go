@@ -77,6 +77,7 @@ func NewHandlers(
 			QdrantAPIKey:   strings.TrimSpace(os.Getenv("AI_GATEWAY_QDRANT_API_KEY")),
 		})),
 	}
+	handlers.Cache.SetTraceDB(storage.GetSQLiteStorage().GetDB())
 	// 改动点: 定时健康检测并触发告警
 	handlers.Ops.StartHealthMonitor(handlers.Alert, handlers.Dashboard)
 	globalDashboardHandler = handlers.Dashboard
@@ -188,6 +189,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	// Cache management routes
 	cacheGroup := r.Group("/cache")
 	cacheGroup.GET("/stats", handlers.Cache.GetCacheStats)
+	cacheGroup.GET("/request-stats", handlers.Cache.GetCacheRequestStats)
+	cacheGroup.GET("/request-hits", handlers.Cache.GetCacheRequestHits)
 	cacheGroup.GET("/task-ttl", handlers.Cache.GetCacheTaskTTL)
 	cacheGroup.DELETE("", handlers.Cache.ClearCache)
 	cacheGroup.GET("/config", handlers.Cache.GetCacheConfig)
@@ -336,6 +339,8 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	edition.PUT("", handlers.Edition.UpdateEdition)
 	edition.GET("/definitions", handlers.Edition.GetEditionDefinitions)
 	edition.GET("/dependencies", handlers.Edition.CheckDependencies)
+	edition.POST("/setup", handlers.Edition.SetupEditionEnvironment)
+	edition.GET("/setup/tasks/:taskId", handlers.Edition.GetSetupTask)
 
 	// Vector DB collection routes
 	vectorDBCollectionsGroup := r.Group("/vector-db/collections")
