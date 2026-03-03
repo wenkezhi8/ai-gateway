@@ -6,7 +6,10 @@
         <div class="hero-subtitle">实时监控请求处理全流程，透明化每一步操作</div>
       </div>
       <div class="hero-actions">
-        <el-button type="primary" @click="loadTraces">
+        <el-button type="danger" plain :loading="clearing" :disabled="loading || clearing" @click="handleClearTraces">
+          清理链路记录
+        </el-button>
+        <el-button type="primary" :loading="loading" @click="loadTraces">
           <el-icon><Refresh /></el-icon>
           刷新
         </el-button>
@@ -17,16 +20,16 @@
       <div class="panel-header">
         <div class="panel-title">请求列表</div>
         <div class="panel-filters">
-          <el-select v-model="filter.status" placeholder="状态" clearable style="width: 120px" @change="loadTraces">
+          <el-select v-model="filter.status" placeholder="状态" clearable style="width: 120px" @change="handleFilterChange">
             <el-option label="全部" value="" />
             <el-option label="成功" value="success" />
             <el-option label="失败" value="error" />
           </el-select>
-          <el-input v-model="filter.operation" placeholder="操作类型" clearable style="width: 200px" @change="loadTraces" />
+          <el-input v-model="filter.operation" placeholder="操作类型" clearable style="width: 200px" @change="handleFilterChange" />
         </div>
       </div>
 
-      <el-table :data="traces" stripe>
+      <el-table :data="traces" stripe v-loading="loading">
         <el-table-column prop="request_id" label="Request ID" width="280" show-overflow-tooltip />
         <el-table-column prop="method" label="方法" width="80">
           <template #default="{ row }">
@@ -44,6 +47,11 @@
             <el-tag size="small" :type="row.status === 'success' ? 'success' : 'danger'">
               {{ row.status === 'success' ? '成功' : '失败' }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="answer_source" label="AI回复来源" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ getAnswerSourceLabel(row.answer_source) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="duration_ms" label="耗时" width="100">
@@ -72,7 +80,7 @@
     </div>
 
     <!-- 详情对话框 -->
-    <el-dialog v-model="detailVisible" title="请求链路详情" width="900px">
+    <el-dialog v-model="detailVisible" title="请求链路详情" width="900px" v-loading="detailLoading">
       <div v-if="detailTraces.length > 0 && detailSummary">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="Request ID">{{ detailSummary.request_id }}</el-descriptions-item>
@@ -201,18 +209,9 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
-import { getTraces, getTraceDetail, type RequestTrace } from '@/api/trace-domain'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { clearTraces, getTraces, getTraceDetail, type RequestTrace, type TraceSummary } from '@/api/trace-domain'
 import { handleApiError } from '@/utils/errorHandler'
-
-type TraceSummary = {
-  request_id: string
-  method: string
-  path: string
-  status: string
-  duration_ms: number
-  created_at: string
-  step_count: number
-}
 
 const traces = ref<TraceSummary[]>([])
 const detailTraces = ref<RequestTrace[]>([])
@@ -223,6 +222,8 @@ const messageVisible = ref(false)
 const messageDialogTitle = ref('')
 const activeMessageContent = ref('')
 const loading = ref(false)
+const clearing = ref(false)
+const detailLoading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -259,6 +260,14 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   high: '高'
 }
 
+const ANSWER_SOURCE_LABELS: Record<TraceSummary['answer_source'], string> = {
+  cache_v2: 'V2缓存查询',
+  cache_semantic: '语义缓存查询',
+  cache_exact: '精确缓存查询',
+  provider_chat: '调用上游模型',
+  unknown: '未知'
+}
+
 onMounted(() => {
   loadTraces()
 })
@@ -289,32 +298,9 @@ async function loadTraces() {
     if (filter.value.status) params.status = filter.value.status
     if (filter.value.operation) params.operation = filter.value.operation
 
-    const data = await getTraces(params)
-    const grouped = new Map<string, RequestTrace[]>()
-    for (const item of data) {
-      const key = item.request_id || item.id
-      if (!grouped.has(key)) grouped.set(key, [])
-      grouped.get(key)!.push(item)
-    }
-
-    const rows: TraceSummary[] = []
-    for (const [requestID, items] of grouped.entries()) {
-      const entry = items.find(i => i.operation === 'http.entry')
-      const response = items.find(i => i.operation === 'http.response')
-      const hasError = items.some(i => i.status === 'error')
-      rows.push({
-        request_id: requestID,
-        method: entry?.method || '',
-        path: entry?.path || '',
-        status: hasError ? 'error' : 'success',
-        duration_ms: response?.duration_ms || Math.max(...items.map(i => i.duration_ms || 0)),
-        created_at: entry?.created_at || items[0]?.created_at || '',
-        step_count: items.length,
-      })
-    }
-
-    traces.value = rows.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    total.value = traces.value.length
+    const result = await getTraces(params)
+    traces.value = result.data
+    total.value = result.total
   } catch (e) {
     handleApiError(e, '加载链路数据失败')
   } finally {
@@ -322,14 +308,56 @@ async function loadTraces() {
   }
 }
 
-async function viewDetail(row: RequestTrace) {
+function handleFilterChange() {
+  page.value = 1
+  void loadTraces()
+}
+
+async function handleClearTraces() {
   try {
+    await ElMessageBox.confirm('确定要清理全部链路记录吗？该操作不可恢复。', '清理链路记录', {
+      type: 'warning',
+      confirmButtonText: '确认清理',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  try {
+    clearing.value = true
+    const result = await clearTraces()
+    ElMessage.success(`已清理链路记录，共删除 ${result.deleted} 条`)
+    page.value = 1
+    detailVisible.value = false
+    detailTraces.value = []
+    activeAnswerTrace.value = null
+    answerVisible.value = false
+    messageVisible.value = false
+    activeMessageContent.value = ''
+    await loadTraces()
+  } catch (e) {
+    handleApiError(e, '清理链路记录失败')
+  } finally {
+    clearing.value = false
+  }
+}
+
+async function viewDetail(row: TraceSummary) {
+  try {
+    detailLoading.value = true
     const data = await getTraceDetail(row.request_id)
     detailTraces.value = data
     detailVisible.value = true
   } catch (e) {
     handleApiError(e, '加载详情失败')
+  } finally {
+    detailLoading.value = false
   }
+}
+
+function getAnswerSourceLabel(source: TraceSummary['answer_source']) {
+  return ANSWER_SOURCE_LABELS[source] || '未知'
 }
 
 function getMethodType(method: string) {
