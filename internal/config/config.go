@@ -202,7 +202,7 @@ func DefaultConfig() *Config {
 			ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
 			ColdVectorQdrantTimeoutMs:     1500,
 		},
-		Edition: EditionConfig{Type: string(EditionBasic)},
+		Edition: EditionConfig{Type: string(EditionStandard)},
 	}
 }
 

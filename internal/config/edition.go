@@ -71,7 +71,7 @@ var EditionDefinitions = map[EditionType]EditionDefinition{
 func (c *Config) GetEditionConfig() EditionDefinition {
 	editionType := EditionType(strings.TrimSpace(strings.ToLower(c.Edition.Type)))
 	if _, ok := EditionDefinitions[editionType]; !ok {
-		editionType = EditionBasic
+		editionType = EditionStandard
 	}
 	return EditionDefinitions[editionType]
 }

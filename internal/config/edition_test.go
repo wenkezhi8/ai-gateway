@@ -2,14 +2,14 @@ package config
 
 import "testing"
 
-func TestConfig_GetEditionConfig_DefaultBasic(t *testing.T) {
+func TestConfig_GetEditionConfig_DefaultStandard(t *testing.T) {
 	t.Parallel()
 
 	cfg := &Config{}
 	edition := cfg.GetEditionConfig()
 
-	if edition.Type != EditionBasic {
-		t.Fatalf("edition type = %q, want %q", edition.Type, EditionBasic)
+	if edition.Type != EditionStandard {
+		t.Fatalf("edition type = %q, want %q", edition.Type, EditionStandard)
 	}
 }
 
