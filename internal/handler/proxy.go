@@ -2576,7 +2576,6 @@ func buildUsageRuntimeMeta(c *gin.Context, req *ChatCompletionRequest, scheduleR
 	return meta
 }
 
-//nolint:unparam
 func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType, experimentTag, domainTag string) {
 	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, "actual", taskType, difficulty, errorType, experimentTag, domainTag)
 }
