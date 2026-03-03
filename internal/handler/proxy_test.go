@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"ai-gateway/internal/cache"
 	"ai-gateway/internal/config"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/storage"
@@ -381,8 +383,10 @@ func TestProxyHandler_ChatCompletions_StreamShouldRecordHTTPResponseSpan(t *test
 	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
 	assert.Equal(t, "stream answer", attrs["ai_response_preview"])
 	assert.Equal(t, "stream answer", attrs["ai_response_full"])
+	assert.Equal(t, false, attrs["ai_response_truncated"])
 	assert.Equal(t, "hello stream", attrs["user_message_preview"])
 	assert.Equal(t, "hello stream", attrs["user_message_full"])
+	assert.Equal(t, false, attrs["user_message_truncated"])
 }
 
 func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan(t *testing.T) {
@@ -421,8 +425,98 @@ func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan
 	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
 	assert.Equal(t, "fallback answer", attrs["ai_response_preview"])
 	assert.Equal(t, "fallback answer", attrs["ai_response_full"])
+	assert.Equal(t, false, attrs["ai_response_truncated"])
 	assert.Equal(t, "trigger fallback", attrs["user_message_preview"])
 	assert.Equal(t, "trigger fallback", attrs["user_message_full"])
+	assert.Equal(t, false, attrs["user_message_truncated"])
+}
+
+func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &mockProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","messages":[{"role":"user","content":"hello nonstream"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	attrs := fetchHTTPResponseAttrs(t, db, requestID)
+	assert.Equal(t, "hello nonstream", attrs["user_message_preview"])
+	assert.Equal(t, "hello nonstream", attrs["user_message_full"])
+	assert.Equal(t, false, attrs["user_message_truncated"])
+	assert.Equal(t, "Test response", attrs["ai_response_preview"])
+	assert.Equal(t, "Test response", attrs["ai_response_full"])
+	assert.Equal(t, false, attrs["ai_response_truncated"])
+}
+
+func TestProxyHandler_ChatCompletions_CacheHitShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	cacheManager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	h := NewProxyHandler(&config.Config{}, nil, cacheManager)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &mockProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	body := `{"provider":"openai","model":"gpt-4","messages":[{"role":"user","content":"hello cache"}]}`
+
+	w1 := httptest.NewRecorder()
+	c1, _ := gin.CreateTestContext(w1)
+	req1 := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req1.Header.Set("Content-Type", "application/json")
+	c1.Request = req1
+	h.ChatCompletions(c1)
+	require.Equal(t, http.StatusOK, w1.Code)
+
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	req2 := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	c2.Request = req2
+	h.ChatCompletions(c2)
+
+	require.Equal(t, http.StatusOK, w2.Code)
+	assert.Equal(t, "1", w2.Header().Get("X-Local-Cache-Hit"))
+
+	requestID := w2.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	attrs := fetchHTTPResponseAttrs(t, db, requestID)
+	assert.Equal(t, true, attrs["cache_hit"])
+	assert.Equal(t, "hello cache", attrs["user_message_preview"])
+	assert.Equal(t, "hello cache", attrs["user_message_full"])
+	assert.Equal(t, false, attrs["user_message_truncated"])
+	assert.Equal(t, "Test response", attrs["ai_response_preview"])
+	assert.Equal(t, "Test response", attrs["ai_response_full"])
+	assert.Equal(t, false, attrs["ai_response_truncated"])
+}
+
+func fetchHTTPResponseAttrs(t *testing.T, db *sql.DB, requestID string) map[string]interface{} {
+	t.Helper()
+
+	var attrsRaw string
+	err := db.QueryRow(`SELECT attributes FROM request_traces WHERE request_id = ? AND operation = 'http.response' ORDER BY created_at DESC LIMIT 1`, requestID).Scan(&attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+	return attrs
 }
 
 func (f *failingProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {

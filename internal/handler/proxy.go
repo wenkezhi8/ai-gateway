@@ -377,14 +377,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 		if h.traceRecorder != nil {
-			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+			attrs := map[string]interface{}{
 				"duration_ms": time.Since(startTime).Milliseconds(),
 				"model":       req.Model,
 				"provider":    req.Provider,
 				"cache_hit":   true,
 				"cache_layer": v2HitLayer,
 				"status_code": http.StatusOK,
-			})
+			}
+			for key, value := range buildTraceMessageAttributes(prompt, v2CachedBody) {
+				attrs[key] = value
+			}
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 		}
 		c.Header("X-Local-Cache-Hit", "1")
 		c.Header("X-Cache-Layer", v2HitLayer)
@@ -449,14 +453,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 			if h.traceRecorder != nil {
-				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+				attrs := map[string]interface{}{
 					"duration_ms": time.Since(startTime).Milliseconds(),
 					"model":       req.Model,
 					"provider":    req.Provider,
 					"cache_hit":   true,
 					"cache_layer": "semantic",
 					"status_code": http.StatusOK,
-				})
+				}
+				for key, value := range buildTraceMessageAttributes(prompt, semanticEntry.Response) {
+					attrs[key] = value
+				}
+				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 			}
 			c.Header("X-Local-Cache-Hit", "1")
 			if req.Stream {
@@ -518,14 +526,18 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 					admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 					h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 					if h.traceRecorder != nil {
-						h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+						attrs := map[string]interface{}{
 							"duration_ms": time.Since(startTime).Milliseconds(),
 							"model":       req.Model,
 							"provider":    req.Provider,
 							"cache_hit":   true,
 							"cache_layer": "exact",
 							"status_code": cached.StatusCode,
-						})
+						}
+						for key, value := range buildTraceMessageAttributes(prompt, cached.Body) {
+							attrs[key] = value
+						}
+						h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 					}
 					c.Header("X-Local-Cache-Hit", "1")
 					if req.Stream {
@@ -968,14 +980,22 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if targetProvider != nil {
 			resolvedProviderProtocol = targetProvider.Name()
 		}
-		h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+		responseBody, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			responseBody = nil
+		}
+		attrs := map[string]interface{}{
 			"duration_ms":   time.Since(startTime).Milliseconds(),
 			"model":         req.Model,
 			"provider":      providerType,
 			"provider_type": resolvedProviderProtocol,
 			"provider_name": providerType,
 			"success":       true,
-		})
+		}
+		for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+			attrs[key] = value
+		}
+		h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 	}
 
 	// Return response in OpenAI-compatible format
@@ -1735,18 +1755,17 @@ func (h *ProxyHandler) handleStreamResponse(
 				if marshalErr != nil {
 					responseBody = []byte("{}")
 				}
-				aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
-				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
-					"duration_ms":          time.Since(startTime).Milliseconds(),
-					"model":                req.Model,
-					"provider":             providerName,
-					"status_code":          http.StatusOK,
-					"cache_hit":            false,
-					"ai_response_preview":  aiResponsePreview,
-					"ai_response_full":     aiResponseFull,
-					"user_message_preview": strings.TrimSpace(prompt),
-					"user_message_full":    strings.TrimSpace(prompt),
-				})
+				attrs := map[string]interface{}{
+					"duration_ms": time.Since(startTime).Milliseconds(),
+					"model":       req.Model,
+					"provider":    providerName,
+					"status_code": http.StatusOK,
+					"cache_hit":   false,
+				}
+				for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+					attrs[key] = value
+				}
+				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 			}
 
 			// Record metrics for stream completion
@@ -2096,18 +2115,17 @@ func (h *ProxyHandler) handleStreamResponse(
 			if marshalErr != nil {
 				responseBody = []byte("{}")
 			}
-			aiResponsePreview, aiResponseFull, _ := tracing.ExtractResponseTextPreview(responseBody, 200, 4000)
-			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
-				"duration_ms":          time.Since(startTime).Milliseconds(),
-				"model":                req.Model,
-				"provider":             providerName,
-				"status_code":          http.StatusOK,
-				"cache_hit":            false,
-				"ai_response_preview":  aiResponsePreview,
-				"ai_response_full":     aiResponseFull,
-				"user_message_preview": strings.TrimSpace(prompt),
-				"user_message_full":    strings.TrimSpace(prompt),
-			})
+			attrs := map[string]interface{}{
+				"duration_ms": time.Since(startTime).Milliseconds(),
+				"model":       req.Model,
+				"provider":    providerName,
+				"status_code": http.StatusOK,
+				"cache_hit":   false,
+			}
+			for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+				attrs[key] = value
+			}
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 		}
 
 		// Record successful model name mapping if fallback used a different model
@@ -2574,6 +2592,50 @@ func getInt(v *int, def int) int {
 		return def
 	}
 	return *v
+}
+
+const (
+	traceMessagePreviewLimit = 200
+	traceMessageFullLimit    = 4000
+)
+
+func buildTraceMessageAttributes(prompt string, responseBody []byte) map[string]interface{} {
+	aiResponsePreview, aiResponseFull, aiResponseTruncated := tracing.ExtractResponseTextPreview(responseBody, traceMessagePreviewLimit, traceMessageFullLimit)
+	userMessagePreview, userMessageFull, userMessageTruncated := buildPromptPreview(prompt)
+
+	return map[string]interface{}{
+		"user_message_preview":   userMessagePreview,
+		"user_message_full":      userMessageFull,
+		"user_message_truncated": userMessageTruncated,
+		"ai_response_preview":    aiResponsePreview,
+		"ai_response_full":       aiResponseFull,
+		"ai_response_truncated":  aiResponseTruncated,
+	}
+}
+
+func buildPromptPreview(prompt string) (preview, full string, truncated bool) {
+	trimmed := strings.TrimSpace(prompt)
+	full, truncated = trimTraceTextByRune(trimmed, traceMessageFullLimit)
+	preview, _ = trimTraceTextByRune(full, traceMessagePreviewLimit)
+	return preview, full, truncated
+}
+
+func trimTraceTextByRune(text string, limit int) (string, bool) {
+	if limit <= 0 {
+		return "", strings.TrimSpace(text) != ""
+	}
+
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", false
+	}
+
+	runes := []rune(trimmed)
+	if len(runes) <= limit {
+		return trimmed, false
+	}
+
+	return string(runes[:limit]), true
 }
 
 func buildProviderExtraFromChatRequest(req *ChatCompletionRequest) map[string]interface{} {

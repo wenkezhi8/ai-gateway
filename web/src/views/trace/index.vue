@@ -125,6 +125,32 @@
                     查看完整命中答案
                   </el-button>
                 </div>
+                <div v-if="trace.attributes?.user_message_preview" class="step-answer">
+                  <div class="step-answer-title">用户消息预览</div>
+                  <div class="step-answer-content">{{ trace.attributes.user_message_preview }}</div>
+                  <el-button
+                    v-if="trace.attributes?.user_message_full"
+                    type="primary"
+                    link
+                    size="small"
+                    @click="showFullMessage(trace, 'user')"
+                  >
+                    查看用户消息全文
+                  </el-button>
+                </div>
+                <div v-if="trace.attributes?.ai_response_preview" class="step-answer">
+                  <div class="step-answer-title">AI 回复预览</div>
+                  <div class="step-answer-content">{{ trace.attributes.ai_response_preview }}</div>
+                  <el-button
+                    v-if="trace.attributes?.ai_response_full"
+                    type="primary"
+                    link
+                    size="small"
+                    @click="showFullMessage(trace, 'ai')"
+                  >
+                    查看 AI 回复全文
+                  </el-button>
+                </div>
                 <div v-if="getTraceHighlights(trace).length" class="step-highlights">
                   <el-tag
                     v-for="item in getTraceHighlights(trace)"
@@ -160,6 +186,15 @@
         <el-button @click="answerVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="messageVisible" :title="messageDialogTitle" width="900px">
+      <div class="answer-full">
+        <pre>{{ activeMessageContent || '-' }}</pre>
+      </div>
+      <template #footer>
+        <el-button @click="messageVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -184,6 +219,9 @@ const detailTraces = ref<RequestTrace[]>([])
 const detailVisible = ref(false)
 const answerVisible = ref(false)
 const activeAnswerTrace = ref<RequestTrace | null>(null)
+const messageVisible = ref(false)
+const messageDialogTitle = ref('')
+const activeMessageContent = ref('')
 const loading = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
@@ -354,6 +392,18 @@ function formatTTL(raw: number | string) {
 function showFullAnswer(trace: RequestTrace) {
   activeAnswerTrace.value = trace
   answerVisible.value = true
+}
+
+function showFullMessage(trace: RequestTrace, kind: 'user' | 'ai') {
+  const attrs = trace.attributes || {}
+  if (kind === 'user') {
+    messageDialogTitle.value = '用户消息全文'
+    activeMessageContent.value = String(attrs.user_message_full || attrs.user_message_preview || '-')
+  } else {
+    messageDialogTitle.value = 'AI 回复全文'
+    activeMessageContent.value = String(attrs.ai_response_full || attrs.ai_response_preview || '-')
+  }
+  messageVisible.value = true
 }
 
 function formatTaskType(taskType: string) {

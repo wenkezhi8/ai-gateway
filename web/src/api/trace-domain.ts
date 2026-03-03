@@ -12,7 +12,7 @@ export interface RequestTrace {
   start_time: string
   end_time: string
   duration_ms: number
-  attributes: Record<string, any>
+  attributes: TraceAttributes
   events: Record<string, any>
   user_id?: string
   method: string
@@ -21,6 +21,17 @@ export interface RequestTrace {
   provider?: string
   error?: string
   created_at: string
+}
+
+export interface TraceAttributes extends Record<string, any> {
+  // Preview fields are capped at 200 chars.
+  user_message_preview?: string
+  ai_response_preview?: string
+  // Full fields are capped at 4000 chars.
+  user_message_full?: string
+  ai_response_full?: string
+  user_message_truncated?: boolean
+  ai_response_truncated?: boolean
 }
 
 export async function getTraces(params?: {
