@@ -712,6 +712,133 @@ type capturingProvider struct {
 	lastStreamReq *provider.ChatRequest
 }
 
+type reasoningDowngradeProvider struct {
+	*provider.BaseProvider
+
+	mu          sync.Mutex
+	chatCalls   int
+	streamCalls int
+	chatReqs    []*provider.ChatRequest
+	streamReqs  []*provider.ChatRequest
+}
+
+func cloneProviderChatRequest(req *provider.ChatRequest) *provider.ChatRequest {
+	if req == nil {
+		return nil
+	}
+	cloned := *req
+	if req.Extra != nil {
+		extra := make(map[string]interface{}, len(req.Extra))
+		for k, v := range req.Extra {
+			extra[k] = v
+		}
+		cloned.Extra = extra
+	}
+	if len(req.Messages) > 0 {
+		cloned.Messages = append([]provider.ChatMessage(nil), req.Messages...)
+	}
+	return &cloned
+}
+
+func hasReasoningEffort(extra map[string]interface{}) bool {
+	if extra == nil {
+		return false
+	}
+	v, ok := extra["reasoning_effort"]
+	if !ok {
+		return false
+	}
+	s, ok := v.(string)
+	if !ok {
+		return false
+	}
+	return strings.TrimSpace(s) != ""
+}
+
+func (p *reasoningDowngradeProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (p *reasoningDowngradeProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	p.mu.Lock()
+	p.chatCalls++
+	p.chatReqs = append(p.chatReqs, cloneProviderChatRequest(req))
+	call := p.chatCalls
+	p.mu.Unlock()
+
+	if call == 1 && hasReasoningEffort(req.Extra) {
+		return nil, &provider.ProviderError{
+			Code:      http.StatusBadRequest,
+			Message:   "reasoning_effort is not supported for this model",
+			Provider:  "openai",
+			Retryable: false,
+		}
+	}
+
+	return &provider.ChatResponse{
+		ID:      "reasoning-chat",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{{
+			Index: 0,
+			Message: provider.ChatMessage{
+				Role:    "assistant",
+				Content: "downgraded success",
+			},
+			FinishReason: "stop",
+		}},
+		Usage: provider.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
+	}, nil
+}
+
+func (p *reasoningDowngradeProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	p.mu.Lock()
+	p.streamCalls++
+	p.streamReqs = append(p.streamReqs, cloneProviderChatRequest(req))
+	call := p.streamCalls
+	p.mu.Unlock()
+
+	if call == 1 && hasReasoningEffort(req.Extra) {
+		return nil, &provider.ProviderError{
+			Code:      http.StatusUnprocessableEntity,
+			Message:   "unsupported parameter reasoning_effort",
+			Provider:  "openai",
+			Retryable: false,
+		}
+	}
+
+	ch := make(chan *provider.StreamChunk, 2)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "reasoning-stream",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{{
+				Index: 0,
+				Delta: &provider.StreamDelta{Role: "assistant", Content: "stream downgraded"},
+			}},
+		}
+		ch <- &provider.StreamChunk{
+			ID:      "reasoning-stream",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{{
+				Index:        0,
+				Delta:        &provider.StreamDelta{},
+				FinishReason: "stop",
+			}},
+			Usage: &provider.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5},
+			Done:  true,
+		}
+	}()
+
+	return ch, nil
+}
+
 func (p *capturingProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
@@ -872,4 +999,67 @@ func TestProxyHandler_ChatCompletions_NonOpenAIProvider_ShouldIgnoreReasoningEff
 	require.Equal(t, http.StatusOK, w.Code)
 	require.NotNil(t, capture.lastChatReq)
 	assert.Equal(t, "medium", capture.lastChatReq.Extra["reasoning_effort"])
+}
+
+func TestProxyHandler_ChatCompletions_ShouldRetryWithoutReasoningEffortForUnsupportedModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	retryProvider := &reasoningDowngradeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"reasoning-downgrade-model"}, true),
+	}
+	provider.RegisterProvider("openai", retryProvider)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"reasoning-downgrade-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"xhigh"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var payload map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &payload))
+	gatewayMeta, ok := payload["gateway_meta"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, gatewayMeta["reasoning_effort_downgraded"])
+
+	retryProvider.mu.Lock()
+	defer retryProvider.mu.Unlock()
+	require.Len(t, retryProvider.chatReqs, 2)
+	assert.True(t, hasReasoningEffort(retryProvider.chatReqs[0].Extra))
+	assert.False(t, hasReasoningEffort(retryProvider.chatReqs[1].Extra))
+}
+
+func TestProxyHandler_ChatCompletions_Stream_ShouldRetryWithoutReasoningEffortForUnsupportedModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	retryProvider := &reasoningDowngradeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"reasoning-downgrade-stream-model"}, true),
+	}
+	provider.RegisterProvider("openai", retryProvider)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"reasoning-downgrade-stream-model","stream":true,"messages":[{"role":"user","content":"hello"}],"reasoning_effort":"high"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"gateway_meta":{"reasoning_effort_downgraded":true}`)
+
+	retryProvider.mu.Lock()
+	defer retryProvider.mu.Unlock()
+	require.Len(t, retryProvider.streamReqs, 2)
+	assert.True(t, hasReasoningEffort(retryProvider.streamReqs[0].Extra))
+	assert.False(t, hasReasoningEffort(retryProvider.streamReqs[1].Extra))
 }

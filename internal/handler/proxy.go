@@ -209,6 +209,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
+	explicitReasoningEffort := strings.TrimSpace(req.ReasoningEffort) != ""
 
 	// Get user context
 	userID := middleware.GetUserID(c)
@@ -707,7 +708,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, usageMeta, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
+		h.handleStreamResponse(c, targetProvider, providerReq, explicitReasoningEffort, usageMeta, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
 		return
 	}
 
@@ -724,6 +725,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		providerResult, providerErr := targetProvider.Chat(c.Request.Context(), providerReq)
 		return providerResult, providerErr
 	})
+	reasoningEffortDowngraded := false
 	if h.traceRecorder != nil {
 		providerProtocol := targetProvider.Name()
 		h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
@@ -735,6 +737,25 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			"stream":        providerReq.Stream,
 			"success":       err == nil,
 		})
+	}
+
+	if err != nil {
+		if explicitReasoningEffort && isReasoningEffortUnsupportedError(err) {
+			if downgradedReq, ok := cloneProviderRequestWithoutReasoningEffort(providerReq); ok {
+				retryResult, retryErr := h.deduplicator.Do(c.Request.Context(), dedupKey+":reasoning-downgraded", func() (interface{}, error) {
+					providerResult, providerErr := targetProvider.Chat(c.Request.Context(), downgradedReq)
+					return providerResult, providerErr
+				})
+				if retryErr == nil {
+					providerReq = downgradedReq
+					result = retryResult
+					err = nil
+					reasoningEffortDowngraded = true
+				} else {
+					err = retryErr
+				}
+			}
+		}
 	}
 
 	if err != nil {
@@ -804,6 +825,23 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Check for provider error in response
 	if resp.Error != nil {
+		if explicitReasoningEffort && isReasoningEffortUnsupportedError(resp.Error) {
+			if downgradedReq, ok := cloneProviderRequestWithoutReasoningEffort(providerReq); ok {
+				retryResp, retryErr := targetProvider.Chat(c.Request.Context(), downgradedReq)
+				if retryErr == nil && retryResp != nil && retryResp.Error == nil {
+					providerReq = downgradedReq
+					resp = retryResp
+					reasoningEffortDowngraded = true
+				} else if retryErr != nil {
+					if providerErr, ok := retryErr.(*provider.ProviderError); ok {
+						resp.Error = providerErr
+					}
+				}
+			}
+		}
+	}
+
+	if resp.Error != nil {
 		// CHANGED: include provider/user/api info in usage logs for provider error responses.
 		providerName := req.Provider
 		if providerName == "" && targetProvider != nil {
@@ -856,6 +894,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			CompletionTokens: resolvedUsage.Completion,
 			TotalTokens:      resolvedUsage.Total,
 		},
+	}
+	if reasoningEffortDowngraded {
+		response.GatewayMeta = &GatewayMeta{ReasoningEffortDowngraded: true}
 	}
 
 	// Cache the response if applicable
@@ -1492,6 +1533,92 @@ func isModelNotFoundError(err error) bool {
 	return false
 }
 
+func isReasoningEffortUnsupportedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	statusCode := 0
+	errType := ""
+	errMessage := strings.ToLower(strings.TrimSpace(err.Error()))
+	if providerErr, ok := err.(*provider.ProviderError); ok {
+		statusCode = providerErr.Code
+		errType = strings.ToLower(strings.TrimSpace(providerErr.Type))
+		if msg := strings.TrimSpace(providerErr.Message); msg != "" {
+			errMessage = strings.ToLower(msg)
+		}
+	}
+
+	if statusCode != 0 && statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+
+	if errType != "" && errType != "invalid_request_error" {
+		return false
+	}
+
+	reasoningTokens := []string{"reasoning_effort", "reasoning.effort", "reasoning effort", "thinking"}
+	hasReasoningToken := false
+	for _, token := range reasoningTokens {
+		if strings.Contains(errMessage, token) {
+			hasReasoningToken = true
+			break
+		}
+	}
+	if !hasReasoningToken {
+		return false
+	}
+
+	unsupportedSignals := []string{
+		"unsupported parameter",
+		"unknown parameter",
+		"is not supported",
+		"does not support",
+		"unsupported",
+		"not supported",
+	}
+	for _, signal := range unsupportedSignals {
+		if strings.Contains(errMessage, signal) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cloneProviderRequestWithoutReasoningEffort(req *provider.ChatRequest) (*provider.ChatRequest, bool) {
+	if req == nil {
+		return nil, false
+	}
+	if req.Extra == nil {
+		return nil, false
+	}
+	if _, ok := req.Extra["reasoning_effort"]; !ok {
+		return nil, false
+	}
+
+	clonedReq := *req
+	clonedExtra := make(map[string]interface{}, len(req.Extra))
+	for key, value := range req.Extra {
+		clonedExtra[key] = value
+	}
+	delete(clonedExtra, "reasoning_effort")
+	if len(clonedExtra) == 0 {
+		clonedReq.Extra = nil
+	} else {
+		clonedReq.Extra = clonedExtra
+	}
+
+	if len(req.Messages) > 0 {
+		clonedReq.Messages = append([]provider.ChatMessage(nil), req.Messages...)
+	}
+	if len(req.Tools) > 0 {
+		clonedReq.Tools = append([]provider.Tool(nil), req.Tools...)
+	}
+
+	return &clonedReq, true
+}
+
 func (h *ProxyHandler) selectFallbackModel(currentModel, providerName string) string {
 	if h.smartRouter == nil {
 		return ""
@@ -1608,6 +1735,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	c *gin.Context,
 	p provider.Provider,
 	req *provider.ChatRequest,
+	explicitReasoningEffort bool,
 	usageMeta usageRuntimeMeta,
 	userID string,
 	apiKey string,
@@ -1628,6 +1756,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	domainTag string,
 ) {
 	startTime := time.Now()
+	reasoningEffortDowngraded := false
 
 	// Set SSE headers
 	c.Header("Content-Type", "text/event-stream")
@@ -1639,7 +1768,15 @@ func (h *ProxyHandler) handleStreamResponse(
 	ctx := c.Request.Context()
 
 	// Get stream channel from provider
-	stream, err := p.StreamChat(ctx, req)
+	streamReq := req
+	stream, err := p.StreamChat(ctx, streamReq)
+	if err != nil && explicitReasoningEffort && isReasoningEffortUnsupportedError(err) {
+		if downgradedReq, ok := cloneProviderRequestWithoutReasoningEffort(streamReq); ok {
+			streamReq = downgradedReq
+			reasoningEffortDowngraded = true
+			stream, err = p.StreamChat(ctx, streamReq)
+		}
+	}
 	if err != nil {
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
@@ -1713,6 +1850,9 @@ func (h *ProxyHandler) handleStreamResponse(
 					Created: chunk.Created,
 					Model:   chunk.Model,
 					Choices: make([]StreamChoice, len(chunk.Choices)),
+				}
+				if reasoningEffortDowngraded {
+					streamResp.GatewayMeta = &GatewayMeta{ReasoningEffortDowngraded: true}
 				}
 				if resolvedUsage.Total > 0 {
 					streamResp.Usage = &Usage{
@@ -1927,6 +2067,13 @@ func (h *ProxyHandler) handleStreamResponse(
 		nonStreamReq.Stream = false
 
 		resp, err := p.Chat(ctx, &nonStreamReq)
+		if err != nil && explicitReasoningEffort && !reasoningEffortDowngraded && isReasoningEffortUnsupportedError(err) {
+			if downgradedReq, ok := cloneProviderRequestWithoutReasoningEffort(&nonStreamReq); ok {
+				nonStreamReq = *downgradedReq
+				reasoningEffortDowngraded = true
+				resp, err = p.Chat(ctx, &nonStreamReq)
+			}
+		}
 		originalModel := nonStreamReq.Model
 
 		// Try alias model if original fails (for any error, not just model not found)
@@ -2028,6 +2175,9 @@ func (h *ProxyHandler) handleStreamResponse(
 				CompletionTokens: resolvedUsage.Completion,
 				TotalTokens:      resolvedUsage.Total,
 			},
+		}
+		if reasoningEffortDowngraded {
+			finalChunk.GatewayMeta = &GatewayMeta{ReasoningEffortDowngraded: true}
 		}
 		c.SSEvent("message", finalChunk)
 		c.Writer.Flush()

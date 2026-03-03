@@ -68,13 +68,18 @@ type FunctionCall struct {
 
 // ChatCompletionResponse represents an OpenAI-compatible chat completion response
 type ChatCompletionResponse struct {
-	ID                string   `json:"id"`
-	Object            string   `json:"object"`
-	Created           int64    `json:"created"`
-	Model             string   `json:"model"`
-	SystemFingerprint string   `json:"system_fingerprint,omitempty"`
-	Choices           []Choice `json:"choices"`
-	Usage             Usage    `json:"usage"`
+	ID                string       `json:"id"`
+	Object            string       `json:"object"`
+	Created           int64        `json:"created"`
+	Model             string       `json:"model"`
+	SystemFingerprint string       `json:"system_fingerprint,omitempty"`
+	Choices           []Choice     `json:"choices"`
+	Usage             Usage        `json:"usage"`
+	GatewayMeta       *GatewayMeta `json:"gateway_meta,omitempty"`
+}
+
+type GatewayMeta struct {
+	ReasoningEffortDowngraded bool `json:"reasoning_effort_downgraded,omitempty"`
 }
 
 // Choice represents a completion choice
@@ -169,6 +174,7 @@ type StreamingResponse struct {
 	SystemFingerprint string         `json:"system_fingerprint,omitempty"`
 	Choices           []StreamChoice `json:"choices"`
 	Usage             *Usage         `json:"usage,omitempty"`
+	GatewayMeta       *GatewayMeta   `json:"gateway_meta,omitempty"`
 }
 
 // StreamChoice represents a choice in streaming response
