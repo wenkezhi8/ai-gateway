@@ -344,6 +344,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
+	usageMeta := buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
+
 	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
 
 	// V2 cache read path: Ollama dual-model pipeline + Redis Stack exact/vector retrieval.
@@ -374,7 +376,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if v2CacheHit && len(v2CachedBody) > 0 {
 		tokenUsage := extractUsageTokensFromBody(v2CachedBody)
 		resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(v2CachedBody), tokenUsage)
-		h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 		if h.traceRecorder != nil {
 			attrs := map[string]interface{}{
@@ -450,7 +452,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
 			tokenUsage := extractUsageTokensFromBody(semanticEntry.Response)
 			resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(semanticEntry.Response), tokenUsage)
-			h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 			if h.traceRecorder != nil {
 				attrs := map[string]interface{}{
@@ -522,7 +524,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 					tokenUsage := extractUsageTokensFromBody(cached.Body)
 					resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(cached.Body), tokenUsage)
-					h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+					h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 					admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 					h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 					if h.traceRecorder != nil {
@@ -567,6 +569,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if schedErr == nil && p != nil && result != nil {
 			targetProvider = *p
 			scheduleResult = result
+			usageMeta = buildUsageRuntimeMeta(c, &req, scheduleResult, h.accountManager)
 			// Set response headers for debugging
 			c.Header("X-Account-ID", result.Account.ID)
 			c.Header("X-Schedule-Layer", string(result.Decision.Layer))
@@ -594,7 +597,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			})
 		}
 		if fallbackErr != nil {
-			h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, fallbackErr.Error())
 			return
@@ -702,7 +705,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
+		h.handleStreamResponse(c, targetProvider, providerReq, usageMeta, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
 		return
 	}
 
@@ -771,7 +774,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
@@ -804,7 +807,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
@@ -830,7 +833,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if providerName == "" && targetProvider != nil {
 		providerName = targetProvider.Name()
 	}
-	h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 	// Record successful model name mapping if different from original
@@ -1602,6 +1605,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	c *gin.Context,
 	p provider.Provider,
 	req *provider.ChatRequest,
+	usageMeta usageRuntimeMeta,
 	userID string,
 	apiKey string,
 	prompt string,
@@ -1635,7 +1639,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	stream, err := p.StreamChat(ctx, req)
 	if err != nil {
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
-		h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
@@ -1652,7 +1656,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	// Stream chunks to client
 	for chunk := range stream {
 		if chunk.Error != nil {
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{
 				"error": gin.H{
@@ -1771,7 +1775,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// Record metrics for stream completion
 			latency := time.Since(startTime)
 			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
-			h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 			// Record successful model name mapping if different from original
@@ -1941,7 +1945,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		if err != nil {
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": err.Error()})
 			c.Writer.Flush()
@@ -1950,7 +1954,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		if resp == nil || len(resp.Choices) == 0 {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
@@ -1960,7 +1964,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		content := getTextContent(resp.Choices[0].Message.Content)
 		if strings.TrimSpace(content) == "" {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
-			h.recordMetricsExtended(userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
@@ -2096,7 +2100,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		latency := time.Since(startTime)
 		// CHANGED: include provider/user/api info and prompt tokens in usage logs for fallback success.
-		h.recordMetricsExtendedWithUsageSource(userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 		if h.traceRecorder != nil {
@@ -2489,12 +2493,96 @@ func (h *ProxyHandler) recordMetrics(userID, apiKey, model string, latency time.
 	h.recordMetricsExtended(userID, apiKey, model, "", latency, tokens, success, false, 0, 0, "", "", "", "", "")
 }
 
+type usageRuntimeMeta struct {
+	Account            string
+	UserAgent          string
+	RequestType        string
+	InferenceIntensity string
+}
+
+func buildUsageRuntimeMeta(c *gin.Context, req *ChatCompletionRequest, scheduleResult *ScheduleResult, accountManager *limiter.AccountManager) usageRuntimeMeta {
+	meta := usageRuntimeMeta{
+		Account:     "-",
+		RequestType: "non_stream",
+	}
+
+	if req != nil {
+		if req.Stream {
+			meta.RequestType = "stream"
+		}
+		reasoningEffort := strings.ToLower(strings.TrimSpace(req.ReasoningEffort))
+		switch reasoningEffort {
+		case "low", "medium", "high", "xhigh":
+			meta.InferenceIntensity = reasoningEffort
+		default:
+			if req.DeepThink {
+				meta.InferenceIntensity = "high"
+			}
+		}
+	}
+
+	if c != nil && c.Request != nil {
+		meta.UserAgent = strings.TrimSpace(c.Request.UserAgent())
+	}
+	if meta.UserAgent == "" {
+		meta.UserAgent = "-"
+	}
+
+	if scheduleResult != nil && scheduleResult.Account != nil {
+		if name := strings.TrimSpace(scheduleResult.Account.Name); name != "" {
+			meta.Account = name
+			return meta
+		}
+	}
+
+	if accountManager == nil {
+		return meta
+	}
+
+	if c != nil {
+		if accountIDValue, ok := c.Get("scheduler_account_id"); ok {
+			accountID := strings.TrimSpace(fmt.Sprintf("%v", accountIDValue))
+			if accountID != "" && accountID != "<nil>" {
+				account, err := accountManager.GetAccount(accountID)
+				if err == nil && account != nil {
+					if name := strings.TrimSpace(account.Name); name != "" {
+						meta.Account = name
+						return meta
+					}
+				}
+			}
+		}
+	}
+
+	providerName := ""
+	if req != nil {
+		providerName = strings.TrimSpace(req.Provider)
+		if providerName == "" {
+			providerName = inferProviderFromModel(req.Model)
+		}
+	}
+
+	if providerName != "" {
+		if account := accountManager.GetAccountByProvider(providerName); account != nil {
+			if name := strings.TrimSpace(account.Name); name != "" {
+				meta.Account = name
+			}
+		}
+	}
+
+	return meta
+}
+
 //nolint:unparam
 func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType, experimentTag, domainTag string) {
-	h.recordMetricsExtendedWithUsageSource(userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, "actual", taskType, difficulty, errorType, experimentTag, domainTag)
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, "actual", taskType, difficulty, errorType, experimentTag, domainTag)
 }
 
 func (h *ProxyHandler) recordMetricsExtendedWithUsageSource(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, usageSource, taskType, difficulty, errorType, experimentTag, domainTag string) {
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, usageSource, taskType, difficulty, errorType, experimentTag, domainTag)
+}
+
+func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRuntimeMeta, userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, usageSource, taskType, difficulty, errorType, experimentTag, domainTag string) {
 	// Update dashboard stats
 	if dh := admin.GetDashboardHandler(); dh != nil {
 		dh.UpdateStats(success, latency.Milliseconds(), int64(tokens), model)
@@ -2515,24 +2603,28 @@ func (h *ProxyHandler) recordMetricsExtendedWithUsageSource(userID, apiKey, mode
 			outputTokens = 0
 		}
 		if err := storage.LogUsage(map[string]interface{}{
-			"timestamp":      time.Now().UnixMilli(),
-			"model":          model,
-			"provider":       provider,
-			"user_id":        userID,
-			"api_key":        apiKeyDisplay,
-			"tokens":         int64(tokens),
-			"input_tokens":   int64(inputTokens),
-			"output_tokens":  int64(outputTokens),
-			"latency_ms":     latency.Milliseconds(),
-			"ttft_ms":        ttftMs,
-			"cache_hit":      cacheHit,
-			"success":        success,
-			"task_type":      taskType,
-			"difficulty":     difficulty,
-			"error_type":     errorType,
-			"experiment_tag": experimentTag,
-			"domain_tag":     domainTag,
-			"usage_source":   strings.ToLower(strings.TrimSpace(usageSource)),
+			"timestamp":           time.Now().UnixMilli(),
+			"model":               model,
+			"provider":            provider,
+			"account":             strings.TrimSpace(meta.Account),
+			"user_id":             userID,
+			"api_key":             apiKeyDisplay,
+			"user_agent":          strings.TrimSpace(meta.UserAgent),
+			"request_type":        strings.TrimSpace(meta.RequestType),
+			"inference_intensity": strings.TrimSpace(meta.InferenceIntensity),
+			"tokens":              int64(tokens),
+			"input_tokens":        int64(inputTokens),
+			"output_tokens":       int64(outputTokens),
+			"latency_ms":          latency.Milliseconds(),
+			"ttft_ms":             ttftMs,
+			"cache_hit":           cacheHit,
+			"success":             success,
+			"task_type":           taskType,
+			"difficulty":          difficulty,
+			"error_type":          errorType,
+			"experiment_tag":      experimentTag,
+			"domain_tag":          domainTag,
+			"usage_source":        strings.ToLower(strings.TrimSpace(usageSource)),
 		}); err != nil {
 			logrus.WithError(err).Debug("failed to persist usage metrics")
 		}

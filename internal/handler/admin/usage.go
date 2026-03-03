@@ -22,26 +22,36 @@ func NewUsageHandler(storage *storage.SQLiteStorage) *UsageHandler {
 }
 
 type UsageLogResponse struct {
-	ID            int64  `json:"id"`
-	Timestamp     int64  `json:"timestamp"`
-	Model         string `json:"model"`
-	Provider      string `json:"provider"`
-	UserID        string `json:"user_id,omitempty"`
-	APIKey        string `json:"api_key,omitempty"`
-	Tokens        int64  `json:"tokens"`
-	InputTokens   int64  `json:"input_tokens"`
-	OutputTokens  int64  `json:"output_tokens"`
-	LatencyMs     int64  `json:"latency_ms"`
-	TTFTMs        int64  `json:"ttft_ms"`
-	CacheHit      bool   `json:"cache_hit"`
-	Success       bool   `json:"success"`
-	ErrorType     string `json:"error_type,omitempty"`
-	TaskType      string `json:"task_type,omitempty"`
-	Difficulty    string `json:"difficulty,omitempty"`
-	ExperimentTag string `json:"experiment_tag,omitempty"`
-	DomainTag     string `json:"domain_tag,omitempty"`
-	UsageSource   string `json:"usage_source,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	ID                 int64  `json:"id"`
+	Timestamp          int64  `json:"timestamp"`
+	Model              string `json:"model"`
+	Provider           string `json:"provider"`
+	ServiceProvider    string `json:"service_provider"`
+	Account            string `json:"account"`
+	UserID             string `json:"user_id,omitempty"`
+	APIKey             string `json:"api_key,omitempty"`
+	UserAgent          string `json:"user_agent,omitempty"`
+	Type               string `json:"type,omitempty"`
+	RequestType        string `json:"request_type,omitempty"`
+	InferenceIntensity string `json:"inference_intensity,omitempty"`
+	Tokens             int64  `json:"tokens"`
+	InputTokens        int64  `json:"input_tokens"`
+	OutputTokens       int64  `json:"output_tokens"`
+	TotalTokens        int64  `json:"total_tokens"`
+	SavedTokens        int64  `json:"saved_tokens"`
+	LatencyMs          int64  `json:"latency_ms"`
+	TotalDuration      int64  `json:"total_duration"`
+	TTFTMs             int64  `json:"ttft_ms"`
+	TimeToFirstToken   int64  `json:"time_to_first_token"`
+	CacheHit           bool   `json:"cache_hit"`
+	Success            bool   `json:"success"`
+	ErrorType          string `json:"error_type,omitempty"`
+	TaskType           string `json:"task_type,omitempty"`
+	Difficulty         string `json:"difficulty,omitempty"`
+	ExperimentTag      string `json:"experiment_tag,omitempty"`
+	DomainTag          string `json:"domain_tag,omitempty"`
+	UsageSource        string `json:"usage_source,omitempty"`
+	CreatedAt          string `json:"created_at"`
 }
 
 type UsageStatsResponse struct {
@@ -128,27 +138,48 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 		if strings.Contains(apiKey, "****") {
 			apiKey = ""
 		}
+		tokens := getInt64(log, "tokens")
+		latencyMs := getInt64(log, "latency_ms")
+		ttftMs := getInt64(log, "ttft_ms")
+		cacheHit := getBool(log, "cache_hit")
+		success := getBool(log, "success")
+		savedTokens := int64(0)
+		if cacheHit && success {
+			savedTokens = tokens
+		}
+		provider := getString(log, "provider")
+		requestType := getString(log, "request_type")
 		item := UsageLogResponse{
-			ID:            getInt64(log, "id"),
-			Timestamp:     getInt64(log, "timestamp"),
-			Model:         getString(log, "model"),
-			Provider:      getString(log, "provider"),
-			UserID:        getString(log, "user_id"),
-			APIKey:        apiKey,
-			Tokens:        getInt64(log, "tokens"),
-			InputTokens:   getInt64(log, "input_tokens"),
-			OutputTokens:  getInt64(log, "output_tokens"),
-			LatencyMs:     getInt64(log, "latency_ms"),
-			TTFTMs:        getInt64(log, "ttft_ms"),
-			CacheHit:      getBool(log, "cache_hit"),
-			Success:       getBool(log, "success"),
-			ErrorType:     getString(log, "error_type"),
-			TaskType:      getString(log, "task_type"),
-			Difficulty:    getString(log, "difficulty"),
-			ExperimentTag: getString(log, "experiment_tag"),
-			DomainTag:     getString(log, "domain_tag"),
-			UsageSource:   getString(log, "usage_source"),
-			CreatedAt:     getString(log, "created_at"),
+			ID:                 getInt64(log, "id"),
+			Timestamp:          getInt64(log, "timestamp"),
+			Model:              getString(log, "model"),
+			Provider:           provider,
+			ServiceProvider:    provider,
+			Account:            getString(log, "account"),
+			UserID:             getString(log, "user_id"),
+			APIKey:             apiKey,
+			UserAgent:          getString(log, "user_agent"),
+			Type:               requestType,
+			RequestType:        requestType,
+			InferenceIntensity: getString(log, "inference_intensity"),
+			Tokens:             tokens,
+			InputTokens:        getInt64(log, "input_tokens"),
+			OutputTokens:       getInt64(log, "output_tokens"),
+			TotalTokens:        tokens,
+			SavedTokens:        savedTokens,
+			LatencyMs:          latencyMs,
+			TotalDuration:      latencyMs,
+			TTFTMs:             ttftMs,
+			TimeToFirstToken:   ttftMs,
+			CacheHit:           cacheHit,
+			Success:            success,
+			ErrorType:          getString(log, "error_type"),
+			TaskType:           getString(log, "task_type"),
+			Difficulty:         getString(log, "difficulty"),
+			ExperimentTag:      getString(log, "experiment_tag"),
+			DomainTag:          getString(log, "domain_tag"),
+			UsageSource:        getString(log, "usage_source"),
+			CreatedAt:          getString(log, "created_at"),
 		}
 		response = append(response, item)
 	}

@@ -185,8 +185,12 @@ func (s *SQLiteStorage) migrate() error {
 			timestamp INTEGER NOT NULL DEFAULT 0,
 			model TEXT NOT NULL,
 			provider TEXT,
+			account TEXT DEFAULT '',
 			user_id TEXT,
 			api_key TEXT,
+			user_agent TEXT DEFAULT '',
+			request_type TEXT DEFAULT 'non_stream',
+			inference_intensity TEXT DEFAULT '',
 			tokens INTEGER DEFAULT 0,
 			input_tokens INTEGER DEFAULT 0,
 			output_tokens INTEGER DEFAULT 0,
@@ -917,26 +921,30 @@ type UsageFilter struct {
 }
 
 type UsageLog struct {
-	ID            int64  `json:"id"`
-	Timestamp     int64  `json:"timestamp"`
-	Model         string `json:"model"`
-	Provider      string `json:"provider"`
-	UserID        string `json:"user_id"`
-	APIKey        string `json:"api_key"`
-	Tokens        int64  `json:"tokens"`
-	InputTokens   int64  `json:"input_tokens"`
-	OutputTokens  int64  `json:"output_tokens"`
-	LatencyMs     int64  `json:"latency_ms"`
-	TTFTMs        int64  `json:"ttft_ms"`
-	CacheHit      bool   `json:"cache_hit"`
-	Success       bool   `json:"success"`
-	ErrorType     string `json:"error_type"`
-	TaskType      string `json:"task_type"`
-	Difficulty    string `json:"difficulty"`
-	ExperimentTag string `json:"experiment_tag"`
-	DomainTag     string `json:"domain_tag"`
-	UsageSource   string `json:"usage_source"`
-	CreatedAt     string `json:"created_at"`
+	ID                 int64  `json:"id"`
+	Timestamp          int64  `json:"timestamp"`
+	Model              string `json:"model"`
+	Provider           string `json:"provider"`
+	Account            string `json:"account"`
+	UserID             string `json:"user_id"`
+	APIKey             string `json:"api_key"`
+	UserAgent          string `json:"user_agent"`
+	RequestType        string `json:"request_type"`
+	InferenceIntensity string `json:"inference_intensity"`
+	Tokens             int64  `json:"tokens"`
+	InputTokens        int64  `json:"input_tokens"`
+	OutputTokens       int64  `json:"output_tokens"`
+	LatencyMs          int64  `json:"latency_ms"`
+	TTFTMs             int64  `json:"ttft_ms"`
+	CacheHit           bool   `json:"cache_hit"`
+	Success            bool   `json:"success"`
+	ErrorType          string `json:"error_type"`
+	TaskType           string `json:"task_type"`
+	Difficulty         string `json:"difficulty"`
+	ExperimentTag      string `json:"experiment_tag"`
+	DomainTag          string `json:"domain_tag"`
+	UsageSource        string `json:"usage_source"`
+	CreatedAt          string `json:"created_at"`
 }
 
 type DashboardSummary struct {
@@ -997,15 +1005,20 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 	}
 
 	_, err := s.db.Exec(`INSERT INTO usage_logs (
-		request_id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, usage_source, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		request_id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
+		tokens, input_tokens, output_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type,
+		difficulty, experiment_tag, domain_tag, usage_source, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		usageStringValue(log, "request_id"),
 		timestamp,
 		usageStringValue(log, "model"),
 		usageStringValue(log, "provider"),
+		usageStringValue(log, "account"),
 		usageStringValue(log, "user_id"),
 		usageStringValue(log, "api_key"),
+		usageStringValue(log, "user_agent"),
+		usageRequestTypeValue(log),
+		usageInferenceIntensityValue(log),
 		usageInt64Value(log, "tokens"),
 		usageInt64Value(log, "input_tokens"),
 		usageInt64Value(log, "output_tokens"),
@@ -1031,8 +1044,9 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 
 	whereClause, args := buildUsageWhereClause(filter)
 	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
-	query := `SELECT id, timestamp, model, provider, user_id, api_key, tokens, input_tokens, output_tokens,
-		latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty, experiment_tag, domain_tag, usage_source, created_at
+	query := `SELECT id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
+		tokens, input_tokens, output_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty,
+		experiment_tag, domain_tag, usage_source, created_at
 		FROM usage_logs WHERE ` + whereClause
 
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -1050,34 +1064,40 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 		var timestamp, tokens, inputTokens, outputTokens, latencyMs, ttftMs int64
 		var model, createdAt string
 		var cacheHitInt, successInt int
-		var provider, userID, apiKey, errorType, taskType, difficulty, experimentTag, domainTag, usageSource sql.NullString
+		var provider, account, userID, apiKey, userAgent, requestType, inferenceIntensity sql.NullString
+		var errorType, taskType, difficulty, experimentTag, domainTag, usageSource sql.NullString
 		if err := rows.Scan(
-			&id, &timestamp, &model, &provider, &userID, &apiKey, &tokens, &inputTokens, &outputTokens,
-			&latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType, &difficulty, &experimentTag, &domainTag, &usageSource, &createdAt,
+			&id, &timestamp, &model, &provider, &account, &userID, &apiKey, &userAgent, &requestType, &inferenceIntensity,
+			&tokens, &inputTokens, &outputTokens, &latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType,
+			&difficulty, &experimentTag, &domainTag, &usageSource, &createdAt,
 		); err != nil {
 			return nil, err
 		}
 		logs = append(logs, map[string]interface{}{
-			"id":             id,
-			"timestamp":      timestamp,
-			"model":          model,
-			"provider":       provider.String,
-			"user_id":        userID.String,
-			"api_key":        apiKey.String,
-			"tokens":         tokens,
-			"input_tokens":   inputTokens,
-			"output_tokens":  outputTokens,
-			"latency_ms":     latencyMs,
-			"ttft_ms":        ttftMs,
-			"cache_hit":      cacheHitInt == 1,
-			"success":        successInt == 1,
-			"error_type":     errorType.String,
-			"task_type":      taskType.String,
-			"difficulty":     difficulty.String,
-			"experiment_tag": experimentTag.String,
-			"domain_tag":     domainTag.String,
-			"usage_source":   usageSource.String,
-			"created_at":     createdAt,
+			"id":                  id,
+			"timestamp":           timestamp,
+			"model":               model,
+			"provider":            provider.String,
+			"account":             account.String,
+			"user_id":             userID.String,
+			"api_key":             apiKey.String,
+			"user_agent":          userAgent.String,
+			"request_type":        requestType.String,
+			"inference_intensity": inferenceIntensity.String,
+			"tokens":              tokens,
+			"input_tokens":        inputTokens,
+			"output_tokens":       outputTokens,
+			"latency_ms":          latencyMs,
+			"ttft_ms":             ttftMs,
+			"cache_hit":           cacheHitInt == 1,
+			"success":             successInt == 1,
+			"error_type":          errorType.String,
+			"task_type":           taskType.String,
+			"difficulty":          difficulty.String,
+			"experiment_tag":      experimentTag.String,
+			"domain_tag":          domainTag.String,
+			"usage_source":        usageSource.String,
+			"created_at":          createdAt,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -1103,10 +1123,14 @@ func (s *SQLiteStorage) ClearUsageLogs() (int64, error) {
 
 func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 	required := map[string]string{
-		"task_type":      "TEXT",
-		"experiment_tag": "TEXT",
-		"domain_tag":     "TEXT",
-		"usage_source":   "TEXT DEFAULT 'actual'",
+		"task_type":           "TEXT",
+		"experiment_tag":      "TEXT",
+		"domain_tag":          "TEXT",
+		"usage_source":        "TEXT DEFAULT 'actual'",
+		"account":             "TEXT DEFAULT ''",
+		"user_agent":          "TEXT DEFAULT ''",
+		"request_type":        "TEXT DEFAULT 'non_stream'",
+		"inference_intensity": "TEXT DEFAULT ''",
 	}
 
 	rows, err := s.db.Query(`PRAGMA table_info(usage_logs)`)
@@ -1207,6 +1231,24 @@ func usageSourceValue(log map[string]interface{}) string {
 		return source
 	}
 	return "actual"
+}
+
+func usageRequestTypeValue(log map[string]interface{}) string {
+	requestType := strings.ToLower(strings.TrimSpace(usageStringValue(log, "request_type")))
+	if requestType == "stream" || requestType == "non_stream" {
+		return requestType
+	}
+	return "non_stream"
+}
+
+func usageInferenceIntensityValue(log map[string]interface{}) string {
+	intensity := strings.ToLower(strings.TrimSpace(usageStringValue(log, "inference_intensity")))
+	switch intensity {
+	case "low", "medium", "high", "xhigh":
+		return intensity
+	default:
+		return ""
+	}
 }
 
 func usageInt64Value(log map[string]interface{}, key string) int64 {

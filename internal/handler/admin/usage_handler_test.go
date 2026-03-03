@@ -213,3 +213,63 @@ func TestUsageHandler_ClearUsageLogs(t *testing.T) {
 	assert.Equal(t, 0, listResp.Total)
 	assert.Len(t, listResp.Data, 0)
 }
+
+func TestUsageHandler_GetUsageLogs_ShouldReturnExpandedFieldsAndAliases(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := filepath.Join(t.TempDir(), "usage-handler-expanded-fields.db")
+	store, err := storage.NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	now := time.Now().UnixMilli()
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id":          "req-usage-expanded-1",
+		"timestamp":           now,
+		"model":               "gpt-4o-mini",
+		"provider":            "openai",
+		"account":             "openai-primary",
+		"user_agent":          "Mozilla/5.0 expanded-test",
+		"request_type":        "stream",
+		"inference_intensity": "high",
+		"tokens":              int64(160),
+		"input_tokens":        int64(90),
+		"output_tokens":       int64(70),
+		"latency_ms":          int64(620),
+		"ttft_ms":             int64(190),
+		"cache_hit":           true,
+		"success":             true,
+		"task_type":           "code",
+		"usage_source":        "actual",
+	}))
+
+	handler := NewUsageHandler(store)
+	r := gin.New()
+	r.GET("/admin/usage/logs", handler.GetUsageLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/logs?limit=1", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
+		Total   int                      `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	require.Len(t, resp.Data, 1)
+
+	item := resp.Data[0]
+	assert.Equal(t, "openai-primary", item["account"])
+	assert.Equal(t, "openai", item["service_provider"])
+	assert.Equal(t, "Mozilla/5.0 expanded-test", item["user_agent"])
+	assert.Equal(t, "stream", item["type"])
+	assert.Equal(t, "high", item["inference_intensity"])
+	assert.Equal(t, float64(190), item["time_to_first_token"])
+	assert.Equal(t, float64(620), item["total_duration"])
+	assert.Equal(t, float64(160), item["total_tokens"])
+	assert.Equal(t, float64(160), item["saved_tokens"])
+}

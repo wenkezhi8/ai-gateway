@@ -140,6 +140,9 @@
         <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
         <el-table-column prop="model" label="模型" min-width="170" />
         <el-table-column prop="taskType" label="任务类型" min-width="120" />
+        <el-table-column prop="requestType" label="请求类型" min-width="120" />
+        <el-table-column prop="inferenceIntensity" label="推理强度" min-width="120" />
+        <el-table-column prop="userAgent" label="用户代理" min-width="220" show-overflow-tooltip />
         <el-table-column label="入 Token" min-width="120" align="right">
           <template #default="{ row }">
             {{ formatCompact(row.inputTokens) }}
@@ -210,36 +213,12 @@ import { accountApi, type Account } from '@/api/account'
 import { USAGE_CSV_HEADER } from '@/constants/pages/usage'
 import {
   pickUsageOverview,
-  TOKEN_PRICE_USD,
-  normalizeUsageSource,
   usageSourceLabel,
-  type UsageSource,
   type UsageStatsPayload
 } from './usage-overview'
+import { mapUsageLogToRow, type UsageRow } from './usage-row-mapper'
 
 type RangeType = '24h' | '7d' | '30d'
-
-interface UsageRow {
-  id: string
-  accountName: string
-  provider: string
-  time: string
-  timestamp: number
-  firstTokenLatency: string
-  totalLatency: string
-  firstTokenSeconds: number
-  totalDurationSeconds: number
-  model: string
-  taskType: string
-  inputTokens: number
-  outputTokens: number
-  totalTokens: number
-  savedTokens: number
-  usageSource: UsageSource
-  success: boolean
-  cacheHit: string
-  cost: number
-}
 
 const loading = ref(false)
 const range = ref<RangeType>('7d')
@@ -337,18 +316,6 @@ const formatCompact = (value: number) => {
   return `${value}`
 }
 
-const formatDateTime = (time: number) => {
-  const d = new Date(time)
-  if (Number.isNaN(d.getTime())) return '-'
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const h = String(d.getHours()).padStart(2, '0')
-  const min = String(d.getMinutes()).padStart(2, '0')
-  const s = String(d.getSeconds()).padStart(2, '0')
-  return `${y}/${m}/${day} ${h}:${min}:${s}`
-}
-
 const fetchUsageLogs = async () => {
   try {
     const res = await request.get(API.USAGE.LOGS, {
@@ -360,42 +327,7 @@ const fetchUsageLogs = async () => {
       }
     })
     const data = (res as any)?.data || []
-    const rows: UsageRow[] = []
-    for (const log of data) {
-      const totalTokens = Number(log.tokens || 0)
-      const inputTokens = log.input_tokens ?? Math.round(totalTokens * 0.6)
-      const outputTokens = log.output_tokens ?? Math.max(0, totalTokens - inputTokens)
-      const providerValue = log.provider || ''
-      const ttftMs = Number(log.ttft_ms || 0)
-      const latencyMs = Number(log.latency_ms || 0)
-      const success = Boolean(log.success)
-      const cacheHit = Boolean(log.cache_hit)
-      const savedTokens = cacheHit && success ? totalTokens : 0
-      const usageSource = normalizeUsageSource(log.usage_source)
-      // 只使用账号自定义名称
-      const accountName = (providerValue && accountNameMap.value.get(providerValue)) || '-'
-      rows.push({
-        id: String(log.id || log.timestamp),
-        accountName,
-        provider: log.provider || '-',
-        time: log.timestamp ? formatDateTime(log.timestamp) : '-',
-        timestamp: log.timestamp || 0,
-        firstTokenLatency: ttftMs > 0 ? `${(ttftMs / 1000).toFixed(2)}s` : '0 ms',
-        totalLatency: latencyMs > 0 ? `${(latencyMs / 1000).toFixed(2)}s` : '0 ms',
-        firstTokenSeconds: ttftMs / 1000,
-        totalDurationSeconds: latencyMs / 1000,
-        model: log.model || '-',
-        taskType: log.task_type || '-',
-        inputTokens,
-        outputTokens,
-        totalTokens,
-        savedTokens,
-        usageSource,
-        success,
-        cacheHit: cacheHit ? '命中' : '未命中',
-        cost: totalTokens * TOKEN_PRICE_USD
-      })
-    }
+    const rows: UsageRow[] = data.map((log: any) => mapUsageLogToRow(log, accountNameMap.value))
 
     usageRows.value = rows.sort((a, b) => b.timestamp - a.timestamp)
   } catch (e) {
@@ -490,6 +422,9 @@ const exportCsv = () => {
     row.totalLatency,
     row.model,
     row.taskType,
+    row.requestType,
+    row.inferenceIntensity,
+    row.userAgent,
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,
