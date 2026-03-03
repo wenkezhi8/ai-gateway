@@ -101,14 +101,14 @@ Git权限：<可否 commit / push / tag>
 - 测试失败时禁止“删测过关”。
 ---
 ## 7. Git 工作流
-1. 默认在 `main` 开发（如需分支由任务指定；**双AI并行任务必须使用独立分支 + 独立 worktree，禁止同时在 main 直接改动**）。
+1. 所有开发统一在 `main` 分支完成，禁止双 AI 并行开发；一个 AI 开发时，另一个 AI 必须等待其完成并提交后再开始。
 2. 提交信息遵循 Conventional Commits：
 ```text
 <type>(<scope>): <description>
 ```
 常用 type：`feat` `fix` `refactor` `test` `docs` `chore`
 3. 每次任务完成后，必须本地提交一次，确保 `git status --short` 结果为空（工作区保持干净）。
-4. **每次只提交自己修改的文件**：禁止把其他并行开发者（含其他 AI）修改的文件一起提交，避免冲突与误覆盖。
+4. **每次只提交本任务相关文件**：禁止捎带无关改动。
 5. `push/tag` 需明确指令后执行。
 
 ### 7.1 执行模式提醒
@@ -120,24 +120,6 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 </system-reminder>
 ```
 
-### 7.2 双AI并行防冲突规定（强制）
-1. 并行开始前必须登记《文件锁清单》（建议：`docs/LOCKS.md`）：记录 AI 标识、任务名、锁定文件/目录、开始时间、状态；未登记不得改动对应文件。
-2. 每个 AI 必须在独立 worktree + 独立分支开发；分支与工作区必须按工具名命名，禁止共用同一工作目录。
-3. 命名规则（强制）：
-   - 分支：`<tool>/<task>`（示例：`codex/routing-cache`、`opencode/provider-retry`、`claude/frontend-guard`）
-   - worktree：`.worktrees/codex-<会话id>`（示例：`.worktrees/codex-20260301-0954`）
-   - `tool` 统一小写，仅允许当前使用的开发工具标识（如 `codex`/`opencode`/`claude`）。
-4. 创建模板（按工具名）：
-```bash
-git worktree add .worktrees/codex-<会话id> -b codex/<task>
-git worktree add .worktrees/opencode-<task> -b opencode/<task>
-git worktree add .worktrees/claude-<task> -b claude/<task>
-```
-5. 提交前必须执行：`git add <仅本任务文件>`；严禁提交锁清单之外文件。
-6. 推送前必须同步主线：`git fetch origin && git rebase origin/main`；有冲突先解决并本地验证通过再推送。
-7. 任一 AI 完成后必须释放文件锁并更新状态；未释放锁的文件，其他 AI 不得接管修改。
-8. 若确需改同一文件，必须先在锁清单中标记“共享改动窗口”，并约定顺序：先合并基础改动，再由后续分支 rebase 合并。
----
 ## 8. 变更完成检查清单（交付前）
 - [ ] 改动范围与需求一致
 - [ ] 无新增业务硬编码数据
@@ -145,8 +127,6 @@ git worktree add .worktrees/claude-<task> -b claude/<task>
 - [ ] 前端：typecheck/build 通过
 - [ ] 后端：go test/build 通过
 - [ ] 输出了风险与回滚点
-- [ ] 并行任务已登记并释放《文件锁清单》（如本次为双AI并行）
-- [ ] 推送前已完成 `fetch + rebase main`（如本次存在并行分支）
 ---
 ## 9. 统一输出模板（建议）
 ```text
