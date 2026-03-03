@@ -1,7 +1,7 @@
 /**
  * Chat API - Handles chat completion requests
  */
-import type { ChatCompletionParams, StreamChunk } from '@/types/chat'
+import type { ChatCompletionParams, CompletionMeta, StreamChunk } from '@/types/chat'
 import { API } from '@/constants/api'
 
 /**
@@ -48,19 +48,98 @@ export async function completion(params: ChatCompletionParams): Promise<StreamCh
  * @param params Chat completion parameters
  * @param onChunk Callback for each chunk received
  * @param onError Callback for errors
- * @param onComplete Callback when stream completes
+ * @param onComplete Callback when stream completes (new signature with CompletionMeta object)
  * @returns AbortController to cancel the request
  */
 export function streamCompletion(
   params: ChatCompletionParams,
   onChunk: (chunk: StreamChunk) => void,
   onError?: (error: Error) => void,
-  onComplete?: (totalTokens?: number, promptTokens?: number, completionTokens?: number, cacheHit?: boolean) => void
+  onComplete?: (meta: CompletionMeta) => void
 ): AbortController {
   const controller = new AbortController()
   const token = localStorage.getItem('token')
+  const requestMode: 'stream' | 'non_stream' = params.stream !== false ? 'stream' : 'non_stream'
 
-	;(async () => {
+  // Non-streaming mode: use fetch and bridge to callbacks
+  if (params.stream === false) {
+    ;(async () => {
+      try {
+        const response = await fetch(API.V1.CHAT_COMPLETIONS, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({
+            ...params,
+            stream: false
+          }),
+          signal: controller.signal
+        })
+
+        if (!response.ok) {
+          let errorMsg = `HTTP ${response.status}`
+          try {
+            const errorData = await response.json()
+            if (typeof errorData?.error === 'string') {
+              errorMsg = errorData.error
+            } else if (errorData?.error?.message) {
+              errorMsg = errorData.error.message
+            } else if (errorData?.message) {
+              errorMsg = errorData.message
+            } else if (errorData?.error?.code) {
+              errorMsg = `${errorData.error.code}: ${errorData.error.message || 'Unknown error'}`
+            }
+          } catch {
+            errorMsg = `HTTP ${response.status}: ${response.statusText}`
+          }
+          throw new Error(errorMsg)
+        }
+
+        const cacheHitHeader = response.headers.get('x-local-cache-hit')
+        const cacheHit = cacheHitHeader === null ? undefined : cacheHitHeader === '1'
+        const cacheLayer = response.headers.get('x-cache-layer') || undefined
+
+        const data: StreamChunk = await response.json()
+
+        if (data.error) {
+          throw new Error(data.error.message)
+        }
+
+        // Bridge non-streaming response to onChunk callback
+        onChunk(data)
+
+        onComplete?.({
+          totalTokens: data.usage?.total_tokens,
+          promptTokens: data.usage?.prompt_tokens,
+          completionTokens: data.usage?.completion_tokens,
+          cacheHit,
+          cacheLayer,
+          requestMode
+        })
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('Non-stream request aborted')
+          return
+        }
+        let errorMessage = 'Unknown error'
+        if (error instanceof Error) {
+          errorMessage = error.message
+        } else if (typeof error === 'string') {
+          errorMessage = error
+        } else if (error && typeof error === 'object' && 'message' in error) {
+          errorMessage = String((error as any).message)
+        }
+        onError?.(new Error(errorMessage))
+      }
+    })()
+
+    return controller
+  }
+
+  // Streaming mode: use SSE
+  ;(async () => {
     try {
       const response = await fetch(API.V1.CHAT_COMPLETIONS, {
         method: 'POST',
@@ -96,6 +175,7 @@ export function streamCompletion(
 
       const cacheHitHeader = response.headers.get('x-local-cache-hit')
       const cacheHit = cacheHitHeader === null ? undefined : cacheHitHeader === '1'
+      const cacheLayer = response.headers.get('x-cache-layer') || undefined
 
       const reader = response.body?.getReader()
       if (!reader) {
@@ -104,7 +184,7 @@ export function streamCompletion(
 
       const decoder = new TextDecoder()
       let buffer = ''
-      let currentEvent = 'message' // 改动点: 跟踪 SSE event 类型，支持 error 事件
+      let currentEvent = 'message'
       let lastUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
 
       while (true) {
@@ -128,19 +208,26 @@ export function streamCompletion(
           }
 
           if (trimmedLine.startsWith('event:')) {
-            currentEvent = trimmedLine.replace(/^event:\s*/, '') || 'message' // 改动点: 记录当前事件类型
+            currentEvent = trimmedLine.replace(/^event:\s*/, '') || 'message'
             continue
           }
 
           if (trimmedLine === 'data: [DONE]' || trimmedLine === 'data:[DONE]') {
-            onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens, cacheHit)
+            onComplete?.({
+              totalTokens: lastUsage?.total_tokens,
+              promptTokens: lastUsage?.prompt_tokens,
+              completionTokens: lastUsage?.completion_tokens,
+              cacheHit,
+              cacheLayer,
+              requestMode
+            })
             return
           }
 
           if (trimmedLine.startsWith('data:')) {
             try {
               const jsonStr = trimmedLine.replace(/^data:\s*/, '')
-              if (currentEvent === 'error') { // 改动点: 处理后端 SSE error 事件并反馈到 UI
+              if (currentEvent === 'error') {
                 const errPayload = JSON.parse(jsonStr)
                 const errMessage =
                   (typeof errPayload?.error === 'string' && errPayload.error) ||
@@ -165,12 +252,19 @@ export function streamCompletion(
             } catch (parseError) {
               console.warn('Failed to parse SSE chunk:', trimmedLine, parseError)
             }
-            currentEvent = 'message' // 改动点: 消费完数据后重置事件类型
+            currentEvent = 'message'
           }
         }
       }
 
-      onComplete?.(lastUsage?.total_tokens, lastUsage?.prompt_tokens, lastUsage?.completion_tokens, cacheHit)
+      onComplete?.({
+        totalTokens: lastUsage?.total_tokens,
+        promptTokens: lastUsage?.prompt_tokens,
+        completionTokens: lastUsage?.completion_tokens,
+        cacheHit,
+        cacheLayer,
+        requestMode
+      })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         console.log('Stream request aborted')

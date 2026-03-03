@@ -107,6 +107,34 @@
           <span class="stat-label">本地缓存</span>
           <span class="stat-value" :class="cacheHitClass">{{ cacheHitText }}</span>
         </span>
+        
+        <!-- 调试详情折叠区 -->
+        <div class="debug-details-toggle" @click="toggleDebugDetails">
+          <el-icon class="toggle-icon" :class="{ expanded: showDebugDetails }"><ArrowRight /></el-icon>
+          <span class="toggle-label">调试详情</span>
+        </div>
+        <div v-if="showDebugDetails" class="debug-details">
+          <div class="debug-item">
+            <span class="debug-label">请求模式</span>
+            <span class="debug-value">{{ requestModeText }}</span>
+          </div>
+          <div v-if="message.stats.speedBasis" class="debug-item">
+            <span class="debug-label">速度口径</span>
+            <span class="debug-value">{{ speedBasisText }}</span>
+          </div>
+          <div v-if="message.stats.cacheLayer" class="debug-item">
+            <span class="debug-label">缓存层</span>
+            <span class="debug-value">{{ cacheLayerText }}</span>
+          </div>
+          <div class="debug-item">
+            <span class="debug-label">Tokens</span>
+            <span class="debug-value">
+              prompt: {{ message.stats.promptTokens ?? '-' }} / 
+              completion: {{ message.stats.completionTokens ?? '-' }} / 
+              total: {{ message.stats.totalTokens ?? '-' }}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -115,7 +143,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { User, Monitor, DocumentCopy, WarningFilled, Document, Cpu, ArrowDown } from '@element-plus/icons-vue'
+import { User, Monitor, DocumentCopy, WarningFilled, Document, Cpu, ArrowDown, ArrowRight } from '@element-plus/icons-vue'
 import type { ChatMessage } from '@/types/chat'
 import { getProviderConfig } from '@/store/chat'
 import TypewriterText from './TypewriterText.vue'
@@ -130,6 +158,7 @@ const props = defineProps<{
 const { t } = useI18n()
 const copied = ref(false)
 const showReasoning = ref(props.defaultExpandReasoning ?? true)
+const showDebugDetails = ref(false) // 调试详情默认折叠
 
 const providerName = computed(() => {
   if (props.provider) {
@@ -152,13 +181,36 @@ const answerHighlight = computed(() => props.answerHighlight ?? true) // 改动�
 const cacheHitText = computed(() => {
   const cacheHit = props.message.stats?.cacheHit
   if (cacheHit === true) return '命中'
-  return '未命中'
+  if (cacheHit === false) return '未命中'
+  return '未知'
 })
 
 const cacheHitClass = computed(() => {
   const cacheHit = props.message.stats?.cacheHit
   if (cacheHit === true) return 'cache-hit'
-  return 'cache-miss'
+  if (cacheHit === false) return 'cache-miss'
+  return 'cache-unknown'
+})
+
+const requestModeText = computed(() => {
+  const mode = props.message.stats?.requestMode
+  if (mode === 'stream') return '流式'
+  if (mode === 'non_stream') return '非流式'
+  return '未知'
+})
+
+const speedBasisText = computed(() => {
+  const basis = props.message.stats?.speedBasis
+  if (basis === 'post_first_token') return '首token后'
+  if (basis === 'total_time') return '总时长'
+  if (basis === 'fallback_total_time') return '回退总时长'
+  return '未知'
+})
+
+const cacheLayerText = computed(() => {
+  const layer = props.message.stats?.cacheLayer
+  if (!layer) return '未知'
+  return layer
 })
 
 const reasoningFull = computed(() => (props.message.reasoningContent || props.message.reasoning || '').trim())
@@ -196,6 +248,10 @@ function previewImage(src: string): void {
 
 function toggleReasoning(): void {
   showReasoning.value = !showReasoning.value
+}
+
+function toggleDebugDetails(): void {
+  showDebugDetails.value = !showDebugDetails.value
 }
 
 watch(() => props.defaultExpandReasoning, (val) => {
@@ -484,6 +540,65 @@ watch(() => props.defaultExpandReasoning, (val) => {
       color: var(--color-warning);
     }
 
+    &.cache-unknown {
+      color: var(--text-tertiary);
+    }
   }
+}
+
+.debug-details-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.2s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  .toggle-icon {
+    font-size: 12px;
+    transition: transform 0.2s;
+
+    &.expanded {
+      transform: rotate(90deg);
+    }
+  }
+
+  .toggle-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+}
+
+.debug-details {
+  width: 100%;
+  margin-top: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: var(--border-radius-sm);
+  border: 1px solid var(--border-secondary);
+}
+
+.debug-item {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 2px 0;
+  font-size: 11px;
+}
+
+.debug-label {
+  color: var(--text-tertiary);
+  min-width: 60px;
+}
+
+.debug-value {
+  color: var(--text-secondary);
+  font-family: monospace;
 }
 </style>

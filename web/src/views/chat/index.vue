@@ -172,10 +172,11 @@ import { Plus, ChatDotRound, Delete, Operation, Loading } from '@element-plus/ic
 import { useRoute } from 'vue-router'
 import { useChatStore, initializeProviders, PROVIDERS, getModelLabel } from '@/store/chat'
 import { streamCompletion, search } from '@/api/chat'
-import { createMessage, type ChatMessage as ChatMessageType } from '@/types/chat'
+import { createMessage, type ChatMessage as ChatMessageType, type CompletionMeta } from '@/types/chat'
 import ChatMessage from './components/ChatMessage.vue'
 import ChatInput from './components/ChatInput.vue'
 import ModelSelector from './components/ModelSelector.vue'
+import { computeMessageStats } from './message-stats'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -284,6 +285,10 @@ async function handleBatchSend(): Promise<void> {
         }))
 
       return new Promise<{ success: boolean; convId: string }>((resolve) => {
+        const startTime = Date.now()
+        let firstTokenTime: number | undefined
+        let outputChars = 0
+        
         const controller = streamCompletion(
           {
             model: conv.model,
@@ -294,6 +299,10 @@ async function handleBatchSend(): Promise<void> {
           (chunk) => {
             const content = chunk.choices?.[0]?.delta?.content
             if (content) {
+              if (!firstTokenTime) {
+                firstTokenTime = Date.now()
+              }
+              outputChars += content.length
               chatStore.appendMessageContent(assistantMessage.id, content, convId)
             }
           },
@@ -305,8 +314,21 @@ async function handleBatchSend(): Promise<void> {
             chatStore.setAbortController(convId, null)
             resolve({ success: false, convId })
           },
-          () => {
-            chatStore.updateMessage(assistantMessage.id, { isStreaming: false }, convId)
+          (meta) => {
+            const endTime = Date.now()
+            const estimatedPromptTokens = Math.round(question.length / 2)
+            const estimatedCompletionTokens = Math.round(outputChars / 2)
+            
+            const stats = computeMessageStats({
+              startTime,
+              firstTokenTime,
+              endTime,
+              meta,
+              estimatedPromptTokens,
+              estimatedCompletionTokens
+            })
+            
+            chatStore.updateMessage(assistantMessage.id, { isStreaming: false, stats }, convId)
             chatStore.setAbortController(convId, null)
             resolve({ success: true, convId })
           }
@@ -575,11 +597,9 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       ElMessage.error(error.message)
     },
     // onComplete
-    (totalTokens?: number, promptTokens?: number, completionTokens?: number, cacheHit?: boolean) => {
+    (meta: CompletionMeta) => {
       const endTime = Date.now()
-      const totalTimeMs = endTime - startTime
-      const firstTokenMs = firstTokenTime ? firstTokenTime - startTime : undefined
-
+      
       const latestMessage = chatStore.currentConversation?.messages.find(m => m.id === assistantMessage.id)
       const hasOutput = !!latestMessage?.content || !!latestMessage?.reasoningContent
       if (!hasOutput) {
@@ -593,23 +613,21 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
         return
       }
       
-      const completionTimeSec = firstTokenTime ? (endTime - firstTokenTime) / 1000 : 0
-      const estimatedPromptTokens = promptTokens || Math.round(promptChars / 2)
-      const estimatedCompletionTokens = completionTokens || Math.round(outputChars / 2)
-      const estimatedTotalTokens = totalTokens || (estimatedPromptTokens + estimatedCompletionTokens)
-      const tokensPerSecond = completionTimeSec > 0 ? Math.round(estimatedCompletionTokens / completionTimeSec) : undefined
+      const estimatedPromptTokens = Math.round(promptChars / 2)
+      const estimatedCompletionTokens = Math.round(outputChars / 2)
+      
+      const stats = computeMessageStats({
+        startTime,
+        firstTokenTime,
+        endTime,
+        meta,
+        estimatedPromptTokens,
+        estimatedCompletionTokens
+      })
       
       chatStore.updateMessage(assistantMessage.id, {
         isStreaming: false,
-        stats: {
-          firstTokenTime: firstTokenMs ? firstTokenMs / 1000 : undefined,
-          totalTime: totalTimeMs / 1000,
-          outputTokensPerSecond: tokensPerSecond,
-          totalTokens: estimatedTotalTokens,
-          promptTokens: estimatedPromptTokens,
-          completionTokens: estimatedCompletionTokens,
-          cacheHit
-        }
+        stats
       })
       chatStore.setLoading(false)
       chatStore.setAbortController(conversationId, null)

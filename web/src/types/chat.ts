@@ -29,6 +29,19 @@ export interface MessageStats {
   promptTokens?: number
   completionTokens?: number
   cacheHit?: boolean
+  cacheLayer?: string
+  requestMode?: 'stream' | 'non_stream'
+  speedBasis?: 'post_first_token' | 'total_time' | 'fallback_total_time'
+}
+
+/** Completion metadata returned by API layer */
+export interface CompletionMeta {
+  totalTokens?: number
+  promptTokens?: number
+  completionTokens?: number
+  cacheHit?: boolean
+  cacheLayer?: string
+  requestMode: 'stream' | 'non_stream'
 }
 
 /** Conversation session */

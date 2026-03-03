@@ -469,6 +469,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 			}
 			c.Header("X-Local-Cache-Hit", "1")
+			c.Header("X-Cache-Layer", "semantic")
 			if req.Stream {
 				h.writeCachedResponseAsStream(c, req.Model, semanticEntry.Response)
 			} else {
@@ -542,6 +543,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 						h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 					}
 					c.Header("X-Local-Cache-Hit", "1")
+					c.Header("X-Cache-Layer", "exact")
 					if req.Stream {
 						h.writeCachedResponseAsStream(c, req.Model, cached.Body)
 					} else {
@@ -1003,6 +1005,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Return response in OpenAI-compatible format
 	c.Header("X-Local-Cache-Hit", "0")
+	c.Header("X-Cache-Layer", "none")
 	c.JSON(http.StatusOK, response)
 }
 
