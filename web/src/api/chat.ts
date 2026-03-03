@@ -116,7 +116,8 @@ export function streamCompletion(
           completionTokens: data.usage?.completion_tokens,
           cacheHit,
           cacheLayer,
-          requestMode
+          requestMode,
+          reasoningEffortDowngraded: data.gateway_meta?.reasoning_effort_downgraded === true
         })
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
@@ -186,6 +187,7 @@ export function streamCompletion(
       let buffer = ''
       let currentEvent = 'message'
       let lastUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined
+      let reasoningEffortDowngraded = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -219,7 +221,8 @@ export function streamCompletion(
               completionTokens: lastUsage?.completion_tokens,
               cacheHit,
               cacheLayer,
-              requestMode
+              requestMode,
+              reasoningEffortDowngraded
             })
             return
           }
@@ -247,6 +250,9 @@ export function streamCompletion(
               if (chunk.usage) {
                 lastUsage = chunk.usage
               }
+              if (chunk.gateway_meta?.reasoning_effort_downgraded === true) {
+                reasoningEffortDowngraded = true
+              }
 
               onChunk(chunk)
             } catch (parseError) {
@@ -263,7 +269,8 @@ export function streamCompletion(
         completionTokens: lastUsage?.completion_tokens,
         cacheHit,
         cacheLayer,
-        requestMode
+        requestMode,
+        reasoningEffortDowngraded
       })
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {

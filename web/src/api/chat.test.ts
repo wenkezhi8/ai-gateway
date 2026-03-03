@@ -226,4 +226,105 @@ describe('streamCompletion', () => {
       )
     })
   })
+
+  describe('reasoning effort passthrough and downgrade metadata', () => {
+    it('should include reasoning_effort in request body when provided', async () => {
+      const mockChunk: StreamChunk = {
+        choices: [{ index: 0, delta: { content: 'Hello' }, finish_reason: null }],
+        usage: { total_tokens: 10, prompt_tokens: 5, completion_tokens: 5 }
+      }
+      const mockResponse = new Response(JSON.stringify(mockChunk), { headers: {} })
+      mockFetch.mockResolvedValueOnce(mockResponse)
+
+      streamCompletion(
+        {
+          model: 'test',
+          messages: [{ role: 'user', content: 'hi' }],
+          stream: false,
+          reasoning_effort: 'xhigh'
+        },
+        vi.fn(),
+        vi.fn(),
+        vi.fn()
+      )
+
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          body: expect.stringContaining('"reasoning_effort":"xhigh"')
+        })
+      )
+    })
+
+    it('should expose non-stream gateway_meta downgrade flag via onComplete', async () => {
+      const mockChunk: StreamChunk = {
+        choices: [{ index: 0, delta: { content: 'Hello' }, finish_reason: null }],
+        usage: { total_tokens: 10, prompt_tokens: 5, completion_tokens: 5 },
+        gateway_meta: { reasoning_effort_downgraded: true }
+      }
+      const mockResponse = new Response(JSON.stringify(mockChunk), { headers: {} })
+      mockFetch.mockResolvedValueOnce(mockResponse)
+
+      const onComplete = vi.fn()
+
+      streamCompletion(
+        { model: 'test', messages: [{ role: 'user', content: 'hi' }], stream: false },
+        vi.fn(),
+        vi.fn(),
+        onComplete
+      )
+
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      expect(onComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reasoningEffortDowngraded: true
+        })
+      )
+    })
+
+    it('should expose stream final-chunk gateway_meta downgrade flag via onComplete', async () => {
+      const encoder = new TextEncoder()
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode('data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"content":"hello"}}]}\n\n')
+          )
+          controller.enqueue(
+            encoder.encode('data: {"id":"s1","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":3,"total_tokens":5},"gateway_meta":{"reasoning_effort_downgraded":true}}\n\n')
+          )
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+          controller.close()
+        }
+      })
+
+      const mockResponse = new Response(stream, {
+        headers: {
+          'Content-Type': 'text/event-stream'
+        }
+      })
+      mockFetch.mockResolvedValueOnce(mockResponse)
+
+      const onComplete = vi.fn()
+      streamCompletion(
+        { model: 'test', messages: [{ role: 'user', content: 'hi' }], stream: true },
+        vi.fn(),
+        vi.fn(),
+        onComplete
+      )
+
+      await new Promise(resolve => setTimeout(resolve, 20))
+
+      expect(onComplete).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reasoningEffortDowngraded: true,
+          totalTokens: 5,
+          promptTokens: 2,
+          completionTokens: 3
+        })
+      )
+    })
+  })
 })

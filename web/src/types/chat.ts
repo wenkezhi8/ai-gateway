@@ -32,6 +32,7 @@ export interface MessageStats {
   cacheLayer?: string
   requestMode?: 'stream' | 'non_stream'
   speedBasis?: 'post_first_token' | 'total_time' | 'fallback_total_time'
+  reasoningEffortDowngraded?: boolean
 }
 
 /** Completion metadata returned by API layer */
@@ -42,7 +43,10 @@ export interface CompletionMeta {
   cacheHit?: boolean
   cacheLayer?: string
   requestMode: 'stream' | 'non_stream'
+  reasoningEffortDowngraded?: boolean
 }
+
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'
 
 /** Conversation session */
 export interface Conversation {
@@ -70,6 +74,7 @@ export interface ChatCompletionParams {
   presence_penalty?: number
   stream?: boolean
   deepThink?: boolean
+  reasoning_effort?: ReasoningEffort
 }
 
 /** SSE stream chunk data */
@@ -92,6 +97,9 @@ export interface StreamChunk {
     prompt_tokens?: number
     completion_tokens?: number
     total_tokens?: number
+  }
+  gateway_meta?: {
+    reasoning_effort_downgraded?: boolean
   }
   error?: {
     message: string
