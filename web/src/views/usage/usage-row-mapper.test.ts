@@ -76,4 +76,54 @@ describe('usage-row-mapper', () => {
     expect(row.firstTokenLatency).toBe('0 ms')
     expect(row.totalLatency).toBe('0 ms')
   })
+
+  it('should map task type to chinese label and keep raw value for tooltip tracing', () => {
+    const longTextRow = mapUsageLogToRow(
+      {
+        id: 21,
+        provider: 'provider-z',
+        task_type: 'long_text',
+        type: 'stream',
+        total_tokens: 10,
+        usage_source: 'actual'
+      },
+      new Map()
+    )
+
+    expect(longTextRow.taskType).toBe('长文本')
+    expect(longTextRow.taskTypeLabel).toBe('长文本')
+    expect(longTextRow.taskTypeRaw).toBe('long_text')
+    expect(longTextRow.usageSourceLabel).toBe('真实')
+
+    const unknownRow = mapUsageLogToRow(
+      {
+        id: 22,
+        provider: 'provider-z',
+        task_type: 'unknown',
+        total_tokens: 9,
+        usage_source: 'estimated'
+      },
+      new Map()
+    )
+
+    expect(unknownRow.taskType).toBe('未知')
+    expect(unknownRow.taskTypeLabel).toBe('未知')
+    expect(unknownRow.taskTypeRaw).toBe('unknown')
+    expect(unknownRow.usageSourceLabel).toBe('估算')
+
+    const newTypeRow = mapUsageLogToRow(
+      {
+        id: 23,
+        provider: 'provider-z',
+        task_type: 'brand_new_type',
+        total_tokens: 8
+      },
+      new Map()
+    )
+
+    expect(newTypeRow.taskType).toBe('其他')
+    expect(newTypeRow.taskTypeLabel).toBe('其他')
+    expect(newTypeRow.taskTypeRaw).toBe('brand_new_type')
+    expect(newTypeRow.usageSourceLabel).toBe('-')
+  })
 })

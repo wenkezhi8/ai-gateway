@@ -1,4 +1,9 @@
-import { TOKEN_PRICE_USD, normalizeUsageSource, type UsageSource } from './usage-overview'
+import {
+  TOKEN_PRICE_USD,
+  normalizeUsageSource,
+  usageSourceLabel as toUsageSourceLabel,
+  type UsageSource
+} from './usage-overview'
 
 export interface UsageRow {
   id: string
@@ -12,6 +17,8 @@ export interface UsageRow {
   totalDurationSeconds: number
   model: string
   taskType: string
+  taskTypeRaw: string
+  taskTypeLabel: string
   requestType: string
   inferenceIntensity: string
   userAgent: string
@@ -20,6 +27,7 @@ export interface UsageRow {
   totalTokens: number
   savedTokens: number
   usageSource: UsageSource
+  usageSourceLabel: string
   success: boolean
   cacheHit: string
   cost: number
@@ -76,9 +84,14 @@ function formatDateTime(time: number): string {
   return `${y}/${m}/${day} ${h}:${min}:${s}`
 }
 
-function toTaskTypeLabel(taskType: string | undefined): string {
-  const raw = (taskType || '-').trim()
-  if (!raw || raw === '-') return '-'
+function toTaskTypeInfo(taskType: string | undefined): { raw: string; label: string } {
+  const normalizedRaw = (taskType || '').trim()
+  if (!normalizedRaw) {
+    return {
+      raw: '-',
+      label: '-'
+    }
+  }
 
   const labels: Record<string, string> = {
     code: '编程',
@@ -87,9 +100,24 @@ function toTaskTypeLabel(taskType: string | undefined): string {
     conversation: '对话',
     analysis: '分析',
     creative: '创作',
-    math: '数学'
+    math: '数学',
+    long_text: '长文本',
+    unknown: '未知'
   }
-  return labels[raw.toLowerCase()] || raw
+
+  const normalizedKey = normalizedRaw.toLowerCase()
+  const mapped = labels[normalizedKey]
+  if (mapped) {
+    return {
+      raw: normalizedRaw,
+      label: mapped
+    }
+  }
+
+  return {
+    raw: normalizedRaw,
+    label: '其他'
+  }
 }
 
 function toRequestTypeLabel(requestType: string | undefined): string {
@@ -112,6 +140,8 @@ export function mapUsageLogToRow(
   const outputTokens = toNumber(log.output_tokens) || Math.max(0, totalTokens - inputTokens)
   const success = Boolean(log.success)
   const cacheHit = Boolean(log.cache_hit)
+  const taskTypeInfo = toTaskTypeInfo(log.task_type)
+  const usageSource = normalizeUsageSource(log.usage_source)
   const defaultSavedTokens = cacheHit && success ? totalTokens : 0
   const savedTokens = toNumber(log.saved_tokens) || defaultSavedTokens
   const ttftMs = toNumber(log.time_to_first_token) || toNumber(log.ttft_ms)
@@ -128,7 +158,9 @@ export function mapUsageLogToRow(
     firstTokenSeconds: ttftMs / 1000,
     totalDurationSeconds: latencyMs / 1000,
     model: (log.model || '-').trim() || '-',
-    taskType: toTaskTypeLabel(log.task_type),
+    taskType: taskTypeInfo.label,
+    taskTypeRaw: taskTypeInfo.raw,
+    taskTypeLabel: taskTypeInfo.label,
     requestType: toRequestTypeLabel(log.request_type || log.type),
     inferenceIntensity: (log.inference_intensity || '-').trim() || '-',
     userAgent: (log.user_agent || '-').trim() || '-',
@@ -136,7 +168,8 @@ export function mapUsageLogToRow(
     outputTokens,
     totalTokens,
     savedTokens,
-    usageSource: normalizeUsageSource(log.usage_source),
+    usageSource,
+    usageSourceLabel: toUsageSourceLabel(usageSource),
     success,
     cacheHit: cacheHit ? '命中' : '未命中',
     cost: totalTokens * TOKEN_PRICE_USD

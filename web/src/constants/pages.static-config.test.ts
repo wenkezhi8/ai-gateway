@@ -37,9 +37,12 @@ describe('pages static config extraction', () => {
   it('should include saved token column in usage csv header', () => {
     const savedTokenIndex = USAGE_CSV_HEADER.indexOf('节省Token')
     const totalTokenIndex = USAGE_CSV_HEADER.indexOf('总Token')
+    const tokenSourceIndex = USAGE_CSV_HEADER.indexOf('Token来源')
     const cacheHitIndex = USAGE_CSV_HEADER.indexOf('缓存命中')
 
     expect(savedTokenIndex).toBeGreaterThan(-1)
+    expect(tokenSourceIndex).toBeGreaterThan(totalTokenIndex)
+    expect(tokenSourceIndex).toBeLessThan(savedTokenIndex)
     expect(savedTokenIndex).toBeGreaterThan(totalTokenIndex)
     expect(savedTokenIndex).toBeLessThan(cacheHitIndex)
   })

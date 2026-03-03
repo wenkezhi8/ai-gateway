@@ -126,59 +126,71 @@
         stripe
         class="usage-table"
         v-loading="loading"
-        table-layout="auto"
+        table-layout="fixed"
       >
-        <el-table-column prop="accountName" label="账号" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="provider" label="服务商" min-width="120" />
-        <el-table-column prop="time" label="最近时间" min-width="180" />
+        <el-table-column
+          prop="accountName"
+          label="账号"
+          min-width="160"
+          class-name="cell-single-line"
+          show-overflow-tooltip
+        />
+        <el-table-column prop="provider" label="服务商" min-width="110" class-name="cell-single-line" />
+        <el-table-column prop="time" label="最近时间" min-width="168" class-name="cell-single-line" />
         <el-table-column
           prop="firstTokenLatency"
           label="首 Token 耗时"
-          min-width="140"
+          width="118"
           align="right"
+          class-name="cell-num"
         />
-        <el-table-column prop="totalLatency" label="总耗时" min-width="110" align="right" />
-        <el-table-column prop="model" label="模型" min-width="170" />
-        <el-table-column prop="taskType" label="任务类型" min-width="120" />
-        <el-table-column prop="requestType" label="请求类型" min-width="120" />
-        <el-table-column prop="inferenceIntensity" label="推理强度" min-width="120" />
-        <el-table-column prop="userAgent" label="用户代理" min-width="220" show-overflow-tooltip />
-        <el-table-column label="入 Token" min-width="120" align="right">
+        <el-table-column prop="totalLatency" label="总耗时" width="108" align="right" class-name="cell-num" />
+        <el-table-column prop="model" label="模型" min-width="190" class-name="cell-single-line" show-overflow-tooltip />
+        <el-table-column label="任务类型" width="120" class-name="cell-single-line">
+          <template #default="{ row }">
+            <el-tooltip
+              placement="top"
+              :content="row.taskTypeRaw"
+              :disabled="!row.taskTypeRaw || row.taskTypeRaw === '-'"
+            >
+              <span class="cell-single-line">{{ row.taskTypeLabel }}</span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column prop="requestType" label="请求类型" width="108" class-name="cell-single-line" />
+        <el-table-column prop="inferenceIntensity" label="推理强度" width="100" class-name="cell-single-line" />
+        <el-table-column prop="userAgent" label="用户代理" min-width="240" class-name="cell-single-line" show-overflow-tooltip />
+        <el-table-column label="入 Token" width="112" align="right" class-name="cell-num">
           <template #default="{ row }">
             {{ formatCompact(row.inputTokens) }}
           </template>
         </el-table-column>
-        <el-table-column label="出 Token" min-width="120" align="right">
+        <el-table-column label="出 Token" width="112" align="right" class-name="cell-num">
           <template #default="{ row }">
             {{ formatCompact(row.outputTokens) }}
           </template>
         </el-table-column>
-        <el-table-column label="总 Token" min-width="130" align="right">
+        <el-table-column label="总 Token" width="120" align="right" class-name="cell-num">
           <template #default="{ row }">
-            <div class="token-cell">
-              <span class="token-total">{{ formatCompact(row.totalTokens) }}</span>
-              <el-tag
-                v-if="row.usageSource"
-                size="small"
-                :type="row.usageSource === 'estimated' ? 'warning' : 'success'"
-                effect="plain"
-              >
-                {{ usageSourceLabel(row.usageSource) }}
-              </el-tag>
-            </div>
+            <span class="token-total">{{ formatCompact(row.totalTokens) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="节省 Token" min-width="130" align="right">
+        <el-table-column label="Token来源" width="96" align="center" class-name="cell-center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.usageSourceLabel }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="节省 Token" width="120" align="right" class-name="cell-num">
           <template #default="{ row }">
             <div class="token-total">{{ formatCompact(row.savedTokens) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="缓存命中" min-width="120" align="right">
+        <el-table-column label="缓存命中" width="92" align="center" class-name="cell-center">
           <template #default="{ row }">
             <span>{{ row.cacheHit }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="费用" min-width="120" align="right">
+        <el-table-column label="费用" width="112" align="right" class-name="cell-num">
           <template #default="{ row }">
             <span class="cost">${{ row.cost.toFixed(5) }}</span>
           </template>
@@ -213,7 +225,6 @@ import { accountApi, type Account } from '@/api/account'
 import { USAGE_CSV_HEADER } from '@/constants/pages/usage'
 import {
   pickUsageOverview,
-  usageSourceLabel,
   type UsageStatsPayload
 } from './usage-overview'
 import { mapUsageLogToRow, type UsageRow } from './usage-row-mapper'
@@ -428,7 +439,7 @@ const exportCsv = () => {
     row.inputTokens,
     row.outputTokens,
     row.totalTokens,
-    usageSourceLabel(row.usageSource),
+    row.usageSourceLabel,
     row.savedTokens,
     row.cacheHit,
     row.cost.toFixed(5)
@@ -603,25 +614,34 @@ watch([range, selectedModel, selectedTaskType], () => {
   margin-top: 14px;
 }
 
-.token-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.token-in {
-  color: #16a34a;
-}
-
-.token-out {
-  color: #7c3aed;
-}
-
 .token-total {
   margin-top: 0;
   color: #0284c7;
   font-size: 13px;
+}
+
+.cell-single-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.cell-center {
+  text-align: center;
+}
+
+:deep(.usage-table .el-table__header-wrapper th),
+:deep(.usage-table .el-table__body-wrapper td) {
+  padding: 10px 12px;
+}
+
+:deep(.usage-table .el-table__row) {
+  height: 42px;
 }
 
 .cost {
