@@ -31,7 +31,12 @@
             <el-table-column label="服务商" width="200">
               <template #default="{ row }">
                 <div class="provider-cell">
-                  <img v-if="row.logo" :src="row.logo" class="provider-logo" />
+                  <img
+                    v-if="row.logo && !brokenLogoProviders.has(row.id)"
+                    :src="row.logo"
+                    class="provider-logo"
+                    @error="handleLogoError(row.id)"
+                  />
                   <div v-else class="provider-icon" :style="{ background: row.color }">
                     <span>{{ row.label.charAt(0) }}</span>
                   </div>
@@ -105,7 +110,6 @@
                   link 
                   size="small" 
                   @click="handleDeleteProvider(row)" 
-                  v-if="row.custom"
                   :disabled="submitting"
                 >
                   删除
@@ -185,11 +189,23 @@
           />
         </el-form-item>
         <el-form-item label="服务商名称" prop="label">
-          <el-input 
-            v-model="providerForm.label" 
-            placeholder="如: 我的服务商"
+          <el-select
+            v-model="providerForm.label"
+            filterable
+            allow-create
+            default-first-option
+            placeholder="选择或输入服务商名称"
+            style="width: 100%"
             :disabled="submitting"
-          />
+            @change="handleProviderLabelChange"
+          >
+            <el-option
+              v-for="option in publicProviderOptions"
+              :key="`${option.id}-${option.label}`"
+              :label="option.label"
+              :value="option.label"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item label="Logo" prop="logoFile">
           <div class="logo-upload">
@@ -333,7 +349,8 @@ import type { FormInstance, FormRules } from 'element-plus'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
 import { updateModelManagementUiSettings } from '@/api/settings-domain'
-import { getPublicProviders } from '@/api/provider'
+import { getPublicProviders, providerApi } from '@/api/provider'
+import { PROVIDER_CATALOG } from '@/constants/providers-catalog'
 import { useModelLabels } from '@/composables/useModelLabels'
 import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
@@ -351,6 +368,13 @@ interface ProviderSetting {
   defaultModel: string
   models: string[]
   custom: boolean
+}
+
+interface PublicProviderOption {
+  id: string
+  label: string
+  color: string
+  logo: string
 }
 
 const saving = ref(false)
@@ -407,14 +431,70 @@ const modelRules: FormRules = {
 }
 
 const providerSettings = ref<ProviderSetting[]>([])
+const publicProviderOptions = ref<PublicProviderOption[]>([])
+const brokenLogoProviders = ref(new Set<string>())
+
+function buildProviderOptions(publicProviders: Array<{ id: string; label: string; color: string; logo: string }>) {
+  const optionMap = new Map<string, PublicProviderOption>()
+
+  for (const catalogItem of PROVIDER_CATALOG) {
+    optionMap.set(catalogItem.id, {
+      id: catalogItem.id,
+      label: catalogItem.label || catalogItem.id,
+      color: catalogItem.color || MODEL_MANAGEMENT_DEFAULT_COLOR,
+      logo: catalogItem.logo || ''
+    })
+  }
+
+  for (const provider of publicProviders) {
+    const normalizedId = String(provider.id)
+    optionMap.set(normalizedId, {
+      id: normalizedId,
+      label: String(provider.label || normalizedId),
+      color: String(provider.color || optionMap.get(normalizedId)?.color || MODEL_MANAGEMENT_DEFAULT_COLOR),
+      logo: String(provider.logo || optionMap.get(normalizedId)?.logo || '')
+    })
+  }
+
+  return Array.from(optionMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+}
+
+function handleProviderLabelChange(selectedLabel: string) {
+  const selectedProvider = publicProviderOptions.value.find(option => option.label === selectedLabel)
+  if (!selectedProvider) return
+
+  if (!providerForm.id) {
+    providerForm.id = selectedProvider.id
+  }
+  if (selectedProvider.color) {
+    providerForm.color = selectedProvider.color
+  }
+  if (selectedProvider.logo && !providerForm.logoFile) {
+    providerForm.logoPreview = selectedProvider.logo
+  }
+}
+
+function handleLogoError(providerId: string) {
+  if (!providerId) return
+  brokenLogoProviders.value.add(providerId)
+}
 
 async function loadSettings() {
   loading.value = true
   try {
-    // Fetch model labels using composable
-    await fetchModelLabels()
+    // Label loading failure should not block provider visibility
+    await fetchModelLabels().catch(() => undefined)
 
     const publicProviders = await getPublicProviders().catch(() => [])
+    publicProviderOptions.value = buildProviderOptions(
+      publicProviders.map(item => ({
+        id: String(item.id),
+        label: String(item.label || item.id),
+        color: String(item.color || MODEL_MANAGEMENT_DEFAULT_COLOR),
+        logo: String(item.logo || '')
+      }))
+    )
+
     const providerMetaMap = new Map(
       publicProviders.map(item => [item.id, item])
     )
@@ -465,6 +545,7 @@ async function loadSettings() {
       })
     }
 
+    brokenLogoProviders.value.clear()
     providerSettings.value = newSettings
   } catch (e) {
     console.error('Failed to load settings:', e)
@@ -552,6 +633,9 @@ async function handleAddProvider() {
   submitting.value = true
   try {
     let logoPath = `/logos/${providerForm.id}.svg`
+    if (!providerForm.logoFile && providerForm.logoPreview) {
+      logoPath = providerForm.logoPreview
+    }
     
     // Upload logo file if exists
     if (providerForm.logoFile) {
@@ -652,34 +736,27 @@ async function handleAddModel() {
 
 async function handleDeleteProvider(row: ProviderSetting) {
   try {
-    await ElMessageBox.confirm(`确定删除服务商 "${row.label}" 吗？`, '确认删除', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `确定删除服务商 "${row.label}" 吗？该操作会级联清理服务商账号、模型映射与默认模型。`,
+      '确认删除',
+      { type: 'warning' }
+    )
   } catch {
     return
   }
 
   submitting.value = true
   try {
-    // 先删除该服务商下的模型评分（后端单一事实源）
-    if (row.models.length > 0) {
-      const deleteResults = await Promise.allSettled(
-        row.models.map(model => request.delete(`/admin/router/models/${encodeURIComponent(model)}`))
-      )
-      const failedDeletes = deleteResults.filter(r => r.status === 'rejected').length
-      if (failedDeletes > 0) {
-        throw new Error(`删除模型失败（${failedDeletes}/${row.models.length}）`)
-      }
-    }
+    await providerApi.delete(row.id)
 
-    const index = providerSettings.value.findIndex(p => p.id === row.id)
+    const index = providerSettings.value.findIndex((provider) => provider.id === row.id)
     if (index > -1) {
       providerSettings.value.splice(index, 1)
-
-      // 同步默认模型映射，确保 provider_defaults 也移除该服务商
-      await saveAllSettings(false)
-
-      ElMessage.success('服务商已删除并同步')
-      eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
     }
+
+    await loadSettings()
+    ElMessage.success('服务商已删除')
+    eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
   } catch (e: any) {
     ElMessage.error(e?.message || '删除失败')
   } finally {

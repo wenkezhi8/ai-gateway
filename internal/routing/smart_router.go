@@ -416,6 +416,51 @@ func (r *SmartRouter) DeleteModelScore(model string) {
 	}
 }
 
+// RemoveProviderData removes all routing data for a provider and persists changes.
+// Returns removed model count and whether provider default was removed.
+func (r *SmartRouter) RemoveProviderData(provider string) (int, bool) {
+	target := strings.TrimSpace(strings.ToLower(provider))
+	if target == "" {
+		return 0, false
+	}
+
+	r.mu.Lock()
+	removedModels := 0
+	for model, score := range r.config.ModelScores {
+		if score == nil {
+			continue
+		}
+		if strings.TrimSpace(strings.ToLower(score.Provider)) == target {
+			delete(r.config.ModelScores, model)
+			removedModels++
+		}
+	}
+
+	removedDefault := false
+	if r.config.ProviderDefaults != nil {
+		for providerKey := range r.config.ProviderDefaults {
+			if strings.TrimSpace(strings.ToLower(providerKey)) == target {
+				delete(r.config.ProviderDefaults, providerKey)
+				removedDefault = true
+			}
+		}
+	}
+	r.mu.Unlock()
+
+	if removedModels > 0 {
+		if err := r.SaveToFile(); err != nil {
+			routerLogger.WithError(err).Warn("Failed to save model scores to file")
+		}
+	}
+	if removedDefault {
+		if err := r.SaveProviderDefaultsToFile(); err != nil {
+			routerLogger.WithError(err).Warn("Failed to save provider defaults to file")
+		}
+	}
+
+	return removedModels, removedDefault
+}
+
 // Returns the selected model name.
 func (r *SmartRouter) SelectModel(requestedModel, prompt string, availableModels []string) string {
 	r.mu.RLock()

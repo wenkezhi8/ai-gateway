@@ -34,6 +34,17 @@ interface PublicProvidersResponse {
   error?: string
 }
 
+const PROVIDER_LOGO_FILE_MAP: Record<string, string> = {
+  'azure-openai': 'azure',
+  kimi: 'moonshot'
+}
+
+function resolveProviderLogo(providerId: string, explicitLogo?: string): string {
+  if (explicitLogo) return String(explicitLogo)
+  const normalizedId = (PROVIDER_LOGO_FILE_MAP[providerId] || providerId).trim()
+  return normalizedId ? `/logos/${normalizedId}.svg` : ''
+}
+
 function normalizePublicProviders(payload: PublicProvidersResponse['data']): PublicProviderInfo[] {
   if (Array.isArray(payload)) {
     return payload
@@ -43,7 +54,7 @@ function normalizePublicProviders(payload: PublicProvidersResponse['data']): Pub
           id: String(item.id),
           label: String(item.label || item.id),
           color: String(item.color || ''),
-          logo: String(item.logo || '')
+          logo: resolveProviderLogo(String(item.id), item.logo)
         }
         if (item.default_model) {
           normalized.default_model = item.default_model
@@ -61,7 +72,7 @@ function normalizePublicProviders(payload: PublicProvidersResponse['data']): Pub
         id,
         label: String(item.label || id),
         color: String(item.color || ''),
-        logo: String(item.logo || '')
+        logo: resolveProviderLogo(id, item.logo)
       }
       const defaultModel = item.default_model || firstModel
       if (defaultModel) {

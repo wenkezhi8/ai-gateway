@@ -91,7 +91,7 @@ describe('provider api', () => {
         id: 'openai',
         label: 'openai',
         color: '',
-        logo: '',
+        logo: '/logos/openai.svg',
         default_model: 'gpt-4o'
       }
     ])

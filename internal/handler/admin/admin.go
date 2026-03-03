@@ -56,7 +56,7 @@ func NewHandlers(
 
 	handlers := &Handlers{
 		Account:     NewAccountHandler(accountManager),
-		Provider:    NewProviderHandler(registry, accountManager),
+		Provider:    NewProviderHandler(registry, accountManager, smartRouter, ""),
 		Routing:     NewRoutingHandler(),
 		Cache:       NewCacheHandler(cacheManager),
 		Knowledge:   NewKnowledgeHandler(storage.GetSQLiteStorage().GetDB()),

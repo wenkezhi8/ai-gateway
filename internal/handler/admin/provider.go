@@ -3,26 +3,87 @@ package admin
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
 )
 
 // ProviderHandler handles provider management requests.
 type ProviderHandler struct {
-	registry *provider.Registry
-	manager  *limiter.AccountManager
+	registry   *provider.Registry
+	manager    *limiter.AccountManager
+	router     *routing.SmartRouter
+	configPath string
 }
 
 // NewProviderHandler creates a new provider handler.
-func NewProviderHandler(registry *provider.Registry, manager *limiter.AccountManager) *ProviderHandler {
-	return &ProviderHandler{
-		registry: registry,
-		manager:  manager,
+func NewProviderHandler(registry *provider.Registry, manager *limiter.AccountManager, router *routing.SmartRouter, configPath string) *ProviderHandler {
+	if strings.TrimSpace(configPath) == "" {
+		configPath = defaultRuntimeConfigPath
 	}
+	return &ProviderHandler{
+		registry:   registry,
+		manager:    manager,
+		router:     router,
+		configPath: configPath,
+	}
+}
+
+func normalizeProviderKey(input string) string {
+	return strings.TrimSpace(strings.ToLower(input))
+}
+
+func sameProvider(left, right string) bool {
+	return normalizeProviderKey(left) != "" && normalizeProviderKey(left) == normalizeProviderKey(right)
+}
+
+func (h *ProviderHandler) removeProviderFromConfig(providerName string) (bool, error) {
+	root, err := loadConfigMap(h.configPath)
+	if err != nil {
+		return false, err
+	}
+
+	rawProviders, ok := root["providers"]
+	if !ok {
+		return false, nil
+	}
+
+	providers, ok := rawProviders.([]any)
+	if !ok {
+		return false, nil
+	}
+
+	changed := false
+	filtered := make([]any, 0, len(providers))
+	for _, item := range providers {
+		providerConfig, castOK := item.(map[string]any)
+		if !castOK {
+			filtered = append(filtered, item)
+			continue
+		}
+		name, _ := providerConfig["name"].(string)
+		if sameProvider(name, providerName) {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+
+	if !changed {
+		return false, nil
+	}
+
+	root["providers"] = filtered
+	if err := writeConfigMapAtomic(h.configPath, root); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (h *ProviderHandler) getAccountCount(providerName string) int {
@@ -205,9 +266,80 @@ func (h *ProviderHandler) UpdateProvider(c *gin.Context) {
 // DELETE /api/admin/providers/:id.
 func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 	providerName := c.Param("id")
+	providerName = strings.TrimSpace(providerName)
+	if providerName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "Provider ID is required",
+			},
+		})
+		return
+	}
 
-	// Check if provider exists
-	if _, ok := h.registry.Get(providerName); !ok {
+	removedConfig, err := h.removeProviderFromConfig(providerName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "config_update_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	removedRegistry := false
+	if _, ok := h.registry.Get(providerName); ok {
+		h.registry.Remove(providerName)
+		removedRegistry = true
+	}
+
+	removedAccounts := 0
+	if h.manager != nil {
+		accounts := h.manager.GetAllAccounts()
+		for _, account := range accounts {
+			providerType := account.ProviderType
+			if providerType == "" {
+				providerType = account.Provider
+			}
+			if !sameProvider(account.Provider, providerName) && !sameProvider(providerType, providerName) {
+				continue
+			}
+			if removeErr := h.manager.RemoveAccount(account.ID); removeErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "delete_account_failed",
+						"message": removeErr.Error(),
+					},
+				})
+				return
+			}
+			removedAccounts++
+		}
+		if removedAccounts > 0 {
+			if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"success": false,
+					"error": gin.H{
+						"code":    "persist_accounts_failed",
+						"message": err.Error(),
+					},
+				})
+				return
+			}
+		}
+	}
+
+	removedModels := 0
+	removedDefaults := false
+	if h.router != nil {
+		removedModels, removedDefaults = h.router.RemoveProviderData(providerName)
+	}
+
+	if !removedRegistry && removedAccounts == 0 && removedModels == 0 && !removedDefaults && !removedConfig {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -218,13 +350,16 @@ func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 		return
 	}
 
-	h.registry.Remove(providerName)
-
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"name":    providerName,
-			"message": "Provider deleted successfully",
+			"name":             providerName,
+			"message":          "Provider deleted successfully",
+			"removed_registry": removedRegistry,
+			"removed_accounts": removedAccounts,
+			"removed_models":   removedModels,
+			"removed_defaults": removedDefaults,
+			"updated_config":   removedConfig,
 		},
 	})
 }
