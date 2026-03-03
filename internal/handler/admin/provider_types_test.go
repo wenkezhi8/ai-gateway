@@ -75,8 +75,12 @@ func TestProviderHandler_GetProviderTypes_ShouldIncludeBuiltInAndDynamicProvider
 
 	providerByID := make(map[string]map[string]interface{}, len(payload.Data))
 	for _, item := range payload.Data {
-		id, _ := item["id"].(string)
-		if id != "" {
+		idValue, exists := item["id"]
+		if !exists {
+			continue
+		}
+		id, ok := idValue.(string)
+		if ok && id != "" {
 			providerByID[id] = item
 		}
 	}
@@ -127,7 +131,9 @@ func TestProviderHandler_GetProviderTypes_ShouldReturnContractFields(t *testing.
 
 	var openai map[string]interface{}
 	for _, item := range payload.Data {
-		if id, _ := item["id"].(string); id == "openai" {
+		idValue, exists := item["id"]
+		id, ok := idValue.(string)
+		if exists && ok && id == "openai" {
 			openai = item
 			break
 		}

@@ -45,11 +45,15 @@ func (p *providerDeleteTestProvider) SetEnabled(enabled bool) { p.enabled = enab
 func TestProviderHandler_DeleteProvider_ShouldCascadeAndPersist(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	originalWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
+	originalWD, getwdErr := os.Getwd()
+	if getwdErr != nil {
+		t.Fatalf("getwd: %v", getwdErr)
 	}
-	t.Cleanup(func() { _ = os.Chdir(originalWD) })
+	t.Cleanup(func() {
+		if cleanupErr := os.Chdir(originalWD); cleanupErr != nil {
+			t.Errorf("restore working dir: %v", cleanupErr)
+		}
+	})
 
 	tmpDir := t.TempDir()
 	if err := os.Chdir(tmpDir); err != nil {
@@ -124,15 +128,18 @@ func TestProviderHandler_DeleteProvider_ShouldCascadeAndPersist(t *testing.T) {
 		t.Fatalf("read config: %v", err)
 	}
 	var configDoc map[string]any
-	if err := json.Unmarshal(configRaw, &configDoc); err != nil {
-		t.Fatalf("unmarshal config: %v", err)
+	if unmarshalErr := json.Unmarshal(configRaw, &configDoc); unmarshalErr != nil {
+		t.Fatalf("unmarshal config: %v", unmarshalErr)
 	}
 	providersAny, ok := configDoc["providers"].([]any)
 	if !ok {
 		t.Fatalf("expected providers array in config")
 	}
 	for _, item := range providersAny {
-		providerObj, _ := item.(map[string]any)
+		providerObj, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected provider item object, got %T", item)
+		}
 		if providerObj["name"] == "openai" {
 			t.Fatalf("expected openai removed from configs/config.json")
 		}

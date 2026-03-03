@@ -48,6 +48,22 @@ const (
 	providerCategoryChinese       = "chinese"
 	providerCategoryLocal         = "local"
 	providerCategoryCustom        = "custom"
+
+	providerIDOpenAI     = "openai"
+	providerIDAnthropic  = "anthropic"
+	providerIDVolcengine = "volcengine"
+	providerIDQwen       = "qwen"
+	providerIDZhipu      = "zhipu"
+	providerIDMoonshot   = "moonshot"
+	providerIDMinimax    = "minimax"
+	providerIDBaichuan   = "baichuan"
+	providerIDGoogle     = "google"
+	providerIDOllama     = "ollama"
+	providerIDLMStudio   = "lmstudio"
+
+	providerErrCodeInvalidRequest = "invalid_request"
+	providerErrCodeNotFound       = "not_found"
+	providerErrMsgNotFound        = "Provider not found"
 )
 
 var providerTypeCatalog = map[string]ProviderTypeResponse{
@@ -227,8 +243,8 @@ var providerTypeCatalog = map[string]ProviderTypeResponse{
 		SupportsCodingPlan: true,
 		Models:             []string{"yi-large", "yi-medium"},
 	},
-	"ollama": {
-		ID:                 "ollama",
+	providerIDOllama: {
+		ID:                 providerIDOllama,
 		Label:              "Ollama",
 		Category:           providerCategoryLocal,
 		Color:              "#10B981",
@@ -265,9 +281,39 @@ var providerTypeCatalog = map[string]ProviderTypeResponse{
 func normalizeProviderID(input string) string {
 	normalized := strings.TrimSpace(strings.ToLower(input))
 	if normalized == "claude" {
-		return "anthropic"
+		return providerIDAnthropic
 	}
 	return normalized
+}
+
+type providerURLRule struct {
+	providerID string
+	keywords   []string
+}
+
+var providerURLRules = []providerURLRule{
+	{providerID: "deepseek", keywords: []string{"deepseek.com"}},
+	{providerID: providerIDOpenAI, keywords: []string{"openai.com"}},
+	{providerID: providerIDAnthropic, keywords: []string{"anthropic.com"}},
+	{providerID: providerIDVolcengine, keywords: []string{"volces.com", "volcengine"}},
+	{providerID: providerIDQwen, keywords: []string{"dashscope.aliyuncs.com", "aliyun"}},
+	{providerID: providerIDZhipu, keywords: []string{"zhipuai.cn", "bigmodel.cn"}},
+	{providerID: providerIDMoonshot, keywords: []string{"moonshot.cn", "kimi.ai"}},
+	{providerID: providerIDMinimax, keywords: []string{"minimax"}},
+	{providerID: providerIDBaichuan, keywords: []string{"baichuan"}},
+	{providerID: providerIDGoogle, keywords: []string{"googleapis.com"}},
+	{providerID: providerIDOllama, keywords: []string{"localhost:11434", "127.0.0.1:11434", providerIDOllama}},
+	{providerID: providerIDLMStudio, keywords: []string{"localhost:1234", "127.0.0.1:1234", providerIDLMStudio}},
+}
+
+func containsAny(text string, keywords []string) bool {
+	for i := range keywords {
+		if strings.Contains(text, keywords[i]) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func inferProviderFromBaseURL(rawURL string) string {
@@ -276,34 +322,14 @@ func inferProviderFromBaseURL(rawURL string) string {
 		return ""
 	}
 
-	switch {
-	case strings.Contains(baseURL, "deepseek.com"):
-		return "deepseek"
-	case strings.Contains(baseURL, "openai.com"):
-		return "openai"
-	case strings.Contains(baseURL, "anthropic.com"):
-		return "anthropic"
-	case strings.Contains(baseURL, "volces.com") || strings.Contains(baseURL, "volcengine"):
-		return "volcengine"
-	case strings.Contains(baseURL, "dashscope.aliyuncs.com") || strings.Contains(baseURL, "aliyun"):
-		return "qwen"
-	case strings.Contains(baseURL, "zhipuai.cn") || strings.Contains(baseURL, "bigmodel.cn"):
-		return "zhipu"
-	case strings.Contains(baseURL, "moonshot.cn") || strings.Contains(baseURL, "kimi.ai"):
-		return "moonshot"
-	case strings.Contains(baseURL, "minimax"):
-		return "minimax"
-	case strings.Contains(baseURL, "baichuan"):
-		return "baichuan"
-	case strings.Contains(baseURL, "googleapis.com"):
-		return "google"
-	case strings.Contains(baseURL, "localhost:11434") || strings.Contains(baseURL, "127.0.0.1:11434") || strings.Contains(baseURL, "ollama"):
-		return "ollama"
-	case strings.Contains(baseURL, "localhost:1234") || strings.Contains(baseURL, "127.0.0.1:1234") || strings.Contains(baseURL, "lmstudio"):
-		return "lmstudio"
-	default:
-		return ""
+	for i := range providerURLRules {
+		rule := providerURLRules[i]
+		if containsAny(baseURL, rule.keywords) {
+			return rule.providerID
+		}
 	}
+
+	return ""
 }
 
 func inferCategory(providerID string) string {
@@ -316,100 +342,155 @@ func inferCategory(providerID string) string {
 	}
 
 	switch normalized {
-	case "openai", "anthropic", "azure-openai", "google", "mistral":
+	case providerIDOpenAI, providerIDAnthropic, "azure-openai", providerIDGoogle, "mistral":
 		return providerCategoryInternational
-	case "deepseek", "qwen", "zhipu", "moonshot", "minimax", "baichuan", "volcengine", "ernie", "hunyuan", "spark", "yi":
+	case "deepseek", providerIDQwen, providerIDZhipu, providerIDMoonshot, providerIDMinimax, providerIDBaichuan, providerIDVolcengine, "ernie", "hunyuan", "spark", "yi":
 		return providerCategoryChinese
-	case "ollama", "lmstudio", "local":
+	case providerIDOllama, providerIDLMStudio, "local":
 		return providerCategoryLocal
 	default:
 		return providerCategoryCustom
 	}
 }
 
+func normalizeProviderTypeItem(id string, item *ProviderTypeResponse) (string, ProviderTypeResponse, bool) {
+	normalized := normalizeProviderID(id)
+	if normalized == "" {
+		return "", ProviderTypeResponse{}, false
+	}
+
+	normalizedItem := *item
+	normalizedItem.ID = normalized
+	if normalizedItem.Label == "" {
+		normalizedItem.Label = normalized
+	}
+	if normalizedItem.Category == "" {
+		normalizedItem.Category = inferCategory(normalized)
+	}
+	if normalizedItem.CodingEndpoint == "" {
+		normalizedItem.CodingEndpoint = normalizedItem.DefaultEndpoint
+	}
+	normalizedItem.Models = uniqueSortedStrings(normalizedItem.Models)
+
+	return normalized, normalizedItem, true
+}
+
+func defaultProviderTypeItem(normalized string) ProviderTypeResponse {
+	return ProviderTypeResponse{
+		ID:                 normalized,
+		Label:              normalized,
+		Category:           inferCategory(normalized),
+		Color:              "#6B7280",
+		Logo:               "",
+		DefaultEndpoint:    "",
+		CodingEndpoint:     "",
+		SupportsCodingPlan: false,
+		Models:             []string{},
+	}
+}
+
+func mergeOneProviderType(merged map[string]ProviderTypeResponse, providerID string, models []string) {
+	normalized := normalizeProviderID(providerID)
+	if normalized == "" {
+		return
+	}
+
+	item, ok := merged[normalized]
+	if !ok {
+		item = defaultProviderTypeItem(normalized)
+	}
+
+	if item.Category == "" {
+		item.Category = inferCategory(normalized)
+	}
+	if item.CodingEndpoint == "" {
+		item.CodingEndpoint = item.DefaultEndpoint
+	}
+	item.Models = uniqueSortedStrings(append(item.Models, models...))
+	merged[normalized] = item
+}
+
+func accountProviderID(account *limiter.AccountConfig) string {
+	providerID := strings.TrimSpace(account.Provider)
+	if providerID == "" {
+		providerID = strings.TrimSpace(account.ProviderType)
+	}
+	if inferred := inferProviderFromBaseURL(account.BaseURL); inferred != "" {
+		providerID = inferred
+	}
+
+	return providerID
+}
+
+func finalizeProviderTypeItem(item *ProviderTypeResponse) ProviderTypeResponse {
+	finalized := *item
+	if finalized.Models == nil {
+		finalized.Models = []string{}
+	}
+	if finalized.Category == "" {
+		finalized.Category = inferCategory(finalized.ID)
+	}
+	if finalized.CodingEndpoint == "" {
+		finalized.CodingEndpoint = finalized.DefaultEndpoint
+	}
+
+	return finalized
+}
+
+func providerTypeSortLess(result []ProviderTypeResponse, i, j int, categoryOrder map[string]int) bool {
+	leftOrder, leftOK := categoryOrder[result[i].Category]
+	rightOrder, rightOK := categoryOrder[result[j].Category]
+	if !leftOK {
+		leftOrder = 99
+	}
+	if !rightOK {
+		rightOrder = 99
+	}
+	if leftOrder != rightOrder {
+		return leftOrder < rightOrder
+	}
+
+	leftLabel := strings.ToLower(strings.TrimSpace(result[i].Label))
+	rightLabel := strings.ToLower(strings.TrimSpace(result[j].Label))
+	if leftLabel != rightLabel {
+		return leftLabel < rightLabel
+	}
+
+	return result[i].ID < result[j].ID
+}
+
 func mergeProviderTypes(base map[string]ProviderTypeResponse, registry *provider.Registry, manager *limiter.AccountManager) []ProviderTypeResponse {
 	merged := make(map[string]ProviderTypeResponse, len(base))
 
-	for id, item := range base {
-		normalized := normalizeProviderID(id)
-		if normalized == "" {
+	for id := range base {
+		baseItem := base[id]
+		normalized, item, ok := normalizeProviderTypeItem(id, &baseItem)
+		if !ok {
 			continue
 		}
-		item.ID = normalized
-		if item.Label == "" {
-			item.Label = normalized
-		}
-		if item.Category == "" {
-			item.Category = inferCategory(normalized)
-		}
-		if item.CodingEndpoint == "" {
-			item.CodingEndpoint = item.DefaultEndpoint
-		}
-		item.Models = uniqueSortedStrings(item.Models)
-		merged[normalized] = item
-	}
-
-	mergeOne := func(providerID string, models []string) {
-		normalized := normalizeProviderID(providerID)
-		if normalized == "" {
-			return
-		}
-
-		item, ok := merged[normalized]
-		if !ok {
-			item = ProviderTypeResponse{
-				ID:                 normalized,
-				Label:              normalized,
-				Category:           inferCategory(normalized),
-				Color:              "#6B7280",
-				Logo:               "",
-				DefaultEndpoint:    "",
-				CodingEndpoint:     "",
-				SupportsCodingPlan: false,
-				Models:             []string{},
-			}
-		}
-
-		if item.Category == "" {
-			item.Category = inferCategory(normalized)
-		}
-		if item.CodingEndpoint == "" {
-			item.CodingEndpoint = item.DefaultEndpoint
-		}
-		item.Models = uniqueSortedStrings(append(item.Models, models...))
 		merged[normalized] = item
 	}
 
 	if registry != nil {
-		for _, p := range registry.List() {
-			mergeOne(p.Name(), p.Models())
+		providers := registry.List()
+		for i := range providers {
+			p := providers[i]
+			mergeOneProviderType(merged, p.Name(), p.Models())
 		}
 	}
 
 	if manager != nil {
-		for _, account := range manager.GetAllAccounts() {
-			providerID := strings.TrimSpace(account.Provider)
-			if providerID == "" {
-				providerID = strings.TrimSpace(account.ProviderType)
-			}
-			if inferred := inferProviderFromBaseURL(account.BaseURL); inferred != "" {
-				providerID = inferred
-			}
-			mergeOne(providerID, nil)
+		accounts := manager.GetAllAccounts()
+		for i := range accounts {
+			account := accounts[i]
+			mergeOneProviderType(merged, accountProviderID(account), nil)
 		}
 	}
 
 	result := make([]ProviderTypeResponse, 0, len(merged))
-	for _, item := range merged {
-		if item.Models == nil {
-			item.Models = []string{}
-		}
-		if item.Category == "" {
-			item.Category = inferCategory(item.ID)
-		}
-		if item.CodingEndpoint == "" {
-			item.CodingEndpoint = item.DefaultEndpoint
-		}
+	for id := range merged {
+		mergedItem := merged[id]
+		item := finalizeProviderTypeItem(&mergedItem)
 		result = append(result, item)
 	}
 
@@ -421,24 +502,7 @@ func mergeProviderTypes(base map[string]ProviderTypeResponse, registry *provider
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		leftOrder, leftOK := categoryOrder[result[i].Category]
-		rightOrder, rightOK := categoryOrder[result[j].Category]
-		if !leftOK {
-			leftOrder = 99
-		}
-		if !rightOK {
-			rightOrder = 99
-		}
-		if leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-
-		leftLabel := strings.ToLower(strings.TrimSpace(result[i].Label))
-		rightLabel := strings.ToLower(strings.TrimSpace(result[j].Label))
-		if leftLabel != rightLabel {
-			return leftLabel < rightLabel
-		}
-		return result[i].ID < result[j].ID
+		return providerTypeSortLess(result, i, j, categoryOrder)
 	})
 
 	return result
@@ -491,7 +555,12 @@ func (h *ProviderHandler) removeProviderFromConfig(providerName string) (bool, e
 			filtered = append(filtered, item)
 			continue
 		}
-		name, _ := providerConfig["name"].(string)
+		nameValue, hasName := providerConfig["name"]
+		name, nameOK := nameValue.(string)
+		if !hasName || !nameOK {
+			filtered = append(filtered, item)
+			continue
+		}
 		if sameProvider(name, providerName) {
 			changed = true
 			continue
@@ -533,6 +602,39 @@ func (h *ProviderHandler) checkProviderHealth(ctx context.Context, p provider.Pr
 	checkCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	return p.ValidateKey(checkCtx)
+}
+
+func (h *ProviderHandler) removeProviderAccounts(providerName string) (int, error) {
+	if h.manager == nil {
+		return 0, nil
+	}
+
+	removedAccounts := 0
+	accounts := h.manager.GetAllAccounts()
+	for _, account := range accounts {
+		providerType := account.ProviderType
+		if providerType == "" {
+			providerType = account.Provider
+		}
+		if !sameProvider(account.Provider, providerName) && !sameProvider(providerType, providerName) {
+			continue
+		}
+
+		if err := h.manager.RemoveAccount(account.ID); err != nil {
+			return 0, err
+		}
+		removedAccounts++
+	}
+
+	if removedAccounts == 0 {
+		return 0, nil
+	}
+
+	if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
+		return 0, err
+	}
+
+	return removedAccounts, nil
 }
 
 // GET /api/admin/providers.
@@ -584,8 +686,8 @@ func (h *ProviderHandler) GetProvider(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
@@ -617,7 +719,7 @@ func (h *ProviderHandler) CreateProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "invalid_request",
+				"code":    providerErrCodeInvalidRequest,
 				"message": err.Error(),
 			},
 		})
@@ -665,7 +767,7 @@ func (h *ProviderHandler) UpdateProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "invalid_request",
+				"code":    providerErrCodeInvalidRequest,
 				"message": err.Error(),
 			},
 		})
@@ -677,8 +779,8 @@ func (h *ProviderHandler) UpdateProvider(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
@@ -706,7 +808,7 @@ func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "invalid_request",
+				"code":    providerErrCodeInvalidRequest,
 				"message": "Provider ID is required",
 			},
 		})
@@ -731,41 +833,16 @@ func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 		removedRegistry = true
 	}
 
-	removedAccounts := 0
-	if h.manager != nil {
-		accounts := h.manager.GetAllAccounts()
-		for _, account := range accounts {
-			providerType := account.ProviderType
-			if providerType == "" {
-				providerType = account.Provider
-			}
-			if !sameProvider(account.Provider, providerName) && !sameProvider(providerType, providerName) {
-				continue
-			}
-			if removeErr := h.manager.RemoveAccount(account.ID); removeErr != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error": gin.H{
-						"code":    "delete_account_failed",
-						"message": removeErr.Error(),
-					},
-				})
-				return
-			}
-			removedAccounts++
-		}
-		if removedAccounts > 0 {
-			if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"success": false,
-					"error": gin.H{
-						"code":    "persist_accounts_failed",
-						"message": err.Error(),
-					},
-				})
-				return
-			}
-		}
+	removedAccounts, err := h.removeProviderAccounts(providerName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "delete_account_failed",
+				"message": err.Error(),
+			},
+		})
+		return
 	}
 
 	removedModels := 0
@@ -778,8 +855,8 @@ func (h *ProviderHandler) DeleteProvider(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
@@ -808,8 +885,8 @@ func (h *ProviderHandler) TestProvider(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
@@ -858,8 +935,8 @@ func (h *ProviderHandler) setProviderEnabled(c *gin.Context, enabled bool) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
@@ -891,8 +968,8 @@ func (h *ProviderHandler) GetProviderModels(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Provider not found",
+				"code":    providerErrCodeNotFound,
+				"message": providerErrMsgNotFound,
 			},
 		})
 		return
