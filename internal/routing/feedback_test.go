@@ -320,3 +320,73 @@ func TestFeedbackCollector_MaxFeedback(t *testing.T) {
 		t.Errorf("expected feedback <= %d, got %d", collector.maxFeedback, len(collector.feedback))
 	}
 }
+
+func TestFeedbackCollector_GetTaskTypeDistribution_ShouldUseShortTTLCacheUntilForcedRefresh(t *testing.T) {
+	assessor := NewDifficultyAssessor()
+	router := NewSmartRouter()
+	collector := NewFeedbackCollector(assessor, router)
+	collector.distributionCacheTTL = time.Hour
+
+	collector.RecordFeedback(Feedback{
+		Model:        "cache-model",
+		TaskType:     TaskTypeCode,
+		FeedbackType: FeedbackPositive,
+	})
+
+	first := collector.GetTaskTypeDistribution()
+	if got := getTaskTypeCount(first, string(TaskTypeCode)); got != 1 {
+		t.Fatalf("expected initial code count 1, got %d", got)
+	}
+
+	collector.mu.Lock()
+	collector.performance["cache-model"].TaskTypeStats[string(TaskTypeCode)].TotalRequests = 9
+	collector.mu.Unlock()
+
+	cached := collector.GetTaskTypeDistribution()
+	if got := getTaskTypeCount(cached, string(TaskTypeCode)); got != 1 {
+		t.Fatalf("expected cached code count 1, got %d", got)
+	}
+
+	fresh := collector.GetTaskTypeDistributionCached(true)
+	if got := getTaskTypeCount(fresh, string(TaskTypeCode)); got != 9 {
+		t.Fatalf("expected refreshed code count 9, got %d", got)
+	}
+}
+
+func TestFeedbackCollector_GetTaskTypeDistribution_ShouldInvalidateCacheAfterRecordFeedback(t *testing.T) {
+	assessor := NewDifficultyAssessor()
+	router := NewSmartRouter()
+	collector := NewFeedbackCollector(assessor, router)
+	collector.distributionCacheTTL = time.Hour
+
+	collector.RecordFeedback(Feedback{
+		Model:        "invalidate-model",
+		TaskType:     TaskTypeCode,
+		FeedbackType: FeedbackPositive,
+	})
+
+	_ = collector.GetTaskTypeDistribution()
+
+	collector.RecordFeedback(Feedback{
+		Model:        "invalidate-model",
+		TaskType:     TaskTypeChat,
+		FeedbackType: FeedbackPositive,
+	})
+
+	latest := collector.GetTaskTypeDistribution()
+	if got := getTaskTypeCount(latest, string(TaskTypeCode)); got != 1 {
+		t.Fatalf("expected code count 1 after invalidation, got %d", got)
+	}
+	if got := getTaskTypeCount(latest, string(TaskTypeChat)); got != 1 {
+		t.Fatalf("expected chat count 1 after invalidation, got %d", got)
+	}
+}
+
+func getTaskTypeCount(distribution []TaskTypeDistribution, taskType string) int64 {
+	for _, item := range distribution {
+		if item.TaskType == taskType {
+			return item.Count
+		}
+	}
+	return 0
+}

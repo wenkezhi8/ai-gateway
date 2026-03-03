@@ -71,7 +71,13 @@ type FeedbackCollector struct {
 	smartRouter *SmartRouter
 	maxFeedback int
 	persistFile string
+
+	distributionCache    []TaskTypeDistribution
+	distributionCacheAt  time.Time
+	distributionCacheTTL time.Duration
 }
+
+const defaultTaskTypeDistributionCacheTTL = 30 * time.Second
 
 // OptimizationResult describes one optimization run outcome.
 type OptimizationResult struct {
@@ -86,12 +92,13 @@ var feedbackLogger = logrus.WithField("component", "feedback_collector")
 // NewFeedbackCollector creates a new feedback collector.
 func NewFeedbackCollector(assessor *DifficultyAssessor, smartRouter *SmartRouter) *FeedbackCollector {
 	fc := &FeedbackCollector{
-		feedback:    make([]Feedback, 0),
-		performance: make(map[string]*ModelPerformance),
-		assessor:    assessor,
-		smartRouter: smartRouter,
-		maxFeedback: 10000,
-		persistFile: "data/feedback.json",
+		feedback:             make([]Feedback, 0),
+		performance:          make(map[string]*ModelPerformance),
+		assessor:             assessor,
+		smartRouter:          smartRouter,
+		maxFeedback:          10000,
+		persistFile:          "data/feedback.json",
+		distributionCacheTTL: defaultTaskTypeDistributionCacheTTL,
 	}
 
 	fc.loadFromFile()
@@ -131,6 +138,8 @@ func (fc *FeedbackCollector) RecordFeedback(feedback Feedback) {
 		"rating":        feedback.Rating,
 		"task_type":     feedback.TaskType,
 	}).Info("Recorded feedback")
+
+	fc.invalidateTaskTypeDistributionCacheLocked()
 }
 
 // RecordRequestResult records a request result.
@@ -274,9 +283,32 @@ type TaskTypeDistribution struct {
 
 // GetTaskTypeDistribution returns the distribution of task types from feedback.
 func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
-	fc.mu.RLock()
-	defer fc.mu.RUnlock()
+	return fc.GetTaskTypeDistributionCached(false)
+}
 
+// GetTaskTypeDistributionCached returns task distribution with short TTL cache.
+func (fc *FeedbackCollector) GetTaskTypeDistributionCached(forceRefresh bool) []TaskTypeDistribution {
+	fc.mu.RLock()
+	if !forceRefresh && len(fc.distributionCache) > 0 && fc.distributionCacheTTL > 0 && time.Since(fc.distributionCacheAt) < fc.distributionCacheTTL {
+		cached := make([]TaskTypeDistribution, len(fc.distributionCache))
+		copy(cached, fc.distributionCache)
+		fc.mu.RUnlock()
+		return cached
+	}
+
+	result := fc.buildTaskTypeDistributionLocked()
+	fc.mu.RUnlock()
+
+	fc.mu.Lock()
+	fc.distributionCache = make([]TaskTypeDistribution, len(result))
+	copy(fc.distributionCache, result)
+	fc.distributionCacheAt = time.Now()
+	fc.mu.Unlock()
+
+	return result
+}
+
+func (fc *FeedbackCollector) buildTaskTypeDistributionLocked() []TaskTypeDistribution {
 	counts := make(map[string]int64)
 	var total int64
 
@@ -324,6 +356,11 @@ func (fc *FeedbackCollector) GetTaskTypeDistribution() []TaskTypeDistribution {
 	}
 
 	return result
+}
+
+func (fc *FeedbackCollector) invalidateTaskTypeDistributionCacheLocked() {
+	fc.distributionCache = nil
+	fc.distributionCacheAt = time.Time{}
 }
 
 // calculatePerformanceScore calculates a performance score for a model.
@@ -591,5 +628,6 @@ func (fc *FeedbackCollector) ClearOldFeedback(olderThan time.Duration) int {
 	}
 
 	fc.feedback = newFeedback
+	fc.invalidateTaskTypeDistributionCacheLocked()
 	return cleared
 }

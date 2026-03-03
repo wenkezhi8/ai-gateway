@@ -163,7 +163,9 @@ func (h *FeedbackHandler) GetRecentFeedback(c *gin.Context) {
 
 // GetTaskTypeDistribution returns the distribution of task types.
 func (h *FeedbackHandler) GetTaskTypeDistribution(c *gin.Context) {
-	distribution := h.collector.GetTaskTypeDistribution()
+	refresh := c.DefaultQuery("refresh", "false")
+	forceRefresh := refresh == "true" || refresh == "1"
+	distribution := h.collector.GetTaskTypeDistributionCached(forceRefresh)
 	c.JSON(http.StatusOK, gin.H{
 		"distribution": distribution,
 	})

@@ -199,9 +199,12 @@ export async function triggerFeedbackOptimization() {
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
-export async function getTaskTypeDistribution() {
-  const raw = await request.get('/admin/feedback/task-type-distribution')
-  return unwrapEnvelope<any>(raw, { allowPlain: true })
+export async function getTaskTypeDistribution(options?: { refresh?: boolean }) {
+	const refresh = options?.refresh
+	const raw = refresh
+		? await request.get('/admin/feedback/task-type-distribution', { params: { refresh: 'true' } })
+		: await request.get('/admin/feedback/task-type-distribution')
+	return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 
 export async function getVectorTierConfig() {

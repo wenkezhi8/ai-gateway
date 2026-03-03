@@ -60,7 +60,7 @@
           <div class="panel-title">任务类型分布</div>
           <div class="panel-subtitle">基于反馈统计的任务类型占比，不影响缓存主流程</div>
         </div>
-        <el-button link type="primary" @click="loadTaskTypeDistribution">刷新</el-button>
+        <el-button link type="primary" @click="loadTaskTypeDistribution(true)">刷新</el-button>
       </div>
 
       <div v-if="taskTypeDistributionState === 'loading'" class="distribution-loading">
@@ -75,7 +75,7 @@
         :title="taskTypeDistributionError || '任务类型分布加载失败'"
       >
         <template #default>
-          <el-button link type="warning" @click="loadTaskTypeDistribution">重试</el-button>
+          <el-button link type="warning" @click="loadTaskTypeDistribution(true)">重试</el-button>
         </template>
       </el-alert>
 
@@ -944,6 +944,8 @@ const cacheTaskTypeDistributionLabelMap: Record<string, string> = {
 const taskTypeDistribution = ref<Array<{ key: string; label: string; count: number; percent: number }>>([])
 const taskTypeDistributionState = ref<'loading' | 'error' | 'empty' | 'success'>('loading')
 const taskTypeDistributionError = ref('')
+const taskTypeDistributionTtlMs = 30 * 1000
+const taskTypeDistributionLastFetchedAt = ref(0)
 
 const ruleModelOptions = ref<Array<{ label: string; options: Array<{ label: string; value: string }> }>>([])
 
@@ -1286,22 +1288,28 @@ const buildTaskTypeDistributionRows = (rawList: any[]) => {
   })
 }
 
-async function loadTaskTypeDistribution() {
-  taskTypeDistributionState.value = 'loading'
-  taskTypeDistributionError.value = ''
-  try {
-    const data: any = await getTaskTypeDistributionApi()
-    const list = Array.isArray(data?.distribution)
-      ? data.distribution
-      : (Array.isArray(data) ? data : [])
-    const rows = buildTaskTypeDistributionRows(list)
-    taskTypeDistribution.value = rows
-    taskTypeDistributionState.value = rows.every((row) => row.count === 0) ? 'empty' : 'success'
-  } catch (e: any) {
-    taskTypeDistribution.value = buildTaskTypeDistributionRows([])
-    taskTypeDistributionError.value = e?.message || '任务类型分布加载失败'
-    taskTypeDistributionState.value = 'error'
-  }
+async function loadTaskTypeDistribution(forceRefresh = false) {
+	if (!forceRefresh && taskTypeDistribution.value.length > 0 && taskTypeDistributionState.value !== 'error' && Date.now() - taskTypeDistributionLastFetchedAt.value < taskTypeDistributionTtlMs) {
+		return
+	}
+
+	taskTypeDistributionState.value = 'loading'
+	taskTypeDistributionError.value = ''
+	try {
+		const data: any = await getTaskTypeDistributionApi({ refresh: forceRefresh })
+		const list = Array.isArray(data?.distribution)
+			? data.distribution
+			: (Array.isArray(data) ? data : [])
+		const rows = buildTaskTypeDistributionRows(list)
+		taskTypeDistribution.value = rows
+		taskTypeDistributionLastFetchedAt.value = Date.now()
+		taskTypeDistributionState.value = rows.every((row) => row.count === 0) ? 'empty' : 'success'
+	} catch (e: any) {
+		taskTypeDistribution.value = buildTaskTypeDistributionRows([])
+		taskTypeDistributionLastFetchedAt.value = 0
+		taskTypeDistributionError.value = e?.message || '任务类型分布加载失败'
+		taskTypeDistributionState.value = 'error'
+	}
 }
 
 const saveConfig = async () => {
