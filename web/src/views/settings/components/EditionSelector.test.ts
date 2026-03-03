@@ -11,6 +11,8 @@ describe('edition selector component', () => {
     expect(content).toContain('edition-cards')
     expect(content).toContain('canSelectEdition')
     expect(content).toContain('保存配置')
+    expect(content).toContain('安装依赖')
+    expect(content).toContain('runtime')
     expect(content).toContain('checkDependencies')
   })
 })
