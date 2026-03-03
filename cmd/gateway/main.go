@@ -31,9 +31,9 @@ type serverRuntimeConfig struct {
 func main() {
 	logger := bootstrap.NewLogger()
 
-	cfg, err := config.Load()
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to load configuration")
+	cfg, loadErr := config.Load()
+	if loadErr != nil {
+		logger.WithError(loadErr).Fatal("Failed to load configuration")
 	}
 	if err := cfg.Validate(); err != nil {
 		logger.WithError(err).Fatal("Invalid configuration")
@@ -49,9 +49,9 @@ func main() {
 
 	registry := bootstrap.InitProviderRegistry(cfg, logger)
 	accountManager := bootstrap.InitAccountManager(cfg, logger)
-	cacheManager, err := bootstrap.InitCacheManager(cfg, logger)
-	if err != nil {
-		logger.WithError(err).Fatal("Failed to initialize cache manager")
+	cacheManager, cacheErr := bootstrap.InitCacheManager(cfg, logger)
+	if cacheErr != nil {
+		logger.WithError(cacheErr).Fatal("Failed to initialize cache manager")
 	}
 	metricsSrv := bootstrap.StartMetricsServer(logger)
 

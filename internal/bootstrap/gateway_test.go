@@ -41,10 +41,10 @@ func TestInitCacheManager_VectorInitFailure_ShouldReturnError(t *testing.T) {
 		initializeVectorStore = originalInitializeVectorStore
 	})
 
-	newCacheManager = func(cfg cache.ManagerConfig) (*cache.Manager, error) {
+	newCacheManager = func(_ cache.ManagerConfig) (*cache.Manager, error) {
 		return cache.NewManagerWithCache(cache.NewMemoryCache()), nil
 	}
-	initializeVectorStore = func(cfg *config.Config, cacheManager *cache.Manager, logger *logrus.Logger) error {
+	initializeVectorStore = func(_ *config.Config, _ *cache.Manager, _ *logrus.Logger) error {
 		return errors.New("redis stack capability check failed")
 	}
 
@@ -66,10 +66,10 @@ func TestInitCacheManager_VectorDisabled_ShouldSkipVectorInitializer(t *testing.
 		initializeVectorStore = originalInitializeVectorStore
 	})
 
-	newCacheManager = func(cfg cache.ManagerConfig) (*cache.Manager, error) {
+	newCacheManager = func(_ cache.ManagerConfig) (*cache.Manager, error) {
 		return cache.NewManagerWithCache(cache.NewMemoryCache()), nil
 	}
-	initializeVectorStore = func(cfg *config.Config, cacheManager *cache.Manager, logger *logrus.Logger) error {
+	initializeVectorStore = func(_ *config.Config, _ *cache.Manager, _ *logrus.Logger) error {
 		return errors.New("should not be called")
 	}
 
