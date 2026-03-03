@@ -30,29 +30,30 @@ cd "$PROJECT_DIR"
 go build -o bin/gateway ./cmd/gateway
 
 echo ""
-echo "🔍 检查 Redis (6379)..."
-if lsof -ti:6379 >/dev/null 2>&1; then
-    echo "✓ Redis 端口可用 (6379)"
-else
-    echo "⚠️  Redis 未运行，尝试自动启动..."
-
-    if command -v brew >/dev/null 2>&1; then
-        brew services start redis >/dev/null 2>&1 || true
+echo "🔍 检查 Redis Stack (6379)..."
+if ! lsof -ti:6379 >/dev/null 2>&1; then
+    echo "⚠️  Redis Stack 未运行，尝试自动启动 Docker 容器..."
+    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+        docker rm -f redis-stack >/dev/null 2>&1 || true
+        docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18 >/dev/null
         sleep 2
-    fi
-
-    if ! lsof -ti:6379 >/dev/null 2>&1 && command -v redis-server >/dev/null 2>&1; then
-        nohup redis-server > /tmp/redis.log 2>&1 &
-        sleep 2
-    fi
-
-    if lsof -ti:6379 >/dev/null 2>&1; then
-        echo "✓ Redis 启动成功 (6379)"
-    else
-        echo "❌ Redis 启动失败，缓存将降级为内存模式（重启丢失）"
-        echo "   可手动执行: brew services start redis"
     fi
 fi
+
+if ! lsof -ti:6379 >/dev/null 2>&1; then
+    echo "❌ Redis Stack 启动失败，无法继续（向量缓存依赖 RediSearch/RedisJSON）"
+    echo "   可手动执行: docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
+    exit 1
+fi
+
+if ! redis-cli -p 6379 FT._LIST >/dev/null 2>&1; then
+    echo "❌ 当前 6379 不是 Redis Stack（缺少 FT 命令），请切换到 redis-stack-server"
+    echo "   建议执行: docker rm -f redis-stack >/dev/null 2>&1 || true"
+    echo "   然后执行: docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
+    exit 1
+fi
+
+echo "✓ Redis Stack 已就绪 (6379)"
 
 echo ""
 echo "🛑 停止所有旧服务（包括僵尸进程）..."

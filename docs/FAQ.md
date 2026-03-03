@@ -402,8 +402,8 @@ response = client.chat.completions.create(
 ```yaml
 # docker-compose.yml
 redis:
-  image: redis:7-alpine
-  command: redis-server --cluster-enabled yes
+  image: redis/redis-stack-server:7.2.0-v18
+  command: redis-stack-server --cluster-enabled yes
 ```
 
 ---

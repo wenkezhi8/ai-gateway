@@ -80,7 +80,7 @@ services:
     networks:
       - ai-gateway-network
     command: >
-      redis-server
+      redis-stack-server
       --appendonly yes
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru

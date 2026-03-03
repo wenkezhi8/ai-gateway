@@ -460,10 +460,9 @@ type RoutingDecision struct {
 git clone https://github.com/wenkezhi8/ai-gateway.git
 cd ai-gateway
 
-# 2. 启动依赖服务（Redis，可选）
-# Windows：下载Redis便携版，解压后直接运行 redis-server.exe
-# macOS：brew install redis && redis-server
-# Linux：apt install redis-server && systemctl start redis-server
+# 2. 启动依赖服务（Redis Stack，必需）
+# 推荐：docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18
+# 验证：redis-cli -p 6379 FT._LIST
 
 # 3. 安装Go依赖
 go mod download

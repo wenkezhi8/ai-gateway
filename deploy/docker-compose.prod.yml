@@ -96,7 +96,7 @@ services:
     networks:
       - ai-gateway-network
     command: >
-      redis-server
+      redis-stack-server
       --appendonly yes
       --maxmemory ${REDIS_MAXMEMORY:-512mb}
       --maxmemory-policy allkeys-lru

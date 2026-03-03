@@ -49,7 +49,10 @@ func main() {
 
 	registry := bootstrap.InitProviderRegistry(cfg, logger)
 	accountManager := bootstrap.InitAccountManager(cfg, logger)
-	cacheManager := bootstrap.InitCacheManager(cfg, logger)
+	cacheManager, err := bootstrap.InitCacheManager(cfg, logger)
+	if err != nil {
+		logger.WithError(err).Fatal("Failed to initialize cache manager")
+	}
 	metricsSrv := bootstrap.StartMetricsServer(logger)
 
 	jwtSecret = os.Getenv("JWT_SECRET")

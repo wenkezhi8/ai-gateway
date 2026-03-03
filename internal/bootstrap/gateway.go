@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -25,6 +26,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+)
+
+var (
+	newCacheManager       = cache.NewManager
+	initializeVectorStore = initVectorStore
 )
 
 func NewLogger() *logrus.Logger {
@@ -139,8 +145,8 @@ func InitAccountManager(cfg *config.Config, logger *logrus.Logger) *limiter.Acco
 	return accountManager
 }
 
-func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager {
-	cacheManager, err := cache.NewManager(cache.ManagerConfig{
+func InitCacheManager(cfg *config.Config, logger *logrus.Logger) (*cache.Manager, error) {
+	cacheManager, err := newCacheManager(cache.ManagerConfig{
 		Redis: cache.RedisConfig{
 			Host:     cfg.Redis.Host,
 			Port:     cfg.Redis.Port,
@@ -150,72 +156,87 @@ func InitCacheManager(cfg *config.Config, logger *logrus.Logger) *cache.Manager 
 		UseRedis: true,
 	})
 	if err != nil {
+		if cfg.VectorCache.Enabled {
+			return nil, fmt.Errorf("vector cache requires Redis Stack, connect redis failed: %w", err)
+		}
 		logger.WithError(err).Warn("Failed to connect to Redis, falling back to memory cache")
 		fallback := cache.NewManagerWithCache(cache.NewMemoryCache())
 		applyCacheSettingsFromConfig(fallback, cfg)
-		return fallback
+		return fallback, nil
 	}
 	logger.Infof("Connected to Redis at %s:%d", cfg.Redis.Host, cfg.Redis.Port)
 
 	applyCacheSettingsFromConfig(cacheManager, cfg)
 
-	// Initialize Redis Stack vector store when Redis backend is available.
 	if cfg.VectorCache.Enabled {
-		if rc, ok := cacheManager.Cache().(*cache.RedisCache); ok {
-			vectorCfg := cache.DefaultRedisStackVectorConfig()
-			vectorCfg.Enabled = cfg.VectorCache.Enabled
-			vectorCfg.IndexName = cfg.VectorCache.IndexName
-			vectorCfg.KeyPrefix = cfg.VectorCache.KeyPrefix
-			vectorCfg.Dimension = cfg.VectorCache.Dimension
-			vectorCfg.QueryTimeout = time.Duration(cfg.VectorCache.QueryTimeoutMs) * time.Millisecond
-
-			hotStore := cache.NewRedisStackVectorStoreFromRedisCache(rc, vectorCfg)
-			if err := hotStore.EnsureIndex(context.Background()); err != nil {
-				logger.WithError(err).Warn("Failed to ensure Redis Stack vector index, vector cache disabled")
-				cacheManager.SetVectorStore(nil)
-				return cacheManager
-			}
-
-			coldStores := map[string]cache.ColdVectorStore{}
-			sqliteStore, err := cache.NewSQLiteColdVectorStore(cache.SQLiteColdVectorStoreConfig{
-				Path: cfg.VectorCache.ColdVectorSQLitePath,
-			})
-			if err != nil {
-				logger.WithError(err).Warn("Failed to initialize sqlite cold vector store")
-			} else {
-				coldStores[cache.ColdVectorBackendSQLite] = sqliteStore
-			}
-
-			qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
-				URL:        cfg.VectorCache.ColdVectorQdrantURL,
-				APIKey:     cfg.VectorCache.ColdVectorQdrantAPIKey,
-				Collection: cfg.VectorCache.ColdVectorQdrantCollection,
-				Timeout:    time.Duration(cfg.VectorCache.ColdVectorQdrantTimeoutMs) * time.Millisecond,
-				Dimension:  cfg.VectorCache.Dimension,
-			})
-			coldStores[cache.ColdVectorBackendQdrant] = qdrantStore
-
-			tieredCfg := cache.TieredConfigFromSettings(cacheManager.GetSettings())
-			tieredStore := cache.NewTieredVectorStore(hotStore, coldStores, tieredCfg)
-			if err := tieredStore.EnsureIndex(context.Background()); err != nil {
-				logger.WithError(err).Warn("Failed to ensure tiered vector store index")
-			}
-			tieredStore.StartHotToColdWorker(context.Background())
-			cacheManager.SetTieredVectorStore(tieredStore)
-
-			logger.WithFields(logrus.Fields{
-				"index":         vectorCfg.IndexName,
-				"dimension":     vectorCfg.Dimension,
-				"cold_enabled":  tieredCfg.ColdVectorEnabled,
-				"cold_backend":  tieredCfg.ColdVectorBackend,
-				"cold_dual":     tieredCfg.ColdVectorDualWriteEnabled,
-				"cold_query":    tieredCfg.ColdVectorQueryEnabled,
-				"hot_watermark": tieredCfg.HotMemoryHighWatermarkPercent,
-			}).Info("Redis vector tier cache initialized")
+		if err := initializeVectorStore(cfg, cacheManager, logger); err != nil {
+			return nil, err
 		}
 	}
 
-	return cacheManager
+	return cacheManager, nil
+}
+
+func initVectorStore(cfg *config.Config, cacheManager *cache.Manager, logger *logrus.Logger) error {
+	rc, ok := cacheManager.Cache().(*cache.RedisCache)
+	if !ok {
+		return fmt.Errorf("vector cache requires redis backend")
+	}
+
+	if err := cache.EnsureRedisStackCapabilities(context.Background(), rc.GetClient()); err != nil {
+		return fmt.Errorf("redis stack capability check failed: %w", err)
+	}
+
+	vectorCfg := cache.DefaultRedisStackVectorConfig()
+	vectorCfg.Enabled = cfg.VectorCache.Enabled
+	vectorCfg.IndexName = cfg.VectorCache.IndexName
+	vectorCfg.KeyPrefix = cfg.VectorCache.KeyPrefix
+	vectorCfg.Dimension = cfg.VectorCache.Dimension
+	vectorCfg.QueryTimeout = time.Duration(cfg.VectorCache.QueryTimeoutMs) * time.Millisecond
+
+	hotStore := cache.NewRedisStackVectorStoreFromRedisCache(rc, vectorCfg)
+	if err := hotStore.EnsureIndex(context.Background()); err != nil {
+		return fmt.Errorf("failed to ensure Redis Stack vector index: %w", err)
+	}
+
+	coldStores := map[string]cache.ColdVectorStore{}
+	sqliteStore, err := cache.NewSQLiteColdVectorStore(cache.SQLiteColdVectorStoreConfig{
+		Path: cfg.VectorCache.ColdVectorSQLitePath,
+	})
+	if err != nil {
+		logger.WithError(err).Warn("Failed to initialize sqlite cold vector store")
+	} else {
+		coldStores[cache.ColdVectorBackendSQLite] = sqliteStore
+	}
+
+	qdrantStore := cache.NewQdrantColdVectorStore(cache.QdrantColdVectorStoreConfig{
+		URL:        cfg.VectorCache.ColdVectorQdrantURL,
+		APIKey:     cfg.VectorCache.ColdVectorQdrantAPIKey,
+		Collection: cfg.VectorCache.ColdVectorQdrantCollection,
+		Timeout:    time.Duration(cfg.VectorCache.ColdVectorQdrantTimeoutMs) * time.Millisecond,
+		Dimension:  cfg.VectorCache.Dimension,
+	})
+	coldStores[cache.ColdVectorBackendQdrant] = qdrantStore
+
+	tieredCfg := cache.TieredConfigFromSettings(cacheManager.GetSettings())
+	tieredStore := cache.NewTieredVectorStore(hotStore, coldStores, tieredCfg)
+	if err := tieredStore.EnsureIndex(context.Background()); err != nil {
+		logger.WithError(err).Warn("Failed to ensure tiered vector store index")
+	}
+	tieredStore.StartHotToColdWorker(context.Background())
+	cacheManager.SetTieredVectorStore(tieredStore)
+
+	logger.WithFields(logrus.Fields{
+		"index":         vectorCfg.IndexName,
+		"dimension":     vectorCfg.Dimension,
+		"cold_enabled":  tieredCfg.ColdVectorEnabled,
+		"cold_backend":  tieredCfg.ColdVectorBackend,
+		"cold_dual":     tieredCfg.ColdVectorDualWriteEnabled,
+		"cold_query":    tieredCfg.ColdVectorQueryEnabled,
+		"hot_watermark": tieredCfg.HotMemoryHighWatermarkPercent,
+	}).Info("Redis vector tier cache initialized")
+
+	return nil
 }
 
 func buildAccountConfig(acc *config.AccountConfig) *limiter.AccountConfig {

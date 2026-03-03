@@ -97,6 +97,8 @@ nano .env
 
 ### Redis配置
 
+> 说明：项目默认要求 **Redis Stack**（必须支持 RediSearch `FT.*` 与 RedisJSON `JSON.*`），否则向量缓存与索引重建会不可用。
+
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
 | `REDIS_MAXMEMORY` | 256mb | Redis最大内存 |
@@ -104,6 +106,7 @@ nano .env
 **推荐配置**:
 - 开发环境: `256mb`
 - 生产环境: `512mb` 或更高
+- 启动后建议执行 `redis-cli -p 6379 FT._LIST` 验证 Redis Stack 能力
 
 ### 速率限制
 

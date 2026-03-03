@@ -174,7 +174,7 @@ start_services() {
     echo -e "Services:"
     echo -e "  ${BLUE}Gateway API:${NC}    http://localhost:${GATEWAY_PORT:-8000}"
     echo -e "  ${BLUE}Web Dashboard:${NC}  http://localhost:${WEB_PORT:-3000}"
-    echo -e "  ${BLUE}Redis:${NC}          localhost:${REDIS_PORT:-6379}"
+    echo -e "  ${BLUE}Redis Stack:${NC}    localhost:${REDIS_PORT:-6379}"
 
     if [ "$WITH_MONITORING" = true ]; then
         echo ""
