@@ -111,5 +111,6 @@ export const API = {
   TRACES: {
     LIST: '/admin/traces',
     DETAIL: '/admin/traces/:request_id',
+    CLEAR: '/admin/traces',
   },
 } as const

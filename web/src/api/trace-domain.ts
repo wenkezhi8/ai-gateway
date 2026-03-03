@@ -1,4 +1,4 @@
-import request from '@/api/request'
+import { request } from './request'
 import { API } from '@/constants/api'
 
 export interface RequestTrace {
@@ -34,6 +34,24 @@ export interface TraceAttributes extends Record<string, any> {
   ai_response_truncated?: boolean
 }
 
+export type TraceAnswerSource = 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat' | 'unknown'
+
+export interface TraceSummary {
+  request_id: string
+  method: string
+  path: string
+  status: string
+  duration_ms: number
+  created_at: string
+  step_count: number
+  answer_source: TraceAnswerSource
+}
+
+export interface TraceListResult {
+  data: TraceSummary[]
+  total: number
+}
+
 export async function getTraces(params?: {
   limit?: number
   offset?: number
@@ -41,12 +59,27 @@ export async function getTraces(params?: {
   status?: string
   start_time?: string
   end_time?: string
-}): Promise<RequestTrace[]> {
+}): Promise<TraceListResult> {
   const res: any = await request.get(API.TRACES.LIST, { params })
-  if (res?.success && Array.isArray(res.data)) {
-    return res.data
+
+  if (res?.success && Array.isArray(res.data) && typeof res.total === 'number') {
+    return {
+      data: res.data,
+      total: res.total
+    }
   }
-  return []
+
+  if (res?.success && Array.isArray(res.data)) {
+    return {
+      data: res.data,
+      total: res.data.length
+    }
+  }
+
+  return {
+    data: [],
+    total: 0
+  }
 }
 
 export async function getTraceDetail(requestId: string): Promise<RequestTrace[]> {
@@ -55,4 +88,12 @@ export async function getTraceDetail(requestId: string): Promise<RequestTrace[]>
     return res.data
   }
   return []
+}
+
+export async function clearTraces(): Promise<{ deleted: number }> {
+  const res: any = await request.delete(API.TRACES.CLEAR)
+  if (res?.success && typeof res.data?.deleted === 'number') {
+    return { deleted: res.data.deleted }
+  }
+  return { deleted: 0 }
 }
