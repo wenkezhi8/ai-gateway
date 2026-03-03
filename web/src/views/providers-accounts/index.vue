@@ -110,6 +110,19 @@
         </div>
       </div>
 
+      <el-alert
+        v-if="accountsError"
+        type="error"
+        :closable="false"
+        class="accounts-error-alert"
+        title="账号列表加载失败"
+      >
+        <template #default>
+          {{ accountsError }}
+          <el-button type="danger" link @click="loadAccounts">重试</el-button>
+        </template>
+      </el-alert>
+
       <!-- 账号表格 -->
       <el-table 
         :data="filteredAccounts" 
@@ -204,7 +217,7 @@
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!accountsLoading && filteredAccounts.length === 0" description="暂无账号数据" :image-size="120">
+      <el-empty v-if="!accountsLoading && !accountsError && filteredAccounts.length === 0" description="暂无账号数据" :image-size="120">
         <template #description>
           <p class="empty-text">还没有添加任何账号</p>
           <p class="empty-hint">点击上方"添加账号"按钮开始配置</p>
@@ -343,6 +356,7 @@ const accountSearch = ref('')
 const selectedProviderFilter = ref('')
 
 const accountsLoading = ref(false)
+const accountsError = ref('')
 const accountSubmitting = ref(false)
 const providerMetaLoading = ref(false)
 const providerMetaError = ref('')
@@ -453,11 +467,13 @@ const copyApiKey = async (key?: string) => {
 
 const loadAccounts = async () => {
   accountsLoading.value = true
+  accountsError.value = ''
   try {
     const res = await accountApi.getList()
     accounts.value = (res as any).data || []
   } catch (e: any) {
     console.error('Failed to load accounts:', e)
+    accountsError.value = e?.message || '请检查 /admin/accounts 接口状态'
     if (e?.response?.status !== 401) {
       ElMessage.error('加载账号列表失败')
     }
@@ -717,6 +733,10 @@ onMounted(() => {
 
       .search-input { width: 240px; }
       .provider-select { width: 160px; }
+    }
+
+    .accounts-error-alert {
+      margin-bottom: 16px;
     }
   }
 

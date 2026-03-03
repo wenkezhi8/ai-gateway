@@ -1,5 +1,18 @@
 <template>
   <div class="limit-management-page">
+    <el-alert
+      v-if="hasRequestError"
+      type="error"
+      :closable="false"
+      class="request-error-alert"
+      title="请求加载失败"
+    >
+      <template #default>
+        {{ requestErrorMessage }}
+        <el-button type="danger" link @click="refreshAll">重试</el-button>
+      </template>
+    </el-alert>
+
     <el-row :gutter="20" class="stats-row">
       <el-col :xs="24" :sm="12" :md="6">
         <el-card shadow="hover" class="stat-card">
@@ -457,6 +470,15 @@ const saving = ref(false)
 const accounts = ref<Account[]>([])
 const switchHistory = ref<SwitchEvent[]>([])
 const activeAlerts = ref<LimitAlert[]>([])
+const requestErrors = reactive({
+  accounts: '',
+  history: '',
+  alerts: ''
+})
+const hasRequestError = computed(() => Boolean(requestErrors.accounts || requestErrors.history || requestErrors.alerts))
+const requestErrorMessage = computed(() => {
+  return [requestErrors.accounts, requestErrors.history, requestErrors.alerts].filter(Boolean).join('；')
+})
 const providerFilter = ref('')
 // CHANGED: Local filters, pagination, and refresh state for better usability.
 const keyword = ref('')
@@ -732,6 +754,7 @@ const resetFilters = () => {
 
 const refreshAccounts = async () => {
   loading.value = true
+  requestErrors.accounts = ''
   try {
     const res = await accountApi.getList()
     if (res.success && Array.isArray(res.data)) {
@@ -741,12 +764,14 @@ const refreshAccounts = async () => {
     }
   } catch (e) {
     console.error('Failed to load accounts:', e)
+    requestErrors.accounts = '账号列表加载失败'
   } finally {
     loading.value = false
   }
 }
 
 const refreshHistory = async () => {
+  requestErrors.history = ''
   try {
     const res = await accountApi.getSwitchHistory(20)
     if (res.success && Array.isArray(res.data)) {
@@ -754,10 +779,12 @@ const refreshHistory = async () => {
     }
   } catch (e) {
     console.error('Failed to load switch history:', e)
+    requestErrors.history = '切换历史加载失败'
   }
 }
 
 const refreshAlerts = async () => {
+  requestErrors.alerts = ''
   try {
     const res = await accountApi.getLimitAlerts()
     if (res.success && Array.isArray(res.data)) {
@@ -765,6 +792,7 @@ const refreshAlerts = async () => {
     }
   } catch (e) {
     console.error('Failed to load alerts:', e)
+    requestErrors.alerts = '预警数据加载失败'
   }
 }
 
@@ -880,6 +908,10 @@ watch(autoRefresh, value => {
 <style scoped>
 .limit-management-page {
   padding: 0;
+}
+
+.request-error-alert {
+  margin-bottom: 16px;
 }
 
 .stats-row {
