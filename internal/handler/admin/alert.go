@@ -63,6 +63,12 @@ type AlertStats struct {
 	Resolved   int `json:"resolved"`
 }
 
+type resolveSimilarAlertsRequest struct {
+	Level   string `json:"level"`
+	Source  string `json:"source"`
+	Message string `json:"message"`
+}
+
 // AlertHandler handles alert-related requests.
 type AlertHandler struct {
 	rules    []AlertRule
@@ -412,6 +418,65 @@ func (h *AlertHandler) ResolveAlert(c *gin.Context) {
 		"error": gin.H{
 			"code":    "not_found",
 			"message": "Alert not found",
+		},
+	})
+}
+
+// POST /api/admin/alerts/resolve-similar.
+func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
+	var req resolveSimilarAlertsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	level := strings.TrimSpace(req.Level)
+	source := strings.TrimSpace(req.Source)
+	message := strings.TrimSpace(req.Message)
+	if level == "" || source == "" || message == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "level, source and message are required",
+			},
+		})
+		return
+	}
+
+	targetKey := buildAlertDedupKey(level, source, message)
+	resolvedAt := time.Now().Format(time.RFC3339)
+	affected := 0
+
+	h.mu.Lock()
+	for i := range h.alerts {
+		alert := &h.alerts[i]
+		if alert.Status == alertStatusResolved {
+			continue
+		}
+		if buildAlertDedupKey(alert.Level, alert.Source, alert.Message) != targetKey {
+			continue
+		}
+		alert.Status = alertStatusResolved
+		alert.ResolvedAt = resolvedAt
+		affected++
+	}
+	if affected > 0 {
+		h.saveData()
+	}
+	h.mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"affected": affected,
+			"key":      targetKey,
 		},
 	})
 }

@@ -33,6 +33,12 @@ export interface AlertStats {
   resolved: number
 }
 
+export interface ResolveSimilarAlertsRequest {
+  level: string
+  source: string
+  message: string
+}
+
 export const alertApi = {
   getStats() {
     return request.get<{ success: boolean; data: AlertStats }>('/admin/alerts/stats')
@@ -64,6 +70,10 @@ export const alertApi = {
 
   resolveAlert(id: string) {
     return request.put<{ success: boolean; message: string }>(`/admin/alerts/${id}/resolve`)
+  },
+
+  resolveSimilar(payload: ResolveSimilarAlertsRequest) {
+    return request.post<{ success: boolean; data: { affected: number; key: string } }>('/admin/alerts/resolve-similar', payload)
   },
 
   getDetail(id: string) {

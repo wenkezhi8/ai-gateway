@@ -109,10 +109,13 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140" fixed="right">
+            <el-table-column label="操作" width="200" fixed="right">
               <template #default="{ row }">
                 <el-button v-if="row.status !== 'resolved'" type="primary" link size="small" @click="resolveAlert(row)">
                   处理
+                </el-button>
+                <el-button v-if="row.status !== 'resolved'" type="warning" link size="small" @click="resolveSimilar(row)">
+                  处理同类
                 </el-button>
                 <el-button type="primary" link size="small" @click="viewDetail(row)">
                   详情
@@ -272,12 +275,13 @@ const isEditRule = ref(false)
 const ruleFormRef = ref<FormInstance>()
 const selectedAlert = ref<Alert | null>(null)
 const loading = ref(false)
+const statsData = ref({ critical: 0, warning: 0, todayTotal: 0, resolved: 0 })
 
 const alertStats = computed(() => [
-  { title: '严重告警', value: alerts.value.filter(a => a.level === 'critical' && a.status !== 'resolved').length, icon: 'WarningFilled', color: '#FF3B30' },
-  { title: '警告', value: alerts.value.filter(a => a.level === 'warning' && a.status !== 'resolved').length, icon: 'Warning', color: '#FF9500' },
-  { title: '今日告警', value: alerts.value.length, icon: 'BellFilled', color: '#007AFF' },
-  { title: '已处理', value: alerts.value.filter(a => a.status === 'resolved').length, icon: 'CircleCheckFilled', color: '#34C759' }
+  { title: '严重告警', value: statsData.value.critical, icon: 'WarningFilled', color: '#FF3B30' },
+  { title: '警告', value: statsData.value.warning, icon: 'Warning', color: '#FF9500' },
+  { title: '今日告警', value: statsData.value.todayTotal, icon: 'BellFilled', color: '#007AFF' },
+  { title: '已处理', value: statsData.value.resolved, icon: 'CircleCheckFilled', color: '#34C759' }
 ])
 
 const alertRules = ref<AlertRule[]>([])
@@ -433,8 +437,34 @@ const resolveAlert = async (alert: Alert) => {
     handleSuccess('告警已处理')
     detailDialogVisible.value = false
     fetchAlerts()
+    fetchStats()
   } catch (error) {
     handleApiError(error, '处理失败')
+  }
+}
+
+const resolveSimilar = async (alert: Alert) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定处理同类告警吗？\n级别：${getLevelText(alert.level)}\n来源：${alert.source}\n信息：${alert.message}`,
+      '批量处理同类告警',
+      { type: 'warning' }
+    )
+
+    const raw = await alertApi.resolveSimilar({
+      level: alert.level,
+      source: alert.source,
+      message: alert.message
+    })
+    const data = (raw as any)?.data || raw
+    const affected = Number(data?.affected || 0)
+
+    handleSuccess(`已处理同类告警 ${affected} 条`)
+    await Promise.all([fetchAlerts(), fetchStats()])
+  } catch (error) {
+    if ((error as any) !== 'cancel') {
+      handleApiError(error, '批量处理失败')
+    }
   }
 }
 
@@ -503,6 +533,22 @@ const fetchAlerts = async () => {
   }
 }
 
+const fetchStats = async () => {
+  try {
+    const raw = await alertApi.getStats()
+    const data = (raw as any)?.data || raw
+    statsData.value = {
+      critical: Number(data?.critical || 0),
+      warning: Number(data?.warning || 0),
+      todayTotal: Number(data?.todayTotal || 0),
+      resolved: Number(data?.resolved || 0)
+    }
+  } catch (error) {
+    console.warn('Failed to fetch alert stats:', error)
+    statsData.value = { critical: 0, warning: 0, todayTotal: 0, resolved: 0 }
+  }
+}
+
 const getConditionLabel = (type: string) => {
   const labels: Record<string, string> = {
     latency: '延迟',
@@ -516,6 +562,7 @@ const getConditionLabel = (type: string) => {
 onMounted(() => {
   fetchRules()
   fetchAlerts()
+  fetchStats()
 })
 </script>
 
