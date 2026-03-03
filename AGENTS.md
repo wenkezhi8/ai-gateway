@@ -108,7 +108,7 @@ Git权限：<可否 commit / push / tag>
 ```
 常用 type：`feat` `fix` `refactor` `test` `docs` `chore`
 3. 每次任务完成后，必须本地提交一次，确保 `git status --short` 结果为空（工作区保持干净）。
-4. **每次只提交本任务相关文件**：禁止捎带无关改动。
+4. **每次只提交本任务相关文件**：。
 5. `push/tag` 需明确指令后执行。
 6. 每次任务收尾必须执行“提交证据三连”：`git rev-parse --short HEAD`、`git show --name-only --pretty='' HEAD`、`git status --short`（最后一条必须为空或仅允许白名单未跟踪项）。
 7. 若存在未提交改动，必须在回报中明确写“当前状态：进行中 + 待提交文件清单”，禁止宣告“已完成交付”。
