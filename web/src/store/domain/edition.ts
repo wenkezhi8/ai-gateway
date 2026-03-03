@@ -3,26 +3,30 @@ import { computed, ref } from 'vue'
 
 import {
   checkEditionDependencies,
+  getEditionSetupTask,
   getEditionConfig,
   getEditionDefinitions,
+  setupEditionEnvironment,
   type DependencyStatus,
   type EditionConfig,
+  type EditionSetupRequest,
+  type EditionSetupTask,
   type EditionType,
   updateEditionConfig
 } from '@/api/edition-domain'
 
-function basicFallback(): EditionConfig {
+function standardFallback(): EditionConfig {
   return {
-    type: 'basic',
+    type: 'standard',
     features: {
-      vector_cache: false,
+      vector_cache: true,
       vector_db_management: false,
       knowledge_base: false,
       cold_hot_tiering: false
     },
-    display_name: '基础版',
-    description: '纯AI网关功能',
-    dependencies: ['redis']
+    display_name: '标准版',
+    description: '网关 + 语义缓存，中大规模场景',
+    dependencies: ['redis', 'ollama']
   }
 }
 
@@ -35,8 +39,10 @@ export const useEditionStore = defineStore('edition-domain', () => {
   const config = ref<EditionConfig | null>(null)
   const definitions = ref<EditionConfig[]>([])
   const dependencies = ref<Record<string, DependencyStatus>>({})
+  const setupTask = ref<EditionSetupTask | null>(null)
   const loading = ref(false)
   const updating = ref(false)
+  const setupLoading = ref(false)
   const error = ref('')
 
   const isBasic = computed(() => config.value?.type === 'basic')
@@ -54,7 +60,7 @@ export const useEditionStore = defineStore('edition-domain', () => {
     try {
       config.value = await getEditionConfig()
     } catch (err) {
-      config.value = basicFallback()
+      config.value = standardFallback()
       error.value = normalizeError(err)
     } finally {
       loading.value = false
@@ -88,12 +94,29 @@ export const useEditionStore = defineStore('edition-domain', () => {
     }
   }
 
+  async function startSetup(payload: EditionSetupRequest) {
+    setupLoading.value = true
+    try {
+      return await setupEditionEnvironment(payload)
+    } finally {
+      setupLoading.value = false
+    }
+  }
+
+  async function fetchSetupTask(taskId: string) {
+    const task = await getEditionSetupTask(taskId)
+    setupTask.value = task
+    return task
+  }
+
   return {
     config,
     definitions,
     dependencies,
+    setupTask,
     loading,
     updating,
+    setupLoading,
     error,
     isBasic,
     isStandard,
@@ -105,6 +128,8 @@ export const useEditionStore = defineStore('edition-domain', () => {
     fetchEditionConfig,
     fetchDefinitions,
     checkDependencies,
-    updateEdition
+    updateEdition,
+    startSetup,
+    fetchSetupTask
   }
 })

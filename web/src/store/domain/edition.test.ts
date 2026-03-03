@@ -5,8 +5,10 @@ import { useEditionStore } from './edition'
 
 const editionApiMock = vi.hoisted(() => ({
   checkEditionDependencies: vi.fn(),
+  getEditionSetupTask: vi.fn(),
   getEditionConfig: vi.fn(),
   getEditionDefinitions: vi.fn(),
+  setupEditionEnvironment: vi.fn(),
   updateEditionConfig: vi.fn()
 }))
 
@@ -44,14 +46,14 @@ describe('edition domain store', () => {
     expect(store.hasVectorDBManagement).toBe(false)
   })
 
-  it('should fallback to basic edition when loading fails', async () => {
+  it('should fallback to standard edition when loading fails', async () => {
     editionApiMock.getEditionConfig.mockRejectedValue(new Error('network error'))
 
     const store = useEditionStore()
     await store.fetchEditionConfig()
 
-    expect(store.config?.type).toBe('basic')
-    expect(store.hasVectorCache).toBe(false)
+    expect(store.config?.type).toBe('standard')
+    expect(store.hasVectorCache).toBe(true)
   })
 
   it('should update edition and return success payload', async () => {
@@ -77,5 +79,36 @@ describe('edition domain store', () => {
     expect(result.success).toBe(true)
     expect(result.restartRequired).toBe(true)
     expect(store.config?.type).toBe('enterprise')
+  })
+
+  it('should start setup task and fetch setup status', async () => {
+    editionApiMock.setupEditionEnvironment.mockResolvedValue({
+      task_id: 'task-1',
+      accepted_at: '2026-03-04T00:00:00Z',
+      message: 'accepted'
+    })
+    editionApiMock.getEditionSetupTask.mockResolvedValue({
+      task_id: 'task-1',
+      status: 'success',
+      summary: 'installed redis, ollama',
+      logs: 'ok',
+      health: {
+        redis: { name: 'Redis', address: '127.0.0.1:6379', healthy: true, message: '正常' }
+      }
+    })
+
+    const store = useEditionStore()
+    const created = await store.startSetup({
+      edition: 'standard',
+      runtime: 'docker',
+      apply_config: true,
+      pull_embedding_model: false
+    })
+
+    expect(created.task_id).toBe('task-1')
+
+    const task = await store.fetchSetupTask('task-1')
+    expect(task.status).toBe('success')
+    expect(store.setupTask?.task_id).toBe('task-1')
   })
 })
