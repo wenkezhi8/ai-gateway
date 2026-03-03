@@ -46,6 +46,7 @@ export interface TraceSummary {
   step_count: number
   answer_source: TraceAnswerSource
   task_type?: string
+  model?: string
 }
 
 export interface TraceListResult {
