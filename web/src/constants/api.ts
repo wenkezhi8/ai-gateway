@@ -63,7 +63,7 @@ export const API = {
   // 子路径
   ROUTER: {
     CONFIG: '/api/admin/router/config',
-    MODELS: '/api/admin/router/models',
+    MODEL_REGISTRY: '/api/admin/router/model-registry',
     AVAILABLE_MODELS: '/api/admin/router/available-models',
     TOP_MODELS: '/api/admin/router/top-models',
     PROVIDER_DEFAULTS: '/api/admin/router/provider-defaults',

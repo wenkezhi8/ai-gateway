@@ -1063,13 +1063,18 @@ openclaw-cn gateway restart</code></pre>
               </tr>
               <tr>
                 <td><span class="method get">GET</span></td>
-                <td><code>/api/admin/router/models</code></td>
-                <td>获取模型评分</td>
+                <td><code>/api/admin/router/model-registry</code></td>
+                <td>获取模型注册列表（非评分）</td>
               </tr>
               <tr>
                 <td><span class="method put">PUT</span></td>
-                <td><code>/api/admin/router/models/:model</code></td>
-                <td>更新模型评分</td>
+                <td><code>/api/admin/router/model-registry/:model</code></td>
+                <td>新增或更新模型注册项</td>
+              </tr>
+              <tr>
+                <td><span class="method delete">DELETE</span></td>
+                <td><code>/api/admin/router/model-registry/:model</code></td>
+                <td>删除模型注册项</td>
               </tr>
             </tbody>
           </table>

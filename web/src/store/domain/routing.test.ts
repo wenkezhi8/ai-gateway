@@ -5,7 +5,7 @@ import { useRoutingDomainStore } from './routing'
 
 const routingApiMock = vi.hoisted(() => ({
   getRouterConfig: vi.fn(),
-  getRouterModels: vi.fn(),
+  getModelRegistry: vi.fn(),
   getAvailableModels: vi.fn(),
   getCascadeRules: vi.fn(),
   getFeedbackStats: vi.fn(),
@@ -19,7 +19,7 @@ const routingApiMock = vi.hoisted(() => ({
   putTaskModelMapping: vi.fn(),
   switchClassifierModelAsync: vi.fn(),
   triggerFeedbackOptimization: vi.fn(),
-  updateModelScore: vi.fn(),
+  upsertModelRegistry: vi.fn(),
   updateRouterConfig: vi.fn()
 }))
 
@@ -37,7 +37,7 @@ describe('routing domain store', () => {
 
   it('should load data and enter success state', async () => {
     routingApiMock.getRouterConfig.mockResolvedValue({ default_strategy: 'auto' })
-    routingApiMock.getRouterModels.mockResolvedValue([{ model: 'gpt-4o' }])
+    routingApiMock.getModelRegistry.mockResolvedValue([{ model: 'gpt-4o' }])
     routingApiMock.getAvailableModels.mockResolvedValue([{ id: 'gpt-4o' }])
     routingApiMock.getCascadeRules.mockResolvedValue([])
     routingApiMock.getFeedbackStats.mockResolvedValue({})
@@ -57,7 +57,7 @@ describe('routing domain store', () => {
 
   it('should enter empty state when no core data is returned', async () => {
     routingApiMock.getRouterConfig.mockResolvedValue({})
-    routingApiMock.getRouterModels.mockResolvedValue([])
+    routingApiMock.getModelRegistry.mockResolvedValue([])
     routingApiMock.getAvailableModels.mockResolvedValue([])
     routingApiMock.getCascadeRules.mockResolvedValue([])
     routingApiMock.getFeedbackStats.mockResolvedValue({})

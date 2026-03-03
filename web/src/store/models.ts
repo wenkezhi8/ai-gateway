@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { ElMessage } from 'element-plus'
-import { getRouterModels } from '@/api/routing-domain'
+import { getModelRegistry } from '@/api/routing-domain'
 import { MODEL_FORM_DEFAULTS } from '@/constants/store/models'
 
 export interface Model {
@@ -98,7 +98,7 @@ export const useModelsStore = defineStore('models', () => {
     loading.value = true
     error.value = null
     try {
-      const payload = await getRouterModels()
+      const payload = await getModelRegistry()
       models.value = normalizeRemoteModels(payload)
       lastFetchTime.value = Date.now()
       return models.value

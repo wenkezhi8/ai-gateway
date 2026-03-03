@@ -5,7 +5,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { ChatMessage, Conversation, ProviderConfig } from '@/types/chat'
 import { createConversation } from '@/types/chat'
-import { getRouterModels } from '@/api/routing-domain'
+import { getModelRegistry } from '@/api/routing-domain'
 import { getAdminAccounts, getAdminProviderConfigs, getPublicProvidersConfig } from '@/api/chat-domain'
 import { useModelLabels } from '@/composables/useModelLabels'
 import { CHAT_PROVIDER_VISUALS, CHAT_PROVIDER_VISUAL_FALLBACK } from '@/constants/store/chat'
@@ -130,7 +130,7 @@ export async function loadProvidersFromAdminAPI(): Promise<boolean> {
 
     const [configsRes, modelsRes, accountsRes] = await Promise.all([
       getAdminProviderConfigs(),
-      getRouterModels(),
+      getModelRegistry(),
       getAdminAccounts()
     ])
 

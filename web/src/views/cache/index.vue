@@ -54,6 +54,44 @@
       </div>
     </div>
 
+    <div class="panel distribution-panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">任务类型分布</div>
+          <div class="panel-subtitle">基于反馈统计的任务类型占比，不影响缓存主流程</div>
+        </div>
+        <el-button link type="primary" @click="loadTaskTypeDistribution">刷新</el-button>
+      </div>
+
+      <div v-if="taskTypeDistributionState === 'loading'" class="distribution-loading">
+        <el-skeleton :rows="4" animated />
+      </div>
+
+      <el-alert
+        v-else-if="taskTypeDistributionState === 'error'"
+        type="warning"
+        :closable="false"
+        show-icon
+        :title="taskTypeDistributionError || '任务类型分布加载失败'"
+      >
+        <template #default>
+          <el-button link type="warning" @click="loadTaskTypeDistribution">重试</el-button>
+        </template>
+      </el-alert>
+
+      <el-empty v-else-if="taskTypeDistributionState === 'empty'" description="暂无统计数据，不影响缓存功能" :image-size="72" />
+
+      <div v-else class="distribution-list">
+        <div v-for="item in taskTypeDistribution" :key="item.key" class="distribution-item">
+          <div class="distribution-meta">
+            <span>{{ item.label }}</span>
+            <span>{{ item.percent }}% · {{ item.count }}</span>
+          </div>
+          <el-progress :percentage="item.percent" :stroke-width="8" :show-text="false" />
+        </div>
+      </div>
+    </div>
+
     <div v-if="cacheBackend.degraded || !cacheBackend.persistent" class="backend-alert">
       <div>
         <div class="backend-title">当前缓存后端为 Memory（非持久化），服务重启后缓存内容会丢失。</div>
@@ -802,6 +840,7 @@ import {
   updateTtlConfig
 } from '@/api/cache-domain'
 import { getPublicProviders } from '@/api/provider'
+import { getTaskTypeDistribution as getTaskTypeDistributionApi } from '@/api/routing-domain'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { API } from '@/constants/api'
 import {
@@ -889,6 +928,22 @@ const cacheConfig = reactive<Record<string, any>>({
 })
 
 const cacheTaskTypeOptions = ref<Array<{ label: string; value: CacheTaskTTLItem['key'] }>>([])
+
+const cacheTaskTypeDistributionOrder = ['code', 'chat', 'reasoning', 'math', 'fact', 'creative', 'translate', 'other']
+const cacheTaskTypeDistributionLabelMap: Record<string, string> = {
+  code: '编程',
+  chat: '对话',
+  reasoning: '推理',
+  math: '数学',
+  fact: '事实问答',
+  creative: '创作',
+  translate: '翻译',
+  other: '其他'
+}
+
+const taskTypeDistribution = ref<Array<{ key: string; label: string; count: number; percent: number }>>([])
+const taskTypeDistributionState = ref<'loading' | 'error' | 'empty' | 'success'>('loading')
+const taskTypeDistributionError = ref('')
 
 const ruleModelOptions = ref<Array<{ label: string; options: Array<{ label: string; value: string }> }>>([])
 
@@ -1184,6 +1239,7 @@ const refreshAllCache = async () => {
   await Promise.all([
     loadCacheStats(),
     loadCacheConfig(),
+    loadTaskTypeDistribution(),
     loadTTLConfig(),
     loadCacheHealth(),
     loadCacheRules(),
@@ -1191,6 +1247,61 @@ const refreshAllCache = async () => {
     loadVectorStats()
   ])
   handleSuccess('缓存数据已刷新')
+}
+
+const normalizeDistributionTaskType = (taskType: string): string => {
+  const normalized = String(taskType || '').trim().toLowerCase()
+  if (!normalized || normalized === 'unknown') {
+    return 'other'
+  }
+  if (cacheTaskTypeDistributionOrder.includes(normalized)) {
+    return normalized
+  }
+  return 'other'
+}
+
+const buildTaskTypeDistributionRows = (rawList: any[]) => {
+  const counts = new Map<string, number>()
+  for (const key of cacheTaskTypeDistributionOrder) {
+    counts.set(key, 0)
+  }
+
+  for (const row of rawList) {
+    const key = normalizeDistributionTaskType(row?.task_type)
+    const count = Number(row?.count || 0)
+    counts.set(key, (counts.get(key) || 0) + (Number.isFinite(count) ? count : 0))
+  }
+
+  const total = Array.from(counts.values()).reduce((sum, count) => sum + count, 0)
+
+  return cacheTaskTypeDistributionOrder.map((key) => {
+    const count = counts.get(key) || 0
+    const percent = total > 0 ? Math.round((count / total) * 100) : 0
+    return {
+      key,
+      label: cacheTaskTypeDistributionLabelMap[key] || key,
+      count,
+      percent
+    }
+  })
+}
+
+async function loadTaskTypeDistribution() {
+  taskTypeDistributionState.value = 'loading'
+  taskTypeDistributionError.value = ''
+  try {
+    const data: any = await getTaskTypeDistributionApi()
+    const list = Array.isArray(data?.distribution)
+      ? data.distribution
+      : (Array.isArray(data) ? data : [])
+    const rows = buildTaskTypeDistributionRows(list)
+    taskTypeDistribution.value = rows
+    taskTypeDistributionState.value = rows.every((row) => row.count === 0) ? 'empty' : 'success'
+  } catch (e: any) {
+    taskTypeDistribution.value = buildTaskTypeDistributionRows([])
+    taskTypeDistributionError.value = e?.message || '任务类型分布加载失败'
+    taskTypeDistributionState.value = 'error'
+  }
 }
 
 const saveConfig = async () => {
@@ -2032,6 +2143,7 @@ onMounted(async () => {
   }
 
   loadCacheTaskMeta()
+  loadTaskTypeDistribution()
   loadCacheStats()
   loadCacheConfig()
   loadCacheHealth()
@@ -2261,6 +2373,28 @@ onUnmounted(() => {
   background: rgba(148, 163, 184, 0.18);
   padding: 6px 10px;
   border-radius: 999px;
+}
+
+.distribution-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.distribution-item {
+  border: 1px solid var(--cache-border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(160deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.98));
+}
+
+.distribution-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--cache-muted);
+  margin-bottom: 6px;
 }
 
 .type-grid {

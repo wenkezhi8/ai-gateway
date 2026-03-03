@@ -26,7 +26,7 @@ export function useModelLabels() {
           display_name?: string
           enabled: boolean
         }>
-      }>('/admin/router/models', { silent: true } as any)
+      }>('/admin/router/model-registry', { silent: true } as any)
 
       if ((res as any).success && (res as any).data) {
         const labels: ModelLabelMap = {}

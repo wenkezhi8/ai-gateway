@@ -343,18 +343,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
+import { deleteModelRegistry, getModelRegistry, upsertModelRegistry } from '@/api/routing-domain'
 import { updateModelManagementUiSettings } from '@/api/settings-domain'
 import { getPublicProviders, providerApi } from '@/api/provider'
 import { PROVIDER_CATALOG } from '@/constants/providers-catalog'
 import { useModelLabels } from '@/composables/useModelLabels'
 import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
-  MODEL_MANAGEMENT_DEFAULT_SCORE,
   MODEL_MANAGEMENT_FALLBACK_COLOR
 } from '@/constants/pages/model-management'
 
@@ -433,6 +433,7 @@ const modelRules: FormRules = {
 const providerSettings = ref<ProviderSetting[]>([])
 const publicProviderOptions = ref<PublicProviderOption[]>([])
 const brokenLogoProviders = ref(new Set<string>())
+let offModelsChanged: (() => void) | null = null
 
 function buildProviderOptions(publicProviders: Array<{ id: string; label: string; color: string; logo: string }>) {
   const optionMap = new Map<string, PublicProviderOption>()
@@ -504,15 +505,13 @@ async function loadSettings() {
       .then((res: any) => ((res as any).success && (res as any).data ? (res as any).data : {}))
       .catch(() => ({}))
 
-    // Load model scores from backend - this is the single source of truth
-    const modelsRes = await request
-      .get<{ success: boolean; data: Array<{ model: string; provider: string; enabled: boolean }> }>('/admin/router/models', { silent: true } as any)
-      .catch(() => ({ success: false, data: [] }))
+    // Load model registry from backend - this is the single source of truth
+    const modelsRes = await getModelRegistry().catch(() => [])
 
     // Group models by provider
     const modelsByProvider: Record<string, string[]> = {}
-    if ((modelsRes as any).success && (modelsRes as any).data) {
-      for (const m of (modelsRes as any).data) {
+    if (Array.isArray(modelsRes)) {
+      for (const m of modelsRes) {
         if (m.enabled && m.model) {
           if (!modelsByProvider[m.provider]) {
             modelsByProvider[m.provider] = []
@@ -663,13 +662,10 @@ async function handleAddProvider() {
       custom: true
     }
 
-    // Sync provider default model to backend model scores (single source of truth)
-    await request.put(`/admin/router/models/${encodeURIComponent(providerForm.defaultModel)}`, {
-      model: providerForm.defaultModel,
+    // Sync provider default model to backend model registry (single source of truth)
+    await upsertModelRegistry(providerForm.defaultModel, {
       provider: providerForm.id,
-      quality_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-      speed_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-      cost_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
+      display_name: providerForm.defaultModel,
       enabled: true
     })
 
@@ -714,13 +710,10 @@ async function handleAddModel() {
       currentProvider.value = provider
     }
     
-    // Sync to backend model scores
-    await request.put(`/admin/router/models/${encodeURIComponent(modelName)}`, {
-      model: modelName,
+    // Sync to backend model registry
+    await upsertModelRegistry(modelName, {
       provider: currentProvider.value.id,
-      quality_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-      speed_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-      cost_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
+      display_name: modelName,
       enabled: true
     })
     
@@ -800,12 +793,9 @@ async function handleBatchAddModels() {
       if (!editProvider.value!.models.includes(model)) {
         newModels.push(model)
         // Sync to backend
-        await request.put(`/admin/router/models/${encodeURIComponent(model)}`, {
-          model,
+        await upsertModelRegistry(model, {
           provider: editProvider.value!.id,
-          quality_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-          speed_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
-          cost_score: MODEL_MANAGEMENT_DEFAULT_SCORE,
+          display_name: model,
           enabled: true
         })
       }
@@ -852,7 +842,7 @@ async function handleBatchDeleteModels() {
       const deleteErrors: string[] = []
       for (const model of selectedModels.value) {
         try {
-          await request.delete(`/admin/router/models/${encodeURIComponent(model)}`)
+          await deleteModelRegistry(model)
         } catch (e: any) {
           deleteErrors.push(`${model}: ${e?.message || 'failed'}`)
         }
@@ -882,6 +872,14 @@ async function handleBatchDeleteModels() {
 
 onMounted(() => {
   loadSettings()
+  offModelsChanged = eventBus.on(DATA_EVENTS.MODELS_CHANGED, loadSettings)
+})
+
+onUnmounted(() => {
+  if (offModelsChanged) {
+    offModelsChanged()
+    offModelsChanged = null
+  }
 })
 </script>
 

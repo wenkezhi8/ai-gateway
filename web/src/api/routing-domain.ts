@@ -51,14 +51,27 @@ export interface OllamaMonitoringStats {
   last_error: string
 }
 
+export interface ModelRegistryItem {
+  model: string
+  provider: string
+  display_name?: string
+  enabled: boolean
+}
+
+export interface UpsertModelRegistryPayload {
+  provider: string
+  display_name?: string
+  enabled?: boolean
+}
+
 export async function getRouterConfig() {
   const raw = await request.get('/admin/router/config')
   return unwrapEnvelope<any>(raw)
 }
 
-export async function getRouterModels() {
-  const raw = await request.get('/admin/router/models')
-  return unwrapEnvelope<any>(raw, { allowPlain: true })
+export async function getModelRegistry() {
+  const raw = await request.get('/admin/router/model-registry')
+  return unwrapEnvelope<ModelRegistryItem[]>(raw, { allowPlain: true })
 }
 
 export async function getAvailableModels() {
@@ -86,8 +99,13 @@ export async function updateRouterConfig(data: Record<string, unknown>) {
   return unwrapEnvelope(raw, { allowPlain: true })
 }
 
-export async function updateModelScore(model: string, payload: Record<string, unknown>) {
-  const raw = await request.put(`/admin/router/models/${encodeURIComponent(model)}`, payload)
+export async function upsertModelRegistry(model: string, payload: UpsertModelRegistryPayload) {
+  const raw = await request.put(`/admin/router/model-registry/${encodeURIComponent(model)}`, payload)
+  return unwrapEnvelope(raw, { allowPlain: true })
+}
+
+export async function deleteModelRegistry(model: string) {
+  const raw = await request.delete(`/admin/router/model-registry/${encodeURIComponent(model)}`)
   return unwrapEnvelope(raw, { allowPlain: true })
 }
 

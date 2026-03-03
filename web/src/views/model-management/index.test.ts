@@ -7,7 +7,7 @@ describe('model management settings loading', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
 
     expect(viewFile).toContain('await fetchModelLabels().catch(() => undefined)')
-    expect(viewFile).toContain(".catch(() => ({ success: false, data: [] }))")
+    expect(viewFile).toContain('getModelRegistry().catch(() => [])')
     expect(viewFile).toContain('...Object.keys(providerDefaults)')
     expect(viewFile).toContain('providerDefaults[providerId] || meta?.default_model || models[0] ||')
   })
@@ -40,5 +40,22 @@ describe('model management settings loading', () => {
     expect(viewFile).toContain('providerApi.delete(row.id)')
     expect(viewFile).toContain('buildProviderOptions')
     expect(viewFile).toContain('PROVIDER_CATALOG')
+  })
+
+  it('uses model-registry endpoints instead of deprecated router models endpoints', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('getModelRegistry')
+    expect(viewFile).toContain('upsertModelRegistry')
+    expect(viewFile).toContain('deleteModelRegistry')
+    expect(viewFile).not.toContain('/admin/router/models')
+  })
+
+  it('subscribes to MODELS_CHANGED and unsubscribes on unmount', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('eventBus.on(DATA_EVENTS.MODELS_CHANGED')
+    expect(viewFile).toContain('onUnmounted(() =>')
+    expect(viewFile).toContain('offModelsChanged()')
   })
 })

@@ -147,6 +147,9 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	routerGroup.POST("/select", handlers.SmartRouter.SelectModel)
 	routerGroup.GET("/provider-defaults", handlers.SmartRouter.GetProviderDefaults)
 	routerGroup.PUT("/provider-defaults", handlers.SmartRouter.UpdateProviderDefaults)
+	routerGroup.GET("/model-registry", handlers.SmartRouter.GetModelRegistry)
+	routerGroup.PUT("/model-registry/:model", handlers.SmartRouter.UpsertModelRegistry)
+	routerGroup.DELETE("/model-registry/:model", handlers.SmartRouter.DeleteModelRegistry)
 	routerGroup.GET("/ttl-config", handlers.SmartRouter.GetTTLConfig)
 	routerGroup.PUT("/ttl-config", handlers.SmartRouter.UpdateTTLConfig)
 	// Cascade rules

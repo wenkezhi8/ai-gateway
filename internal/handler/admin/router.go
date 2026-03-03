@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,21 @@ type UpdateModelScoreRequest struct {
 	SpeedScore   int    `json:"speed_score"`
 	CostScore    int    `json:"cost_score"`
 	Enabled      bool   `json:"enabled"`
+}
+
+// ModelRegistryItemResponse represents model registry response item.
+type ModelRegistryItemResponse struct {
+	Model       string `json:"model"`
+	Provider    string `json:"provider"`
+	DisplayName string `json:"display_name,omitempty"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// UpsertModelRegistryRequest represents model registry upsert request.
+type UpsertModelRegistryRequest struct {
+	Provider    string `json:"provider"`
+	DisplayName string `json:"display_name,omitempty"`
+	Enabled     *bool  `json:"enabled,omitempty"`
 }
 
 // PersistedRouterConfig is the structure stored for UI routing mode selection.
@@ -964,6 +980,133 @@ func (h *RouterHandler) UpdateOllamaDualModelConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    h.buildDualModelConfig(c.Request.Context()),
+	})
+}
+
+// GET /api/admin/router/model-registry.
+func (h *RouterHandler) GetModelRegistry(c *gin.Context) {
+	scores := h.router.GetAllModelScores()
+
+	response := make([]ModelRegistryItemResponse, 0, len(scores))
+	for model, score := range scores {
+		if score == nil {
+			continue
+		}
+		response = append(response, ModelRegistryItemResponse{
+			Model:       model,
+			Provider:    strings.TrimSpace(score.Provider),
+			DisplayName: strings.TrimSpace(score.DisplayName),
+			Enabled:     score.Enabled,
+		})
+	}
+
+	sort.Slice(response, func(i, j int) bool {
+		if response[i].Provider == response[j].Provider {
+			return response[i].Model < response[j].Model
+		}
+		return response[i].Provider < response[j].Provider
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    response,
+	})
+}
+
+// PUT /api/admin/router/model-registry/:model.
+func (h *RouterHandler) UpsertModelRegistry(c *gin.Context) {
+	model := strings.TrimSpace(c.Param("model"))
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "model is required",
+			},
+		})
+		return
+	}
+
+	var req UpsertModelRegistryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "provider is required",
+			},
+		})
+		return
+	}
+
+	existing := h.router.GetModelScore(model)
+	qualityScore := 80
+	speedScore := 80
+	costScore := 80
+	enabled := true
+	displayName := strings.TrimSpace(req.DisplayName)
+
+	if existing != nil {
+		qualityScore = existing.QualityScore
+		speedScore = existing.SpeedScore
+		costScore = existing.CostScore
+		enabled = existing.Enabled
+		if displayName == "" {
+			displayName = strings.TrimSpace(existing.DisplayName)
+		}
+	}
+
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	h.router.UpdateModelScore(model, &routing.ModelScore{
+		Model:        model,
+		Provider:     provider,
+		DisplayName:  displayName,
+		QualityScore: qualityScore,
+		SpeedScore:   speedScore,
+		CostScore:    costScore,
+		Enabled:      enabled,
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Model registry updated",
+	})
+}
+
+// DELETE /api/admin/router/model-registry/:model.
+func (h *RouterHandler) DeleteModelRegistry(c *gin.Context) {
+	model := strings.TrimSpace(c.Param("model"))
+	if model == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "model is required",
+			},
+		})
+		return
+	}
+
+	h.router.DeleteModelScore(model)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "Model registry deleted",
 	})
 }
 

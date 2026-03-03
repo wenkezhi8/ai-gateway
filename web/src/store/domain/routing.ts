@@ -11,14 +11,14 @@ import {
   getFeedbackStats,
   getOllamaStatus,
   getRouterConfig,
-  getRouterModels,
+  getModelRegistry,
   getTaskModelMapping,
   getTaskTypeDistribution,
   getClassifierSwitchTask,
   putTaskModelMapping,
   switchClassifierModelAsync,
   triggerFeedbackOptimization,
-  updateModelScore,
+  upsertModelRegistry,
   updateRouterConfig
 } from '@/api/routing-domain'
 
@@ -65,7 +65,7 @@ export const useRoutingDomainStore = defineStore('routing-domain', () => {
         distributionData
       ] = await Promise.all([
         getRouterConfig(),
-        getRouterModels(),
+        getModelRegistry(),
         getAvailableModels(),
         getCascadeRules(),
         getFeedbackStats(),
@@ -114,7 +114,7 @@ export const useRoutingDomainStore = defineStore('routing-domain', () => {
   }
 
   async function saveModelScore(model: string, payload: Record<string, unknown>) {
-    await updateModelScore(model, payload)
+    await upsertModelRegistry(model, payload as any)
     const found = modelScores.value.findIndex((item) => item.model === model)
     if (found >= 0) {
       modelScores.value[found] = {
