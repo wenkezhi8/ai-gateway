@@ -250,6 +250,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	traceGroup := r.Group("/traces")
 	traceGroup.GET("", handlers.Trace.GetTraces)
 	traceGroup.GET("/:request_id", handlers.Trace.GetTraceDetail)
+	traceGroup.DELETE("", handlers.Trace.ClearTraces)
 
 	// Dashboard routes
 	dashboard := r.Group("/dashboard")

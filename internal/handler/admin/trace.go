@@ -16,6 +16,17 @@ type TraceHandler struct {
 	db *sql.DB
 }
 
+type traceSummary struct {
+	RequestID    string `json:"request_id"`
+	Method       string `json:"method"`
+	Path         string `json:"path"`
+	Status       string `json:"status"`
+	DurationMs   int64  `json:"duration_ms"`
+	CreatedAt    string `json:"created_at"`
+	StepCount    int    `json:"step_count"`
+	AnswerSource string `json:"answer_source"`
+}
+
 func NewTraceHandler(db *sql.DB) *TraceHandler {
 	return &TraceHandler{db: db}
 }
@@ -35,35 +46,82 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	startTime := c.Query("start_time")
 	endTime := c.Query("end_time")
 
-	query := `
-		SELECT id, request_id, trace_id, span_id, parent_span_id, operation, status,
-		       start_time, end_time, duration_ms, attributes, events, user_id, method, path, model, provider, error, created_at
-		FROM request_traces
-		WHERE 1=1
+	totalQuery := `
+		WITH request_candidates AS (
+			SELECT DISTINCT request_id
+			FROM request_traces
+			WHERE (? = '' OR operation = ?)
+			  AND (? = '' OR created_at >= ?)
+			  AND (? = '' OR created_at <= ?)
+		),
+		request_agg AS (
+			SELECT
+				rt.request_id,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.method END), MAX(rt.method), '') AS method,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.path END), MAX(rt.path), '') AS path,
+				CASE WHEN SUM(CASE WHEN rt.status = 'error' THEN 1 ELSE 0 END) > 0 THEN 'error' ELSE 'success' END AS request_status,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
+				COUNT(*) AS step_count,
+				CASE
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
+					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
+					ELSE 'unknown'
+				END AS answer_source
+			FROM request_traces rt
+			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
+			GROUP BY rt.request_id
+		)
+		SELECT COUNT(*) FROM request_agg WHERE (? = '' OR request_status = ?)
 	`
-	args := []interface{}{}
-
-	if operation != "" {
-		query += " AND operation = ?"
-		args = append(args, operation)
-	}
-	if status != "" {
-		query += " AND status = ?"
-		args = append(args, status)
-	}
-	if startTime != "" {
-		query += " AND created_at >= ?"
-		args = append(args, startTime)
-	}
-	if endTime != "" {
-		query += " AND created_at <= ?"
-		args = append(args, endTime)
+	var total int
+	totalArgs := []interface{}{operation, operation, startTime, startTime, endTime, endTime, status, status}
+	if err := h.db.QueryRow(totalQuery, totalArgs...).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "query_failed", "message": err.Error()},
+		})
+		return
 	}
 
-	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
-	args = append(args, limit, offset)
-
-	rows, err := h.db.Query(query, args...)
+	listQuery := `
+		WITH request_candidates AS (
+			SELECT DISTINCT request_id
+			FROM request_traces
+			WHERE (? = '' OR operation = ?)
+			  AND (? = '' OR created_at >= ?)
+			  AND (? = '' OR created_at <= ?)
+		),
+		request_agg AS (
+			SELECT
+				rt.request_id,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.method END), MAX(rt.method), '') AS method,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.path END), MAX(rt.path), '') AS path,
+				CASE WHEN SUM(CASE WHEN rt.status = 'error' THEN 1 ELSE 0 END) > 0 THEN 'error' ELSE 'success' END AS request_status,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
+				COUNT(*) AS step_count,
+				CASE
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
+					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
+					ELSE 'unknown'
+				END AS answer_source
+			FROM request_traces rt
+			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
+			GROUP BY rt.request_id
+		)
+		SELECT request_id, method, path, request_status, duration_ms, created_at, step_count, answer_source
+		FROM request_agg
+		WHERE (? = '' OR request_status = ?)
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`
+	listArgs := []interface{}{operation, operation, startTime, startTime, endTime, endTime, status, status, limit, offset}
+	rows, err := h.db.Query(listQuery, listArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
@@ -73,8 +131,29 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	traces, err := scanRequestTraces(rows)
-	if err != nil {
+	summaries := make([]traceSummary, 0)
+	for rows.Next() {
+		var row traceSummary
+		if scanErr := rows.Scan(
+			&row.RequestID,
+			&row.Method,
+			&row.Path,
+			&row.Status,
+			&row.DurationMs,
+			&row.CreatedAt,
+			&row.StepCount,
+			&row.AnswerSource,
+		); scanErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error":   gin.H{"code": "scan_failed", "message": scanErr.Error()},
+			})
+			return
+		}
+		summaries = append(summaries, row)
+	}
+
+	if err := rows.Err(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"success": false,
 			"error":   gin.H{"code": "scan_failed", "message": err.Error()},
@@ -84,7 +163,8 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    traces,
+		"data":    summaries,
+		"total":   total,
 	})
 }
 
@@ -130,6 +210,33 @@ func (h *TraceHandler) GetTraceDetail(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    traces,
+	})
+}
+
+func (h *TraceHandler) ClearTraces(c *gin.Context) {
+	result, err := h.db.Exec("DELETE FROM request_traces")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "delete_failed", "message": err.Error()},
+		})
+		return
+	}
+
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error":   gin.H{"code": "rows_affected_failed", "message": err.Error()},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"deleted": deleted,
+		},
 	})
 }
 
