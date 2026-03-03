@@ -100,6 +100,34 @@ func TestChatCompletionRequest_Validate(t *testing.T) {
 			},
 			expectError: false,
 		},
+		{
+			name: "valid reasoning effort high",
+			request: ChatCompletionRequest{
+				Model:           "gpt-5.3-codex",
+				ReasoningEffort: "high",
+				Messages:        []ChatMessage{{Role: "user", Content: "Hello"}},
+			},
+			expectError: false,
+		},
+		{
+			name: "valid reasoning effort with uppercase",
+			request: ChatCompletionRequest{
+				Model:           "gpt-5.3-codex",
+				ReasoningEffort: "XHIGH",
+				Messages:        []ChatMessage{{Role: "user", Content: "Hello"}},
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid reasoning effort",
+			request: ChatCompletionRequest{
+				Model:           "gpt-5.3-codex",
+				ReasoningEffort: "ultra",
+				Messages:        []ChatMessage{{Role: "user", Content: "Hello"}},
+			},
+			expectError: true,
+			errorField:  "reasoning_effort",
+		},
 	}
 
 	for _, tt := range tests {
@@ -114,6 +142,30 @@ func TestChatCompletionRequest_Validate(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestNormalizeReasoningEffort(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		expected  string
+		isAllowed bool
+	}{
+		{name: "low", raw: "low", expected: "low", isAllowed: true},
+		{name: "medium", raw: "medium", expected: "medium", isAllowed: true},
+		{name: "high", raw: "high", expected: "high", isAllowed: true},
+		{name: "xhigh uppercase", raw: "XHIGH", expected: "xhigh", isAllowed: true},
+		{name: "trim spaces", raw: " high ", expected: "high", isAllowed: true},
+		{name: "invalid", raw: "ultra", expected: "", isAllowed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := normalizeReasoningEffort(tt.raw)
+			assert.Equal(t, tt.expected, got)
+			assert.Equal(t, tt.isAllowed, ok)
 		})
 	}
 }

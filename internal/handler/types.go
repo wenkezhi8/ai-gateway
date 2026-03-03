@@ -3,6 +3,7 @@ package handler
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,7 @@ type ChatCompletionRequest struct {
 	LogitBias        map[string]float64     `json:"logit_bias,omitempty"`
 	User             string                 `json:"user,omitempty"`
 	DeepThink        bool                   `json:"deepThink,omitempty"` // 改动点: 前端深度思考开关
+	ReasoningEffort  string                 `json:"reasoning_effort,omitempty"`
 	Tools            []Tool                 `json:"tools,omitempty"`
 	ToolChoice       interface{}            `json:"tool_choice,omitempty"`
 	Extra            map[string]interface{} `json:"-"`
@@ -194,7 +196,32 @@ func (r *ChatCompletionRequest) Validate() error {
 			}
 		}
 	}
+
+	if strings.TrimSpace(r.ReasoningEffort) != "" {
+		normalized, ok := normalizeReasoningEffort(r.ReasoningEffort)
+		if !ok {
+			return &ValidationError{Field: "reasoning_effort", Message: "must be one of: low, medium, high, xhigh"}
+		}
+		r.ReasoningEffort = normalized
+	} else {
+		r.ReasoningEffort = ""
+	}
+
 	return nil
+}
+
+func normalizeReasoningEffort(raw string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(raw))
+	if normalized == "" {
+		return "", false
+	}
+
+	switch normalized {
+	case "low", "medium", "high", "xhigh":
+		return normalized, true
+	default:
+		return "", false
+	}
 }
 
 // hasContent checks if content is non-empty (supports string and []ContentPart)

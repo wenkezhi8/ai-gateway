@@ -241,6 +241,11 @@ var swaggerDoc = map[string]interface{}{
 					"temperature": map[string]interface{}{"type": "number", "example": 0.7},
 					"max_tokens":  map[string]interface{}{"type": "integer", "example": 1000},
 					"stream":      map[string]interface{}{"type": "boolean", "default": false},
+					"reasoning_effort": map[string]interface{}{
+						"type":        "string",
+						"enum":        []string{"low", "medium", "high", "xhigh"},
+						"description": "OpenAI 推理强度参数（参考 Chat Completions API，2026-03-03）",
+					},
 				},
 			},
 			"Message": map[string]interface{}{

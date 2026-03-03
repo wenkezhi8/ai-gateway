@@ -76,6 +76,23 @@ func TestChatCompletions_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestChatCompletions_InvalidReasoningEffort_ShouldReturn400(t *testing.T) {
+	cfg := testConfig()
+	h := NewProxyHandler(cfg, nil, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"model":"gpt-5.3-codex","reasoning_effort":"invalid","messages":[{"role":"user","content":"test"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "reasoning_effort")
+}
+
 // TestChatCompletions_MultimodalContent tests multimodal content handling
 func TestChatCompletions_MultimodalContent(t *testing.T) {
 	provider.ClearRegistry()

@@ -94,6 +94,9 @@ func ConvertRequest(req *provider.ChatRequest) *ChatRequest {
 		if user, ok := req.Extra["user"].(string); ok {
 			openaiReq.User = user
 		}
+		if reasoningEffort, ok := req.Extra["reasoning_effort"].(string); ok {
+			openaiReq.ReasoningEffort = reasoningEffort
+		}
 		if seed, ok := req.Extra["seed"].(int); ok {
 			openaiReq.Seed = seed
 		}
@@ -112,6 +115,12 @@ func ConvertRequest(req *provider.ChatRequest) *ChatRequest {
 				if f, ok := v.(float64); ok {
 					openaiReq.LogitBias[k] = f
 				}
+			}
+		}
+		if logitBias, ok := req.Extra["logit_bias"].(map[string]float64); ok {
+			openaiReq.LogitBias = make(map[string]float64, len(logitBias))
+			for k, v := range logitBias {
+				openaiReq.LogitBias[k] = v
 			}
 		}
 	}

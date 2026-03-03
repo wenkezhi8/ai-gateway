@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"ai-gateway/internal/config"
@@ -607,4 +608,174 @@ func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, ErrCodeProviderError, resp.Error.Code)
 	assert.Equal(t, "models/gemini-3.1-pro-preview is not found", resp.Error.Message)
+}
+
+type capturingProvider struct {
+	*provider.BaseProvider
+
+	mu            sync.Mutex
+	lastChatReq   *provider.ChatRequest
+	lastStreamReq *provider.ChatRequest
+}
+
+func (p *capturingProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (p *capturingProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	p.mu.Lock()
+	p.lastChatReq = req
+	p.mu.Unlock()
+
+	return &provider.ChatResponse{
+		ID:      "capture-chat",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{{
+			Index: 0,
+			Message: provider.ChatMessage{
+				Role:    "assistant",
+				Content: "ok",
+			},
+			FinishReason: "stop",
+		}},
+		Usage: provider.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}, nil
+}
+
+func (p *capturingProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	p.mu.Lock()
+	p.lastStreamReq = req
+	p.mu.Unlock()
+
+	ch := make(chan *provider.StreamChunk, 2)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "capture-stream",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{{
+				Index: 0,
+				Delta: &provider.StreamDelta{Role: "assistant", Content: "ok"},
+			}},
+		}
+		ch <- &provider.StreamChunk{
+			ID:      "capture-stream",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{{
+				Index:        0,
+				Delta:        &provider.StreamDelta{},
+				FinishReason: "stop",
+			}},
+			Usage: &provider.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+			Done:  true,
+		}
+	}()
+
+	return ch, nil
+}
+
+func TestProxyHandler_ChatCompletions_ShouldBridgeExtrasToProviderRequest(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"unit-test-model","messages":[{"role":"user","content":"hello"}],"top_p":0.8,"n":2,"stop":["a","b"],"frequency_penalty":0.4,"presence_penalty":0.3,"logit_bias":{"123":1.2},"user":"u-1","deepThink":true,"reasoning_effort":"low"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	require.NotNil(t, capture.lastChatReq.Extra)
+
+	assert.Equal(t, 0.8, capture.lastChatReq.Extra["top_p"])
+	assert.Equal(t, 2, capture.lastChatReq.Extra["n"])
+	assert.Equal(t, 0.4, capture.lastChatReq.Extra["frequency_penalty"])
+	assert.Equal(t, 0.3, capture.lastChatReq.Extra["presence_penalty"])
+	assert.Equal(t, "u-1", capture.lastChatReq.Extra["user"])
+	assert.Equal(t, "low", capture.lastChatReq.Extra["reasoning_effort"])
+	assert.Equal(t, true, capture.lastChatReq.Extra["deep_think"])
+	assert.Equal(t, true, capture.lastChatReq.Extra["reasoning"])
+	require.IsType(t, []interface{}{}, capture.lastChatReq.Extra["stop"])
+	require.IsType(t, map[string]interface{}{}, capture.lastChatReq.Extra["logit_bias"])
+}
+
+func TestProxyHandler_ChatCompletions_Stream_ShouldBridgeExtrasToProviderRequest(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"unit-test-model","stream":true,"messages":[{"role":"user","content":"hello"}],"reasoning_effort":"xhigh"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastStreamReq)
+	require.NotNil(t, capture.lastStreamReq.Extra)
+	assert.Equal(t, "xhigh", capture.lastStreamReq.Extra["reasoning_effort"])
+}
+
+func TestBuildProviderExtraFromChatRequest_ReasoningEffortFallbackAndPriority(t *testing.T) {
+	t.Run("deepThink fallback to high", func(t *testing.T) {
+		req := &ChatCompletionRequest{DeepThink: true}
+		extra := buildProviderExtraFromChatRequest(req)
+		require.NotNil(t, extra)
+		assert.Equal(t, "high", extra["reasoning_effort"])
+	})
+
+	t.Run("reasoning effort has priority over deepThink", func(t *testing.T) {
+		req := &ChatCompletionRequest{DeepThink: true, ReasoningEffort: "medium"}
+		extra := buildProviderExtraFromChatRequest(req)
+		require.NotNil(t, extra)
+		assert.Equal(t, "medium", extra["reasoning_effort"])
+	})
+}
+
+func TestProxyHandler_ChatCompletions_NonOpenAIProvider_ShouldIgnoreReasoningEffort(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("anthropic", "test-key", "https://api.anthropic.com", []string{"unit-test-model"}, true),
+	}
+	provider.RegisterProvider("anthropic", capture)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"anthropic","model":"unit-test-model","messages":[{"role":"user","content":"hello"}],"reasoning_effort":"medium"}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	assert.Equal(t, "medium", capture.lastChatReq.Extra["reasoning_effort"])
 }

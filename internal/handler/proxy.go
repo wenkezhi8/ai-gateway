@@ -603,7 +603,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		Temperature: getFloat64(req.Temperature, defaultTemp),
 		MaxTokens:   getInt(req.MaxTokens, 0),
 		Stream:      req.Stream,
-		Extra:       req.Extra,
+		Extra:       buildProviderExtraFromChatRequest(&req),
 	}
 
 	// 改动点: 透传深度思考开关到 provider 层（用于支持推理输出的模型）
@@ -2574,6 +2574,55 @@ func getInt(v *int, def int) int {
 		return def
 	}
 	return *v
+}
+
+func buildProviderExtraFromChatRequest(req *ChatCompletionRequest) map[string]interface{} {
+	if req == nil {
+		return nil
+	}
+
+	extra := make(map[string]interface{})
+	for k, v := range req.Extra {
+		extra[k] = v
+	}
+
+	if req.TopP != nil {
+		extra["top_p"] = *req.TopP
+	}
+	if req.N != nil {
+		extra["n"] = *req.N
+	}
+	if req.Stop != nil {
+		extra["stop"] = req.Stop
+	}
+	if req.FrequencyPenalty != nil {
+		extra["frequency_penalty"] = *req.FrequencyPenalty
+	}
+	if req.PresencePenalty != nil {
+		extra["presence_penalty"] = *req.PresencePenalty
+	}
+	if len(req.LogitBias) > 0 {
+		logitBias := make(map[string]interface{}, len(req.LogitBias))
+		for key, value := range req.LogitBias {
+			logitBias[key] = value
+		}
+		extra["logit_bias"] = logitBias
+	}
+	if req.User != "" {
+		extra["user"] = req.User
+	}
+
+	if req.ReasoningEffort != "" {
+		extra["reasoning_effort"] = req.ReasoningEffort
+	} else if req.DeepThink {
+		extra["reasoning_effort"] = "high"
+	}
+
+	if len(extra) == 0 {
+		return nil
+	}
+
+	return extra
 }
 
 func buildResponseCacheKeyPayload(req *ChatCompletionRequest, taskType routing.TaskType, prompt string) interface{} {

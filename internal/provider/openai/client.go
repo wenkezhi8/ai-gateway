@@ -120,6 +120,7 @@ type ChatRequest struct {
 	Tools               []Tool             `json:"tools,omitempty"`
 	ToolChoice          interface{}        `json:"tool_choice,omitempty"`
 	ResponseFormat      interface{}        `json:"response_format,omitempty"`
+	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
 }
 
 // StreamOptions represents streaming options

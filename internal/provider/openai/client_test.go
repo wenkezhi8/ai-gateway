@@ -3,6 +3,9 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"ai-gateway/internal/provider"
@@ -86,6 +89,7 @@ func TestConvertRequest_WithExtra(t *testing.T) {
 			"frequency_penalty":     0.5,
 			"presence_penalty":      0.3,
 			"user":                  "test-user",
+			"reasoning_effort":      "xhigh",
 			"seed":                  42,
 			"logprobs":              true,
 			"top_logprobs":          5,
@@ -99,10 +103,44 @@ func TestConvertRequest_WithExtra(t *testing.T) {
 	assert.Equal(t, 0.5, openaiReq.FrequencyPenalty)
 	assert.Equal(t, 0.3, openaiReq.PresencePenalty)
 	assert.Equal(t, "test-user", openaiReq.User)
+	assert.Equal(t, "xhigh", openaiReq.ReasoningEffort)
 	assert.Equal(t, 42, openaiReq.Seed)
 	assert.True(t, openaiReq.Logprobs)
 	assert.Equal(t, 5, openaiReq.TopLogprobs)
 	assert.Equal(t, 2000, openaiReq.MaxCompletionTokens)
+}
+
+func TestCallResponsesAPI_ShouldCarryReasoningEffort(t *testing.T) {
+	var capturedBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &capturedBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-5.3-codex","output_text":"ok","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	adapter := NewAdapter(&provider.ProviderConfig{
+		Name:    "openai",
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+		Models:  []string{"gpt-5.3-codex"},
+		Enabled: true,
+	})
+
+	_, err := adapter.callResponsesAPI(context.Background(), &provider.ChatRequest{
+		Model:    "gpt-5.3-codex",
+		Messages: []provider.ChatMessage{{Role: "user", Content: "hello"}},
+		Extra: map[string]interface{}{
+			"reasoning_effort": "high",
+		},
+	}, false)
+	require.NoError(t, err)
+
+	require.NotNil(t, capturedBody)
+	assert.Equal(t, "high", capturedBody["reasoning_effort"])
 }
 
 func TestConvertRequest_WithLogitBias(t *testing.T) {

@@ -314,6 +314,11 @@ func (a *Adapter) callResponsesAPI(ctx context.Context, req *provider.ChatReques
 	if req.MaxTokens > 0 {
 		body["max_output_tokens"] = req.MaxTokens
 	}
+	if req.Extra != nil {
+		if reasoningEffort, ok := req.Extra["reasoning_effort"].(string); ok && strings.TrimSpace(reasoningEffort) != "" {
+			body["reasoning_effort"] = reasoningEffort
+		}
+	}
 
 	resp, err := a.client.DoRequest(ctx, "POST", "/responses", body)
 	if err != nil {
