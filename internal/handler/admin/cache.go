@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -28,6 +29,7 @@ type CacheHandler struct {
 	manager           *cache.Manager
 	settings          cache.CacheSettings
 	modelMappingCache *cache.ModelMappingCache
+	traceDB           *sql.DB
 	mu                sync.RWMutex
 }
 
@@ -55,6 +57,18 @@ func (h *CacheHandler) SetModelMappingCache(mmc *cache.ModelMappingCache) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.modelMappingCache = mmc
+}
+
+func (h *CacheHandler) SetTraceDB(db *sql.DB) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.traceDB = db
+}
+
+func (h *CacheHandler) getTraceDB() *sql.DB {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.traceDB
 }
 
 func (h *CacheHandler) startEmptyResponseCleaner() {
@@ -1269,6 +1283,456 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 	summary := h.manager.Summary()
 
 	c.Data(http.StatusOK, "application/json", summary)
+}
+
+const (
+	cacheRequestSourceAll          = "all"
+	cacheRequestSourceV2           = "cache_v2"
+	cacheRequestSourceSemantic     = "cache_semantic"
+	cacheRequestSourceExact        = "cache_exact"
+	cacheRequestSourceProviderChat = "provider_chat"
+	cacheRequestDefaultPage        = 1
+	cacheRequestDefaultPageSize    = 20
+	cacheRequestMaxPageSize        = 200
+)
+
+type cacheRequestWindow struct {
+	Start time.Time
+	End   time.Time
+}
+
+type cacheRequestStatsPayload struct {
+	TotalRequests    int            `json:"total_requests"`
+	CacheHitRequests int            `json:"cache_hit_requests"`
+	CacheHitRate     float64        `json:"cache_hit_rate"`
+	SourceBreakdown  map[string]int `json:"source_breakdown"`
+	WindowStart      string         `json:"window_start"`
+	WindowEnd        string         `json:"window_end"`
+}
+
+type cacheRequestHitEntry struct {
+	RequestID          string `json:"request_id"`
+	Method             string `json:"method"`
+	Path               string `json:"path"`
+	Status             string `json:"status"`
+	DurationMs         int64  `json:"duration_ms"`
+	CreatedAt          string `json:"created_at"`
+	AnswerSource       string `json:"answer_source"`
+	Model              string `json:"model"`
+	Provider           string `json:"provider"`
+	UserMessagePreview string `json:"user_message_preview"`
+	AIResponsePreview  string `json:"ai_response_preview"`
+}
+
+type cacheRequestHitsPayload struct {
+	Entries     []cacheRequestHitEntry `json:"entries"`
+	Total       int                    `json:"total"`
+	Page        int                    `json:"page"`
+	PageSize    int                    `json:"page_size"`
+	WindowStart string                 `json:"window_start"`
+	WindowEnd   string                 `json:"window_end"`
+}
+
+func normalizeCacheRequestSource(source string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	if normalized == "" {
+		return cacheRequestSourceAll, true
+	}
+	switch normalized {
+	case cacheRequestSourceAll,
+		cacheRequestSourceV2,
+		cacheRequestSourceSemantic,
+		cacheRequestSourceExact,
+		cacheRequestSourceProviderChat:
+		return normalized, true
+	default:
+		return "", false
+	}
+}
+
+func parseCacheRequestTime(value string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed.UTC(), nil
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsed.UTC(), nil
+}
+
+func resolveCacheRequestWindow(c *gin.Context) (cacheRequestWindow, error) {
+	now := time.Now().UTC()
+	startRaw := strings.TrimSpace(c.Query("start_time"))
+	endRaw := strings.TrimSpace(c.Query("end_time"))
+	windowRaw := strings.TrimSpace(c.DefaultQuery("window", "24h"))
+
+	if startRaw == "" && endRaw == "" {
+		windowDur, err := time.ParseDuration(windowRaw)
+		if err != nil || windowDur <= 0 {
+			return cacheRequestWindow{}, fmt.Errorf("invalid window")
+		}
+		end := now
+		return cacheRequestWindow{Start: end.Add(-windowDur), End: end}, nil
+	}
+
+	var (
+		start time.Time
+		end   time.Time
+		err   error
+	)
+
+	if endRaw == "" {
+		end = now
+	} else {
+		end, err = parseCacheRequestTime(endRaw)
+		if err != nil {
+			return cacheRequestWindow{}, err
+		}
+	}
+
+	if startRaw == "" {
+		start = end.Add(-24 * time.Hour)
+	} else {
+		start, err = parseCacheRequestTime(startRaw)
+		if err != nil {
+			return cacheRequestWindow{}, err
+		}
+	}
+
+	if start.After(end) {
+		return cacheRequestWindow{}, fmt.Errorf("start_time must be before end_time")
+	}
+
+	return cacheRequestWindow{Start: start, End: end}, nil
+}
+
+func isCacheHitSource(source string) bool {
+	switch source {
+	case cacheRequestSourceV2, cacheRequestSourceSemantic, cacheRequestSourceExact:
+		return true
+	default:
+		return false
+	}
+}
+
+func cacheRequestAggCTE() string {
+	return `
+		WITH request_candidates AS (
+			SELECT DISTINCT request_id
+			FROM request_traces
+			WHERE julianday(created_at) >= julianday(?)
+			  AND julianday(created_at) <= julianday(?)
+		),
+		request_agg AS (
+			SELECT
+				rt.request_id,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.method END), MAX(rt.method), '') AS method,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.path END), MAX(rt.path), '') AS path,
+				CASE WHEN SUM(CASE WHEN rt.status = 'error' THEN 1 ELSE 0 END) > 0 THEN 'error' ELSE 'success' END AS request_status,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
+				CASE
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
+					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
+					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
+					ELSE 'provider_chat'
+				END AS answer_source,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.model END), MAX(rt.model), '') AS model,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.provider END), MAX(rt.provider), '') AS provider,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.user_message_preview'), '') END), '') AS user_message_preview,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.ai_response_preview'), '') END), '') AS ai_response_preview
+			FROM request_traces rt
+			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
+			GROUP BY rt.request_id
+		)
+	`
+}
+
+func (h *CacheHandler) GetCacheRequestStats(c *gin.Context) {
+	db := h.getTraceDB()
+	if db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "trace_db_unavailable",
+				"message": "request trace database unavailable",
+			},
+		})
+		return
+	}
+
+	source, ok := normalizeCacheRequestSource(c.Query("source"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_source",
+				"message": "source must be one of all|cache_v2|cache_semantic|cache_exact|provider_chat",
+			},
+		})
+		return
+	}
+
+	window, err := resolveCacheRequestWindow(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_window",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	windowStart := window.Start.Format(time.RFC3339Nano)
+	windowEnd := window.End.Format(time.RFC3339Nano)
+
+	statsQuery := cacheRequestAggCTE() + `
+		SELECT COUNT(*) AS total_requests
+		FROM request_agg
+		WHERE (? = 'all' OR answer_source = ?)
+	`
+
+	var totalRequests int
+	if err := db.QueryRow(statsQuery, windowStart, windowEnd, source, source).Scan(&totalRequests); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "query_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	breakdownQuery := cacheRequestAggCTE() + `
+		SELECT answer_source, COUNT(*)
+		FROM request_agg
+		WHERE (? = 'all' OR answer_source = ?)
+		GROUP BY answer_source
+	`
+
+	rows, err := db.Query(breakdownQuery, windowStart, windowEnd, source, source)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "query_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+	defer rows.Close()
+
+	sourceBreakdown := map[string]int{}
+	cacheHitRequests := 0
+	for rows.Next() {
+		var (
+			answerSource string
+			count        int
+		)
+		if err := rows.Scan(&answerSource, &count); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "scan_failed",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		sourceBreakdown[answerSource] = count
+		if isCacheHitSource(answerSource) {
+			cacheHitRequests += count
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "scan_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	cacheHitRate := 0.0
+	if totalRequests > 0 {
+		cacheHitRate = float64(cacheHitRequests) / float64(totalRequests)
+	}
+
+	payload := cacheRequestStatsPayload{
+		TotalRequests:    totalRequests,
+		CacheHitRequests: cacheHitRequests,
+		CacheHitRate:     cacheHitRate,
+		SourceBreakdown:  sourceBreakdown,
+		WindowStart:      window.Start.Format(time.RFC3339),
+		WindowEnd:        window.End.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    payload,
+	})
+}
+
+func (h *CacheHandler) GetCacheRequestHits(c *gin.Context) {
+	db := h.getTraceDB()
+	if db == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "trace_db_unavailable",
+				"message": "request trace database unavailable",
+			},
+		})
+		return
+	}
+
+	source, ok := normalizeCacheRequestSource(c.Query("source"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_source",
+				"message": "source must be one of all|cache_v2|cache_semantic|cache_exact|provider_chat",
+			},
+		})
+		return
+	}
+
+	window, err := resolveCacheRequestWindow(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_window",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	page := cacheRequestDefaultPage
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page", strconv.Itoa(cacheRequestDefaultPage)))); err == nil {
+		page = parsed
+	}
+	if page < 1 {
+		page = 1
+	}
+
+	pageSize := cacheRequestDefaultPageSize
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.DefaultQuery("page_size", strconv.Itoa(cacheRequestDefaultPageSize)))); err == nil {
+		pageSize = parsed
+	}
+	if pageSize < 1 {
+		pageSize = cacheRequestDefaultPageSize
+	}
+	if pageSize > cacheRequestMaxPageSize {
+		pageSize = cacheRequestMaxPageSize
+	}
+
+	windowStart := window.Start.Format(time.RFC3339Nano)
+	windowEnd := window.End.Format(time.RFC3339Nano)
+
+	totalQuery := cacheRequestAggCTE() + `
+		SELECT COUNT(*)
+		FROM request_agg
+		WHERE (? = 'all' OR answer_source = ?)
+	`
+
+	var total int
+	if err := db.QueryRow(totalQuery, windowStart, windowEnd, source, source).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "query_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	offset := (page - 1) * pageSize
+	entriesQuery := cacheRequestAggCTE() + `
+		SELECT request_id, method, path, request_status, duration_ms, created_at, answer_source, model, provider, user_message_preview, ai_response_preview
+		FROM request_agg
+		WHERE (? = 'all' OR answer_source = ?)
+		ORDER BY julianday(created_at) DESC
+		LIMIT ? OFFSET ?
+	`
+
+	rows, err := db.Query(entriesQuery, windowStart, windowEnd, source, source, pageSize, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "query_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+	defer rows.Close()
+
+	entries := make([]cacheRequestHitEntry, 0)
+	for rows.Next() {
+		var entry cacheRequestHitEntry
+		if err := rows.Scan(
+			&entry.RequestID,
+			&entry.Method,
+			&entry.Path,
+			&entry.Status,
+			&entry.DurationMs,
+			&entry.CreatedAt,
+			&entry.AnswerSource,
+			&entry.Model,
+			&entry.Provider,
+			&entry.UserMessagePreview,
+			&entry.AIResponsePreview,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"success": false,
+				"error": gin.H{
+					"code":    "scan_failed",
+					"message": err.Error(),
+				},
+			})
+			return
+		}
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "scan_failed",
+				"message": err.Error(),
+			},
+		})
+		return
+	}
+
+	payload := cacheRequestHitsPayload{
+		Entries:     entries,
+		Total:       total,
+		Page:        page,
+		PageSize:    pageSize,
+		WindowStart: window.Start.Format(time.RFC3339),
+		WindowEnd:   window.End.Format(time.RFC3339),
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    payload,
+	})
 }
 
 type vectorPipelineTestRequest struct {
