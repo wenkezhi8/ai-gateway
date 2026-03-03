@@ -25,6 +25,7 @@ type traceSummary struct {
 	CreatedAt    string `json:"created_at"`
 	StepCount    int    `json:"step_count"`
 	AnswerSource string `json:"answer_source"`
+	TaskType     string `json:"task_type"`
 }
 
 func NewTraceHandler(db *sql.DB) *TraceHandler {
@@ -63,12 +64,17 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
 				COUNT(*) AS step_count,
+				COALESCE(
+					MAX(CASE WHEN rt.operation = 'classifier.assess' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
+					MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
+					''
+				) AS task_type,
 				CASE
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
 					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
-					ELSE 'unknown'
+					ELSE 'provider_chat'
 				END AS answer_source
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
@@ -103,18 +109,23 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
 				COUNT(*) AS step_count,
+				COALESCE(
+					MAX(CASE WHEN rt.operation = 'classifier.assess' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
+					MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
+					''
+				) AS task_type,
 				CASE
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
 					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
 					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
-					ELSE 'unknown'
+					ELSE 'provider_chat'
 				END AS answer_source
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
 			GROUP BY rt.request_id
 		)
-		SELECT request_id, method, path, request_status, duration_ms, created_at, step_count, answer_source
+		SELECT request_id, method, path, request_status, duration_ms, created_at, step_count, answer_source, task_type
 		FROM request_agg
 		WHERE (? = '' OR request_status = ?)
 		ORDER BY created_at DESC
@@ -143,6 +154,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 			&row.CreatedAt,
 			&row.StepCount,
 			&row.AnswerSource,
+			&row.TaskType,
 		); scanErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,

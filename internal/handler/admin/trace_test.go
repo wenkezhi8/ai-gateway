@@ -89,6 +89,11 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 
 	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "GET", 210, base.Add(5*time.Second), nil)
 
+	insertTraceSpan(t, db, "req-task-classifier", "classifier.assess", "success", "GET", 12, base.Add(5*time.Second), map[string]any{"task_type": "analysis"})
+	insertTraceSpan(t, db, "req-task-classifier", "provider.chat", "success", "GET", 220, base.Add(5*time.Second), nil)
+
+	insertTraceSpan(t, db, "req-task-v2", "cache.read-v2", "success", "GET", 18, base.Add(6*time.Second), map[string]any{"result": "hit", "task_type": "chat"})
+
 	insertTraceSpan(t, db, "req-unknown", "provider.chat", "error", "GET", 90, base.Add(6*time.Second), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/traces?limit=20&offset=0", http.NoBody)
@@ -104,6 +109,7 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 		Data    []struct {
 			RequestID    string `json:"request_id"`
 			AnswerSource string `json:"answer_source"`
+			TaskType     string `json:"task_type"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -115,15 +121,20 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 	}
 
 	sourceByRequest := map[string]string{}
+	taskTypeByRequest := map[string]string{}
 	for _, row := range resp.Data {
 		sourceByRequest[row.RequestID] = row.AnswerSource
+		taskTypeByRequest[row.RequestID] = row.TaskType
 	}
 
 	assertTraceSource(t, sourceByRequest, "req-v2", "cache_v2")
 	assertTraceSource(t, sourceByRequest, "req-sem", "cache_semantic")
 	assertTraceSource(t, sourceByRequest, "req-exact", "cache_exact")
 	assertTraceSource(t, sourceByRequest, "req-provider", "provider_chat")
-	assertTraceSource(t, sourceByRequest, "req-unknown", "unknown")
+	assertTraceSource(t, sourceByRequest, "req-unknown", "provider_chat")
+
+	assertTraceTaskType(t, taskTypeByRequest, "req-task-classifier", "analysis")
+	assertTraceTaskType(t, taskTypeByRequest, "req-task-v2", "chat")
 }
 
 func TestTraceHandler_ClearTraces_ShouldDeleteAllAndReturnDeleted(t *testing.T) {
@@ -262,5 +273,16 @@ func assertTraceSource(t *testing.T, sourceByRequest map[string]string, requestI
 	}
 	if got != want {
 		t.Fatalf("request %s answer_source=%s want=%s", requestID, got, want)
+	}
+}
+
+func assertTraceTaskType(t *testing.T, taskTypeByRequest map[string]string, requestID, want string) {
+	t.Helper()
+	got, ok := taskTypeByRequest[requestID]
+	if !ok {
+		t.Fatalf("request %s missing in response", requestID)
+	}
+	if got != want {
+		t.Fatalf("request %s task_type=%s want=%s", requestID, got, want)
 	}
 }
