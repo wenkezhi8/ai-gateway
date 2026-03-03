@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getCacheTaskTTLConfig, getVectorStats, isCacheTaskTTLNotFoundError } from './cache-domain'
+import {
+  getCacheRequestHits,
+  getCacheRequestStats,
+  getCacheTaskTTLConfig,
+  getVectorStats,
+  isCacheTaskTTLNotFoundError
+} from './cache-domain'
 
 const requestMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -54,5 +60,46 @@ describe('cache domain vector apis', () => {
     expect(isCacheTaskTTLNotFoundError({ response: { status: 404 } })).toBe(true)
     expect(isCacheTaskTTLNotFoundError({ response: { status: 500 } })).toBe(false)
     expect(isCacheTaskTTLNotFoundError(null)).toBe(false)
+  })
+
+  it('should request cache request stats with default 24h window', async () => {
+    requestMock.get.mockResolvedValue({
+      success: true,
+      data: { total_requests: 12, hit_rate: 0.5 }
+    })
+
+    await getCacheRequestStats()
+
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-stats?window=24h&source=all')
+  })
+
+  it('should request cache request stats without default window when start/end provided', async () => {
+    requestMock.get.mockResolvedValue({
+      success: true,
+      data: { total_requests: 8, hit_rate: 0.25 }
+    })
+
+    await getCacheRequestStats({
+      start: 's',
+      end: 'e',
+      source: 'cache_exact'
+    })
+
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-stats?start_time=s&end_time=e&source=cache_exact')
+  })
+
+  it('should request cache request hits with source and paging', async () => {
+    requestMock.get.mockResolvedValue({
+      success: true,
+      data: { hits: [], total: 0 }
+    })
+
+    await getCacheRequestHits({
+      source: 'cache_v2',
+      page: 2,
+      page_size: 50
+    })
+
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-hits?window=24h&source=cache_v2&page=2&page_size=50')
   })
 })
