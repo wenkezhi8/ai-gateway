@@ -34,7 +34,7 @@ export interface TraceAttributes extends Record<string, any> {
   ai_response_truncated?: boolean
 }
 
-export type TraceAnswerSource = 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat' | 'unknown'
+export type TraceAnswerSource = 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat'
 
 export interface TraceSummary {
   request_id: string
@@ -45,6 +45,7 @@ export interface TraceSummary {
   created_at: string
   step_count: number
   answer_source: TraceAnswerSource
+  task_type?: string
 }
 
 export interface TraceListResult {

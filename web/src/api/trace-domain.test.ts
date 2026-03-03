@@ -20,7 +20,7 @@ describe('trace-domain', () => {
   it('should unwrap list and total from traces response', async () => {
     requestMock.get.mockResolvedValue({
       success: true,
-      data: [{ request_id: 'req-1', answer_source: 'cache_v2' }],
+      data: [{ request_id: 'req-1', answer_source: 'cache_v2', task_type: 'analysis' }],
       total: 101
     })
 
@@ -29,6 +29,7 @@ describe('trace-domain', () => {
     expect(result.total).toBe(101)
     expect(result.data).toHaveLength(1)
     expect(result.data[0]?.answer_source).toBe('cache_v2')
+    expect(result.data[0]?.task_type).toBe('analysis')
   })
 
   it('should keep detail endpoint unchanged', async () => {

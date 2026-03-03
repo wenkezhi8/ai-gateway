@@ -19,9 +19,13 @@ describe('trace detail view', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
 
     expect(viewFile).toContain('AI回复来源')
+    expect(viewFile).toContain('任务类型')
+    expect(viewFile).toContain('prop="task_type"')
     expect(viewFile).toContain('清理链路记录')
     expect(viewFile).toContain('clearTraces')
     expect(viewFile).toContain('const clearing = ref(false)')
+    expect(viewFile).not.toContain("unknown: '未知'")
+    expect(viewFile).not.toContain("|| '未知'")
   })
 
   it('removes frontend span grouping and consumes backend request summaries', () => {

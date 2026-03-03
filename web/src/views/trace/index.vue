@@ -60,10 +60,13 @@
         <el-table-column prop="created_at" label="时间" width="160">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column label="操作" width="100">
           <template #default="{ row }">
             <el-button type="primary" link size="small" @click="viewDetail(row)">详情</el-button>
           </template>
+        </el-table-column>
+        <el-table-column prop="task_type" label="任务类型" width="120">
+          <template #default="{ row }">{{ row.task_type ? formatTaskType(row.task_type) : '-' }}</template>
         </el-table-column>
       </el-table>
 
@@ -264,8 +267,7 @@ const ANSWER_SOURCE_LABELS: Record<TraceSummary['answer_source'], string> = {
   cache_v2: 'V2缓存查询',
   cache_semantic: '语义缓存查询',
   cache_exact: '精确缓存查询',
-  provider_chat: '调用上游模型',
-  unknown: '未知'
+  provider_chat: '调用上游模型'
 }
 
 onMounted(() => {
@@ -357,7 +359,7 @@ async function viewDetail(row: TraceSummary) {
 }
 
 function getAnswerSourceLabel(source: TraceSummary['answer_source']) {
-  return ANSWER_SOURCE_LABELS[source] || '未知'
+  return ANSWER_SOURCE_LABELS[source] || '调用上游模型'
 }
 
 function getMethodType(method: string) {
