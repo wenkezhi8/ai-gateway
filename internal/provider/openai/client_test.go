@@ -115,10 +115,19 @@ func TestCallResponsesAPI_ShouldCarryReasoningEffort(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
-		body, _ := io.ReadAll(r.Body)
-		_ = json.Unmarshal(body, &capturedBody)
+		body, readErr := io.ReadAll(r.Body)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusInternalServerError)
+			return
+		}
+		if unmarshalErr := json.Unmarshal(body, &capturedBody); unmarshalErr != nil {
+			http.Error(w, unmarshalErr.Error(), http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"resp_1","model":"gpt-5.3-codex","output_text":"ok","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`))
+		if _, writeErr := w.Write([]byte(`{"id":"resp_1","model":"gpt-5.3-codex","output_text":"ok","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)); writeErr != nil {
+			return
+		}
 	}))
 	defer server.Close()
 
