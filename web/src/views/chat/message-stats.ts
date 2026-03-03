@@ -80,6 +80,7 @@ export function computeMessageStats(input: ComputeMessageStatsInput): MessageSta
     cacheHit: meta.cacheHit,
     cacheLayer: meta.cacheLayer,
     requestMode: meta.requestMode,
+    reasoningEffortDowngraded: meta.reasoningEffortDowngraded,
     speedBasis
   }
 }

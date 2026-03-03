@@ -115,6 +115,23 @@
                   <el-switch v-model="streamEnabled" />
                 </div>
               </el-tooltip>
+              <el-tooltip content="深度思考开启时可指定推理强度" placement="top">
+                <div class="setting-item reasoning-effort-item">
+                  <span>推理强度</span>
+                  <el-select
+                    v-model="reasoningEffort"
+                    size="small"
+                    style="width: 120px"
+                    :disabled="!deepThinkEnabled"
+                  >
+                    <el-option label="自动" value="auto" />
+                    <el-option label="low" value="low" />
+                    <el-option label="medium" value="medium" />
+                    <el-option label="high" value="high" />
+                    <el-option label="xhigh" value="xhigh" />
+                  </el-select>
+                </div>
+              </el-tooltip>
             </div>
           </div>
           <ChatInput
@@ -172,7 +189,7 @@ import { Plus, ChatDotRound, Delete, Operation, Loading } from '@element-plus/ic
 import { useRoute } from 'vue-router'
 import { useChatStore, initializeProviders, PROVIDERS, getModelLabel } from '@/store/chat'
 import { streamCompletion, search } from '@/api/chat'
-import { createMessage, type ChatMessage as ChatMessageType, type CompletionMeta } from '@/types/chat'
+import { createMessage, type ChatMessage as ChatMessageType, type CompletionMeta, type ReasoningEffort } from '@/types/chat'
 import ChatMessage from './components/ChatMessage.vue'
 import ChatInput from './components/ChatInput.vue'
 import ModelSelector from './components/ModelSelector.vue'
@@ -216,6 +233,7 @@ const multimodalEnabled = ref(false)
 const defaultExpandReasoning = ref(true)
 const answerHighlightEnabled = ref(true)
 const streamEnabled = ref(true)  // 流式响应开关
+const reasoningEffort = ref<'auto' | ReasoningEffort>('auto')
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -294,7 +312,8 @@ async function handleBatchSend(): Promise<void> {
             model: conv.model,
             provider: conv.provider,
             messages,
-            stream: streamEnabled.value
+            stream: streamEnabled.value,
+            ...(deepThinkEnabled.value && reasoningEffort.value !== 'auto' ? { reasoning_effort: reasoningEffort.value } : {})
           },
           (chunk) => {
             const content = chunk.choices?.[0]?.delta?.content
@@ -561,7 +580,8 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
       provider: chatStore.currentConversation.provider,
       messages,
       stream: streamEnabled.value,
-      deepThink: deepThinkEnabled.value
+      deepThink: deepThinkEnabled.value,
+      ...(deepThinkEnabled.value && reasoningEffort.value !== 'auto' ? { reasoning_effort: reasoningEffort.value } : {})
     },
     // onChunk
     (chunk) => {
@@ -629,6 +649,9 @@ async function handleSend(text: string, files: any[] = []): Promise<void> {
         isStreaming: false,
         stats
       })
+      if (meta.reasoningEffortDowngraded) {
+        ElMessage.warning('模型不支持所选推理强度，已自动降级后重试成功')
+      }
       chatStore.setLoading(false)
       chatStore.setAbortController(conversationId, null)
     }
