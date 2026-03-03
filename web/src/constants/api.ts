@@ -59,8 +59,8 @@ export const API = {
     FEEDBACK: '/api/admin/feedback',
     ALERTS: '/api/admin/alerts',
     SETTINGS: {
-      DEFAULTS: '/api/admin/settings/defaults',
-      UI: '/api/admin/settings/ui',
+      DEFAULTS: '/admin/settings/defaults',
+      UI: '/admin/settings/ui',
     },
   },
   
