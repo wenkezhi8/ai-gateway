@@ -110,6 +110,8 @@ Git权限：<可否 commit / push / tag>
 3. 每次任务完成后，必须本地提交一次，确保 `git status --short` 结果为空（工作区保持干净）。
 4. **每次只提交本任务相关文件**：禁止捎带无关改动。
 5. `push/tag` 需明确指令后执行。
+6. 每次任务收尾必须执行“提交证据三连”：`git rev-parse --short HEAD`、`git show --name-only --pretty='' HEAD`、`git status --short`（最后一条必须为空或仅允许白名单未跟踪项）。
+7. 若存在未提交改动，必须在回报中明确写“当前状态：进行中 + 待提交文件清单”，禁止宣告“已完成交付”。
 
 ### 7.1 执行模式提醒
 ```text
@@ -120,12 +122,20 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 </system-reminder>
 ```
 
+### 7.2 防漏提交门禁（必须）
+```bash
+git rev-parse --short HEAD
+git show --name-only --pretty='' HEAD
+git status --short
+```
+
 ## 8. 变更完成检查清单（交付前）
 - [ ] 改动范围与需求一致
 - [ ] 无新增业务硬编码数据
 - [ ] TDD 记录完整（至少一条 Red→Green 证据）
 - [ ] 前端：typecheck/build 通过
 - [ ] 后端：go test/build 通过
+- [ ] 提交证据三连已执行（含 `git show --name-only`），且无待提交业务文件
 - [ ] 输出了风险与回滚点
 ---
 ## 9. 统一输出模板（建议）
@@ -140,9 +150,11 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 【Git状态】
 - 是否已本地提交：
 - commit hash：
+- 提交文件清单（`git show --name-only --pretty='' HEAD`）：
 - 当前 tag：
 - 是否已 push：
 - 工作区是否 clean：
+- 是否存在待提交文件（`git status --short`）：
 7）优化建议：
 ```
 
