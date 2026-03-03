@@ -91,7 +91,20 @@ const (
 	alertLevelWarning    = "warning"
 	alertStatusPending   = "pending"
 	alertStatusResolved  = "resolved"
+	alertDedupMemoryWarn = "memory_warning"
 )
+
+var localizedSystemHealthDedupRules = []struct {
+	needle string
+	key    string
+}{
+	{needle: "内存使用率过高", key: "memory_critical"},
+	{needle: "内存使用率偏高", key: alertDedupMemoryWarn},
+	{needle: "goroutine 数过高", key: "goroutine_critical"},
+	{needle: "goroutine 数偏高", key: "goroutine_warning"},
+	{needle: "gc 暂停过长", key: "gc_pause_critical"},
+	{needle: "gc 暂停偏长", key: "gc_pause_warning"},
+}
 
 // Global alert handler.
 var globalAlertHandler *AlertHandler
@@ -444,11 +457,8 @@ func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
 		return
 	}
 
-	level := strings.TrimSpace(req.Level)
-	source := strings.TrimSpace(req.Source)
-	message := strings.TrimSpace(req.Message)
-	dedupKey := strings.TrimSpace(req.DedupKey)
-	if level == "" || source == "" || (dedupKey == "" && message == "") {
+	level, source, message, dedupKey, ok := normalizeResolveSimilarAlertsRequest(&req)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error": gin.H{
@@ -465,29 +475,9 @@ func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
 	}
 	targetKey := buildAlertDedupKey(level, source, targetDedup)
 	resolvedAt := time.Now().Format(time.RFC3339)
-	affected := 0
 
 	h.mu.Lock()
-	for i := range h.alerts {
-		alert := &h.alerts[i]
-		if alert.Status == alertStatusResolved {
-			continue
-		}
-		if strings.TrimSpace(alert.Level) != level || strings.TrimSpace(alert.Source) != source {
-			continue
-		}
-		alertDedup := resolveAlertDedupKey(*alert)
-		if alertDedup != targetDedup {
-			continue
-		}
-		alert.Status = alertStatusResolved
-		alert.ResolvedAt = resolvedAt
-		alert.AutoResolved = false
-		affected++
-	}
-	if affected > 0 {
-		h.saveData()
-	}
+	affected := h.resolveSimilarAlertsLocked(level, source, targetDedup, resolvedAt)
 	h.mu.Unlock()
 
 	c.JSON(http.StatusOK, gin.H{
@@ -497,6 +487,49 @@ func (h *AlertHandler) ResolveSimilarAlerts(c *gin.Context) {
 			"key":      targetKey,
 		},
 	})
+}
+
+func normalizeResolveSimilarAlertsRequest(req *resolveSimilarAlertsRequest) (level, source, message, dedupKey string, ok bool) {
+	if req == nil {
+		return "", "", "", "", false
+	}
+
+	level = strings.TrimSpace(req.Level)
+	source = strings.TrimSpace(req.Source)
+	message = strings.TrimSpace(req.Message)
+	dedupKey = strings.TrimSpace(req.DedupKey)
+	if level == "" || source == "" || (dedupKey == "" && message == "") {
+		return "", "", "", "", false
+	}
+
+	return level, source, message, dedupKey, true
+}
+
+func (h *AlertHandler) resolveSimilarAlertsLocked(level, source, targetDedup, resolvedAt string) int {
+	affected := 0
+	for i := range h.alerts {
+		alert := &h.alerts[i]
+		if alert.Status == alertStatusResolved {
+			continue
+		}
+		if strings.TrimSpace(alert.Level) != level || strings.TrimSpace(alert.Source) != source {
+			continue
+		}
+		if resolveAlertDedupKey(alert) != targetDedup {
+			continue
+		}
+
+		alert.Status = alertStatusResolved
+		alert.ResolvedAt = resolvedAt
+		alert.AutoResolved = false
+		affected++
+	}
+
+	if affected > 0 {
+		h.saveData()
+	}
+
+	return affected
 }
 
 // GET /api/admin/alerts/:id.
@@ -572,7 +605,7 @@ func (h *AlertHandler) upsertAlertLocked(level, source, dedupKey, message string
 		if strings.TrimSpace(alert.Level) != level || strings.TrimSpace(alert.Source) != source {
 			continue
 		}
-		if resolveAlertDedupKey(*alert) != dedupKey {
+		if resolveAlertDedupKey(alert) != dedupKey {
 			continue
 		}
 
@@ -634,7 +667,7 @@ func (h *AlertHandler) ResolveByDedupKey(source, dedupKey string, auto bool) int
 		if strings.TrimSpace(alert.Source) != source {
 			continue
 		}
-		if resolveAlertDedupKey(*alert) != dedupKey {
+		if resolveAlertDedupKey(alert) != dedupKey {
 			continue
 		}
 		alert.Status = alertStatusResolved
@@ -658,7 +691,8 @@ func (h *AlertHandler) compactLegacyAlertsOnce() {
 	normalized := make([]AlertRecord, 0, len(h.alerts))
 	pendingAggIndex := map[string]int{}
 
-	for _, alert := range h.alerts {
+	for i := range h.alerts {
+		alert := h.alerts[i]
 		if alert.DedupKey == "" {
 			if inferred := inferSystemHealthDedupKey(alert.Level, alert.Source, alert.Message); inferred != "" {
 				alert.DedupKey = inferred
@@ -710,7 +744,11 @@ func buildAlertDedupKey(parts ...string) string {
 	return strings.Join(normalized, "|")
 }
 
-func resolveAlertDedupKey(alert AlertRecord) string {
+func resolveAlertDedupKey(alert *AlertRecord) string {
+	if alert == nil {
+		return ""
+	}
+
 	dedupKey := strings.TrimSpace(alert.DedupKey)
 	if dedupKey != "" {
 		return dedupKey
@@ -729,31 +767,41 @@ func inferSystemHealthDedupKey(level, source, message string) string {
 	if msg == "" {
 		return ""
 	}
+	if key := inferLocalizedSystemHealthDedupKey(msg); key != "" {
+		return key
+	}
 
+	critical := strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical")
+	return inferEnglishSystemHealthDedupKey(msg, critical)
+}
+
+func inferLocalizedSystemHealthDedupKey(msg string) string {
+	for i := range localizedSystemHealthDedupRules {
+		rule := localizedSystemHealthDedupRules[i]
+		if strings.Contains(msg, rule.needle) {
+			return rule.key
+		}
+	}
+
+	return ""
+}
+
+func inferEnglishSystemHealthDedupKey(msg string, critical bool) string {
 	switch {
-	case strings.Contains(msg, "内存使用率过高"):
-		return "memory_critical"
-	case strings.Contains(msg, "内存使用率偏高"):
-		return "memory_warning"
-	case strings.Contains(msg, "goroutine 数过高"):
-		return "goroutine_critical"
-	case strings.Contains(msg, "goroutine 数偏高"):
-		return "goroutine_warning"
-	case strings.Contains(msg, "gc 暂停过长"):
-		return "gc_pause_critical"
-	case strings.Contains(msg, "gc 暂停偏长"):
-		return "gc_pause_warning"
-	case strings.Contains(msg, "memory") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
-		return "memory_critical"
 	case strings.Contains(msg, "memory"):
-		return "memory_warning"
-	case strings.Contains(msg, "goroutine") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
-		return "goroutine_critical"
+		if critical {
+			return "memory_critical"
+		}
+		return alertDedupMemoryWarn
 	case strings.Contains(msg, "goroutine"):
+		if critical {
+			return "goroutine_critical"
+		}
 		return "goroutine_warning"
-	case strings.Contains(msg, "gc") && strings.Contains(strings.ToLower(strings.TrimSpace(level)), "critical"):
-		return "gc_pause_critical"
 	case strings.Contains(msg, "gc"):
+		if critical {
+			return "gc_pause_critical"
+		}
 		return "gc_pause_warning"
 	default:
 		return ""

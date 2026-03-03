@@ -23,6 +23,17 @@ const accountsFile = "data/accounts.json"
 const switchHistoryFile = "data/switch_history.json"
 
 const (
+	accountProviderOpenAI     = "openai"
+	accountProviderQwen       = "qwen"
+	accountProviderZhipu      = "zhipu"
+	accountProviderVolcengine = "volcengine"
+	accountQueryBoolTrue      = "true"
+
+	defaultModelScoreValue = 80
+	errCodeNotFound        = "not_found"
+	errMsgAccountNotFound  = "Account not found"
+	errMsgPersistAccounts  = "Failed to persist accounts to file"
+
 	planTypeLite     = "Lite"
 	planTypePro      = "Pro"
 	planTypeMax      = "Max"
@@ -243,8 +254,8 @@ func (h *AccountHandler) GetAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Account not found",
+				"code":    errCodeNotFound,
+				"message": errMsgAccountNotFound,
 			},
 		})
 		return
@@ -294,7 +305,7 @@ func (h *AccountHandler) CreateAccount(c *gin.Context) {
 
 	// Persist accounts to file
 	if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
-		accountsLogger.WithError(err).Warn("Failed to persist accounts to file")
+		accountsLogger.WithError(err).Warn(errMsgPersistAccounts)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
@@ -319,20 +330,20 @@ func generateAccountID(provider string) string {
 func mapProviderToBackend(frontendProvider string) string {
 	// Providers that use OpenAI-compatible API
 	openaiCompatible := map[string]bool{
-		"openai":       true,
-		"deepseek":     true,
-		"moonshot":     true,
-		"qwen":         true,
-		"zhipu":        true,
-		"baichuan":     true,
-		"minimax":      true,
-		"volcengine":   true,
-		"yi":           true,
-		"azure-openai": true,
+		accountProviderOpenAI:     true,
+		"deepseek":                true,
+		"moonshot":                true,
+		accountProviderQwen:       true,
+		accountProviderZhipu:      true,
+		"baichuan":                true,
+		"minimax":                 true,
+		accountProviderVolcengine: true,
+		"yi":                      true,
+		"azure-openai":            true,
 	}
 
 	if openaiCompatible[frontendProvider] {
-		return "openai"
+		return accountProviderOpenAI
 	}
 	return frontendProvider
 }
@@ -359,8 +370,8 @@ func (h *AccountHandler) UpdateAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Account not found",
+				"code":    errCodeNotFound,
+				"message": errMsgAccountNotFound,
 			},
 		})
 		return
@@ -417,7 +428,7 @@ func (h *AccountHandler) UpdateAccount(c *gin.Context) {
 
 	// Persist accounts to file
 	if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
-		accountsLogger.WithError(err).Warn("Failed to persist accounts to file")
+		accountsLogger.WithError(err).Warn(errMsgPersistAccounts)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -446,7 +457,7 @@ func (h *AccountHandler) DeleteAccount(c *gin.Context) {
 
 	// Persist accounts to file
 	if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
-		accountsLogger.WithError(err).Warn("Failed to persist accounts to file")
+		accountsLogger.WithError(err).Warn(errMsgPersistAccounts)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -482,8 +493,8 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Account not found",
+				"code":    errCodeNotFound,
+				"message": errMsgAccountNotFound,
 			},
 		})
 		return
@@ -504,7 +515,7 @@ func (h *AccountHandler) UpdateAccountStatus(c *gin.Context) {
 
 	// Persist accounts to file
 	if err := saveAccountsToFile(h.manager.GetAllAccounts()); err != nil {
-		accountsLogger.WithError(err).Warn("Failed to persist accounts to file")
+		accountsLogger.WithError(err).Warn(errMsgPersistAccounts)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -525,8 +536,8 @@ func (h *AccountHandler) GetAccountUsage(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Account not found",
+				"code":    errCodeNotFound,
+				"message": errMsgAccountNotFound,
 			},
 		})
 		return
@@ -635,20 +646,20 @@ type ProviderConfigResponse struct {
 func (h *AccountHandler) GetProviderConfigs(c *gin.Context) {
 	providers := []ProviderConfigResponse{
 		// 国际服务商
-		{Value: "openai", Label: "OpenAI", Color: "#10A37F", BaseURL: "https://api.openai.com/v1", IsOpenAI: true},
+		{Value: accountProviderOpenAI, Label: "OpenAI", Color: "#10A37F", BaseURL: "https://api.openai.com/v1", IsOpenAI: true},
 		{Value: "anthropic", Label: "Anthropic Claude", Color: "#CC785C", BaseURL: "https://api.anthropic.com/v1", IsOpenAI: false},
 		{Value: "azure-openai", Label: "Azure OpenAI", Color: "#0078D4", BaseURL: "https://your-resource.openai.azure.com", IsOpenAI: true},
 		{Value: "google", Label: "Google Gemini", Color: "#4285F4", BaseURL: "https://generativelanguage.googleapis.com/v1beta", IsOpenAI: false},
 
 		// 国内服务商
 		{Value: "deepseek", Label: "DeepSeek", Color: "#4D6BFE", BaseURL: "https://api.deepseek.com/v1", IsOpenAI: true},
-		{Value: "qwen", Label: "阿里云通义千问", Color: "#FF6A00", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", IsOpenAI: true},
-		{Value: "zhipu", Label: "智谱AI", Color: "#3657ED", BaseURL: "https://open.bigmodel.cn/api/paas/v4", IsOpenAI: true},
+		{Value: accountProviderQwen, Label: "阿里云通义千问", Color: "#FF6A00", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", IsOpenAI: true},
+		{Value: accountProviderZhipu, Label: "智谱AI", Color: "#3657ED", BaseURL: "https://open.bigmodel.cn/api/paas/v4", IsOpenAI: true},
 		{Value: "moonshot", Label: "月之暗面 (Kimi)", Color: "#1A1A1A", BaseURL: "https://api.moonshot.cn/v1", IsOpenAI: true},
 		{Value: "kimi", Label: "月之暗面 (Kimi)", Color: "#1A1A1A", BaseURL: "https://api.moonshot.cn/v1", IsOpenAI: true},
 		{Value: "minimax", Label: "MiniMax", Color: "#615CED", BaseURL: "https://api.minimax.chat/v1", IsOpenAI: true},
 		{Value: "baichuan", Label: "百川智能", Color: "#0066FF", BaseURL: "https://api.baichuan-ai.com/v1", IsOpenAI: true},
-		{Value: "volcengine", Label: "火山方舟 (豆包)", Color: "#FF4D4F", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", IsOpenAI: true},
+		{Value: accountProviderVolcengine, Label: "火山方舟 (豆包)", Color: "#FF4D4F", BaseURL: "https://ark.cn-beijing.volces.com/api/v3", IsOpenAI: true},
 		{Value: "ernie", Label: "百度文心一言", Color: "#2932E1", BaseURL: "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat", IsOpenAI: true},
 		{Value: "hunyuan", Label: "腾讯混元", Color: "#00A3FF", BaseURL: "https://api.hunyuan.cloud.tencent.com/v1", IsOpenAI: true},
 		{Value: "spark", Label: "讯飞星火", Color: "#E60012", BaseURL: "https://spark-api-open.xf-yun.com/v1", IsOpenAI: true},
@@ -685,8 +696,8 @@ func (h *AccountHandler) ForceSwitchAccount(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"error": gin.H{
-				"code":    "not_found",
-				"message": "Account not found",
+				"code":    errCodeNotFound,
+				"message": errMsgAccountNotFound,
 			},
 		})
 		return
@@ -804,7 +815,7 @@ func detectPlanType(provider string, limits map[limiter.LimitType]*limiter.Limit
 	}
 
 	switch provider {
-	case "zhipu":
+	case accountProviderZhipu:
 		if hour5Limit <= 80 && weekLimit <= 400 {
 			return planTypeLite
 		}
@@ -814,14 +825,14 @@ func detectPlanType(provider string, limits map[limiter.LimitType]*limiter.Limit
 		if hour5Limit > 400 {
 			return planTypeMax
 		}
-	case "bailian", "qwen":
+	case "bailian", accountProviderQwen:
 		if hour5Limit <= 1200 && weekLimit <= 9000 {
 			return planTypeLite
 		}
 		if hour5Limit > 1200 {
 			return planTypePro
 		}
-	case "volcengine":
+	case accountProviderVolcengine:
 		if hour5Limit <= 500 {
 			return planTypeBasic
 		}
@@ -881,7 +892,7 @@ type ProviderModel struct {
 //nolint:gocyclo
 func (h *AccountHandler) FetchModels(c *gin.Context) {
 	accountID := c.Param("id")
-	syncModels := c.Query("sync") == "true"
+	syncModels := c.Query("sync") == accountQueryBoolTrue
 
 	account, err := h.manager.GetAccount(accountID)
 	if err != nil {
@@ -953,7 +964,11 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 		})
 		return
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			accountsLogger.WithError(closeErr).Warn("Failed to close provider response body")
+		}
+	}()
 
 	// Handle non-OK responses
 	if resp.StatusCode == http.StatusNotFound {
@@ -967,9 +982,9 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 				globalRouter.UpdateModelScore(modelID, &routing.ModelScore{
 					Model:        modelID,
 					Provider:     account.Provider,
-					QualityScore: 80,
-					SpeedScore:   80,
-					CostScore:    80,
+					QualityScore: defaultModelScoreValue,
+					SpeedScore:   defaultModelScoreValue,
+					CostScore:    defaultModelScoreValue,
 					Enabled:      true,
 				})
 				syncedCount++
@@ -1081,9 +1096,9 @@ func (h *AccountHandler) FetchModels(c *gin.Context) {
 				Model:        modelID,
 				Provider:     account.Provider,
 				DisplayName:  modelDisplayNames[modelID],
-				QualityScore: 80,
-				SpeedScore:   80,
-				CostScore:    80,
+				QualityScore: defaultModelScoreValue,
+				SpeedScore:   defaultModelScoreValue,
+				CostScore:    defaultModelScoreValue,
 				Enabled:      true,
 			})
 			syncedCount++

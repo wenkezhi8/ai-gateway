@@ -52,6 +52,15 @@ type ModelStatData struct {
 	Tokens   int64
 }
 
+const (
+	dashboardProviderAnthropic = "anthropic"
+	dashboardProviderDeepseek  = "deepseek"
+	dashboardProviderMoonshot  = "moonshot"
+	dashboardProviderGoogle    = "google"
+	dashboardProviderBaichuan  = "baichuan"
+	dashboardProviderMinimax   = "minimax"
+)
+
 // RealtimeStats represents realtime metrics.
 type RealtimeStats struct {
 	Timestamp         time.Time     `json:"timestamp"`
@@ -92,7 +101,6 @@ func NewDashboardHandler(
 	return handler
 }
 
-//nolint:gocyclo
 func (h *DashboardHandler) loadPersistedState() {
 	store := storage.GetSQLite()
 	if store == nil {
@@ -106,19 +114,10 @@ func (h *DashboardHandler) loadPersistedState() {
 	models, modelErr := store.LoadDashboardModelStats()
 	trends, trendErr := store.LoadDashboardTrends(maxTrends)
 	alerts, alertErr := store.LoadDashboardAlerts(maxAlerts)
-
-	if summaryErr != nil {
-		logrus.WithError(summaryErr).Warn("Failed to load dashboard summary")
-	}
-	if modelErr != nil {
-		logrus.WithError(modelErr).Warn("Failed to load dashboard model stats")
-	}
-	if trendErr != nil {
-		logrus.WithError(trendErr).Warn("Failed to load dashboard trends")
-	}
-	if alertErr != nil {
-		logrus.WithError(alertErr).Warn("Failed to load dashboard alerts")
-	}
+	logDashboardLoadError(summaryErr, "Failed to load dashboard summary")
+	logDashboardLoadError(modelErr, "Failed to load dashboard model stats")
+	logDashboardLoadError(trendErr, "Failed to load dashboard trends")
+	logDashboardLoadError(alertErr, "Failed to load dashboard alerts")
 
 	if !summaryOK && modelErr != nil && trendErr != nil && alertErr != nil {
 		return
@@ -127,17 +126,11 @@ func (h *DashboardHandler) loadPersistedState() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if summaryOK {
-		h.totalRequests = summary.TotalRequests
-		h.requestsToday = summary.RequestsToday
-		h.successCount = summary.SuccessCount
-		h.failureCount = summary.FailureCount
-		h.totalLatency = summary.TotalLatency
-		h.totalTokens = summary.TotalTokens
-	}
+	applyDashboardSummary(h, summary, summaryOK)
 
 	if modelErr == nil {
-		for _, item := range models {
+		for i := range models {
+			item := models[i]
 			h.modelStats[item.Model] = &ModelStatData{
 				Requests: item.Requests,
 				Tokens:   item.Tokens,
@@ -146,7 +139,8 @@ func (h *DashboardHandler) loadPersistedState() {
 	}
 
 	if trendErr == nil {
-		for _, item := range trends {
+		for i := range trends {
+			item := trends[i]
 			h.requestTrends = append(h.requestTrends, RequestTrend{
 				Timestamp: time.UnixMilli(item.Timestamp),
 				Requests:  item.Requests,
@@ -158,7 +152,8 @@ func (h *DashboardHandler) loadPersistedState() {
 	}
 
 	if alertErr == nil {
-		for _, item := range alerts {
+		for i := range alerts {
+			item := alerts[i]
 			h.alerts = append(h.alerts, AlertListItem{
 				ID:           item.ID,
 				Type:         item.Type,
@@ -171,6 +166,57 @@ func (h *DashboardHandler) loadPersistedState() {
 			})
 		}
 	}
+}
+
+func inferProviderByModelName(model string) string {
+	provider := "other"
+	switch {
+	case strings.Contains(model, "gpt") || strings.Contains(model, "o1"):
+		provider = providerIDOpenAI
+	case strings.Contains(model, "claude"):
+		provider = dashboardProviderAnthropic
+	case strings.Contains(model, "deepseek"):
+		provider = dashboardProviderDeepseek
+	case strings.Contains(model, "qwen"):
+		provider = "qwen"
+	case strings.Contains(model, "glm"):
+		provider = "zhipu"
+	case strings.Contains(model, "moonshot") || strings.Contains(model, "kimi"):
+		provider = dashboardProviderMoonshot
+	case strings.Contains(model, "doubao"):
+		provider = "volcengine"
+	case strings.Contains(model, "gemini"):
+		provider = dashboardProviderGoogle
+	case strings.Contains(model, "yi-"):
+		provider = "yi"
+	case strings.Contains(model, "Baichuan"):
+		provider = dashboardProviderBaichuan
+	case strings.Contains(model, "abab"):
+		provider = dashboardProviderMinimax
+	case strings.Contains(model, "mistral"):
+		provider = "mistral"
+	}
+
+	return provider
+}
+
+func logDashboardLoadError(err error, message string) {
+	if err != nil {
+		logrus.WithError(err).Warn(message)
+	}
+}
+
+func applyDashboardSummary(h *DashboardHandler, summary storage.DashboardSummary, summaryOK bool) {
+	if !summaryOK {
+		return
+	}
+
+	h.totalRequests = summary.TotalRequests
+	h.requestsToday = summary.RequestsToday
+	h.successCount = summary.SuccessCount
+	h.failureCount = summary.FailureCount
+	h.totalLatency = summary.TotalLatency
+	h.totalTokens = summary.TotalTokens
 }
 
 // GET /api/admin/dashboard/stats.
@@ -502,8 +548,6 @@ func (h *DashboardHandler) GetModelMetrics(c *gin.Context) {
 }
 
 // GET /api/admin/dashboard/system.
-//
-//nolint:gocyclo
 func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 	// Check providers
 	providers := h.registry.ListEnabled()
@@ -527,33 +571,7 @@ func (h *DashboardHandler) GetSystemStatus(c *gin.Context) {
 	h.mu.RLock()
 	distribution := make(map[string]int64)
 	for model, stats := range h.modelStats {
-		// Map model to provider
-		provider := "other"
-		if strings.Contains(model, "gpt") || strings.Contains(model, "o1") {
-			provider = "openai"
-		} else if strings.Contains(model, "claude") {
-			provider = "anthropic"
-		} else if strings.Contains(model, "deepseek") {
-			provider = "deepseek"
-		} else if strings.Contains(model, "qwen") {
-			provider = "qwen"
-		} else if strings.Contains(model, "glm") {
-			provider = "zhipu"
-		} else if strings.Contains(model, "moonshot") || strings.Contains(model, "kimi") {
-			provider = "moonshot"
-		} else if strings.Contains(model, "doubao") {
-			provider = "volcengine"
-		} else if strings.Contains(model, "gemini") {
-			provider = "google"
-		} else if strings.Contains(model, "yi-") {
-			provider = "yi"
-		} else if strings.Contains(model, "Baichuan") {
-			provider = "baichuan"
-		} else if strings.Contains(model, "abab") {
-			provider = "minimax"
-		} else if strings.Contains(model, "mistral") {
-			provider = "mistral"
-		}
+		provider := inferProviderByModelName(model)
 		distribution[provider] += stats.Requests
 	}
 	h.mu.RUnlock()

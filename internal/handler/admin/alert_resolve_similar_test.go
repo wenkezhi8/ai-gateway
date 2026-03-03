@@ -25,7 +25,10 @@ func TestAlertHandler_ResolveSimilarAlerts_ShouldResolvePendingGroup(t *testing.
 	router.POST("/api/admin/alerts/resolve-similar", handler.ResolveSimilarAlerts)
 
 	body := map[string]string{"level": "warning", "source": "system", "message": "cpu high"}
-	payload, _ := json.Marshal(body)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/alerts/resolve-similar", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -97,7 +100,10 @@ func TestAlertHandler_ResolveSimilarAlerts_ShouldResolveByDedupKeyAcrossDifferen
 	router.POST("/api/admin/alerts/resolve-similar", handler.ResolveSimilarAlerts)
 
 	body := map[string]string{"level": "warning", "source": "system", "dedup_key": "memory_warning"}
-	payload, _ := json.Marshal(body)
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/alerts/resolve-similar", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
