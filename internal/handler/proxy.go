@@ -1797,6 +1797,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	receivedChunks := 0
 	hasReasoningOutput := false
 	fallbackNeeded := false
+	streamCompletedByDone := false
 	var ttftMs int64 = 0 // Time to first token
 	// Stream chunks to client
 	for chunk := range stream {
@@ -2012,6 +2013,7 @@ func (h *ProxyHandler) handleStreamResponse(
 					}
 				}
 			}
+			streamCompletedByDone = true
 			break
 		}
 		streamResp := StreamingResponse{
@@ -2078,7 +2080,71 @@ func (h *ProxyHandler) handleStreamResponse(
 		c.Writer.Flush()
 	}
 
-	if receivedChunks == 0 || fallbackNeeded {
+	if receivedChunks > 0 && !fallbackNeeded && !streamCompletedByDone {
+		resolvedUsage, usageSource := resolveUsageWithFallback(
+			prompt,
+			fullContent.String(),
+			usageTokens{
+				Prompt:     promptTokens,
+				Completion: completionTokens,
+				Total:      totalTokens,
+			},
+		)
+
+		if h.traceRecorder != nil {
+			h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+				"duration_ms":   time.Since(startTime).Milliseconds(),
+				"model":         req.Model,
+				"provider":      providerLabel,
+				"provider_type": providerProtocol,
+				"provider_name": providerLabel,
+				"stream":        true,
+				"success":       true,
+			})
+		}
+
+		c.SSEvent("message", "[DONE]")
+		c.Writer.Flush()
+
+		if h.traceRecorder != nil {
+			responsePayload := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": fullContent.String(),
+						},
+					},
+				},
+			}
+			responseBody, marshalErr := json.Marshal(responsePayload)
+			if marshalErr != nil {
+				responseBody = []byte("{}")
+			}
+			attrs := map[string]interface{}{
+				"duration_ms": time.Since(startTime).Milliseconds(),
+				"model":       req.Model,
+				"provider":    providerName,
+				"status_code": http.StatusOK,
+				"cache_hit":   false,
+			}
+			for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+				attrs[key] = value
+			}
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+		}
+
+		latency := time.Since(startTime)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
+
+		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
+			h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
+		}
+	}
+
+	if !streamCompletedByDone && (receivedChunks == 0 || fallbackNeeded) {
 		// Some providers may return an empty stream even though non-stream works.
 		// Fallback to a non-stream request and convert it to SSE payload.
 		nonStreamReq := *req

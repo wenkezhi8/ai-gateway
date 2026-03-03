@@ -239,6 +239,10 @@ type doneStreamProvider struct {
 	*provider.BaseProvider
 }
 
+type noDoneStreamProvider struct {
+	*provider.BaseProvider
+}
+
 func (d *doneStreamProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	return &provider.ChatResponse{
 		ID:      "fallback-id",
@@ -298,6 +302,53 @@ func (d *doneStreamProvider) StreamChat(_ context.Context, req *provider.ChatReq
 }
 
 func (d *doneStreamProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (n *noDoneStreamProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "no-done-fallback-id",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{
+			{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "no done fallback response",
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: provider.Usage{TotalTokens: 3, PromptTokens: 2, CompletionTokens: 1},
+	}, nil
+}
+
+func (n *noDoneStreamProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	ch := make(chan *provider.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-no-done-id",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{
+				{
+					Index: 0,
+					Delta: &provider.StreamDelta{
+						Role:    "assistant",
+						Content: "stream no done answer",
+					},
+				},
+			},
+		}
+	}()
+	return ch, nil
+}
+
+func (n *noDoneStreamProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -438,6 +489,45 @@ func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan
 	assert.Equal(t, true, providerAttrs["success"])
 	assert.Equal(t, false, providerAttrs["stream"])
 	assert.Equal(t, true, providerAttrs["fallback_from_stream"])
+}
+
+func TestProxyHandler_ChatCompletions_StreamClosedWithoutDoneShouldFinalizeTraceOnce(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &noDoneStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello no done"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, strings.Count(w.Body.String(), "[DONE]"))
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpResponseAttrs := fetchOperationAttrs(t, db, requestID, "http.response")
+	assert.Equal(t, "stream no done answer", httpResponseAttrs["ai_response_preview"])
+	assert.Equal(t, "stream no done answer", httpResponseAttrs["ai_response_full"])
+	assert.Equal(t, false, httpResponseAttrs["ai_response_truncated"])
+	assert.Equal(t, "hello no done", httpResponseAttrs["user_message_preview"])
+	assert.Equal(t, "hello no done", httpResponseAttrs["user_message_full"])
+	assert.Equal(t, false, httpResponseAttrs["user_message_truncated"])
+
+	providerAttrs := fetchOperationAttrs(t, db, requestID, "provider.chat")
+	assert.Equal(t, true, providerAttrs["success"])
+	assert.Equal(t, true, providerAttrs["stream"])
+	_, hasFallback := providerAttrs["fallback_from_stream"]
+	assert.False(t, hasFallback)
 }
 
 func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
