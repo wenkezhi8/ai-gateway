@@ -197,14 +197,44 @@
             placeholder="选择或输入服务商名称"
             style="width: 100%"
             :disabled="submitting"
-            @change="handleProviderLabelChange"
+            @change="onProviderLabelChange"
+            popper-class="provider-select-dropdown"
           >
-            <el-option
-              v-for="option in publicProviderOptions"
-              :key="`${option.id}-${option.label}`"
-              :label="option.label"
-              :value="option.label"
-            />
+            <el-option-group label="国际服务商">
+              <el-option v-for="p in internationalProviders" :key="p.value" :label="p.label" :value="p.label">
+                <span class="provider-option">
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
+                  {{ p.label }}
+                </span>
+              </el-option>
+            </el-option-group>
+            <el-option-group label="国内服务商">
+              <el-option v-for="p in chineseProviders" :key="p.value" :label="p.label" :value="p.label">
+                <span class="provider-option">
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
+                  {{ p.label }}
+                </span>
+              </el-option>
+            </el-option-group>
+            <el-option-group label="本地大模型">
+              <el-option v-for="p in localProviders" :key="p.value" :label="p.label" :value="p.label">
+                <span class="provider-option">
+                  <img v-if="getProviderLogo(p.value)" :src="getProviderLogo(p.value)" class="provider-logo" />
+                  <span v-else class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
+                  {{ p.label }}
+                </span>
+              </el-option>
+            </el-option-group>
+            <el-option-group v-if="customProviders.length > 0" label="自定义服务商">
+              <el-option v-for="p in customProviders" :key="p.value" :label="p.label" :value="p.label">
+                <span class="provider-option">
+                  <span class="dot" :style="{ background: getProviderPaletteColor(p.value) }"></span>
+                  {{ p.label }}
+                </span>
+              </el-option>
+            </el-option-group>
           </el-select>
         </el-form-item>
         <el-form-item label="Logo" prop="logoFile">
@@ -350,8 +380,19 @@ import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
 import { deleteModelRegistry, getModelRegistry, upsertModelRegistry } from '@/api/routing-domain'
 import { updateModelManagementUiSettings } from '@/api/settings-domain'
-import { getPublicProviders, providerApi } from '@/api/provider'
-import { PROVIDER_CATALOG } from '@/constants/providers-catalog'
+import { getPublicProviders, providerApi, getProviderTypes } from '@/api/provider'
+import { accountApi } from '@/api/account'
+import {
+  buildProviderOptions,
+  type ProviderOption
+} from '@/views/providers-accounts/provider-options'
+import {
+  handleProviderLabelChange,
+  createAutoFillContext,
+  type ProviderSelectState,
+  type AutoFillContext,
+  markIdAsManuallyEdited
+} from './provider-select-logic'
 import { useModelLabels } from '@/composables/useModelLabels'
 import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
@@ -370,13 +411,6 @@ interface ProviderSetting {
   custom: boolean
 }
 
-interface PublicProviderOption {
-  id: string
-  label: string
-  color: string
-  logo: string
-}
-
 const saving = ref(false)
 const submitting = ref(false)
 const loading = ref(false)
@@ -390,6 +424,14 @@ const selectedModels = ref<string[]>([])
 const selectAllModels = ref(false)
 const batchModelsText = ref('')
 
+// New data for provider options (from providers-accounts)
+const providerTypes = ref<ProviderOption[]>([])
+const autoFillContext = ref<AutoFillContext>(createAutoFillContext())
+const internationalProviders = computed(() => providerTypes.value.filter(p => p.category === 'international'))
+const chineseProviders = computed(() => providerTypes.value.filter(p => p.category === 'chinese'))
+const localProviders = computed(() => providerTypes.value.filter(p => p.category === 'local'))
+const customProviders = computed(() => providerTypes.value.filter(p => p.category === 'custom'))
+
 const isIndeterminate = computed(() => {
   const total = editProvider.value?.models?.length || 0
   const selected = selectedModels.value.length
@@ -399,7 +441,7 @@ const isIndeterminate = computed(() => {
 watch(selectedModels, (val: string[]) => {
   const total = editProvider.value?.models?.length || 0
   selectAllModels.value = val.length === total && total > 0
-})
+}) // Used in edit dialog
 
 const providerFormRef = ref<FormInstance>()
 const modelFormRef = ref()
@@ -410,8 +452,10 @@ const providerForm = reactive({
   color: MODEL_MANAGEMENT_DEFAULT_COLOR,
   defaultModel: '',
   logoFile: null as File | null,
-  logoPreview: ''
+  logoPreview: '',
+  idAutoFilled: false
 })
+
 
 const modelForm = reactive({
   model: ''
@@ -431,48 +475,33 @@ const modelRules: FormRules = {
 }
 
 const providerSettings = ref<ProviderSetting[]>([])
-const publicProviderOptions = ref<PublicProviderOption[]>([])
 const brokenLogoProviders = ref(new Set<string>())
 let offModelsChanged: (() => void) | null = null
 
-function buildProviderOptions(publicProviders: Array<{ id: string; label: string; color: string; logo: string }>) {
-  const optionMap = new Map<string, PublicProviderOption>()
+// Computed helper for provider metadata
+const providerMetaMap = computed(() => {
+  const entries = providerTypes.value.map(item => [item.value, item] as const)
+  return Object.fromEntries(entries) as Record<string, ProviderOption>
+})
 
-  for (const catalogItem of PROVIDER_CATALOG) {
-    optionMap.set(catalogItem.id, {
-      id: catalogItem.id,
-      label: catalogItem.label || catalogItem.id,
-      color: catalogItem.color || MODEL_MANAGEMENT_DEFAULT_COLOR,
-      logo: catalogItem.logo || ''
-    })
-  }
+const getProviderLogo = (provider: string) => providerMetaMap.value[provider]?.logo || ''
 
-  for (const provider of publicProviders) {
-    const normalizedId = String(provider.id)
-    optionMap.set(normalizedId, {
-      id: normalizedId,
-      label: String(provider.label || normalizedId),
-      color: String(provider.color || optionMap.get(normalizedId)?.color || MODEL_MANAGEMENT_DEFAULT_COLOR),
-      logo: String(provider.logo || optionMap.get(normalizedId)?.logo || '')
-    })
-  }
+const getProviderPaletteColor = (provider: string) => providerMetaMap.value[provider]?.color || '#6B7280'
 
-  return Array.from(optionMap.values()).sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
-}
+// Watch for manual ID editing to mark as not auto-filled
+watch(() => providerForm.id, (newId: string, oldId: string) => {
+  if (newId !== oldId && oldId !== '') {
+    markIdAsManuallyEdited(autoFillContext.value)
+  }
+})
 
-function handleProviderLabelChange(selectedLabel: string) {
-  const selectedProvider = publicProviderOptions.value.find(option => option.label === selectedLabel)
-  if (!selectedProvider) return
-
-  if (!providerForm.id) {
-    providerForm.id = selectedProvider.id
-  }
-  if (selectedProvider.color) {
-    providerForm.color = selectedProvider.color
-  }
-  if (selectedProvider.logo && !providerForm.logoFile) {
-    providerForm.logoPreview = selectedProvider.logo
-  }
+function onProviderLabelChange(selectedLabel: string) {
+  handleProviderLabelChange(
+    providerForm as ProviderSelectState,
+    providerTypes.value,
+    selectedLabel,
+    autoFillContext.value
+  )
 }
 
 function handleLogoError(providerId: string) {
@@ -480,30 +509,37 @@ function handleLogoError(providerId: string) {
   brokenLogoProviders.value.add(providerId)
 }
 
+
 async function loadSettings() {
   loading.value = true
   try {
     // Label loading failure should not block provider visibility
     await fetchModelLabels().catch(() => undefined)
 
-    const publicProviders = await getPublicProviders().catch(() => [])
-    publicProviderOptions.value = buildProviderOptions(
-      publicProviders.map(item => ({
-        id: String(item.id),
-        label: String(item.label || item.id),
-        color: String(item.color || MODEL_MANAGEMENT_DEFAULT_COLOR),
-        logo: String(item.logo || '')
-      }))
-    )
+    // Use same data source as providers-accounts for consistency
+    // Use same data source as providers-accounts for consistency
+    const [typesResult, publicResult, accountsResult, defaultsResult] = await Promise.allSettled([
+      getProviderTypes(),
+      getPublicProviders(),
+      accountApi.getList(),
+      request.get('/admin/router/provider-defaults').catch(() => ({ data: {} }))
+    ])
+
+    const typeList = typesResult.status === 'fulfilled' ? typesResult.value : []
+    const publicProviders = publicResult.status === 'fulfilled' ? publicResult.value : []
+    const accountList = accountsResult.status === 'fulfilled' ? ((accountsResult.value as any).data || []) : []
+    const providerDefaults = defaultsResult.status === 'fulfilled' ? (defaultsResult.value as any).data || {} : {}
+
+
+    providerTypes.value = buildProviderOptions({
+      types: typeList,
+      publicProviders,
+      accounts: accountList
+    })
 
     const providerMetaMap = new Map(
       publicProviders.map(item => [item.id, item])
     )
-
-    const providerDefaults = await request
-      .get<{ success: boolean; data: Record<string, string> }>('/admin/router/provider-defaults', { silent: true } as any)
-      .then((res: any) => ((res as any).success && (res as any).data ? (res as any).data : {}))
-      .catch(() => ({}))
 
     // Load model registry from backend - this is the single source of truth
     const modelsRes = await getModelRegistry().catch(() => [])
@@ -586,6 +622,7 @@ function handleModelChange(_row: ProviderSetting) {
 
 function showAddProviderDialog() {
   Object.assign(providerForm, { id: '', label: '', color: MODEL_MANAGEMENT_DEFAULT_COLOR, defaultModel: '', logoFile: null, logoPreview: '' })
+  autoFillContext.value = createAutoFillContext()
   providerDialogVisible.value = true
 }
 
@@ -647,7 +684,6 @@ async function handleAddProvider() {
           headers: { 'Content-Type': 'multipart/form-data' }
         })
       } catch (e) {
-        // If upload fails, use preview URL
         logoPath = providerForm.logoPreview
       }
     }
@@ -868,7 +904,7 @@ async function handleBatchDeleteModels() {
   } finally {
     submitting.value = false
   }
-}
+  }
 
 onMounted(() => {
   loadSettings()
@@ -956,11 +992,11 @@ onUnmounted(() => {
           font-weight: 600;
           font-size: 15px;
         }
-      }
 
-      .mode-desc {
-        color: var(--el-text-color-secondary);
-        font-size: 13px;
+        .mode-desc {
+          color: var(--el-text-color-secondary);
+          font-size: 13px;
+        }
       }
     }
   }
@@ -972,17 +1008,17 @@ onUnmounted(() => {
       font-weight: 600;
       margin-bottom: 12px;
     }
+  }
 
-    .code {
-      background: var(--el-fill-color-light);
-      padding: 12px;
-      border-radius: var(--el-border-radius-base);
-      overflow-x: auto;
+  .code {
+    background: var(--el-fill-color-light);
+    padding: 12px;
+    border-radius: var(--el-border-radius-base);
+    overflow-x: auto;
 
-      code {
-        font-family: monospace;
-        font-size: 13px;
-      }
+    code {
+      font-family: monospace;
+      font-size: 13px;
     }
   }
 }
@@ -1021,7 +1057,6 @@ onUnmounted(() => {
       font-size: 16px;
     }
   }
-
   .models-header {
     display: flex;
     align-items: center;
@@ -1046,7 +1081,6 @@ onUnmounted(() => {
     .model-item {
       padding: 6px 0;
       border-bottom: 1px solid var(--el-border-color-lighter);
-
       &:last-child {
         border-bottom: none;
       }
@@ -1094,11 +1128,48 @@ onUnmounted(() => {
   .upload-hint {
     font-size: 13px;
     color: var(--el-text-color-secondary);
-    
+
     .hint-small {
       font-size: 12px;
       margin-top: 4px;
       color: var(--el-text-color-placeholder);
+    }
+  }
+}
+</style>
+
+<style lang="scss">
+.provider-select-dropdown {
+  min-width: 200px !important;
+  
+  .el-select-dropdown__item {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px;
+    min-height: 34px;
+    
+    .provider-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      white-space: nowrap;
+      
+      .provider-logo {
+        height: 22px;
+        width: auto;
+        max-width: 80px;
+        border-radius: 4px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+      
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
     }
   }
 }
