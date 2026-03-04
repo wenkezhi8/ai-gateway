@@ -190,10 +190,14 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	var req ChatCompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if err.Error() == "http: request body too large" {
-			Error(c, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds maximum size of 10MB")
+			errorMessage := "Request body exceeds maximum size of 10MB"
+			h.recordHTTPResponseErrorSpan(ctx, startTime, "", "", "", errorMessage, http.StatusRequestEntityTooLarge)
+			Error(c, http.StatusRequestEntityTooLarge, "request_too_large", errorMessage)
 			return
 		}
-		BadRequest(c, "Invalid request body: "+err.Error())
+		errorMessage := "Invalid request body: " + err.Error()
+		h.recordHTTPResponseErrorSpan(ctx, startTime, "", "", "", errorMessage, http.StatusBadRequest)
+		BadRequest(c, errorMessage)
 		return
 	}
 	if h.traceRecorder != nil {
@@ -206,6 +210,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Validate request
 	if err := req.Validate(); err != nil {
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, req.Provider, "", err.Error(), http.StatusBadRequest)
 		BadRequest(c, err.Error())
 		return
 	}
@@ -263,7 +268,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		c.Header(k, v)
 	}
 	if shouldBlockByRisk(controlCfg, assessment) {
-		Error(c, http.StatusForbidden, "risk_blocked", "Request blocked by control risk policy")
+		errorMessage := "Request blocked by control risk policy"
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, req.Provider, prompt, errorMessage, http.StatusForbidden)
+		Error(c, http.StatusForbidden, "risk_blocked", errorMessage)
 		return
 	}
 	if controlCfg.Enable {
@@ -603,6 +610,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if fallbackErr != nil {
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, fallbackErr.Error(), http.StatusServiceUnavailable)
 			Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, fallbackErr.Error())
 			return
 		}
@@ -811,15 +819,22 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			if statusCode < http.StatusBadRequest || statusCode >= 600 {
 				statusCode = http.StatusBadGateway
 			}
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, providerErr.Message, statusCode)
 			Error(c, statusCode, ErrCodeProviderError, providerErr.Message)
 			return
 		}
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, err.Error(), http.StatusBadGateway)
 		ProviderError(c, err.Error(), "")
 		return
+	}
+	resolvedProviderName := req.Provider
+	if resolvedProviderName == "" && targetProvider != nil {
+		resolvedProviderName = targetProvider.Name()
 	}
 
 	resp, ok := result.(*provider.ChatResponse)
 	if !ok {
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, resolvedProviderName, prompt, "Provider returned invalid response type", http.StatusBadGateway)
 		ProviderError(c, "Provider returned invalid response type", "invalid_provider_response")
 		return
 	}
@@ -850,6 +865,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, resp.Error.Message, http.StatusBadGateway)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
 	}
@@ -1787,6 +1803,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
 	}
@@ -1805,6 +1822,11 @@ func (h *ProxyHandler) handleStreamResponse(
 		if chunk.Error != nil {
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			errorStatusCode := chunk.Error.Code
+			if errorStatusCode < http.StatusBadRequest || errorStatusCode >= 600 {
+				errorStatusCode = http.StatusBadGateway
+			}
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, chunk.Error.Message, errorStatusCode)
 			c.SSEvent("error", gin.H{
 				"error": gin.H{
 					"code":    chunk.Error.Code,
@@ -2182,6 +2204,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": err.Error()})
 			c.Writer.Flush()
 			return
@@ -2191,6 +2214,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty response", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
 			return
@@ -2201,6 +2225,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty content", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
 			return
@@ -2952,6 +2977,58 @@ func buildTraceMessageAttributes(prompt string, responseBody []byte) map[string]
 		"ai_response_preview":    aiResponsePreview,
 		"ai_response_full":       aiResponseFull,
 		"ai_response_truncated":  aiResponseTruncated,
+	}
+}
+
+func buildTraceErrorMessageAttributes(errorMessage string) map[string]interface{} {
+	trimmed := strings.TrimSpace(errorMessage)
+	full, truncated := trimTraceTextByRune(trimmed, traceMessageFullLimit)
+	preview, _ := trimTraceTextByRune(full, traceMessagePreviewLimit)
+
+	return map[string]interface{}{
+		"error_message_preview":   preview,
+		"error_message_full":      full,
+		"error_message_truncated": truncated,
+	}
+}
+
+func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedAt time.Time, model, providerName, prompt, errorMessage string, statusCode int) {
+	if h.traceRecorder == nil {
+		return
+	}
+	if statusCode <= 0 {
+		statusCode = http.StatusBadGateway
+	}
+
+	attrs := map[string]interface{}{
+		"duration_ms": time.Since(startedAt).Milliseconds(),
+		"model":       model,
+		"status_code": statusCode,
+		"success":     false,
+		"status":      "error",
+		"error":       strings.TrimSpace(errorMessage),
+	}
+	if trimmedProvider := strings.TrimSpace(providerName); trimmedProvider != "" {
+		attrs["provider"] = trimmedProvider
+		attrs["provider_name"] = trimmedProvider
+	}
+
+	for key, value := range buildPromptPreviewAttributes(prompt) {
+		attrs[key] = value
+	}
+	for key, value := range buildTraceErrorMessageAttributes(errorMessage) {
+		attrs[key] = value
+	}
+
+	h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+}
+
+func buildPromptPreviewAttributes(prompt string) map[string]interface{} {
+	userMessagePreview, userMessageFull, userMessageTruncated := buildPromptPreview(prompt)
+	return map[string]interface{}{
+		"user_message_preview":   userMessagePreview,
+		"user_message_full":      userMessageFull,
+		"user_message_truncated": userMessageTruncated,
 	}
 }
 

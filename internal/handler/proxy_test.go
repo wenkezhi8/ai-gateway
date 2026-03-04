@@ -235,6 +235,11 @@ type failingProvider struct {
 	chatErr error
 }
 
+type streamStartFailProvider struct {
+	*provider.BaseProvider
+	streamErr error
+}
+
 type doneStreamProvider struct {
 	*provider.BaseProvider
 }
@@ -635,6 +640,27 @@ func fetchOperationAttrs(t *testing.T, db *sql.DB, requestID, operation string) 
 	return attrs
 }
 
+type operationTraceRecord struct {
+	Status string
+	Error  string
+	Attrs  map[string]interface{}
+}
+
+func fetchOperationTraceRecord(t *testing.T, db *sql.DB, requestID, operation string) operationTraceRecord {
+	t.Helper()
+
+	var status string
+	var errorMsg string
+	var attrsRaw string
+	err := db.QueryRow(`SELECT status, error, attributes FROM request_traces WHERE request_id = ? AND operation = ? ORDER BY created_at DESC LIMIT 1`, requestID, operation).Scan(&status, &errorMsg, &attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+
+	return operationTraceRecord{Status: status, Error: errorMsg, Attrs: attrs}
+}
+
 func (f *failingProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
 	if f.chatErr != nil {
 		return nil, f.chatErr
@@ -649,6 +675,32 @@ func (f *failingProvider) StreamChat(_ context.Context, _ *provider.ChatRequest)
 }
 
 func (f *failingProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (s *streamStartFailProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "stream-start-fail",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{{
+			Index: 0,
+			Message: provider.ChatMessage{
+				Role:    "assistant",
+				Content: "unused",
+			},
+			FinishReason: "stop",
+		}},
+		Usage: provider.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}, nil
+}
+
+func (s *streamStartFailProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	return nil, s.streamErr
+}
+
+func (s *streamStartFailProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -818,6 +870,83 @@ func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, ErrCodeProviderError, resp.Error.Code)
 	assert.Equal(t, "models/gemini-3.1-pro-preview is not found", resp.Error.Message)
+}
+
+func TestProxyHandler_ChatCompletions_ProviderErrorShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("openai", &failingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+		chatErr: &provider.ProviderError{
+			Code:      http.StatusBadGateway,
+			Message:   "upstream failed",
+			Provider:  "openai",
+			Retryable: false,
+		},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","messages":[{"role":"user","content":"hello failure trace"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, "upstream failed", httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello failure trace", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello failure trace", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_full"])
+}
+
+func TestProxyHandler_ChatCompletions_StreamStartFailureShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("openai", &streamStartFailProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+		streamErr:    assert.AnError,
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello stream failure"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+	require.Contains(t, w.Body.String(), assert.AnError.Error())
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello stream failure", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello stream failure", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_full"])
 }
 
 type capturingProvider struct {
