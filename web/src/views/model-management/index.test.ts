@@ -27,9 +27,8 @@ describe('model management settings loading', () => {
     expect(viewFile).toContain('<el-select')
     expect(viewFile).toContain('allow-create')
     expect(viewFile).toContain('filterable')
-    expect(viewFile).toContain('v-for="option in publicProviderOptions"')
-    expect(viewFile).toContain('@change="handleProviderLabelChange"')
-    expect(viewFile).toContain('publicProviderOptions.value = buildProviderOptions(')
+    expect(viewFile).toContain('@change="onProviderLabelChange"')
+    expect(viewFile).toContain('providerTypes.value = buildProviderOptions(')
   })
 
   it('allows deleting all providers and supports catalog re-add options', () => {
@@ -39,7 +38,19 @@ describe('model management settings loading', () => {
     expect(viewFile).not.toContain('v-if="row.custom"')
     expect(viewFile).toContain('providerApi.delete(row.id)')
     expect(viewFile).toContain('buildProviderOptions')
-    expect(viewFile).toContain('PROVIDER_CATALOG')
+    expect(viewFile).toContain('await loadSettings()')
+  })
+
+  it('supports provider onboarding context bar and focused provider row hook', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('parseModelManagementContext')
+    expect(viewFile).toContain('modelManagementContext')
+    expect(viewFile).toContain('sourceContextVisible')
+    expect(viewFile).toContain('返回AI服务商')
+    expect(viewFile).toContain('goBackToProvidersAccounts')
+    expect(viewFile).toContain('provider-row--highlighted')
+    expect(viewFile).toContain('focusedProviderId')
   })
 
   it('uses model-registry endpoints instead of deprecated router models endpoints', () => {
