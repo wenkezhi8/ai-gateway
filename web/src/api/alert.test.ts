@@ -64,4 +64,12 @@ describe('alert api', () => {
       params: { level: 'warning' }
     })
   })
+
+  it('deletes alert history from admin endpoint', async () => {
+    requestMock.delete.mockResolvedValue({ success: true, data: { affected: 2 } })
+
+    await alertApi.clearHistory()
+
+    expect(requestMock.delete).toHaveBeenCalledWith('/admin/alerts/history')
+  })
 })
