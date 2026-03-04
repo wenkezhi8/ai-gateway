@@ -120,11 +120,12 @@ func NewAlertHandler() *AlertHandler {
 		lastAlerts:    make(map[string]time.Time),
 	}
 
+	hasPersistedData := h.hasPersistedData()
+
 	// Load persisted data
 	h.loadData()
 
-	// Add some default rules if empty
-	if len(h.rules) == 0 {
+	if !hasPersistedData && len(h.rules) == 0 {
 		h.rules = []AlertRule{
 			{
 				ID:      "rule-latency",
@@ -170,6 +171,15 @@ func NewAlertHandler() *AlertHandler {
 
 	globalAlertHandler = h
 	return h
+}
+
+func (h *AlertHandler) hasPersistedData() bool {
+	info, err := os.Stat(h.dataPath)
+	if err != nil {
+		return false
+	}
+
+	return !info.IsDir()
 }
 
 // GetAlertHandler returns the global alert handler.
@@ -487,6 +497,22 @@ func (h *AlertHandler) GetHistory(c *gin.Context) {
 			"total":    total,
 			"page":     page,
 			"pageSize": pageSize,
+		},
+	})
+}
+
+func (h *AlertHandler) ClearHistory(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	affected := len(h.alerts)
+	h.alerts = make([]AlertRecord, 0)
+	h.saveData()
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"affected": affected,
 		},
 	})
 }

@@ -21,6 +21,13 @@ type alertHistoryResponse struct {
 	} `json:"data"`
 }
 
+type clearAlertHistoryResponse struct {
+	Success bool `json:"success"`
+	Data    struct {
+		Affected int `json:"affected"`
+	} `json:"data"`
+}
+
 func TestAlertHandler_GetHistory_ShouldSupportQueryCombination(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := newTestAlertHandler(t)
@@ -202,5 +209,39 @@ func TestAlertHandler_GetHistory_ShouldCapPageSizeAt100(t *testing.T) {
 	}
 	if len(resp.Data.List) != 100 {
 		t.Fatalf("expected list size=100, got %d", len(resp.Data.List))
+	}
+}
+
+func TestAlertHandler_ClearHistory_ShouldReturnAffectedCountAndClearAlerts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	handler := newTestAlertHandler(t)
+	handler.alerts = []AlertRecord{
+		{ID: "a1", Time: "2026-02-01T10:00:00Z", Level: "warning", Source: "system", Message: "cpu high", Status: "pending"},
+		{ID: "a2", Time: "2026-02-01T10:01:00Z", Level: "critical", Source: "system", Message: "memory high", Status: "resolved"},
+	}
+
+	router := gin.New()
+	router.DELETE("/api/admin/alerts/history", handler.ClearHistory)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/alerts/history", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp clearAlertHistoryResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success=true")
+	}
+	if resp.Data.Affected != 2 {
+		t.Fatalf("expected affected=2, got %d", resp.Data.Affected)
+	}
+	if len(handler.alerts) != 0 {
+		t.Fatalf("expected alerts cleared, got %d", len(handler.alerts))
 	}
 }

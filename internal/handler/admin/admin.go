@@ -286,6 +286,7 @@ func RegisterRoutes(r *gin.RouterGroup, handlers *Handlers) {
 	alerts.PUT("/rules/:id", handlers.Alert.UpdateRule)
 	alerts.DELETE("/rules/:id", handlers.Alert.DeleteRule)
 	alerts.GET("/history", handlers.Alert.GetHistory)
+	alerts.DELETE("/history", handlers.Alert.ClearHistory)
 	alerts.POST("/resolve-similar", handlers.Alert.ResolveSimilarAlerts)
 	alerts.GET("/:id", handlers.Alert.GetAlertDetail)
 	alerts.PUT("/:id/resolve", handlers.Alert.ResolveAlert)
