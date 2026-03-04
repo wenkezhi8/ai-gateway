@@ -683,37 +683,33 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	providerReq.ToolChoice = req.ToolChoice
 
-	// 改动点: 模型名称智能映射（缓存优先）
-	originalModelID := providerReq.Model
-	effectiveModel := providerReq.Model
+	originalModelID := h.resolveCanonicalModelID(providerReq.Model)
+	effectiveModel := originalModelID
 
 	// 1. 先检查缓存
 	if h.modelMappingCache != nil {
 		if cached, ok := h.modelMappingCache.GetEffectiveModel(req.Provider, originalModelID); ok {
-			effectiveModel = cached
-			logrus.WithFields(logrus.Fields{
-				"provider":        req.Provider,
-				"original_model":  originalModelID,
-				"effective_model": effectiveModel,
-				"source":          "cache",
-			}).Debug("Using cached model name mapping")
-		}
-	}
-
-	// 2. 如果缓存没有命中，检查是否有 display_name
-	if effectiveModel == originalModelID && h.smartRouter != nil {
-		if score := h.smartRouter.GetModelScore(originalModelID); score != nil && score.DisplayName != "" && score.DisplayName != originalModelID {
-			effectiveModel = score.DisplayName
-			logrus.WithFields(logrus.Fields{
-				"provider":        req.Provider,
-				"original_model":  originalModelID,
-				"effective_model": effectiveModel,
-				"source":          "display_name",
-			}).Debug("Using display_name for upstream request")
+			cachedModel := h.resolveCanonicalModelID(cached)
+			if cachedModel == originalModelID {
+				effectiveModel = cachedModel
+				logrus.WithFields(logrus.Fields{
+					"provider":        req.Provider,
+					"original_model":  originalModelID,
+					"effective_model": effectiveModel,
+					"source":          "cache",
+				}).Debug("Using cached model name mapping")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"provider":               req.Provider,
+					"original_model":         originalModelID,
+					"cached_effective_model": cachedModel,
+				}).Warn("Ignoring unsafe cached model mapping")
+			}
 		}
 	}
 
 	providerReq.Model = effectiveModel
+	req.Model = effectiveModel
 
 	// Handle streaming request
 	if req.Stream {
@@ -762,39 +758,6 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 					reasoningEffortDowngraded = true
 				} else {
 					err = retryErr
-				}
-			}
-		}
-	}
-
-	if err != nil {
-		if isModelNotFoundError(err) {
-			originalModel := providerReq.Model
-			aliasModel := normalizeModelAlias(originalModel)
-
-			if aliasModel != "" && aliasModel != originalModel {
-				providerReq.Model = aliasModel
-				retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
-				if retryErr == nil {
-					result = retryResp
-					err = nil
-					req.Model = aliasModel
-				} else {
-					err = retryErr
-				}
-			}
-
-			if err != nil {
-				if fallbackModel := h.selectFallbackModel(originalModel, req.Provider); fallbackModel != "" && fallbackModel != providerReq.Model {
-					providerReq.Model = fallbackModel
-					retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
-					if retryErr == nil {
-						result = retryResp
-						err = nil
-						req.Model = fallbackModel
-					} else {
-						err = retryErr
-					}
 				}
 			}
 		}
@@ -1490,6 +1453,46 @@ func normalizeModelAlias(model string) string {
 	}
 }
 
+func (h *ProxyHandler) resolveCanonicalModelID(model string) string {
+	canonical := normalizeModelAlias(model)
+	if canonical == "" {
+		return canonical
+	}
+
+	if h.smartRouter == nil {
+		return canonical
+	}
+
+	if score := h.smartRouter.GetModelScore(canonical); score != nil {
+		if id := strings.TrimSpace(score.Model); id != "" {
+			return id
+		}
+		return canonical
+	}
+
+	for modelID, score := range h.smartRouter.GetAllModelScores() {
+		if score == nil {
+			continue
+		}
+		displayName := strings.TrimSpace(score.DisplayName)
+		if displayName == "" {
+			continue
+		}
+		if normalizeModelAlias(displayName) != canonical {
+			continue
+		}
+
+		if id := strings.TrimSpace(modelID); id != "" {
+			return id
+		}
+		if id := strings.TrimSpace(score.Model); id != "" {
+			return id
+		}
+	}
+
+	return canonical
+}
+
 func (h *ProxyHandler) findAnyOpenAICompatibleAccount() *limiter.AccountConfig {
 	if h.accountManager == nil {
 		return nil
@@ -1526,7 +1529,22 @@ func isModelNotFoundError(err error) bool {
 		return false
 	}
 
-	msg := strings.ToLower(err.Error())
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if providerErr, ok := err.(*provider.ProviderError); ok {
+		if message := strings.ToLower(strings.TrimSpace(providerErr.Message)); message != "" {
+			msg = message
+		}
+
+		if providerErr.Code == http.StatusNotFound {
+			return true
+		}
+
+		errType := strings.ToLower(strings.TrimSpace(providerErr.Type))
+		if strings.Contains(errType, "model_not_found") || strings.Contains(errType, "model-not-found") {
+			return true
+		}
+	}
+
 	keywords := []string{
 		"model not found",
 		"invalid model",
@@ -1537,12 +1555,6 @@ func isModelNotFoundError(err error) bool {
 	}
 	for _, kw := range keywords {
 		if strings.Contains(msg, strings.ToLower(kw)) {
-			return true
-		}
-	}
-
-	if pErr, ok := err.(*provider.ProviderError); ok {
-		if pErr.Code == http.StatusBadRequest {
 			return true
 		}
 	}
@@ -2183,17 +2195,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 		originalModel := nonStreamReq.Model
 
-		// Try alias model if original fails (for any error, not just model not found)
-		if err != nil {
-			aliasModel := normalizeModelAlias(originalModel)
-			if aliasModel != "" && aliasModel != originalModel {
-				nonStreamReq.Model = aliasModel
-				resp, err = p.Chat(ctx, &nonStreamReq)
-			}
-		}
-
-		// Try fallback model for any error (upstream may return 502, timeout, etc.)
-		if err != nil {
+		if err != nil && !isModelNotFoundError(err) {
 			if fallbackModel := h.selectFallbackModel(originalModel, providerName); fallbackModel != "" && fallbackModel != nonStreamReq.Model {
 				nonStreamReq.Model = fallbackModel
 				resp, err = p.Chat(ctx, &nonStreamReq)

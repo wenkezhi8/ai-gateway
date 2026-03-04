@@ -1308,3 +1308,216 @@ func TestProxyHandler_ChatCompletions_Stream_ShouldRetryWithoutReasoningEffortFo
 	assert.True(t, hasReasoningEffort(retryProvider.streamReqs[0].Extra))
 	assert.False(t, hasReasoningEffort(retryProvider.streamReqs[1].Extra))
 }
+
+type modelNotFoundProbeProvider struct {
+	*provider.BaseProvider
+
+	mu           sync.Mutex
+	chatModels   []string
+	streamModels []string
+}
+
+func (p *modelNotFoundProbeProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (p *modelNotFoundProbeProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	p.mu.Lock()
+	p.chatModels = append(p.chatModels, req.Model)
+	p.mu.Unlock()
+
+	if req.Model == "gpt-4o" {
+		return &provider.ChatResponse{
+			ID:      "fallback-chat",
+			Object:  "chat.completion",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.Choice{{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "fallback answer",
+				},
+				FinishReason: "stop",
+			}},
+			Usage: provider.Usage{PromptTokens: 2, CompletionTokens: 2, TotalTokens: 4},
+		}, nil
+	}
+
+	return nil, &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "model not found",
+		Provider:  "openai",
+		Retryable: false,
+	}
+}
+
+func (p *modelNotFoundProbeProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	p.mu.Lock()
+	p.streamModels = append(p.streamModels, req.Model)
+	p.mu.Unlock()
+
+	ch := make(chan *provider.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-empty",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Done:    true,
+			Choices: []provider.StreamChoice{{
+				Index:        0,
+				FinishReason: "stop",
+				Delta:        &provider.StreamDelta{},
+			}},
+		}
+	}()
+
+	return ch, nil
+}
+
+func TestProxyHandler_ChatCompletions_ShouldForwardModelIDWhenRequestUsesDisplayName(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	score := h.smartRouter.GetModelScore("gpt-4o")
+	require.NotNil(t, score)
+	originalDisplayName := score.DisplayName
+	score.DisplayName = "gpt-4o-display"
+	t.Cleanup(func() {
+		score.DisplayName = originalDisplayName
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4o-display","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	assert.Equal(t, "gpt-4o", capture.lastChatReq.Model)
+}
+
+func TestProxyHandler_ChatCompletions_ShouldCanonicalizeAliasBeforeForwarding(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-5.3-codex"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-5-3-codex","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	assert.Equal(t, "gpt-5.3-codex", capture.lastChatReq.Model)
+}
+
+func TestProxyHandler_ChatCompletions_ModelNotFoundShouldNotFallbackAcrossModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	probe := &modelNotFoundProbeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-model", "gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", probe)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"missing-model","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "model not found")
+
+	probe.mu.Lock()
+	chatModels := append([]string(nil), probe.chatModels...)
+	probe.mu.Unlock()
+	assert.Equal(t, []string{"missing-model"}, chatModels)
+}
+
+func TestProxyHandler_ChatCompletions_StreamFallback_ModelNotFoundShouldNotFallbackAcrossModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	probe := &modelNotFoundProbeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-stream-model", "gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", probe)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"missing-stream-model","stream":true,"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "model not found")
+	assert.NotContains(t, w.Body.String(), "fallback answer")
+
+	probe.mu.Lock()
+	chatModels := append([]string(nil), probe.chatModels...)
+	probe.mu.Unlock()
+	assert.Equal(t, []string{"missing-stream-model"}, chatModels)
+}
+
+func TestIsModelNotFoundError_ShouldNotMatchGenericBadRequest(t *testing.T) {
+	err := &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "invalid request payload",
+		Type:      "invalid_request_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+
+	assert.False(t, isModelNotFoundError(err))
+}
+
+func TestIsModelNotFoundError_ShouldMatchProviderNotFoundSignals(t *testing.T) {
+	errByCode := &provider.ProviderError{
+		Code:      http.StatusNotFound,
+		Message:   "resource not found",
+		Type:      "not_found_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+	errByMessage := &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "model not found",
+		Type:      "invalid_request_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+
+	assert.True(t, isModelNotFoundError(errByCode))
+	assert.True(t, isModelNotFoundError(errByMessage))
+}
