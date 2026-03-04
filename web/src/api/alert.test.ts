@@ -54,4 +54,14 @@ describe('alert api', () => {
       dedup_key: 'memory_warning'
     })
   })
+
+  it('gets alert history from unified alert facade endpoint', async () => {
+    requestMock.get.mockResolvedValue({ success: true, data: { list: [], total: 0 } })
+
+    await alertApi.getHistory({ level: 'warning' })
+
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/alerts/history', {
+      params: { level: 'warning' }
+    })
+  })
 })
