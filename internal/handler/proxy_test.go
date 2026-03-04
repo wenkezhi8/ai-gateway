@@ -12,7 +12,9 @@ import (
 
 	"ai-gateway/internal/cache"
 	"ai-gateway/internal/config"
+	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
+	"ai-gateway/internal/routing"
 	"ai-gateway/internal/storage"
 
 	"github.com/gin-gonic/gin"
@@ -802,6 +804,143 @@ func TestProxyHandler_ListConfiguredProviders_Empty(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "providers")
+}
+
+func TestProxyHandler_ListConfiguredProviders_MergesEnabledSmartRouterModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-openai-1",
+		Name:         "openai-main",
+		Provider:     "openai",
+		ProviderType: "openai",
+		APIKey:       "sk-test",
+		BaseURL:      "https://api.openai.com/v1",
+		Enabled:      true,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", APIKey: "test-key", BaseURL: "https://api.openai.com/v1", Enabled: true},
+		},
+	}
+	h := NewProxyHandler(cfg, accountManager, nil)
+
+	originalRouterConfig := h.smartRouter.GetConfig()
+	t.Cleanup(func() {
+		h.smartRouter.SetConfig(originalRouterConfig)
+	})
+	h.smartRouter.SetConfig(&routing.RouterConfig{
+		DefaultStrategy:  routing.StrategyAuto,
+		DefaultModel:     "gpt-4o",
+		UseAutoMode:      true,
+		Classifier:       routing.DefaultClassifierConfig(),
+		TaskRules:        routing.DefaultTaskRules(),
+		ProviderDefaults: routing.DefaultProviderDefaults(),
+		ModelScores: map[string]*routing.ModelScore{
+			"gpt-5.3-codex-spark": {Model: "gpt-5.3-codex-spark", Provider: "openai", Enabled: true},
+			"gpt-5.2-codex":       {Model: "gpt-5.2-codex", Provider: "openai", Enabled: true},
+			"gpt-disabled":        {Model: "gpt-disabled", Provider: "openai", Enabled: false},
+			"claude-only":         {Model: "claude-only", Provider: "anthropic", Enabled: true},
+		},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/api/v1/config/providers", http.NoBody)
+	c.Request = req
+	h.ListConfiguredProviders(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	providers := decodeConfiguredProvidersResponse(t, w.Body.Bytes())
+	openaiProvider, ok := providers["openai"]
+	require.True(t, ok, "openai provider should exist")
+	assert.True(t, openaiProvider.Enabled)
+	assert.Contains(t, openaiProvider.Models, "gpt-5.3-codex-spark")
+	assert.Contains(t, openaiProvider.Models, "gpt-5.2-codex")
+	assert.NotContains(t, openaiProvider.Models, "gpt-disabled")
+	assert.NotContains(t, openaiProvider.Models, "claude-only")
+}
+
+func TestProxyHandler_ListConfiguredProviders_UsesAccountEnabledStatus(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-openai-disabled",
+		Name:         "openai-disabled",
+		Provider:     "openai",
+		ProviderType: "openai",
+		APIKey:       "sk-test",
+		BaseURL:      "https://api.openai.com/v1",
+		Enabled:      false,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	cfg := &config.Config{
+		Providers: []config.ProviderConfig{
+			{Name: "openai", APIKey: "test-key", BaseURL: "https://api.openai.com/v1", Enabled: true},
+		},
+	}
+	h := NewProxyHandler(cfg, accountManager, nil)
+
+	originalRouterConfig := h.smartRouter.GetConfig()
+	t.Cleanup(func() {
+		h.smartRouter.SetConfig(originalRouterConfig)
+	})
+	h.smartRouter.SetConfig(&routing.RouterConfig{
+		DefaultStrategy:  routing.StrategyAuto,
+		DefaultModel:     "gpt-4o",
+		UseAutoMode:      true,
+		Classifier:       routing.DefaultClassifierConfig(),
+		TaskRules:        routing.DefaultTaskRules(),
+		ProviderDefaults: routing.DefaultProviderDefaults(),
+		ModelScores: map[string]*routing.ModelScore{
+			"gpt-5.3-codex-spark": {Model: "gpt-5.3-codex-spark", Provider: "openai", Enabled: true},
+		},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("GET", "/api/v1/config/providers", http.NoBody)
+	c.Request = req
+	h.ListConfiguredProviders(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	providers := decodeConfiguredProvidersResponse(t, w.Body.Bytes())
+	openaiProvider, ok := providers["openai"]
+	require.True(t, ok, "openai provider should exist")
+	assert.False(t, openaiProvider.Enabled)
+	assert.Contains(t, openaiProvider.Models, "gpt-5.3-codex-spark")
+}
+
+type configuredProviderPayload struct {
+	Name    string   `json:"name"`
+	Models  []string `json:"models"`
+	Enabled bool     `json:"enabled"`
+}
+
+func decodeConfiguredProvidersResponse(t *testing.T, body []byte) map[string]configuredProviderPayload {
+	t.Helper()
+
+	var envelope struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Providers []configuredProviderPayload `json:"providers"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &envelope))
+	require.True(t, envelope.Success)
+
+	result := make(map[string]configuredProviderPayload, len(envelope.Data.Providers))
+	for _, p := range envelope.Data.Providers {
+		result[p.Name] = p
+	}
+	return result
 }
 
 func TestProxyHandler_GetProviderForRequest_UsesInferredProviderWhenModelNotMapped(t *testing.T) {

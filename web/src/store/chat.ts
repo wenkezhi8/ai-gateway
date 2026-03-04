@@ -9,8 +9,9 @@ import { getModelRegistry } from '@/api/routing-domain'
 import { getAdminAccounts, getAdminProviderConfigs, getPublicProvidersConfig } from '@/api/chat-domain'
 import { useModelLabels } from '@/composables/useModelLabels'
 import { CHAT_PROVIDER_VISUALS, CHAT_PROVIDER_VISUAL_FALLBACK } from '@/constants/store/chat'
+import { PUBLIC_CHAT_ROUTE } from '@/constants/navigation'
 
-const { fetchModelLabels, resetLabels, getModelLabel } = useModelLabels()
+const { fetchModelLabels, resetLabels, getModelLabel, getModelLabelsForProvider } = useModelLabels()
 
 /** Dynamic providers (reactive) */
 export const PROVIDERS = ref<ProviderConfig[]>([])
@@ -216,10 +217,103 @@ function resolveDefaultConversationTarget(): { provider: string; model: string }
   }
 }
 
+type ChatStorageScope = 'public' | 'private'
+
+const CHAT_CONVERSATIONS_KEY = 'chat_conversations'
+const CHAT_CURRENT_ID_KEY = 'chat_current_id'
+const CHAT_CONVERSATIONS_PUBLIC_KEY = 'chat_conversations_public'
+const CHAT_CURRENT_ID_PUBLIC_KEY = 'chat_current_id_public'
+
+function resolveStorageScopeFromPath(pathname: string): ChatStorageScope {
+  const normalized = pathname.trim()
+  if (normalized === PUBLIC_CHAT_ROUTE || normalized.startsWith(`${PUBLIC_CHAT_ROUTE}/`)) {
+    return 'public'
+  }
+  return 'private'
+}
+
+function detectStorageScope(): ChatStorageScope {
+  const pathname = typeof window !== 'undefined' && window.location
+    ? window.location.pathname || ''
+    : ''
+  return resolveStorageScopeFromPath(pathname)
+}
+
+function resolveStorageKeys(scope: ChatStorageScope): { conversations: string; currentId: string } {
+  if (scope === 'public') {
+    return {
+      conversations: CHAT_CONVERSATIONS_PUBLIC_KEY,
+      currentId: CHAT_CURRENT_ID_PUBLIC_KEY
+    }
+  }
+  return {
+    conversations: CHAT_CONVERSATIONS_KEY,
+    currentId: CHAT_CURRENT_ID_KEY
+  }
+}
+
+function normalizeModelToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+}
+
+function resolveModelForProvider(provider: string, model: string): string {
+  const availableModels = getModelsForProvider(provider)
+  if (availableModels.length === 0) {
+    return model
+  }
+
+  if (availableModels.includes(model)) {
+    return model
+  }
+
+  const normalizedModel = normalizeModelToken(model)
+  if (normalizedModel) {
+    const canonicalByAlias = availableModels.find(item => normalizeModelToken(item) === normalizedModel)
+    if (canonicalByAlias) {
+      return canonicalByAlias
+    }
+
+    const labels = getModelLabelsForProvider(provider)
+    for (const [modelID, label] of Object.entries(labels)) {
+      if (normalizeModelToken(label) === normalizedModel && availableModels.includes(modelID)) {
+        return modelID
+      }
+    }
+  }
+
+  return availableModels[0] || model
+}
+
+function normalizeProviderModel(provider: string, model: string): { provider: string; model: string; corrected: boolean } {
+  const defaultTarget = resolveDefaultConversationTarget()
+  let nextProvider = provider
+
+  if (!getProviderConfig(nextProvider)) {
+    nextProvider = defaultTarget.provider || nextProvider
+  }
+
+  if (!nextProvider) {
+    return { provider, model, corrected: false }
+  }
+
+  const nextModel = resolveModelForProvider(nextProvider, model || defaultTarget.model)
+  return {
+    provider: nextProvider,
+    model: nextModel,
+    corrected: nextProvider !== provider || nextModel !== model
+  }
+}
+
 export const useChatStore = defineStore('chat', () => {
   // State
   const conversations = ref<Conversation[]>([])
   const currentConversationId = ref<string>('')
+  const storageScope = ref<ChatStorageScope>(detectStorageScope())
   const isLoading = ref(false)
   const abortControllers = ref<Map<string, AbortController>>(new Map())
   const streamingConversations = ref<Set<string>>(new Set())
@@ -391,18 +485,74 @@ export const useChatStore = defineStore('chat', () => {
   /** Update current conversation model/provider */
   function updateCurrentModel(provider: string, model: string): void {
     if (currentConversation.value) {
-      currentConversation.value.provider = provider
-      currentConversation.value.model = model
+      const normalized = normalizeProviderModel(provider, model)
+      currentConversation.value.provider = normalized.provider
+      currentConversation.value.model = normalized.model
       currentConversation.value.updatedAt = Date.now()
       saveConversations()
     }
   }
 
+  function normalizeConversationModel(conversationId: string): boolean {
+    const conv = conversations.value.find(c => c.id === conversationId)
+    if (!conv) return false
+
+    const normalized = normalizeProviderModel(conv.provider, conv.model)
+    if (!normalized.corrected) return false
+
+    conv.provider = normalized.provider
+    conv.model = normalized.model
+    conv.updatedAt = Date.now()
+    saveConversations()
+    return true
+  }
+
+  function normalizeConversationModels(): number {
+    let changedCount = 0
+
+    for (const conv of conversations.value) {
+      const normalized = normalizeProviderModel(conv.provider, conv.model)
+      if (!normalized.corrected) continue
+
+      conv.provider = normalized.provider
+      conv.model = normalized.model
+      conv.updatedAt = Date.now()
+      changedCount++
+    }
+
+    if (changedCount > 0) {
+      saveConversations()
+    }
+    return changedCount
+  }
+
+  function ensureCurrentConversationModel(): boolean {
+    if (!currentConversation.value) return false
+    return normalizeConversationModel(currentConversation.value.id)
+  }
+
+  function setStorageScope(isPublic: boolean): void {
+    const nextScope: ChatStorageScope = isPublic ? 'public' : 'private'
+    if (nextScope === storageScope.value) return
+
+    storageScope.value = nextScope
+    loadConversations()
+  }
+
+  function refreshStorageScopeFromLocation(): void {
+    const nextScope = detectStorageScope()
+    if (nextScope === storageScope.value) return
+
+    storageScope.value = nextScope
+    loadConversations()
+  }
+
   /** Save conversations to localStorage */
   function saveConversations(): void {
     try {
-      localStorage.setItem('chat_conversations', JSON.stringify(conversations.value))
-      localStorage.setItem('chat_current_id', currentConversationId.value)
+      const keys = resolveStorageKeys(storageScope.value)
+      localStorage.setItem(keys.conversations, JSON.stringify(conversations.value))
+      localStorage.setItem(keys.currentId, currentConversationId.value)
     } catch (e) {
       console.error('Failed to save conversations:', e)
     }
@@ -411,8 +561,9 @@ export const useChatStore = defineStore('chat', () => {
   /** Load conversations from localStorage */
   function loadConversations(): void {
     try {
-      const saved = localStorage.getItem('chat_conversations')
-      const savedCurrentId = localStorage.getItem('chat_current_id')
+      const keys = resolveStorageKeys(storageScope.value)
+      const saved = localStorage.getItem(keys.conversations)
+      const savedCurrentId = localStorage.getItem(keys.currentId)
 
       if (saved) {
         conversations.value = JSON.parse(saved)
@@ -466,6 +617,11 @@ export const useChatStore = defineStore('chat', () => {
     abortRequest,
     isConversationStreaming,
     updateCurrentModel,
+    normalizeConversationModel,
+    normalizeConversationModels,
+    ensureCurrentConversationModel,
+    setStorageScope,
+    refreshStorageScopeFromLocation,
     saveConversations,
     loadConversations,
     clearAllConversations
