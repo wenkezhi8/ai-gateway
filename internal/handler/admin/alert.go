@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -376,9 +377,44 @@ func (h *AlertHandler) DeleteRule(c *gin.Context) {
 
 // GET /api/admin/alerts/history.
 func (h *AlertHandler) GetHistory(c *gin.Context) {
-	level := c.Query("level")
-	startDate := c.Query("startDate")
-	endDate := c.Query("endDate")
+	level := strings.TrimSpace(c.Query("level"))
+	status := strings.TrimSpace(c.Query("status"))
+	source := strings.TrimSpace(c.Query("source"))
+	keyword := strings.ToLower(strings.TrimSpace(c.Query("keyword")))
+
+	startRaw := strings.TrimSpace(c.Query("startAt"))
+	if startRaw == "" {
+		startRaw = strings.TrimSpace(c.Query("startDate"))
+	}
+	endRaw := strings.TrimSpace(c.Query("endAt"))
+	if endRaw == "" {
+		endRaw = strings.TrimSpace(c.Query("endDate"))
+	}
+
+	startAt, hasStartAt := parseHistoryQueryTime(startRaw, false)
+	endAt, hasEndAt := parseHistoryQueryTime(endRaw, true)
+
+	sortBy := strings.TrimSpace(c.Query("sortBy"))
+	if sortBy == "" || sortBy != "time" {
+		sortBy = "time"
+	}
+	order := strings.TrimSpace(c.Query("order"))
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+
+	page := 1
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.Query("page"))); err == nil && parsed > 0 {
+		page = parsed
+	}
+
+	pageSize := 20
+	if parsed, err := strconv.Atoi(strings.TrimSpace(c.Query("pageSize"))); err == nil && parsed > 0 {
+		pageSize = parsed
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -386,29 +422,92 @@ func (h *AlertHandler) GetHistory(c *gin.Context) {
 	filtered := make([]AlertRecord, 0, len(h.alerts))
 	for i := range h.alerts {
 		alert := h.alerts[i]
-		// Filter by level
+
 		if level != "" && alert.Level != level {
 			continue
 		}
-
-		// Filter by date range
-		if startDate != "" && alert.Time < startDate {
+		if status != "" && alert.Status != status {
 			continue
 		}
-		if endDate != "" && alert.Time > endDate+"T23:59:59" {
+		if source != "" && alert.Source != source {
 			continue
+		}
+		if keyword != "" && !strings.Contains(strings.ToLower(alert.Message), keyword) {
+			continue
+		}
+
+		alertTime := parseRFC3339OrZero(alert.Time)
+		if hasStartAt {
+			if alertTime.IsZero() || alertTime.Before(startAt) {
+				continue
+			}
+		}
+		if hasEndAt {
+			if alertTime.IsZero() || alertTime.After(endAt) {
+				continue
+			}
 		}
 
 		filtered = append(filtered, alert)
 	}
 
+	if sortBy == "time" {
+		sort.Slice(filtered, func(i, j int) bool {
+			left := parseRFC3339OrZero(filtered[i].Time)
+			right := parseRFC3339OrZero(filtered[j].Time)
+			if left.Equal(right) {
+				if order == "asc" {
+					return filtered[i].ID < filtered[j].ID
+				}
+				return filtered[i].ID > filtered[j].ID
+			}
+			if order == "asc" {
+				return left.Before(right)
+			}
+			return left.After(right)
+		})
+	}
+
+	total := len(filtered)
+	startIndex := (page - 1) * pageSize
+	if startIndex > total {
+		startIndex = total
+	}
+	endIndex := startIndex + pageSize
+	if endIndex > total {
+		endIndex = total
+	}
+
+	result := filtered[startIndex:endIndex]
+
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"list":  filtered,
-			"total": len(filtered),
+			"list":     result,
+			"total":    total,
+			"page":     page,
+			"pageSize": pageSize,
 		},
 	})
+}
+
+func parseHistoryQueryTime(raw string, endOfDay bool) (time.Time, bool) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return time.Time{}, false
+	}
+
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		if endOfDay {
+			return t.Add(24*time.Hour - time.Nanosecond), true
+		}
+		return t, true
+	}
+
+	return time.Time{}, false
 }
 
 // PUT /api/admin/alerts/:id/resolve.
