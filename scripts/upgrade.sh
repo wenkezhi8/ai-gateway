@@ -19,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKUP_DIR="${PROJECT_DIR}/backups"
 
+source "$SCRIPT_DIR/lib/container-names.sh"
+
 # Current version file
 VERSION_FILE="${PROJECT_DIR}/VERSION"
 
@@ -161,7 +163,7 @@ verify_upgrade() {
     fi
 
     # Check Redis
-    if docker exec ai-gateway-redis redis-cli ping | grep -q "PONG"; then
+    if docker exec "$REDIS_CONTAINER" redis-cli ping | grep -q "PONG"; then
         echo -e "${GREEN}[OK] Redis is healthy${NC}"
     else
         echo -e "${RED}[ERROR] Redis health check failed${NC}"

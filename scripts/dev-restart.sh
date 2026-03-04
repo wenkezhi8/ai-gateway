@@ -8,6 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+source "$SCRIPT_DIR/lib/container-names.sh"
+
 cd "$PROJECT_DIR"
 
 if [ ! -f "configs/config.json" ]; then
@@ -34,22 +36,22 @@ echo "🔍 检查 Redis Stack (6379)..."
 if ! lsof -ti:6379 >/dev/null 2>&1; then
     echo "⚠️  Redis Stack 未运行，尝试自动启动 Docker 容器..."
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-        docker rm -f redis-stack >/dev/null 2>&1 || true
-        docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18 >/dev/null
+        docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
+        docker run -d --name "$REDIS_CONTAINER" -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18 >/dev/null
         sleep 2
     fi
 fi
 
 if ! lsof -ti:6379 >/dev/null 2>&1; then
     echo "❌ Redis Stack 启动失败，无法继续（向量缓存依赖 RediSearch/RedisJSON）"
-    echo "   可手动执行: docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
+    echo "   可手动执行: docker run -d --name $REDIS_CONTAINER -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
     exit 1
 fi
 
 if ! redis-cli -p 6379 FT._LIST >/dev/null 2>&1; then
     echo "❌ 当前 6379 不是 Redis Stack（缺少 FT 命令），请切换到 redis-stack-server"
-    echo "   建议执行: docker rm -f redis-stack >/dev/null 2>&1 || true"
-    echo "   然后执行: docker run -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
+    echo "   建议执行: docker rm -f $REDIS_CONTAINER >/dev/null 2>&1 || true"
+    echo "   然后执行: docker run -d --name $REDIS_CONTAINER -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
     exit 1
 fi
 
