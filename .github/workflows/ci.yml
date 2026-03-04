@@ -23,14 +23,11 @@ jobs:
         with:
           version: latest
           args: --timeout=5m
-          only-new-issues: true
   lint-frontend:
     name: Frontend Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -39,33 +36,9 @@ jobs:
       - name: Install dependencies
         working-directory: ./web
         run: npm ci
-      - name: Detect changed frontend source files
-        id: changed-frontend
-        uses: tj-actions/changed-files@v45
-        with:
-          files: |
-            web/**/*.{js,jsx,ts,tsx,vue}
-      - name: Run lint for changed frontend files
-        if: steps.changed-frontend.outputs.any_changed == 'true'
+      - name: Run lint
         working-directory: ./web
-        run: |
-          files=""
-          for path in ${{ steps.changed-frontend.outputs.all_changed_and_modified_files }}; do
-            case "$path" in
-              web/*) files="$files ${path#web/}" ;;
-            esac
-          done
-
-          if [ -z "$files" ]; then
-            echo "No changed frontend source files after filtering."
-            exit 0
-          fi
-
-          echo "Linting changed files:$files"
-          npx eslint --quiet --max-warnings 0 $files
-      - name: Skip lint when no frontend source files changed
-        if: steps.changed-frontend.outputs.any_changed != 'true'
-        run: echo "No frontend source changes detected; skip frontend lint."
+        run: npm run lint
   test-backend:
     name: Backend Tests
     runs-on: ubuntu-latest
