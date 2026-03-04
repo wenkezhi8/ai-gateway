@@ -34,6 +34,14 @@
     </div>
 
     <div class="setup-actions">
+      <el-select v-model="setupEdition" placeholder="安装目标版本" style="width: 160px" :disabled="setupRunning">
+        <el-option
+          v-for="edition in editionStore.definitions"
+          :key="`setup-${edition.type}`"
+          :label="edition.display_name"
+          :value="edition.type"
+        />
+      </el-select>
       <el-select v-model="runtime" placeholder="安装模式" style="width: 140px">
         <el-option label="Docker" value="docker" />
         <el-option label="Native" value="native" />
@@ -61,6 +69,7 @@ import type { EditionSetupStatus, EditionSetupRuntime, EditionType } from '@/api
 
 const editionStore = useEditionStore()
 const selectedEdition = ref<EditionType>('standard')
+const setupEdition = ref<EditionType>('standard')
 const runtime = ref<EditionSetupRuntime>('docker')
 const applyConfig = ref(true)
 const pullEmbeddingModel = ref(false)
@@ -82,6 +91,7 @@ onMounted(async () => {
   ])
 
   selectedEdition.value = editionStore.config?.type ?? 'standard'
+  setupEdition.value = selectedEdition.value
 })
 
 function dependencyHealthy(dep: string): boolean {
@@ -148,6 +158,9 @@ async function pollSetupTask() {
 
   clearSetupPoll()
   await refreshDependencies()
+  if (canSelectEdition(setupEdition.value)) {
+    selectedEdition.value = setupEdition.value
+  }
   if (task.status === 'success') {
     ElMessage.success('依赖安装完成')
     return
@@ -159,7 +172,7 @@ async function handleSetupDependencies() {
   clearSetupPoll()
   try {
     const created = await editionStore.startSetup({
-      edition: selectedEdition.value,
+      edition: setupEdition.value,
       runtime: runtime.value,
       apply_config: applyConfig.value,
       pull_embedding_model: pullEmbeddingModel.value

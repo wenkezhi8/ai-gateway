@@ -15,4 +15,13 @@ describe('edition selector component', () => {
     expect(content).toContain('runtime')
     expect(content).toContain('checkDependencies')
   })
+
+  it('uses independent setup edition target for install action', () => {
+    const file = resolve(process.cwd(), 'src/views/settings/components/EditionSelector.vue')
+    const content = readFileSync(file, 'utf-8')
+
+    expect(content).toContain('setupEdition')
+    expect(content).toContain('安装目标版本')
+    expect(content).toContain('edition: setupEdition.value')
+  })
 })
