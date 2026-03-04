@@ -14,7 +14,7 @@
         <el-empty description="暂无告警统计" />
       </div>
       <el-row v-else :gutter="20" class="stats-row">
-        <el-col :span="6" v-for="stat in alertStats" :key="stat.title">
+        <el-col v-for="stat in alertStats" :key="stat.title" :span="6">
           <el-card shadow="hover" class="stat-card">
             <div class="stat-content">
               <div class="stat-icon" :style="{ background: stat.color + '15' }">
@@ -189,7 +189,7 @@
 
     <!-- 添加/编辑规则对话框 -->
     <el-dialog v-model="ruleDialogVisible" :title="isEditRule ? '编辑告警规则' : '添加告警规则'" width="600px">
-      <el-form :model="ruleForm" :rules="ruleFormRules" ref="ruleFormRef" label-width="100px">
+      <el-form ref="ruleFormRef" :model="ruleForm" :rules="ruleFormRules" label-width="100px">
         <el-form-item label="规则名称" prop="name">
           <el-input v-model="ruleForm.name" placeholder="请输入规则名称" />
         </el-form-item>
@@ -226,10 +226,10 @@
             <el-checkbox v-for="opt in alertNotifyChannelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-form-item label="钉钉Webhook" v-if="ruleForm.channels.includes('dingtalk')">
+        <el-form-item v-if="ruleForm.channels.includes('dingtalk')" label="钉钉Webhook">
           <el-input v-model="ruleForm.dingtalkWebhook" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
         </el-form-item>
-        <el-form-item label="接收邮箱" v-if="ruleForm.channels.includes('email')">
+        <el-form-item v-if="ruleForm.channels.includes('email')" label="接收邮箱">
           <el-select v-model="ruleForm.emails" multiple filterable allow-create placeholder="输入邮箱地址" style="width: 100%">
           </el-select>
         </el-form-item>

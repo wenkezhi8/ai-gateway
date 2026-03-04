@@ -30,7 +30,7 @@
         <el-tag v-for="model in ctx.ollamaSetup.running_models" :key="model" type="success" class="running-tag">
           {{ model }}
         </el-tag>
-        <span class="running-vram" v-if="ctx.ollamaSetup.running_vram_bytes_total > 0">
+        <span v-if="ctx.ollamaSetup.running_vram_bytes_total > 0" class="running-vram">
           总显存占用 {{ ctx.formatVramBytes(ctx.ollamaSetup.running_vram_bytes_total) }}
         </span>
       </div>
