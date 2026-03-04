@@ -15,6 +15,26 @@ export interface CacheModelOptionGroup {
   models: string[]
 }
 
+export type CacheRequestSource = 'all' | 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat'
+
+export interface CacheRequestQuery {
+  window?: string
+  start_time?: string
+  end_time?: string
+  start?: string
+  end?: string
+  source?: CacheRequestSource
+}
+
+export interface CacheRequestHitsQuery extends CacheRequestQuery {
+  page?: number
+  page_size?: number
+  task_type?: string
+  search?: string
+  aggregate?: boolean | '1' | '0'
+  readable_only?: boolean | '1' | '0'
+}
+
 interface CacheTaskTTLConfigResponse {
   success: boolean
   data?: {
@@ -39,6 +59,48 @@ export async function getCacheTaskTTLConfig() {
 
 export async function getCacheStats() {
   const raw = await request.get('/admin/cache/stats')
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+function buildCacheRequestQuery(query: CacheRequestQuery | CacheRequestHitsQuery = {}) {
+  const params = new URLSearchParams()
+
+  const source = typeof query.source === 'string' && query.source ? query.source : 'all'
+  const startTime = query.start_time || query.start
+  const endTime = query.end_time || query.end
+  const hasExplicitRange = Boolean(startTime || endTime)
+  if (hasExplicitRange) {
+    if (startTime) params.append('start_time', String(startTime))
+    if (endTime) params.append('end_time', String(endTime))
+  } else {
+    params.append('window', String(query.window || '24h'))
+  }
+  params.append('source', source)
+
+  for (const [key, value] of Object.entries(query as Record<string, unknown>)) {
+    if (key === 'window' || key === 'start_time' || key === 'end_time' || key === 'start' || key === 'end' || key === 'source') {
+      continue
+    }
+    if (value === undefined || value === null || value === '') {
+      continue
+    }
+    if (typeof value === 'boolean') {
+      params.append(key, value ? '1' : '0')
+      continue
+    }
+    params.append(key, String(value))
+  }
+
+  return params.toString()
+}
+
+export async function getCacheRequestStats(query: CacheRequestQuery = {}) {
+  const raw = await request.get(`/admin/cache/request-stats?${buildCacheRequestQuery(query)}`)
+  return unwrapEnvelope<any>(raw, { allowPlain: true })
+}
+
+export async function getCacheRequestHits(query: CacheRequestHitsQuery = {}) {
+  const raw = await request.get(`/admin/cache/request-hits?${buildCacheRequestQuery(query)}`)
   return unwrapEnvelope<any>(raw, { allowPlain: true })
 }
 

@@ -241,18 +241,21 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 		}
 	}
 
+	status, errorMsg := resolveSimpleSpanOutcome(attrs)
+
 	traceRecord := &RequestTrace{
 		ID:         uuid.New().String(),
 		RequestID:  requestID,
 		TraceID:    traceID,
 		SpanID:     spanID,
 		Operation:  spanName,
-		Status:     "success",
+		Status:     status,
 		StartTime:  startTime,
 		EndTime:    time.Now(),
 		DurationMs: durationMs,
 		Attributes: attributes,
 		Events:     JSONB{},
+		Error:      errorMsg,
 		CreatedAt:  time.Now(),
 	}
 
@@ -279,6 +282,38 @@ func (r *SpanRecorder) RecordSimpleSpan(ctx context.Context, spanName string, at
 	if err := r.saveToDB(traceRecord); err != nil {
 		fmt.Printf("Failed to save trace record: %v\n", err)
 	}
+}
+
+func resolveSimpleSpanOutcome(attrs map[string]interface{}) (status, errorMsg string) {
+	status = "success"
+
+	if rawStatus, ok := attrs["status"].(string); ok {
+		normalized := strings.TrimSpace(strings.ToLower(rawStatus))
+		if normalized == "error" || normalized == "success" {
+			status = normalized
+		}
+	}
+
+	if success, ok := attrs["success"].(bool); ok && !success {
+		status = "error"
+	}
+
+	for _, key := range []string{"error", "error_message", "message"} {
+		if msg, ok := attrs[key].(string); ok {
+			msg = strings.TrimSpace(msg)
+			if msg != "" {
+				errorMsg = msg
+				status = "error"
+				break
+			}
+		}
+	}
+
+	if status != "error" {
+		errorMsg = ""
+	}
+
+	return status, errorMsg
 }
 
 // RecordSpanWithResult 记录带结果的 Span（用于缓存命中/未命中等）。

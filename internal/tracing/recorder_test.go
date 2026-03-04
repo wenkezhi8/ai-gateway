@@ -117,6 +117,35 @@ func TestRecordSpanWithResult_WritesResultAttribute(t *testing.T) {
 	}
 }
 
+func TestRecordSimpleSpan_WritesErrorStatusAndMessage(t *testing.T) {
+	db := newTestTraceDB(t)
+	defer db.Close()
+
+	recorder := NewSpanRecorder(db)
+	ctx := SetRequestIDToContext(context.Background(), "req-err")
+
+	recorder.RecordSimpleSpan(ctx, "http.response", map[string]interface{}{
+		"status": "error",
+		"error":  "provider timeout",
+	})
+
+	waitForTraceRow(t, db, "http.response")
+
+	var status string
+	var errorMsg string
+	err := db.QueryRow(`SELECT status, error FROM request_traces WHERE operation = ?`, "http.response").Scan(&status, &errorMsg)
+	if err != nil {
+		t.Fatalf("query status/error: %v", err)
+	}
+
+	if status != "error" {
+		t.Fatalf("status = %q, want error", status)
+	}
+	if errorMsg != "provider timeout" {
+		t.Fatalf("error = %q, want provider timeout", errorMsg)
+	}
+}
+
 func TestExtractResponseTextPreview_OpenAIResponse(t *testing.T) {
 	body := []byte(`{"choices":[{"message":{"content":"这是一个很长的命中答案"}}]}`)
 	preview, full, truncated := ExtractResponseTextPreview(body, 5, 50)

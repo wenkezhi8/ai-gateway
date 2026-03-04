@@ -190,10 +190,14 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	var req ChatCompletionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if err.Error() == "http: request body too large" {
-			Error(c, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds maximum size of 10MB")
+			errorMessage := "Request body exceeds maximum size of 10MB"
+			h.recordHTTPResponseErrorSpan(ctx, startTime, "", "", "", errorMessage, http.StatusRequestEntityTooLarge)
+			Error(c, http.StatusRequestEntityTooLarge, "request_too_large", errorMessage)
 			return
 		}
-		BadRequest(c, "Invalid request body: "+err.Error())
+		errorMessage := "Invalid request body: " + err.Error()
+		h.recordHTTPResponseErrorSpan(ctx, startTime, "", "", "", errorMessage, http.StatusBadRequest)
+		BadRequest(c, errorMessage)
 		return
 	}
 	if h.traceRecorder != nil {
@@ -206,9 +210,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	// Validate request
 	if err := req.Validate(); err != nil {
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, req.Provider, "", err.Error(), http.StatusBadRequest)
 		BadRequest(c, err.Error())
 		return
 	}
+	req.Messages = sanitizeChatMessagesForIntentAndUpstream(req.Messages)
 	explicitReasoningEffort := strings.TrimSpace(req.ReasoningEffort) != ""
 
 	// Get user context
@@ -262,7 +268,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		c.Header(k, v)
 	}
 	if shouldBlockByRisk(controlCfg, assessment) {
-		Error(c, http.StatusForbidden, "risk_blocked", "Request blocked by control risk policy")
+		errorMessage := "Request blocked by control risk policy"
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, req.Provider, prompt, errorMessage, http.StatusForbidden)
+		Error(c, http.StatusForbidden, "risk_blocked", errorMessage)
 		return
 	}
 	if controlCfg.Enable {
@@ -602,6 +610,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if fallbackErr != nil {
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, fallbackErr.Error(), http.StatusServiceUnavailable)
 			Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, fallbackErr.Error())
 			return
 		}
@@ -674,37 +683,33 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	providerReq.ToolChoice = req.ToolChoice
 
-	// 改动点: 模型名称智能映射（缓存优先）
-	originalModelID := providerReq.Model
-	effectiveModel := providerReq.Model
+	originalModelID := h.resolveCanonicalModelID(providerReq.Model)
+	effectiveModel := originalModelID
 
 	// 1. 先检查缓存
 	if h.modelMappingCache != nil {
 		if cached, ok := h.modelMappingCache.GetEffectiveModel(req.Provider, originalModelID); ok {
-			effectiveModel = cached
-			logrus.WithFields(logrus.Fields{
-				"provider":        req.Provider,
-				"original_model":  originalModelID,
-				"effective_model": effectiveModel,
-				"source":          "cache",
-			}).Debug("Using cached model name mapping")
-		}
-	}
-
-	// 2. 如果缓存没有命中，检查是否有 display_name
-	if effectiveModel == originalModelID && h.smartRouter != nil {
-		if score := h.smartRouter.GetModelScore(originalModelID); score != nil && score.DisplayName != "" && score.DisplayName != originalModelID {
-			effectiveModel = score.DisplayName
-			logrus.WithFields(logrus.Fields{
-				"provider":        req.Provider,
-				"original_model":  originalModelID,
-				"effective_model": effectiveModel,
-				"source":          "display_name",
-			}).Debug("Using display_name for upstream request")
+			cachedModel := h.resolveCanonicalModelID(cached)
+			if cachedModel == originalModelID {
+				effectiveModel = cachedModel
+				logrus.WithFields(logrus.Fields{
+					"provider":        req.Provider,
+					"original_model":  originalModelID,
+					"effective_model": effectiveModel,
+					"source":          "cache",
+				}).Debug("Using cached model name mapping")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"provider":               req.Provider,
+					"original_model":         originalModelID,
+					"cached_effective_model": cachedModel,
+				}).Warn("Ignoring unsafe cached model mapping")
+			}
 		}
 	}
 
 	providerReq.Model = effectiveModel
+	req.Model = effectiveModel
 
 	// Handle streaming request
 	if req.Stream {
@@ -759,39 +764,6 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	if err != nil {
-		if isModelNotFoundError(err) {
-			originalModel := providerReq.Model
-			aliasModel := normalizeModelAlias(originalModel)
-
-			if aliasModel != "" && aliasModel != originalModel {
-				providerReq.Model = aliasModel
-				retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
-				if retryErr == nil {
-					result = retryResp
-					err = nil
-					req.Model = aliasModel
-				} else {
-					err = retryErr
-				}
-			}
-
-			if err != nil {
-				if fallbackModel := h.selectFallbackModel(originalModel, req.Provider); fallbackModel != "" && fallbackModel != providerReq.Model {
-					providerReq.Model = fallbackModel
-					retryResp, retryErr := targetProvider.Chat(c.Request.Context(), providerReq)
-					if retryErr == nil {
-						result = retryResp
-						err = nil
-						req.Model = fallbackModel
-					} else {
-						err = retryErr
-					}
-				}
-			}
-		}
-	}
-
-	if err != nil {
 		// CHANGED: include provider/user/api info in usage logs for error paths.
 		providerName := req.Provider
 		if providerName == "" && targetProvider != nil {
@@ -810,15 +782,22 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			if statusCode < http.StatusBadRequest || statusCode >= 600 {
 				statusCode = http.StatusBadGateway
 			}
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, providerErr.Message, statusCode)
 			Error(c, statusCode, ErrCodeProviderError, providerErr.Message)
 			return
 		}
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, err.Error(), http.StatusBadGateway)
 		ProviderError(c, err.Error(), "")
 		return
+	}
+	resolvedProviderName := req.Provider
+	if resolvedProviderName == "" && targetProvider != nil {
+		resolvedProviderName = targetProvider.Name()
 	}
 
 	resp, ok := result.(*provider.ChatResponse)
 	if !ok {
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, resolvedProviderName, prompt, "Provider returned invalid response type", http.StatusBadGateway)
 		ProviderError(c, "Provider returned invalid response type", "invalid_provider_response")
 		return
 	}
@@ -849,6 +828,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, resp.Error.Message, http.StatusBadGateway)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
 	}
@@ -1473,6 +1453,46 @@ func normalizeModelAlias(model string) string {
 	}
 }
 
+func (h *ProxyHandler) resolveCanonicalModelID(model string) string {
+	canonical := normalizeModelAlias(model)
+	if canonical == "" {
+		return canonical
+	}
+
+	if h.smartRouter == nil {
+		return canonical
+	}
+
+	if score := h.smartRouter.GetModelScore(canonical); score != nil {
+		if id := strings.TrimSpace(score.Model); id != "" {
+			return id
+		}
+		return canonical
+	}
+
+	for modelID, score := range h.smartRouter.GetAllModelScores() {
+		if score == nil {
+			continue
+		}
+		displayName := strings.TrimSpace(score.DisplayName)
+		if displayName == "" {
+			continue
+		}
+		if normalizeModelAlias(displayName) != canonical {
+			continue
+		}
+
+		if id := strings.TrimSpace(modelID); id != "" {
+			return id
+		}
+		if id := strings.TrimSpace(score.Model); id != "" {
+			return id
+		}
+	}
+
+	return canonical
+}
+
 func (h *ProxyHandler) findAnyOpenAICompatibleAccount() *limiter.AccountConfig {
 	if h.accountManager == nil {
 		return nil
@@ -1509,7 +1529,22 @@ func isModelNotFoundError(err error) bool {
 		return false
 	}
 
-	msg := strings.ToLower(err.Error())
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	if providerErr, ok := err.(*provider.ProviderError); ok {
+		if message := strings.ToLower(strings.TrimSpace(providerErr.Message)); message != "" {
+			msg = message
+		}
+
+		if providerErr.Code == http.StatusNotFound {
+			return true
+		}
+
+		errType := strings.ToLower(strings.TrimSpace(providerErr.Type))
+		if strings.Contains(errType, "model_not_found") || strings.Contains(errType, "model-not-found") {
+			return true
+		}
+	}
+
 	keywords := []string{
 		"model not found",
 		"invalid model",
@@ -1520,12 +1555,6 @@ func isModelNotFoundError(err error) bool {
 	}
 	for _, kw := range keywords {
 		if strings.Contains(msg, strings.ToLower(kw)) {
-			return true
-		}
-	}
-
-	if pErr, ok := err.(*provider.ProviderError); ok {
-		if pErr.Code == http.StatusBadRequest {
 			return true
 		}
 	}
@@ -1786,6 +1815,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
 	}
@@ -1797,12 +1827,18 @@ func (h *ProxyHandler) handleStreamResponse(
 	receivedChunks := 0
 	hasReasoningOutput := false
 	fallbackNeeded := false
+	streamCompletedByDone := false
 	var ttftMs int64 = 0 // Time to first token
 	// Stream chunks to client
 	for chunk := range stream {
 		if chunk.Error != nil {
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			errorStatusCode := chunk.Error.Code
+			if errorStatusCode < http.StatusBadRequest || errorStatusCode >= 600 {
+				errorStatusCode = http.StatusBadGateway
+			}
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, chunk.Error.Message, errorStatusCode)
 			c.SSEvent("error", gin.H{
 				"error": gin.H{
 					"code":    chunk.Error.Code,
@@ -2012,6 +2048,7 @@ func (h *ProxyHandler) handleStreamResponse(
 					}
 				}
 			}
+			streamCompletedByDone = true
 			break
 		}
 		streamResp := StreamingResponse{
@@ -2078,7 +2115,71 @@ func (h *ProxyHandler) handleStreamResponse(
 		c.Writer.Flush()
 	}
 
-	if receivedChunks == 0 || fallbackNeeded {
+	if receivedChunks > 0 && !fallbackNeeded && !streamCompletedByDone {
+		resolvedUsage, usageSource := resolveUsageWithFallback(
+			prompt,
+			fullContent.String(),
+			usageTokens{
+				Prompt:     promptTokens,
+				Completion: completionTokens,
+				Total:      totalTokens,
+			},
+		)
+
+		if h.traceRecorder != nil {
+			h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+				"duration_ms":   time.Since(startTime).Milliseconds(),
+				"model":         req.Model,
+				"provider":      providerLabel,
+				"provider_type": providerProtocol,
+				"provider_name": providerLabel,
+				"stream":        true,
+				"success":       true,
+			})
+		}
+
+		c.SSEvent("message", "[DONE]")
+		c.Writer.Flush()
+
+		if h.traceRecorder != nil {
+			responsePayload := map[string]interface{}{
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": fullContent.String(),
+						},
+					},
+				},
+			}
+			responseBody, marshalErr := json.Marshal(responsePayload)
+			if marshalErr != nil {
+				responseBody = []byte("{}")
+			}
+			attrs := map[string]interface{}{
+				"duration_ms": time.Since(startTime).Milliseconds(),
+				"model":       req.Model,
+				"provider":    providerName,
+				"status_code": http.StatusOK,
+				"cache_hit":   false,
+			}
+			for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+				attrs[key] = value
+			}
+			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+		}
+
+		latency := time.Since(startTime)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
+
+		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
+			h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
+		}
+	}
+
+	if !streamCompletedByDone && (receivedChunks == 0 || fallbackNeeded) {
 		// Some providers may return an empty stream even though non-stream works.
 		// Fallback to a non-stream request and convert it to SSE payload.
 		nonStreamReq := *req
@@ -2094,17 +2195,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		}
 		originalModel := nonStreamReq.Model
 
-		// Try alias model if original fails (for any error, not just model not found)
-		if err != nil {
-			aliasModel := normalizeModelAlias(originalModel)
-			if aliasModel != "" && aliasModel != originalModel {
-				nonStreamReq.Model = aliasModel
-				resp, err = p.Chat(ctx, &nonStreamReq)
-			}
-		}
-
-		// Try fallback model for any error (upstream may return 502, timeout, etc.)
-		if err != nil {
+		if err != nil && !isModelNotFoundError(err) {
 			if fallbackModel := h.selectFallbackModel(originalModel, providerName); fallbackModel != "" && fallbackModel != nonStreamReq.Model {
 				nonStreamReq.Model = fallbackModel
 				resp, err = p.Chat(ctx, &nonStreamReq)
@@ -2115,6 +2206,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": err.Error()})
 			c.Writer.Flush()
 			return
@@ -2124,6 +2216,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty response", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
 			return
@@ -2134,6 +2227,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty content", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
 			return
@@ -2885,6 +2979,58 @@ func buildTraceMessageAttributes(prompt string, responseBody []byte) map[string]
 		"ai_response_preview":    aiResponsePreview,
 		"ai_response_full":       aiResponseFull,
 		"ai_response_truncated":  aiResponseTruncated,
+	}
+}
+
+func buildTraceErrorMessageAttributes(errorMessage string) map[string]interface{} {
+	trimmed := strings.TrimSpace(errorMessage)
+	full, truncated := trimTraceTextByRune(trimmed, traceMessageFullLimit)
+	preview, _ := trimTraceTextByRune(full, traceMessagePreviewLimit)
+
+	return map[string]interface{}{
+		"error_message_preview":   preview,
+		"error_message_full":      full,
+		"error_message_truncated": truncated,
+	}
+}
+
+func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedAt time.Time, model, providerName, prompt, errorMessage string, statusCode int) {
+	if h.traceRecorder == nil {
+		return
+	}
+	if statusCode <= 0 {
+		statusCode = http.StatusBadGateway
+	}
+
+	attrs := map[string]interface{}{
+		"duration_ms": time.Since(startedAt).Milliseconds(),
+		"model":       model,
+		"status_code": statusCode,
+		"success":     false,
+		"status":      "error",
+		"error":       strings.TrimSpace(errorMessage),
+	}
+	if trimmedProvider := strings.TrimSpace(providerName); trimmedProvider != "" {
+		attrs["provider"] = trimmedProvider
+		attrs["provider_name"] = trimmedProvider
+	}
+
+	for key, value := range buildPromptPreviewAttributes(prompt) {
+		attrs[key] = value
+	}
+	for key, value := range buildTraceErrorMessageAttributes(errorMessage) {
+		attrs[key] = value
+	}
+
+	h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+}
+
+func buildPromptPreviewAttributes(prompt string) map[string]interface{} {
+	userMessagePreview, userMessageFull, userMessageTruncated := buildPromptPreview(prompt)
+	return map[string]interface{}{
+		"user_message_preview":   userMessagePreview,
+		"user_message_full":      userMessageFull,
+		"user_message_truncated": userMessageTruncated,
 	}
 }
 
@@ -3731,6 +3877,51 @@ func getTextContent(content interface{}) string {
 		}
 	}
 	return ""
+}
+
+func sanitizeChatMessagesForIntentAndUpstream(messages []ChatMessage) []ChatMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	sanitized := make([]ChatMessage, len(messages))
+	for i, msg := range messages {
+		sanitized[i] = msg
+		sanitized[i].Content = sanitizeChatMessageContent(msg.Content)
+	}
+	return sanitized
+}
+
+func sanitizeChatMessageContent(content interface{}) interface{} {
+	switch v := content.(type) {
+	case string:
+		return routing.SanitizeIntentInput(v)
+	case []interface{}:
+		parts := make([]interface{}, len(v))
+		for i, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				parts[i] = item
+				continue
+			}
+
+			copied := make(map[string]interface{}, len(m))
+			for key, value := range m {
+				copied[key] = value
+			}
+
+			if copied["type"] == "text" {
+				if text, ok := copied["text"].(string); ok {
+					copied["text"] = routing.SanitizeIntentInput(text)
+				}
+			}
+
+			parts[i] = copied
+		}
+		return parts
+	default:
+		return content
+	}
 }
 
 // GetModelMappingCache returns the model mapping cache for admin handlers

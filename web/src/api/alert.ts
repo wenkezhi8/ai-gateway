@@ -74,6 +74,10 @@ export const alertApi = {
     return request.get<{ success: boolean; data: { list: Alert[]; total: number } }>('/admin/alerts/history', { params })
   },
 
+  clearHistory() {
+    return request.delete<{ success: boolean; data: { affected: number } }>('/admin/alerts/history')
+  },
+
   resolveAlert(id: string) {
     return request.put<{ success: boolean; message: string }>(`/admin/alerts/${id}/resolve`)
   },

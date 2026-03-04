@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -212,4 +214,77 @@ func TestAlertHandler_CompactLegacyAlertsOnce_ShouldCollapsePendingDuplicates(t 
 	}
 
 	t.Fatalf("expected compacted memory_warning alert, got alerts=%s", fmt.Sprintf("%+v", handler.alerts))
+}
+
+func TestNewAlertHandler_ShouldKeepPersistedEmptyRules(t *testing.T) {
+	originWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(originWD); chdirErr != nil {
+			t.Fatalf("restore working directory: %v", chdirErr)
+		}
+		globalAlertHandler = nil
+	})
+
+	alertsPath := filepath.Join(tempDir, "data", "alerts.json")
+	if err := os.MkdirAll(filepath.Dir(alertsPath), 0o755); err != nil {
+		t.Fatalf("mkdir alerts dir: %v", err)
+	}
+	if err := os.WriteFile(alertsPath, []byte(`{"rules":[],"alerts":[]}`), 0o640); err != nil {
+		t.Fatalf("write alerts file: %v", err)
+	}
+
+	globalAlertHandler = nil
+	h := NewAlertHandler()
+
+	if len(h.rules) != 0 {
+		t.Fatalf("expected persisted empty rules to stay empty, got %d", len(h.rules))
+	}
+
+	content, err := os.ReadFile(alertsPath)
+	if err != nil {
+		t.Fatalf("read alerts file: %v", err)
+	}
+
+	var persisted struct {
+		Rules []AlertRule `json:"rules"`
+	}
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatalf("unmarshal alerts file: %v", err)
+	}
+	if len(persisted.Rules) != 0 {
+		t.Fatalf("expected persisted file rules to remain empty, got %d", len(persisted.Rules))
+	}
+}
+
+func TestNewAlertHandler_ShouldInjectDefaultRulesWithoutPersistedFile(t *testing.T) {
+	originWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("chdir temp dir: %v", err)
+	}
+	t.Cleanup(func() {
+		if chdirErr := os.Chdir(originWD); chdirErr != nil {
+			t.Fatalf("restore working directory: %v", chdirErr)
+		}
+		globalAlertHandler = nil
+	})
+
+	globalAlertHandler = nil
+	h := NewAlertHandler()
+
+	if len(h.rules) == 0 {
+		t.Fatalf("expected default rules when no persisted file exists")
+	}
 }

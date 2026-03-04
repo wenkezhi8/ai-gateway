@@ -30,4 +30,32 @@ describe('alerts page', () => {
     expect(viewFile).toContain('dedup_key')
     expect(viewFile).toContain('dedup_key: alert.dedup_key || undefined')
   })
+
+  it('should render explicit request states for rules/history/stats with retry actions', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/alerts/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('rulesRequest.loading')
+    expect(viewFile).toContain('rulesRequest.error')
+    expect(viewFile).toContain('@click="fetchRules"')
+    expect(viewFile).toContain('!alertRules.length')
+
+    expect(viewFile).toContain('historyRequest.loading')
+    expect(viewFile).toContain('historyRequest.error')
+    expect(viewFile).toContain('@click="fetchAlerts"')
+    expect(viewFile).toContain('!filteredAlerts.length')
+
+    expect(viewFile).toContain('statsRequest.loading')
+    expect(viewFile).toContain('statsRequest.error')
+    expect(viewFile).toContain('@click="fetchStats"')
+  })
+
+  it('should support clear alert history action with confirm and refresh', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/alerts/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('清空告警历史')
+    expect(viewFile).toContain('@click="clearHistory"')
+    expect(viewFile).toContain('alertApi.clearHistory(')
+    expect(viewFile).toContain('ElMessageBox.confirm(')
+    expect(viewFile).toContain('Promise.all([fetchAlerts(), fetchStats()])')
+  })
 })

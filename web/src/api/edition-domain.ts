@@ -30,6 +30,36 @@ export interface UpdateEditionResponse {
   edition: EditionConfig
 }
 
+export type EditionSetupRuntime = 'docker' | 'native'
+export type EditionSetupStatus = 'pending' | 'running' | 'success' | 'failed'
+
+export interface EditionSetupRequest {
+  edition: EditionType
+  runtime: EditionSetupRuntime
+  apply_config: boolean
+  pull_embedding_model: boolean
+}
+
+export interface EditionSetupTaskCreateResponse {
+  task_id: string
+  accepted_at: string
+  message: string
+}
+
+export interface EditionSetupTask {
+  task_id: string
+  edition: EditionType
+  runtime: EditionSetupRuntime
+  status: EditionSetupStatus
+  accepted_at: string
+  started_at?: string
+  finished_at?: string
+  summary: string
+  logs: string
+  health: Record<string, DependencyStatus>
+  message?: string
+}
+
 export async function getEditionConfig() {
   const raw = await request.get('/admin/edition')
   return unwrapEnvelope<EditionConfig>(raw, { allowPlain: true })
@@ -48,4 +78,14 @@ export async function checkEditionDependencies() {
 export async function updateEditionConfig(type: EditionType) {
   const raw = await request.put('/admin/edition', { type })
   return unwrapEnvelope<UpdateEditionResponse>(raw, { allowPlain: true })
+}
+
+export async function setupEditionEnvironment(payload: EditionSetupRequest) {
+  const raw = await request.post('/admin/edition/setup', payload)
+  return unwrapEnvelope<EditionSetupTaskCreateResponse>(raw, { allowPlain: true })
+}
+
+export async function getEditionSetupTask(taskId: string) {
+  const raw = await request.get(`/admin/edition/setup/tasks/${encodeURIComponent(taskId)}`)
+  return unwrapEnvelope<EditionSetupTask>(raw, { allowPlain: true })
 }

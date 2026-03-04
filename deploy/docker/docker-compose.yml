@@ -34,7 +34,7 @@ services:
   # Redis Cache
   redis:
     image: redis/redis-stack-server:7.2.0-v18
-    container_name: ai-gateway-redis
+    container_name: ai-gateway-redis-stack
     restart: unless-stopped
     command: redis-stack-server --appendonly yes
     volumes:

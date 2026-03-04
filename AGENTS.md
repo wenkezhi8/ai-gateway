@@ -119,6 +119,24 @@ Git权限：<可否 commit / push / tag>
 #XR|   - 执行 rebase 并解决冲突
 #XR|   - 运行完整验证流程（前后端测试+构建）
 #XR|   - 确认无冲突后再 push 或创建 PR
+#XR|9. PR 交付完成后，必须执行工作区清理：删除对应 worktree，并删除本地与远端工作分支。
+
+### 7.3 PR 交付收尾命令（必须）
+```bash
+# 1) 删除 worktree（在主仓库目录执行）
+git worktree remove .worktrees/<worktree-name>
+
+# 2) 删除本地分支（切回 main 后执行）
+git checkout main
+git branch -D <feature-branch>
+
+# 3) 删除远端分支
+git push origin --delete <feature-branch>
+
+# 4) 清理验证
+git worktree list
+git branch --list
+```
 
 ### 7.1 执行模式提醒
 ```text

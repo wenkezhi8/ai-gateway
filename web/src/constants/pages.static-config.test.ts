@@ -296,6 +296,7 @@ describe('pages static config extraction', () => {
 
     expect(alertsStoreFile).not.toContain("from '@/api/request'")
     expect(globalDataComposableFile).not.toContain("from '@/api/request'")
-    expect(alertsStoreFile).toContain("from '@/api/alert-domain'")
+    expect(alertsStoreFile).toContain("from '@/api/alert'")
+    expect(alertsStoreFile).not.toContain("from '@/api/alert-domain'")
   })
 })

@@ -128,7 +128,7 @@ const routes: RouteRecordRaw[] = [
         path: '/providers-accounts',
         name: 'ProvidersAccounts',
         component: () => import('@/views/accounts-limit/index.vue'),
-        meta: { title: '账号与限额', icon: 'Key' }
+        meta: { title: 'AI服务商', icon: 'Key' }
       },
       {
         path: '/accounts',

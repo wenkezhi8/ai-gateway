@@ -23,6 +23,7 @@ func TestDefaultConfig(t *testing.T) {
 	assert.True(t, cfg.Limiter.Enabled)
 	assert.Equal(t, 100, cfg.Limiter.Rate)
 	assert.Equal(t, 200, cfg.Limiter.Burst)
+	assert.Equal(t, string(EditionStandard), cfg.Edition.Type)
 	assert.False(t, cfg.IntentEngine.Enabled)
 	assert.True(t, cfg.VectorCache.Enabled)
 	assert.Equal(t, 1024, cfg.VectorCache.Dimension)

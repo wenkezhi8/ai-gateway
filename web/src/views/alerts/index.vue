@@ -1,21 +1,34 @@
 <template>
   <div class="alerts-page">
     <!-- 告警统计卡片 -->
-    <el-row :gutter="20" class="stats-row">
-      <el-col :span="6" v-for="stat in alertStats" :key="stat.title">
-        <el-card shadow="hover" class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon" :style="{ background: stat.color + '15' }">
-              <el-icon :size="28" :color="stat.color"><component :is="stat.icon" /></el-icon>
+    <div class="stats-section">
+      <div v-if="statsRequest.loading" class="request-state">
+        <el-skeleton :rows="1" animated />
+      </div>
+      <div v-else-if="statsRequest.error" class="request-state">
+        <el-empty description="告警统计加载失败">
+          <el-button type="primary" size="small" @click="fetchStats">重试</el-button>
+        </el-empty>
+      </div>
+      <div v-else-if="isStatsEmpty" class="request-state">
+        <el-empty description="暂无告警统计" />
+      </div>
+      <el-row v-else :gutter="20" class="stats-row">
+        <el-col v-for="stat in alertStats" :key="stat.title" :span="6">
+          <el-card shadow="hover" class="stat-card">
+            <div class="stat-content">
+              <div class="stat-icon" :style="{ background: stat.color + '15' }">
+                <el-icon :size="28" :color="stat.color"><component :is="stat.icon" /></el-icon>
+              </div>
+              <div class="stat-info">
+                <div class="stat-value">{{ stat.value }}</div>
+                <div class="stat-title">{{ stat.title }}</div>
+              </div>
             </div>
-            <div class="stat-info">
-              <div class="stat-value">{{ stat.value }}</div>
-              <div class="stat-title">{{ stat.title }}</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+          </el-card>
+        </el-col>
+      </el-row>
+    </div>
 
     <el-row :gutter="24" class="content-row">
       <!-- 告警规则 -->
@@ -31,7 +44,18 @@
             </div>
           </template>
 
-          <div class="rules-list">
+          <div v-if="rulesRequest.loading" class="request-state">
+            <el-skeleton :rows="4" animated />
+          </div>
+          <div v-else-if="rulesRequest.error" class="request-state">
+            <el-empty description="告警规则加载失败">
+              <el-button type="primary" size="small" @click="fetchRules">重试</el-button>
+            </el-empty>
+          </div>
+          <div v-else-if="!alertRules.length" class="request-state">
+            <el-empty description="暂无告警规则" />
+          </div>
+          <div v-else class="rules-list">
             <div v-for="rule in alertRules" :key="rule.id" class="rule-item">
               <div class="rule-header">
                 <div class="rule-info">
@@ -79,77 +103,93 @@
                   size="small"
                   style="margin-left: 10px"
                 />
+                <el-button type="danger" plain size="small" style="margin-left: 10px" @click="clearHistory">
+                  清空告警历史
+                </el-button>
               </div>
             </div>
           </template>
 
-          <el-table :data="filteredAlerts" stripe class="alerts-table">
-            <el-table-column prop="time" label="时间" width="160">
-              <template #default="{ row }">
-                <span class="time-text">{{ row.time }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="level" label="级别" width="80">
-              <template #default="{ row }">
-                <el-tag :type="getAlertTagType(row.level)" size="small" effect="dark">
-                  {{ getLevelText(row.level) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="source" label="来源" width="100">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.source }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="message" label="告警信息" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="trigger_count" label="持续次数" width="90">
-              <template #default="{ row }">
-                <span>{{ row.trigger_count || 1 }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="last_triggered_at" label="最后触发" width="160">
-              <template #default="{ row }">
-                <span class="time-text">{{ row.last_triggered_at || row.time }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="status" label="状态" width="90">
-              <template #default="{ row }">
-                <el-tag :type="row.status === 'resolved' ? 'success' : 'warning'" size="small">
-                  {{ row.status === 'resolved' ? '已处理' : '待处理' }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="200" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="row.status !== 'resolved'" type="primary" link size="small" @click="resolveAlert(row)">
-                  处理
-                </el-button>
-                <el-button v-if="row.status !== 'resolved'" type="warning" link size="small" @click="resolveSimilar(row)">
-                  处理同类
-                </el-button>
-                <el-button type="primary" link size="small" @click="viewDetail(row)">
-                  详情
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-
-          <div class="pagination">
-            <el-pagination
-              v-model:current-page="currentPage"
-              v-model:page-size="pageSize"
-              :total="total"
-              :page-sizes="[10, 20, 50]"
-              layout="total, sizes, prev, pager, next"
-            />
+          <div v-if="historyRequest.loading" class="request-state">
+            <el-skeleton :rows="6" animated />
           </div>
+          <div v-else-if="historyRequest.error" class="request-state">
+            <el-empty description="告警历史加载失败">
+              <el-button type="primary" size="small" @click="fetchAlerts">重试</el-button>
+            </el-empty>
+          </div>
+          <div v-else-if="!filteredAlerts.length" class="request-state">
+            <el-empty description="暂无告警历史" />
+          </div>
+          <template v-else>
+            <el-table :data="filteredAlerts" stripe class="alerts-table">
+              <el-table-column prop="time" label="时间" width="160">
+                <template #default="{ row }">
+                  <span class="time-text">{{ row.time }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="level" label="级别" width="80">
+                <template #default="{ row }">
+                  <el-tag :type="getAlertTagType(row.level)" size="small" effect="dark">
+                    {{ getLevelText(row.level) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="source" label="来源" width="100">
+                <template #default="{ row }">
+                  <el-tag size="small">{{ row.source }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="message" label="告警信息" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="trigger_count" label="持续次数" width="90">
+                <template #default="{ row }">
+                  <span>{{ row.trigger_count || 1 }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="last_triggered_at" label="最后触发" width="160">
+                <template #default="{ row }">
+                  <span class="time-text">{{ row.last_triggered_at || row.time }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag :type="row.status === 'resolved' ? 'success' : 'warning'" size="small">
+                    {{ row.status === 'resolved' ? '已处理' : '待处理' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="200" fixed="right">
+                <template #default="{ row }">
+                  <el-button v-if="row.status !== 'resolved'" type="primary" link size="small" @click="resolveAlert(row)">
+                    处理
+                  </el-button>
+                  <el-button v-if="row.status !== 'resolved'" type="warning" link size="small" @click="resolveSimilar(row)">
+                    处理同类
+                  </el-button>
+                  <el-button type="primary" link size="small" @click="viewDetail(row)">
+                    详情
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div class="pagination">
+              <el-pagination
+                v-model:current-page="currentPage"
+                v-model:page-size="pageSize"
+                :total="total"
+                :page-sizes="[10, 20, 50]"
+                layout="total, sizes, prev, pager, next"
+              />
+            </div>
+          </template>
         </el-card>
       </el-col>
     </el-row>
 
     <!-- 添加/编辑规则对话框 -->
     <el-dialog v-model="ruleDialogVisible" :title="isEditRule ? '编辑告警规则' : '添加告警规则'" width="600px">
-      <el-form :model="ruleForm" :rules="ruleFormRules" ref="ruleFormRef" label-width="100px">
+      <el-form ref="ruleFormRef" :model="ruleForm" :rules="ruleFormRules" label-width="100px">
         <el-form-item label="规则名称" prop="name">
           <el-input v-model="ruleForm.name" placeholder="请输入规则名称" />
         </el-form-item>
@@ -186,10 +226,10 @@
             <el-checkbox v-for="opt in alertNotifyChannelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-form-item label="钉钉Webhook" v-if="ruleForm.channels.includes('dingtalk')">
+        <el-form-item v-if="ruleForm.channels.includes('dingtalk')" label="钉钉Webhook">
           <el-input v-model="ruleForm.dingtalkWebhook" placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
         </el-form-item>
-        <el-form-item label="接收邮箱" v-if="ruleForm.channels.includes('email')">
+        <el-form-item v-if="ruleForm.channels.includes('email')" label="接收邮箱">
           <el-select v-model="ruleForm.emails" multiple filterable allow-create placeholder="输入邮箱地址" style="width: 100%">
           </el-select>
         </el-form-item>
@@ -235,7 +275,7 @@
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { alertApi } from '@/api/alert'
+import { alertApi, type AlertRule as AlertRulePayload } from '@/api/alert'
 import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import {
   ALERT_LEVEL_OPTIONS,
@@ -277,6 +317,37 @@ interface Alert {
   last_triggered_at?: string
 }
 
+interface RequestState {
+  loading: boolean
+  error: string | null
+}
+
+interface AlertStatsData {
+  critical: number
+  warning: number
+  todayTotal: number
+  resolved: number
+}
+
+interface AlertRuleApiModel {
+  id: string
+  name: string
+  enabled?: boolean
+  condition?: {
+    type?: string
+    operator?: string
+    threshold?: number
+  }
+  notifyChannels?: string[]
+}
+
+interface AlertStatsApiModel {
+  critical?: number
+  warning?: number
+  todayTotal?: number
+  resolved?: number
+}
+
 const selectedLevel = ref('')
 const dateRange = ref([])
 const currentPage = ref(1)
@@ -287,8 +358,10 @@ const detailDialogVisible = ref(false)
 const isEditRule = ref(false)
 const ruleFormRef = ref<FormInstance>()
 const selectedAlert = ref<Alert | null>(null)
-const loading = ref(false)
-const statsData = ref({ critical: 0, warning: 0, todayTotal: 0, resolved: 0 })
+const rulesRequest = ref<RequestState>({ loading: false, error: null })
+const historyRequest = ref<RequestState>({ loading: false, error: null })
+const statsRequest = ref<RequestState>({ loading: false, error: null })
+const statsData = ref<AlertStatsData>({ critical: 0, warning: 0, todayTotal: 0, resolved: 0 })
 
 const alertStats = computed(() => [
   { title: '严重告警', value: statsData.value.critical, icon: 'WarningFilled', color: '#FF3B30' },
@@ -296,6 +369,10 @@ const alertStats = computed(() => [
   { title: '今日告警', value: statsData.value.todayTotal, icon: 'BellFilled', color: '#007AFF' },
   { title: '已处理', value: statsData.value.resolved, icon: 'CircleCheckFilled', color: '#34C759' }
 ])
+
+const isStatsEmpty = computed(() =>
+  alertStats.value.every((item) => Number(item.value || 0) === 0)
+)
 
 const alertRules = ref<AlertRule[]>([])
 
@@ -396,7 +473,7 @@ const deleteRule = async (rule: AlertRule) => {
     handleSuccess('删除成功')
     fetchRules()
   } catch (error) {
-    if ((error as any) !== 'cancel') {
+    if (!isCancelError(error)) {
       handleApiError(error, '删除失败')
     }
   }
@@ -417,7 +494,7 @@ const submitRule = async () => {
   try {
     const valid = await ruleFormRef.value.validate()
     if (valid) {
-      const ruleData = {
+      const ruleData: Omit<AlertRulePayload, 'id' | 'createdAt' | 'updatedAt'> = {
         name: ruleForm.name,
         enabled: ruleForm.enabled,
         condition: {
@@ -429,10 +506,10 @@ const submitRule = async () => {
       }
       
       if (isEditRule.value) {
-        await alertApi.updateRule(ruleForm.id, ruleData as any)
+        await alertApi.updateRule(ruleForm.id, ruleData)
         handleSuccess('规则更新成功')
       } else {
-        await alertApi.createRule(ruleData as any)
+        await alertApi.createRule(ruleData)
         handleSuccess('规则添加成功')
       }
       ruleDialogVisible.value = false
@@ -470,14 +547,33 @@ const resolveSimilar = async (alert: Alert) => {
       source: alert.source,
       message: alert.message
     })
-    const data = (raw as any)?.data || raw
-    const affected = Number(data?.affected || 0)
+    const data = extractResolveSimilarPayload(raw)
+    const affected = Number(data.affected || 0)
 
     handleSuccess(`已处理同类告警 ${affected} 条`)
     await Promise.all([fetchAlerts(), fetchStats()])
   } catch (error) {
-    if ((error as any) !== 'cancel') {
+    if (!isCancelError(error)) {
       handleApiError(error, '批量处理失败')
+    }
+  }
+}
+
+const clearHistory = async () => {
+  try {
+    await ElMessageBox.confirm('确定清空全部告警历史吗？该操作不可恢复。', '清空告警历史', {
+      type: 'warning'
+    })
+
+    const raw = await alertApi.clearHistory()
+    const data = extractClearHistoryPayload(raw)
+    const affected = Number(data.affected || 0)
+
+    handleSuccess(`已清空告警历史 ${affected} 条`)
+    await Promise.all([fetchAlerts(), fetchStats()])
+  } catch (error) {
+    if (!isCancelError(error)) {
+      handleApiError(error, '清空告警历史失败')
     }
   }
 }
@@ -487,68 +583,188 @@ const viewDetail = (alert: Alert) => {
   detailDialogVisible.value = true
 }
 
-const fetchRules = async () => {
-  try {
-    const res = await alertApi.getRules()
-    const data = (res as any)?.data || res
-    if (Array.isArray(data)) {
-      alertRules.value = data.map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        enabled: r.enabled ?? true,
-        condition: {
-          type: r.condition?.type || 'latency',
-          typeLabel: getConditionLabel(r.condition?.type || 'latency'),
-          text: `${getConditionLabel(r.condition?.type || 'latency')} ${r.condition?.operator || '>'} ${r.condition?.threshold || 80}`
-        },
-        channels: r.notifyChannels || []
-      }))
+const buildRequestError = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return fallback
+}
+
+const isCancelError = (error: unknown): boolean => error === 'cancel'
+
+const extractRulesPayload = (
+  payload: AlertRuleApiModel[] | { data?: AlertRuleApiModel[] }
+): AlertRuleApiModel[] => {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (Array.isArray(payload.data)) {
+    return payload.data
+  }
+
+  return []
+}
+
+type AlertHistoryListPayload = { list?: Alert[]; total?: number }
+type AlertHistoryEnvelopePayload = { data?: AlertHistoryListPayload }
+type AlertHistoryPayloadInput = Alert[] | AlertHistoryListPayload | AlertHistoryEnvelopePayload
+
+type AlertStatsEnvelopePayload = { data?: AlertStatsApiModel }
+type AlertStatsPayloadInput = AlertStatsApiModel | AlertStatsEnvelopePayload
+
+type ResolveSimilarPayload = { affected?: number }
+type ResolveSimilarEnvelopePayload = { data?: ResolveSimilarPayload }
+type ResolveSimilarPayloadInput = ResolveSimilarPayload | ResolveSimilarEnvelopePayload
+
+type ClearHistoryPayload = { affected?: number }
+type ClearHistoryEnvelopePayload = { data?: ClearHistoryPayload }
+type ClearHistoryPayloadInput = ClearHistoryPayload | ClearHistoryEnvelopePayload
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const isAlertHistoryEnvelopePayload = (
+  payload: AlertHistoryPayloadInput
+): payload is AlertHistoryEnvelopePayload => isRecord(payload) && 'data' in payload
+
+const isAlertStatsEnvelopePayload = (
+  payload: AlertStatsPayloadInput
+): payload is AlertStatsEnvelopePayload => isRecord(payload) && 'data' in payload
+
+const isResolveSimilarEnvelopePayload = (
+  payload: ResolveSimilarPayloadInput
+): payload is ResolveSimilarEnvelopePayload => isRecord(payload) && 'data' in payload
+
+const isClearHistoryEnvelopePayload = (
+  payload: ClearHistoryPayloadInput
+): payload is ClearHistoryEnvelopePayload => isRecord(payload) && 'data' in payload
+
+const extractHistoryPayload = (payload: AlertHistoryPayloadInput): { list: Alert[]; total: number } => {
+  if (Array.isArray(payload)) {
+    return { list: payload, total: payload.length }
+  }
+
+  if (isAlertHistoryEnvelopePayload(payload)) {
+    const list = Array.isArray(payload.data?.list) ? payload.data.list : []
+    return {
+      list,
+      total: Number(payload.data?.total ?? list.length)
     }
+  }
+
+  const list = Array.isArray(payload.list) ? payload.list : []
+  return {
+    list,
+    total: Number(payload.total ?? list.length)
+  }
+}
+
+const extractStatsPayload = (payload: AlertStatsPayloadInput): AlertStatsApiModel => {
+  if (isAlertStatsEnvelopePayload(payload)) {
+    return payload.data || {}
+  }
+
+  return payload
+}
+
+const extractResolveSimilarPayload = (payload: ResolveSimilarPayloadInput): ResolveSimilarPayload => {
+  if (isResolveSimilarEnvelopePayload(payload)) {
+    return payload.data || {}
+  }
+
+  return payload
+}
+
+const extractClearHistoryPayload = (payload: ClearHistoryPayloadInput): ClearHistoryPayload => {
+  if (isClearHistoryEnvelopePayload(payload)) {
+    return payload.data || {}
+  }
+
+  return payload
+}
+
+const mapRuleModel = (rule: AlertRuleApiModel): AlertRule => {
+  const conditionType = rule.condition?.type || 'latency'
+  const conditionOperator = rule.condition?.operator || '>'
+  const conditionThreshold = rule.condition?.threshold ?? 80
+
+  return {
+    id: rule.id,
+    name: rule.name,
+    enabled: rule.enabled ?? true,
+    condition: {
+      type: conditionType,
+      typeLabel: getConditionLabel(conditionType),
+      text: `${getConditionLabel(conditionType)} ${conditionOperator} ${conditionThreshold}`
+    },
+    channels: rule.notifyChannels || []
+  }
+}
+
+const fetchRules = async () => {
+  rulesRequest.value = { loading: true, error: null }
+
+  try {
+    const response = await alertApi.getRules()
+    const rules = extractRulesPayload(response as AlertRuleApiModel[] | { data?: AlertRuleApiModel[] })
+    alertRules.value = rules.map(mapRuleModel)
   } catch (error) {
-    console.warn('Failed to fetch alert rules:', error)
+    rulesRequest.value.error = buildRequestError(error, '告警规则加载失败')
+  } finally {
+    rulesRequest.value.loading = false
   }
 }
 
 const fetchAlerts = async () => {
-  loading.value = true
+  historyRequest.value = { loading: true, error: null }
+
   try {
-    const params: any = {}
+    const params: {
+      level?: string
+      startDate?: string
+      endDate?: string
+    } = {}
     if (selectedLevel.value) params.level = selectedLevel.value
     if (dateRange.value && dateRange.value.length === 2) {
-      params.startDate = dateRange.value[0]
-      params.endDate = dateRange.value[1]
+      params.startDate = String(dateRange.value[0])
+      params.endDate = String(dateRange.value[1])
     }
-    const res = await alertApi.getHistory(params)
-    const data = (res as any)?.data || res
-    if (data?.list) {
-      alerts.value = data.list.map((a: any) => normalizeAlert(a))
-      total.value = data.total || alerts.value.length
-    } else if (Array.isArray(data)) {
-      alerts.value = data.map((a: any) => normalizeAlert(a))
-    }
+
+    const response = await alertApi.getHistory(params)
+    const history = extractHistoryPayload(
+      response as Alert[] | { list?: Alert[]; total?: number } | { data?: { list?: Alert[]; total?: number } }
+    )
+
+    alerts.value = history.list.map((alert) => normalizeAlert(alert))
+    total.value = history.total
   } catch (error) {
-    console.warn('Failed to fetch alerts:', error)
+    historyRequest.value.error = buildRequestError(error, '告警历史加载失败')
   } finally {
-    loading.value = false
+    historyRequest.value.loading = false
   }
 }
 
-const normalizeAlert = (a: any): Alert => ({
-  id: a.id,
-  time: a.time,
-  level: a.level,
-  source: a.source,
-  message: a.message,
-  status: a.status,
-  dedup_key: a.dedup_key,
-  trigger_count: Number(a.trigger_count || 1),
-  last_triggered_at: a.last_triggered_at || a.time
+const normalizeAlert = (alert: Partial<Alert>): Alert => ({
+  id: alert.id || '',
+  time: alert.time || '',
+  level: alert.level || 'info',
+  source: alert.source || '-',
+  message: alert.message || '-',
+  status: alert.status || 'pending',
+  dedup_key: alert.dedup_key,
+  trigger_count: Number(alert.trigger_count || 1),
+  last_triggered_at: alert.last_triggered_at || alert.time || ''
 })
 
 const fetchStats = async () => {
+  statsRequest.value = { loading: true, error: null }
+
   try {
-    const raw = await alertApi.getStats()
-    const data = (raw as any)?.data || raw
+    const response = await alertApi.getStats()
+    const data = extractStatsPayload(response as AlertStatsApiModel | { data?: AlertStatsApiModel })
+
     statsData.value = {
       critical: Number(data?.critical || 0),
       warning: Number(data?.warning || 0),
@@ -556,8 +772,10 @@ const fetchStats = async () => {
       resolved: Number(data?.resolved || 0)
     }
   } catch (error) {
-    console.warn('Failed to fetch alert stats:', error)
+    statsRequest.value.error = buildRequestError(error, '告警统计加载失败')
     statsData.value = { critical: 0, warning: 0, todayTotal: 0, resolved: 0 }
+  } finally {
+    statsRequest.value.loading = false
   }
 }
 
@@ -580,6 +798,13 @@ onMounted(() => {
 
 <style scoped lang="scss">
 .alerts-page {
+  .request-state {
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .page-card {
     border-radius: var(--border-radius-lg);
     border: none;

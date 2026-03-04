@@ -56,13 +56,29 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="onboarding-card">
+      <div class="onboarding-header">
+        <div>
+          <div class="onboarding-title">本环境配置进度卡</div>
+          <div class="onboarding-subtitle">下一步：{{ onboardingNextStepText }}</div>
+        </div>
+        <el-button type="primary" @click="continueOnboarding">继续未完成配置</el-button>
+      </div>
+      <div class="onboarding-steps">
+        <el-tag :type="onboardingState.hasAccount ? 'success' : 'warning'">步骤1：添加账号</el-tag>
+        <el-tag :type="onboardingState.hasLimit ? 'success' : 'warning'">步骤2：设置限额</el-tag>
+        <el-tag :type="onboardingState.hasDefaultModel ? 'success' : 'warning'">步骤3：设置默认模型</el-tag>
+        <el-tag :type="onboardingVerifyDone ? 'success' : 'info'">步骤4：可调用验证</el-tag>
+      </div>
+    </el-card>
+
     <!-- 主内容卡片 -->
     <el-card shadow="never" class="page-card">
       <template #header>
         <div class="card-header">
           <div class="header-left">
-            <h2>账号管理</h2>
-            <span class="subtitle">管理所有 AI 服务商账号</span>
+            <h2>AI服务商</h2>
+            <span class="subtitle">完成配置路径：添加账号 → 设置限额 → 设置默认模型 → 验证调用</span>
           </div>
           <el-button type="primary" @click="showAddAccountDialog">
             <el-icon><Plus /></el-icon>
@@ -153,6 +169,16 @@
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="配置完成度" min-width="260">
+          <template #default="{ row }">
+            <div class="completion-pills">
+              <el-tag size="small" :type="completionTagType(getProviderCompletionState(row, 'account'))" @click="handleCompletionAction(row.provider, 'account')">账号 {{ completionText(getProviderCompletionState(row, 'account')) }}</el-tag>
+              <el-tag size="small" :type="completionTagType(getProviderCompletionState(row, 'limit'))" @click="handleCompletionAction(row.provider, 'limit')">限额 {{ completionText(getProviderCompletionState(row, 'limit')) }}</el-tag>
+              <el-tag size="small" :type="completionTagType(getProviderCompletionState(row, 'defaultModel'))" @click="handleCompletionAction(row.provider, 'defaultModel')">默认模型 {{ completionText(getProviderCompletionState(row, 'defaultModel')) }}</el-tag>
+              <el-tag size="small" :type="completionTagType(getProviderCompletionState(row, 'verify'))" @click="handleCompletionAction(row.provider, 'verify')">可调用验证 {{ completionText(getProviderCompletionState(row, 'verify')) }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="api_key" label="API Key" min-width="180">
           <template #default="{ row }">
             <div class="api-key-cell">
@@ -207,6 +233,11 @@
                   <el-icon><Download /></el-icon>
                 </el-button>
               </el-tooltip>
+              <el-tooltip content="配置默认模型" placement="top">
+                <el-button type="primary" link size="small" @click="goToModelManagement(row.provider, 'default-model', 'defaultModel')">
+                  <el-icon><Guide /></el-icon>
+                </el-button>
+              </el-tooltip>
               <el-tooltip content="删除账号" placement="top">
                 <el-button type="danger" link size="small" @click="handleDeleteAccount(row)">
                   <el-icon><Delete /></el-icon>
@@ -226,6 +257,7 @@
           <el-icon><Plus /></el-icon>
           添加第一个账号
         </el-button>
+        <el-button @click="continueOnboarding">查看新手流程</el-button>
       </el-empty>
     </el-card>
 
@@ -325,14 +357,18 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { 
   Plus, Search, Refresh, CopyDocument, Edit, Delete, Download, 
-  Key, CircleCheck, CircleClose, Grid, User, Link 
+  Key, CircleCheck, CircleClose, Grid, User, Link, Guide 
 } from '@element-plus/icons-vue'
-import { accountApi } from '@/api/account'
+import { accountApi, type Account as ApiAccount } from '@/api/account'
 import { getProviderTypes, getPublicProviders } from '@/api/provider'
+import { request } from '@/api/request'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
+import { buildOnboardingState, computeOnboardingStepsState, resolveContinueAction } from './onboarding-state'
+import { buildProviderCompletionRows, type CompletionState, type ProviderCompletionRow } from './provider-completion'
 import {
   buildProviderOptions,
   inferProviderFromAccountBaseURL,
@@ -340,20 +376,14 @@ import {
   type ProviderOption
 } from './provider-options'
 
-interface Account {
-  id: string
-  name: string
-  provider: string
-  api_key?: string
-  base_url?: string
-  enabled: boolean
-  priority?: number
+type Account = ApiAccount & {
   fetchingModels?: boolean
   coding_plan_enabled?: boolean
 }
 
 const accountSearch = ref('')
 const selectedProviderFilter = ref('')
+const router = useRouter()
 
 const accountsLoading = ref(false)
 const accountsError = ref('')
@@ -376,6 +406,7 @@ const providerMetaMap = computed(() => {
 })
 
 const accounts = ref<Account[]>([])
+const providerDefaults = ref<Record<string, string>>({})
 
 const stats = computed(() => {
   const total = accounts.value.length
@@ -383,6 +414,27 @@ const stats = computed(() => {
   const disabled = total - enabled
   const providers = new Set(accounts.value.map(a => a.provider)).size
   return { total, enabled, disabled, providers }
+})
+
+const onboardingState = computed(() => computeOnboardingStepsState(accounts.value, providerDefaults.value))
+const onboardingFlowState = computed(() => buildOnboardingState(providerCompletionRows.value))
+const onboardingContinueAction = computed(() => resolveContinueAction(providerCompletionRows.value))
+const onboardingVerifyDone = computed(() => onboardingFlowState.value.steps.find(step => step.key === 'verify')?.completed ?? false)
+const onboardingNextStepText = computed(() => {
+  const action = onboardingContinueAction.value
+  if (action.key === 'account') return `第1步：为 ${action.label || 'AI服务商'} 添加账号`
+  if (action.key === 'limit') return `第2步：为 ${action.label || 'AI服务商'} 设置限额`
+  if (action.key === 'defaultModel') return `第3步：为 ${action.label || 'AI服务商'} 设置默认模型`
+  if (action.key === 'verify') return `第4步：验证 ${action.label || 'AI服务商'} 可调用`
+  return '已完成：可继续验证调用稳定性'
+})
+
+const providerCompletionRows = computed(() => {
+  return buildProviderCompletionRows({
+    providerOptions: providerTypes.value.map(item => ({ value: item.value, label: item.label })),
+    accounts: accounts.value,
+    providerDefaults: providerDefaults.value
+  })
 })
 
 const filteredAccounts = computed(() => {
@@ -399,6 +451,46 @@ const filteredAccounts = computed(() => {
     return a.name.localeCompare(b.name)
   })
 })
+
+const getProviderCompletion = (row: { provider: string; base_url?: string }) => {
+  const providerId = detectProvider(row)
+  return (
+    providerCompletionRows.value.find(item => item.provider === providerId) || {
+      provider: providerId,
+      label: providerId,
+      hasAccount: false,
+      hasLimit: false,
+      hasDefaultModel: false,
+      hasVerify: false
+    }
+  )
+}
+
+type ProviderCompletionStep = 'account' | 'limit' | 'defaultModel' | 'verify'
+
+const getCompletionState = (row: ProviderCompletionRow, step: ProviderCompletionStep): CompletionState => {
+  if (step === 'account') return row.hasAccount ? 'done' : 'todo'
+  if (step === 'limit') return row.hasLimit ? 'done' : row.hasAccount ? 'todo' : 'na'
+  if (step === 'defaultModel') return row.hasDefaultModel ? 'done' : row.hasAccount ? 'todo' : 'na'
+  return row.hasVerify ? 'done' : row.hasAccount && row.hasLimit && row.hasDefaultModel ? 'todo' : 'na'
+}
+
+const getProviderCompletionState = (
+  row: { provider: string; base_url?: string },
+  step: ProviderCompletionStep
+): CompletionState => getCompletionState(getProviderCompletion(row), step)
+
+const completionTagType = (state: CompletionState) => {
+  if (state === 'done') return 'success'
+  if (state === 'todo') return 'warning'
+  return 'info'
+}
+
+const completionText = (state: CompletionState) => {
+  if (state === 'done') return '已完成'
+  if (state === 'todo') return '待配置'
+  return '未适用'
+}
 
 const accountDialogVisible = ref(false)
 const isEditAccount = ref(false)
@@ -470,7 +562,7 @@ const loadAccounts = async () => {
   accountsError.value = ''
   try {
     const res = await accountApi.getList()
-    accounts.value = (res as any).data || []
+    accounts.value = res.data || []
   } catch (e: any) {
     console.error('Failed to load accounts:', e)
     accountsError.value = e?.message || '请检查 /admin/accounts 接口状态'
@@ -497,7 +589,7 @@ const loadProviderOptions = async () => {
 
     const typeList = typesResult.status === 'fulfilled' ? typesResult.value : []
     const publicProviders = publicResult.status === 'fulfilled' ? publicResult.value : []
-    const accountList = accountsResult.status === 'fulfilled' ? ((accountsResult.value as any).data || []) : []
+    const accountList = accountsResult.status === 'fulfilled' ? (accountsResult.value.data || []) : []
 
     providerTypes.value = buildProviderOptions({
       types: typeList,
@@ -523,6 +615,77 @@ const loadProviderOptions = async () => {
   } finally {
     providerMetaLoading.value = false
   }
+}
+
+const loadProviderDefaults = async () => {
+  try {
+    const res = await request.get<Record<string, string>>('/admin/router/provider-defaults')
+    providerDefaults.value = ((res as any)?.data || res || {}) as Record<string, string>
+  } catch {
+    providerDefaults.value = {}
+  }
+}
+
+const goToModelManagement = (
+  providerId: string,
+  focus: 'default-model' | 'verify-call' = 'default-model',
+  highlightStep: 'defaultModel' | 'verify' = 'defaultModel'
+) => {
+  if (!providerId) {
+    router.push('/model-management')
+    return
+  }
+  const normalized = normalizeProviderID(providerId) || providerId
+  router.push({
+    path: '/model-management',
+    query: {
+      provider: normalized,
+      from: 'providers-accounts',
+      focus,
+      highlightStep
+    }
+  })
+}
+
+const continueOnboarding = () => {
+  const action = onboardingContinueAction.value
+  if (action.key === 'account') {
+    showAddAccountDialog(action.provider)
+    return
+  }
+  if (action.key === 'limit') {
+    router.push({ path: '/limit-management', query: action.provider ? { provider: action.provider } : {} })
+    return
+  }
+  if (action.key === 'defaultModel' && action.provider) {
+    goToModelManagement(action.provider, 'default-model', 'defaultModel')
+    return
+  }
+  if (action.key === 'verify' && action.provider) {
+    goToModelManagement(action.provider, 'verify-call', 'verify')
+    return
+  }
+  router.push('/dashboard')
+}
+
+const handleCompletionAction = (
+  providerId: string,
+  step: 'account' | 'limit' | 'defaultModel' | 'verify'
+) => {
+  const normalizedProvider = normalizeProviderID(providerId) || providerId
+  if (step === 'account') {
+    showAddAccountDialog(normalizedProvider)
+    return
+  }
+  if (step === 'limit') {
+    router.push({ path: '/limit-management', query: { provider: normalizedProvider } })
+    return
+  }
+  if (step === 'defaultModel') {
+    goToModelManagement(normalizedProvider, 'default-model', 'defaultModel')
+    return
+  }
+  goToModelManagement(normalizedProvider, 'verify-call', 'verify')
 }
 
 const handleProviderChange = (provider: string) => {
@@ -553,9 +716,14 @@ const handleCodingPlanChange = async (row: Account) => {
   }
 }
 
-const showAddAccountDialog = () => {
+const showAddAccountDialog = (providerId = '') => {
   isEditAccount.value = false
   Object.assign(accountForm, { id: '', name: '', provider: '', api_key: '', base_url: '', enabled: true })
+  if (providerId) {
+    const normalized = normalizeProviderID(providerId) || providerId
+    accountForm.provider = normalized
+    handleProviderChange(normalized)
+  }
   accountDialogVisible.value = true
 }
 
@@ -595,10 +763,10 @@ const submitAccountForm = async () => {
         base_url: accountForm.base_url,
         enabled: accountForm.enabled
       })
-      ElMessage.success('账号添加成功')
+      ElMessage.success('账号已添加，下一步：去设置默认模型')
     }
     accountDialogVisible.value = false
-    loadAccounts()
+    await Promise.all([loadAccounts(), loadProviderDefaults()])
   } catch (e: any) {
     ElMessage.error(e.response?.data?.error?.message || e.message || '操作失败')
   } finally {
@@ -626,7 +794,7 @@ const handleFetchModels = async (row: Account) => {
     const res = await accountApi.fetchModels(row.id, true)
     if (res.data?.models) {
       const models = res.data.models
-      const syncedCount = (res as any).data?.synced_count ?? models.length
+      const syncedCount = res.data.synced_count ?? models.length
       ElMessage.success(`获取到 ${models.length} 个模型，已同步 ${syncedCount} 个`) 
       eventBus.emit(DATA_EVENTS.MODELS_CHANGED)
     } else {
@@ -642,11 +810,41 @@ const handleFetchModels = async (row: Account) => {
 onMounted(() => {
   loadProviderOptions()
   loadAccounts()
+  loadProviderDefaults()
 })
 </script>
 
 <style scoped lang="scss">
 .accounts-page {
+  .onboarding-card {
+    margin-bottom: 16px;
+
+    .onboarding-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .onboarding-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .onboarding-subtitle {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
+
+    .onboarding-steps {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+  }
+
   .stats-row {
     margin-bottom: 20px;
   }
@@ -741,6 +939,16 @@ onMounted(() => {
   }
 
   .data-table {
+    .completion-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+
+      .el-tag {
+        cursor: pointer;
+      }
+    }
+
     .account-name {
       display: flex;
       align-items: center;

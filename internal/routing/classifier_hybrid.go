@@ -63,19 +63,41 @@ func (h *HybridTaskClassifier) Classify(ctx context.Context, prompt, contextText
 	cfg := h.cfg
 	h.mu.RUnlock()
 
+	sanitizedPrompt := SanitizeIntentInput(prompt)
+	sanitizedContext := SanitizeIntentInput(contextText)
+	if IsShortGreetingIntent(sanitizedPrompt) {
+		h.recordHeuristicOnly("greeting_short_circuit")
+		result := h.assessor.AssessWithResult(sanitizedPrompt, sanitizedContext)
+		if result == nil {
+			result = &AssessmentResult{Dimensions: map[string]float64{}}
+		}
+		result.TaskType = TaskTypeChat
+		result.Difficulty = DifficultyLow
+		if result.Confidence < 0.90 {
+			result.Confidence = 0.90
+		}
+		result.Source = ClassificationSourceHeuristic
+		result.FallbackReason = "greeting_short_circuit"
+		result.SuggestedTTL = h.assessor.getSuggestedTTL(TaskTypeChat, DifficultyLow)
+		if strings.TrimSpace(result.SemanticSignature) == "" {
+			result.SemanticSignature = buildFallbackSignature(TaskTypeChat, sanitizedPrompt)
+		}
+		return result
+	}
+
 	if !cfg.Enabled {
 		h.recordHeuristicOnly("classifier_disabled")
-		return h.fallback(prompt, contextText, ClassificationSourceHeuristic, "classifier_disabled")
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceHeuristic, "classifier_disabled")
 	}
 	if cfg.ShadowMode {
 		h.recordShadowMode()
-		go h.shadowClassify(prompt, contextText)
-		return h.fallback(prompt, contextText, ClassificationSourceHeuristic, "shadow_mode")
+		go h.shadowClassify(sanitizedPrompt, sanitizedContext)
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceHeuristic, "shadow_mode")
 	}
 
 	start := time.Now()
 	h.recordLLMAttempt()
-	result, err := classifier.Classify(ctx, prompt, contextText)
+	result, err := classifier.Classify(ctx, sanitizedPrompt, sanitizedContext)
 	latencyMs := time.Since(start).Milliseconds()
 	h.recordLLMLatency(latencyMs)
 	if err != nil {
@@ -84,28 +106,28 @@ func (h *HybridTaskClassifier) Classify(ctx context.Context, prompt, contextText
 		}
 		h.recordFallback("classifier_error")
 		if cfg.FailOpen {
-			return h.fallback(prompt, contextText, ClassificationSourceFallback, "classifier_error")
+			return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceFallback, "classifier_error")
 		}
-		return h.fallback(prompt, contextText, ClassificationSourceHeuristic, "classifier_error")
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceHeuristic, "classifier_error")
 	}
 	if result == nil {
 		h.recordFallback("classifier_nil_result")
-		return h.fallback(prompt, contextText, ClassificationSourceFallback, "classifier_nil_result")
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceFallback, "classifier_nil_result")
 	}
 	if result.Confidence < cfg.ConfidenceThreshold {
 		h.recordLowConfidenceFallback()
-		return h.fallback(prompt, contextText, ClassificationSourceFallback, "low_confidence")
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceFallback, "low_confidence")
 	}
 	if result.TaskType == TaskTypeUnknown {
 		h.recordFallback("unknown_task_type")
-		return h.fallback(prompt, contextText, ClassificationSourceFallback, "unknown_task_type")
+		return h.fallback(sanitizedPrompt, sanitizedContext, ClassificationSourceFallback, "unknown_task_type")
 	}
 	h.recordControlCoverage(result)
 	h.recordControlLatency(latencyMs)
 	h.recordLLMSuccess(string(ClassificationSourceOllama))
 	result.SuggestedTTL = h.assessor.getSuggestedTTL(result.TaskType, result.Difficulty)
 	if result.SemanticSignature == "" {
-		result.SemanticSignature = buildFallbackSignature(result.TaskType, prompt)
+		result.SemanticSignature = buildFallbackSignature(result.TaskType, sanitizedPrompt)
 	}
 	if result.Source == "" {
 		result.Source = ClassificationSourceOllama

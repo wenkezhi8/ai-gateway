@@ -1,27 +1,29 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import {
-  acknowledgeAlert as acknowledgeAlertApi,
-  acknowledgeAllAlerts,
-  clearResolvedAlerts,
-  getAlerts,
-  resolveAlert as resolveAlertApi
-} from '@/api/alert-domain'
-import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
-export interface Alert {
-  id: string
-  type: 'warning' | 'error' | 'info' | 'success'
-  title: string
-  message: string
-  source: string
-  status: 'active' | 'acknowledged' | 'resolved'
-  severity: 'low' | 'medium' | 'high' | 'critical'
-  timestamp: string
-  acknowledgedAt?: string
-  acknowledgedBy?: string
-  metadata?: Record<string, any>
+import { alertApi, type Alert as ApiAlert } from '@/api/alert'
+import { DATA_EVENTS, eventBus } from '@/utils/eventBus'
+
+export type Alert = ApiAlert
+
+interface AlertHistoryEnvelope {
+  data?: {
+    list?: Alert[]
+    total?: number
+  }
+}
+
+function extractHistoryList(payload: AlertHistoryEnvelope | Alert[]): Alert[] {
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  if (Array.isArray(payload.data?.list)) {
+    return payload.data.list
+  }
+
+  return []
 }
 
 export const useAlertsStore = defineStore('alerts', () => {
@@ -31,150 +33,78 @@ export const useAlertsStore = defineStore('alerts', () => {
   const error = ref<Error | null>(null)
   const lastFetchTime = ref<number>(0)
 
-  const activeAlerts = computed(() => alerts.value.filter(a => a.status === 'active'))
-  
-  const acknowledgedAlerts = computed(() => alerts.value.filter(a => a.status === 'acknowledged'))
-  
-  const resolvedAlerts = computed(() => alerts.value.filter(a => a.status === 'resolved'))
+  const pendingAlerts = computed(() => alerts.value.filter((alert) => alert.status === 'pending'))
+  const resolvedAlerts = computed(() => alerts.value.filter((alert) => alert.status === 'resolved'))
 
   const alertCount = computed(() => ({
     total: alerts.value.length,
-    active: activeAlerts.value.length,
-    acknowledged: acknowledgedAlerts.value.length,
+    pending: pendingAlerts.value.length,
     resolved: resolvedAlerts.value.length,
-    critical: activeAlerts.value.filter(a => a.severity === 'critical').length,
-    high: activeAlerts.value.filter(a => a.severity === 'high').length
+    critical: pendingAlerts.value.filter((alert) => alert.level === 'critical').length,
+    warning: pendingAlerts.value.filter((alert) => alert.level === 'warning').length
   }))
-
-  const alertsByType = computed(() => {
-    const map: Record<string, Alert[]> = {}
-    alerts.value.forEach(alert => {
-      if (!map[alert.type]) {
-        map[alert.type] = []
-      }
-      map[alert.type]!.push(alert)
-    })
-    return map
-  })
 
   const alertsBySource = computed(() => {
     const map: Record<string, Alert[]> = {}
-    alerts.value.forEach(alert => {
+    alerts.value.forEach((alert) => {
       if (!map[alert.source]) {
         map[alert.source] = []
       }
       map[alert.source]!.push(alert)
     })
+
     return map
   })
 
   const fetchAlerts = async (silent = false) => {
     loading.value = !silent
     error.value = null
+
     try {
-      const res: any = await getAlerts()
-      if (Array.isArray(res)) {
-        alerts.value = res
-      } else if (Array.isArray(res?.data)) {
-        alerts.value = res.data
-      } else {
-        alerts.value = []
-      }
+      const response = await alertApi.getHistory()
+      alerts.value = extractHistoryList(response as AlertHistoryEnvelope)
       lastFetchTime.value = Date.now()
-    } catch (e: any) {
-      error.value = e
+    } catch (err) {
+      const fetchError = err instanceof Error ? err : new Error('获取告警失败')
+      error.value = fetchError
       if (!silent) {
-        ElMessage.error(e?.message || '获取告警失败')
+        ElMessage.error(fetchError.message || '获取告警失败')
       }
     } finally {
       loading.value = false
     }
   }
 
-  const acknowledgeAlert = async (id: string): Promise<boolean> => {
-    submitting.value = true
-    try {
-      await acknowledgeAlertApi(id)
-      const alert = alerts.value.find(a => a.id === id)
-      if (alert) {
-        alert.status = 'acknowledged'
-        alert.acknowledgedAt = new Date().toISOString()
-      }
-      ElMessage.success('告警已确认')
-      eventBus.emit(DATA_EVENTS.ALERTS_CHANGED)
-      return true
-    } catch (e: any) {
-      ElMessage.error(e?.message || '确认失败')
-      return false
-    } finally {
-      submitting.value = false
-    }
-  }
-
   const resolveAlert = async (id: string): Promise<boolean> => {
     submitting.value = true
+
     try {
-      await resolveAlertApi(id)
-      const alert = alerts.value.find(a => a.id === id)
+      await alertApi.resolveAlert(id)
+      const alert = alerts.value.find((item) => item.id === id)
       if (alert) {
         alert.status = 'resolved'
       }
-      ElMessage.success('告警已解决')
+
+      ElMessage.success('告警已处理')
       eventBus.emit(DATA_EVENTS.ALERTS_CHANGED)
       return true
-    } catch (e: any) {
-      ElMessage.error(e?.message || '解决失败')
+    } catch (err) {
+      const resolveError = err instanceof Error ? err : new Error('处理失败')
+      ElMessage.error(resolveError.message || '处理失败')
       return false
     } finally {
       submitting.value = false
     }
   }
 
-  const acknowledgeAll = async (): Promise<boolean> => {
-    submitting.value = true
-    try {
-      await acknowledgeAllAlerts()
-      activeAlerts.value.forEach(alert => {
-        alert.status = 'acknowledged'
-        alert.acknowledgedAt = new Date().toISOString()
-      })
-      ElMessage.success('所有告警已确认')
-      eventBus.emit(DATA_EVENTS.ALERTS_CHANGED)
-      return true
-    } catch (e: any) {
-      ElMessage.error(e?.message || '批量确认失败')
-      return false
-    } finally {
-      submitting.value = false
-    }
-  }
-
-  const clearResolved = async (): Promise<boolean> => {
-    submitting.value = true
-    try {
-      await clearResolvedAlerts()
-      alerts.value = alerts.value.filter(a => a.status !== 'resolved')
-      ElMessage.success('已清理解决的告警')
-      eventBus.emit(DATA_EVENTS.ALERTS_CHANGED)
-      return true
-    } catch (e: any) {
-      ElMessage.error(e?.message || '清理失败')
-      return false
-    } finally {
-      submitting.value = false
-    }
-  }
-
-  const findById = (id: string): Alert | undefined => {
-    return alerts.value.find(a => a.id === id)
-  }
+  const findById = (id: string): Alert | undefined => alerts.value.find((item) => item.id === id)
 
   const getAlertsByStatus = (status: Alert['status']): Alert[] => {
-    return alerts.value.filter(a => a.status === status)
+    return alerts.value.filter((alert) => alert.status === status)
   }
 
-  const getAlertsBySeverity = (severity: Alert['severity']): Alert[] => {
-    return alerts.value.filter(a => a.severity === severity)
+  const getAlertsByLevel = (level: Alert['level']): Alert[] => {
+    return alerts.value.filter((alert) => alert.level === level)
   }
 
   return {
@@ -183,19 +113,14 @@ export const useAlertsStore = defineStore('alerts', () => {
     submitting,
     error,
     lastFetchTime,
-    activeAlerts,
-    acknowledgedAlerts,
+    pendingAlerts,
     resolvedAlerts,
     alertCount,
-    alertsByType,
     alertsBySource,
     fetchAlerts,
-    acknowledgeAlert,
     resolveAlert,
-    acknowledgeAll,
-    clearResolved,
     findById,
     getAlertsByStatus,
-    getAlertsBySeverity
+    getAlertsByLevel
   }
 })

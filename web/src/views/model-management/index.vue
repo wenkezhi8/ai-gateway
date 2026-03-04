@@ -1,5 +1,20 @@
 <template>
   <div class="model-management-page">
+    <el-alert v-if="sourceContextVisible" type="info" :closable="false" class="source-context-bar">
+      <template #title>
+        <div class="context-bar-content">
+          <div class="context-bar-meta">
+            <span>当前服务商</span>
+            <el-tag size="small">{{ sourceContextProviderLabel }}</el-tag>
+            <span>来源</span>
+            <el-tag size="small" type="success">AI服务商</el-tag>
+            <el-tag v-if="sourceContextMissingProvider" size="small" type="warning">未匹配到服务商，已回退为普通浏览模式</el-tag>
+          </div>
+          <el-button link type="primary" @click="goBackToProvidersAccounts">返回AI服务商</el-button>
+        </div>
+      </template>
+    </el-alert>
+
     <el-row :gutter="24">
       <el-col :span="16">
         <el-card shadow="never" class="page-card">
@@ -27,7 +42,14 @@
             </el-alert>
           </div>
 
-          <el-table :data="providerSettings" stripe v-loading="loading">
+          <el-table
+            ref="providerTableRef"
+            :data="providerSettings"
+            stripe
+            highlight-current-row
+            v-loading="loading"
+            :row-class-name="getProviderRowClassName"
+          >
             <el-table-column label="服务商" width="200">
               <template #default="{ row }">
                 <div class="provider-cell">
@@ -54,6 +76,7 @@
                   default-first-option
                   placeholder="选择或输入模型名称"
                   style="width: 100%"
+                  :class="{ 'default-model-select--focus': isDefaultModelFocused(row.id) }"
                   :disabled="submitting"
                   @change="handleModelChange(row)"
                 >
@@ -154,7 +177,7 @@
             </div>
           </div>
 
-          <div class="api-example">
+          <div class="api-example" :class="{ 'api-example--focus': verifyCallFocused }">
             <div class="example-title">API 调用示例</div>
             <pre class="code"><code>POST /api/v1/chat/completions
 {
@@ -373,9 +396,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { eventBus, DATA_EVENTS } from '@/utils/eventBus'
 import { request } from '@/api/request'
 import { deleteModelRegistry, getModelRegistry, upsertModelRegistry } from '@/api/routing-domain'
@@ -398,8 +422,16 @@ import {
   MODEL_MANAGEMENT_DEFAULT_COLOR,
   MODEL_MANAGEMENT_FALLBACK_COLOR
 } from '@/constants/pages/model-management'
+import {
+  buildProvidersAccountsBackQuery,
+  parseModelManagementContext,
+  type ModelManagementContext
+} from './provider-context'
+import { resolveProviderDisplayMeta } from './provider-display-meta-resolver'
 
 const { getModelLabel, fetchModelLabels } = useModelLabels()
+const route = useRoute()
+const router = useRouter()
 
 interface ProviderSetting {
   id: string
@@ -476,6 +508,9 @@ const modelRules: FormRules = {
 
 const providerSettings = ref<ProviderSetting[]>([])
 const brokenLogoProviders = ref(new Set<string>())
+const providerTableRef = ref<any>()
+const modelManagementContext = ref<ModelManagementContext>(parseModelManagementContext(route.query))
+const focusedProviderId = ref<string | null>(null)
 let offModelsChanged: (() => void) | null = null
 
 // Computed helper for provider metadata
@@ -488,12 +523,71 @@ const getProviderLogo = (provider: string) => providerMetaMap.value[provider]?.l
 
 const getProviderPaletteColor = (provider: string) => providerMetaMap.value[provider]?.color || '#6B7280'
 
+const sourceContextVisible = computed(() => modelManagementContext.value.from === 'provider' || modelManagementContext.value.from === 'providers-accounts')
+
+const sourceContextProviderLabel = computed(() => {
+  const providerId = modelManagementContext.value.providerId
+  if (!providerId) return '未指定'
+  const target = providerSettings.value.find(item => item.id === providerId)
+  return target?.label || providerId
+})
+
+const sourceContextMissingProvider = computed(() => {
+  const providerId = modelManagementContext.value.providerId
+  if (!providerId || loading.value) return false
+  return !providerSettings.value.some(item => item.id === providerId)
+})
+
+const verifyCallFocused = computed(() => modelManagementContext.value.focus === 'verify-call' && !!focusedProviderId.value)
+
+function isDefaultModelFocused(providerId: string): boolean {
+  return modelManagementContext.value.focus === 'default-model' && focusedProviderId.value === providerId
+}
+
+function getProviderRowClassName({ row }: { row: ProviderSetting }): string {
+  return row.id === focusedProviderId.value ? 'provider-row--highlighted' : ''
+}
+
+function applyOnboardingContextFocus() {
+  const providerId = modelManagementContext.value.providerId
+  const target = providerSettings.value.find(item => item.id === providerId)
+
+  if (!providerId || !target) {
+    focusedProviderId.value = null
+    nextTick(() => {
+      providerTableRef.value?.setCurrentRow?.(null)
+    })
+    return
+  }
+
+  focusedProviderId.value = target.id
+  nextTick(() => {
+    providerTableRef.value?.setCurrentRow?.(target)
+  })
+}
+
+function goBackToProvidersAccounts() {
+  router.push({
+    path: '/providers-accounts',
+    query: buildProvidersAccountsBackQuery(modelManagementContext.value)
+  })
+}
+
 // Watch for manual ID editing to mark as not auto-filled
 watch(() => providerForm.id, (newId: string, oldId: string) => {
   if (newId !== oldId && oldId !== '') {
     markIdAsManuallyEdited(autoFillContext.value)
   }
 })
+
+watch(
+  () => route.query,
+  (query) => {
+    modelManagementContext.value = parseModelManagementContext(query)
+    applyOnboardingContextFocus()
+  },
+  { immediate: true }
+)
 
 function onProviderLabelChange(selectedLabel: string) {
   handleProviderLabelChange(
@@ -537,9 +631,8 @@ async function loadSettings() {
       accounts: accountList
     })
 
-    const providerMetaMap = new Map(
-      publicProviders.map(item => [item.id, item])
-    )
+    const providerTypeIds = new Set(typeList.map(item => item.id))
+    const publicProviderIds = new Set(publicProviders.map(item => item.id))
 
     // Load model registry from backend - this is the single source of truth
     const modelsRes = await getModelRegistry().catch(() => [])
@@ -561,27 +654,37 @@ async function loadSettings() {
     }
 
     // Build provider settings from backend models and provider metadata
-    const providerIds = new Set<string>([...providerMetaMap.keys(), ...Object.keys(modelsByProvider), ...Object.keys(providerDefaults)])
+    const providerIds = new Set<string>([
+      ...providerTypeIds,
+      ...publicProviderIds,
+      ...Object.keys(modelsByProvider),
+      ...Object.keys(providerDefaults)
+    ])
     const newSettings: ProviderSetting[] = []
 
     for (const providerId of providerIds) {
-      const meta = providerMetaMap.get(providerId)
+      const displayMeta = resolveProviderDisplayMeta(providerId, {
+        providerTypes: typeList,
+        publicProviders,
+        fallbackColor: MODEL_MANAGEMENT_FALLBACK_COLOR
+      })
       const models = modelsByProvider[providerId] || []
-      const defaultModel = providerDefaults[providerId] || meta?.default_model || models[0] || ''
+      const defaultModel = providerDefaults[providerId] || displayMeta.defaultModel || models[0] || ''
 
       newSettings.push({
         id: providerId,
-        label: meta?.label || providerId,
-        color: meta?.color || MODEL_MANAGEMENT_FALLBACK_COLOR,
-        logo: meta?.logo || '',
+        label: displayMeta.label,
+        color: displayMeta.color,
+        logo: displayMeta.logo,
         defaultModel,
         models,
-        custom: !meta
+        custom: displayMeta.custom
       })
     }
 
     brokenLogoProviders.value.clear()
     providerSettings.value = newSettings
+    applyOnboardingContextFocus()
   } catch (e) {
     console.error('Failed to load settings:', e)
   } finally {
@@ -921,6 +1024,25 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .model-management-page {
+  .source-context-bar {
+    margin-bottom: 16px;
+  }
+
+  .context-bar-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .context-bar-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -1003,11 +1125,27 @@ onUnmounted(() => {
 
   .api-example {
     margin-top: 16px;
+    border: 1px solid transparent;
+    border-radius: var(--el-border-radius-base);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+    &.api-example--focus {
+      border-color: var(--el-color-warning);
+      box-shadow: 0 0 0 1px var(--el-color-warning-light-7) inset;
+    }
 
     .example-title {
       font-weight: 600;
       margin-bottom: 12px;
     }
+  }
+
+  :deep(.provider-row--highlighted td.el-table__cell) {
+    background: var(--el-color-primary-light-9) !important;
+  }
+
+  :deep(.default-model-select--focus .el-input__wrapper) {
+    box-shadow: 0 0 0 1px var(--el-color-warning) inset;
   }
 
   .code {

@@ -3,7 +3,15 @@
     <div class="hero">
       <div>
         <div class="hero-title">Ollama 控制台</div>
-        <div class="hero-subtitle">统一管理 Ollama 服务、意图路由与向量配置</div>
+        <div class="hero-subtitle">
+          统一管理 Ollama 服务、意图路由与向量配置
+          <el-tooltip
+            placement="right"
+            content="首版范围说明：当前页面首版仅覆盖服务连通、意图路由与向量管理。"
+          >
+            <el-icon class="subtitle-info"><InfoFilled /></el-icon>
+          </el-tooltip>
+        </div>
       </div>
       <el-button type="primary" @click="ctx.reloadAllPanels">
         <el-icon><Refresh /></el-icon>
@@ -22,7 +30,7 @@
         <el-tag v-for="model in ctx.ollamaSetup.running_models" :key="model" type="success" class="running-tag">
           {{ model }}
         </el-tag>
-        <span class="running-vram" v-if="ctx.ollamaSetup.running_vram_bytes_total > 0">
+        <span v-if="ctx.ollamaSetup.running_vram_bytes_total > 0" class="running-vram">
           总显存占用 {{ ctx.formatVramBytes(ctx.ollamaSetup.running_vram_bytes_total) }}
         </span>
       </div>
@@ -33,9 +41,11 @@
       />
     </div>
 
-    <OllamaServiceTab :ctx="ctx" />
+    <div class="panel service-panel">
+      <OllamaServiceTab :ctx="ctx" />
+    </div>
 
-    <div class="panel">
+    <div class="panel tabs-panel">
       <el-tabs v-model="activeTab" class="console-tabs">
         <el-tab-pane label="意图路由" name="intent">
           <IntentRoutingTab :ctx="ctx" />
@@ -51,7 +61,7 @@
 
 <script setup lang="ts">
 import { proxyRefs, ref } from 'vue'
-import { Refresh } from '@element-plus/icons-vue'
+import { InfoFilled, Refresh } from '@element-plus/icons-vue'
 
 import OllamaServiceTab from './components/OllamaServiceTab.vue'
 import IntentRoutingTab from './components/IntentRoutingTab.vue'
@@ -83,9 +93,18 @@ const ctx = proxyRefs(useOllamaConsole())
   }
 
   .hero-subtitle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     margin-top: 4px;
     color: var(--el-text-color-secondary);
     font-size: 13px;
+  }
+
+  .subtitle-info {
+    color: var(--el-color-primary);
+    cursor: help;
+    font-size: 14px;
   }
 
   .panel {
@@ -93,6 +112,10 @@ const ctx = proxyRefs(useOllamaConsole())
     border: 1px solid var(--el-border-color-lighter);
     border-radius: 16px;
     padding: 16px;
+  }
+
+  .service-panel {
+    margin-bottom: 14px;
   }
 
   .running-overview {

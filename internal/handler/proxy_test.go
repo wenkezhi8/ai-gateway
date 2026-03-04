@@ -235,7 +235,16 @@ type failingProvider struct {
 	chatErr error
 }
 
+type streamStartFailProvider struct {
+	*provider.BaseProvider
+	streamErr error
+}
+
 type doneStreamProvider struct {
+	*provider.BaseProvider
+}
+
+type noDoneStreamProvider struct {
 	*provider.BaseProvider
 }
 
@@ -298,6 +307,53 @@ func (d *doneStreamProvider) StreamChat(_ context.Context, req *provider.ChatReq
 }
 
 func (d *doneStreamProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (n *noDoneStreamProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "no-done-fallback-id",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{
+			{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "no done fallback response",
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: provider.Usage{TotalTokens: 3, PromptTokens: 2, CompletionTokens: 1},
+	}, nil
+}
+
+func (n *noDoneStreamProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	ch := make(chan *provider.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-no-done-id",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.StreamChoice{
+				{
+					Index: 0,
+					Delta: &provider.StreamDelta{
+						Role:    "assistant",
+						Content: "stream no done answer",
+					},
+				},
+			},
+		}
+	}()
+	return ch, nil
+}
+
+func (n *noDoneStreamProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -440,6 +496,45 @@ func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan
 	assert.Equal(t, true, providerAttrs["fallback_from_stream"])
 }
 
+func TestProxyHandler_ChatCompletions_StreamClosedWithoutDoneShouldFinalizeTraceOnce(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+	provider.RegisterProvider("openai", &noDoneStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello no done"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, strings.Count(w.Body.String(), "[DONE]"))
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpResponseAttrs := fetchOperationAttrs(t, db, requestID, "http.response")
+	assert.Equal(t, "stream no done answer", httpResponseAttrs["ai_response_preview"])
+	assert.Equal(t, "stream no done answer", httpResponseAttrs["ai_response_full"])
+	assert.Equal(t, false, httpResponseAttrs["ai_response_truncated"])
+	assert.Equal(t, "hello no done", httpResponseAttrs["user_message_preview"])
+	assert.Equal(t, "hello no done", httpResponseAttrs["user_message_full"])
+	assert.Equal(t, false, httpResponseAttrs["user_message_truncated"])
+
+	providerAttrs := fetchOperationAttrs(t, db, requestID, "provider.chat")
+	assert.Equal(t, true, providerAttrs["success"])
+	assert.Equal(t, true, providerAttrs["stream"])
+	_, hasFallback := providerAttrs["fallback_from_stream"]
+	assert.False(t, hasFallback)
+}
+
 func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
@@ -545,6 +640,27 @@ func fetchOperationAttrs(t *testing.T, db *sql.DB, requestID, operation string) 
 	return attrs
 }
 
+type operationTraceRecord struct {
+	Status string
+	Error  string
+	Attrs  map[string]interface{}
+}
+
+func fetchOperationTraceRecord(t *testing.T, db *sql.DB, requestID, operation string) operationTraceRecord {
+	t.Helper()
+
+	var status string
+	var errorMsg string
+	var attrsRaw string
+	err := db.QueryRow(`SELECT status, error, attributes FROM request_traces WHERE request_id = ? AND operation = ? ORDER BY created_at DESC LIMIT 1`, requestID, operation).Scan(&status, &errorMsg, &attrsRaw)
+	require.NoError(t, err)
+
+	attrs := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(attrsRaw), &attrs))
+
+	return operationTraceRecord{Status: status, Error: errorMsg, Attrs: attrs}
+}
+
 func (f *failingProvider) Chat(_ context.Context, _ *provider.ChatRequest) (*provider.ChatResponse, error) {
 	if f.chatErr != nil {
 		return nil, f.chatErr
@@ -559,6 +675,32 @@ func (f *failingProvider) StreamChat(_ context.Context, _ *provider.ChatRequest)
 }
 
 func (f *failingProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (s *streamStartFailProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "stream-start-fail",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{{
+			Index: 0,
+			Message: provider.ChatMessage{
+				Role:    "assistant",
+				Content: "unused",
+			},
+			FinishReason: "stop",
+		}},
+		Usage: provider.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}, nil
+}
+
+func (s *streamStartFailProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	return nil, s.streamErr
+}
+
+func (s *streamStartFailProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -728,6 +870,83 @@ func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *
 	require.NotNil(t, resp.Error)
 	assert.Equal(t, ErrCodeProviderError, resp.Error.Code)
 	assert.Equal(t, "models/gemini-3.1-pro-preview is not found", resp.Error.Message)
+}
+
+func TestProxyHandler_ChatCompletions_ProviderErrorShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("openai", &failingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+		chatErr: &provider.ProviderError{
+			Code:      http.StatusBadGateway,
+			Message:   "upstream failed",
+			Provider:  "openai",
+			Retryable: false,
+		},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","messages":[{"role":"user","content":"hello failure trace"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, "upstream failed", httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello failure trace", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello failure trace", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_full"])
+}
+
+func TestProxyHandler_ChatCompletions_StreamStartFailureShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("openai", &streamStartFailProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+		streamErr:    assert.AnError,
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello stream failure"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+	require.Contains(t, w.Body.String(), assert.AnError.Error())
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello stream failure", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello stream failure", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_full"])
 }
 
 type capturingProvider struct {
@@ -1088,4 +1307,217 @@ func TestProxyHandler_ChatCompletions_Stream_ShouldRetryWithoutReasoningEffortFo
 	require.Len(t, retryProvider.streamReqs, 2)
 	assert.True(t, hasReasoningEffort(retryProvider.streamReqs[0].Extra))
 	assert.False(t, hasReasoningEffort(retryProvider.streamReqs[1].Extra))
+}
+
+type modelNotFoundProbeProvider struct {
+	*provider.BaseProvider
+
+	mu           sync.Mutex
+	chatModels   []string
+	streamModels []string
+}
+
+func (p *modelNotFoundProbeProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (p *modelNotFoundProbeProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	p.mu.Lock()
+	p.chatModels = append(p.chatModels, req.Model)
+	p.mu.Unlock()
+
+	if req.Model == "gpt-4o" {
+		return &provider.ChatResponse{
+			ID:      "fallback-chat",
+			Object:  "chat.completion",
+			Created: 1234567890,
+			Model:   req.Model,
+			Choices: []provider.Choice{{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "fallback answer",
+				},
+				FinishReason: "stop",
+			}},
+			Usage: provider.Usage{PromptTokens: 2, CompletionTokens: 2, TotalTokens: 4},
+		}, nil
+	}
+
+	return nil, &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "model not found",
+		Provider:  "openai",
+		Retryable: false,
+	}
+}
+
+func (p *modelNotFoundProbeProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	p.mu.Lock()
+	p.streamModels = append(p.streamModels, req.Model)
+	p.mu.Unlock()
+
+	ch := make(chan *provider.StreamChunk, 1)
+	go func() {
+		defer close(ch)
+		ch <- &provider.StreamChunk{
+			ID:      "stream-empty",
+			Object:  "chat.completion.chunk",
+			Created: 1234567890,
+			Model:   req.Model,
+			Done:    true,
+			Choices: []provider.StreamChoice{{
+				Index:        0,
+				FinishReason: "stop",
+				Delta:        &provider.StreamDelta{},
+			}},
+		}
+	}()
+
+	return ch, nil
+}
+
+func TestProxyHandler_ChatCompletions_ShouldForwardModelIDWhenRequestUsesDisplayName(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	score := h.smartRouter.GetModelScore("gpt-4o")
+	require.NotNil(t, score)
+	originalDisplayName := score.DisplayName
+	score.DisplayName = "gpt-4o-display"
+	t.Cleanup(func() {
+		score.DisplayName = originalDisplayName
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4o-display","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	assert.Equal(t, "gpt-4o", capture.lastChatReq.Model)
+}
+
+func TestProxyHandler_ChatCompletions_ShouldCanonicalizeAliasBeforeForwarding(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-5.3-codex"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-5-3-codex","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	assert.Equal(t, "gpt-5.3-codex", capture.lastChatReq.Model)
+}
+
+func TestProxyHandler_ChatCompletions_ModelNotFoundShouldNotFallbackAcrossModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	probe := &modelNotFoundProbeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-model", "gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", probe)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"missing-model","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "model not found")
+
+	probe.mu.Lock()
+	chatModels := append([]string(nil), probe.chatModels...)
+	probe.mu.Unlock()
+	assert.Equal(t, []string{"missing-model"}, chatModels)
+}
+
+func TestProxyHandler_ChatCompletions_StreamFallback_ModelNotFoundShouldNotFallbackAcrossModels(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	probe := &modelNotFoundProbeProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-stream-model", "gpt-4o"}, true),
+	}
+	provider.RegisterProvider("openai", probe)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"missing-stream-model","stream":true,"messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "model not found")
+	assert.NotContains(t, w.Body.String(), "fallback answer")
+
+	probe.mu.Lock()
+	chatModels := append([]string(nil), probe.chatModels...)
+	probe.mu.Unlock()
+	assert.Equal(t, []string{"missing-stream-model"}, chatModels)
+}
+
+func TestIsModelNotFoundError_ShouldNotMatchGenericBadRequest(t *testing.T) {
+	err := &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "invalid request payload",
+		Type:      "invalid_request_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+
+	assert.False(t, isModelNotFoundError(err))
+}
+
+func TestIsModelNotFoundError_ShouldMatchProviderNotFoundSignals(t *testing.T) {
+	errByCode := &provider.ProviderError{
+		Code:      http.StatusNotFound,
+		Message:   "resource not found",
+		Type:      "not_found_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+	errByMessage := &provider.ProviderError{
+		Code:      http.StatusBadRequest,
+		Message:   "model not found",
+		Type:      "invalid_request_error",
+		Provider:  "openai",
+		Retryable: false,
+	}
+
+	assert.True(t, isModelNotFoundError(errByCode))
+	assert.True(t, isModelNotFoundError(errByMessage))
 }

@@ -14,7 +14,7 @@ const BASE_MENUS: MenuItem[] = [
   { path: '/chat', title: 'AI 对话', icon: 'ChatDotRound' },
   { path: '/api-management', title: 'API 管理', icon: 'Connection' },
   { path: '/model-management', title: '模型管理', icon: 'Collection' },
-  { path: '/providers-accounts', title: '账号与限额', icon: 'Key' },
+  { path: '/providers-accounts', title: 'AI服务商', icon: 'Key' },
   { path: '/usage', title: 'API 使用统计', icon: 'DataLine' },
   { path: '/trace', title: '请求链路追踪', icon: 'Share' },
   { path: '/routing', title: '路由策略', icon: 'Guide' },
