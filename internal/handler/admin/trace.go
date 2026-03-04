@@ -26,7 +26,7 @@ type traceSummary struct {
 	StepCount    int    `json:"step_count"`
 	AnswerSource string `json:"answer_source"`
 	TaskType     string `json:"task_type"`
-	Model        string `json:"model"`  // 新增
+	Model        string `json:"model"` // 新增
 }
 
 func NewTraceHandler(db *sql.DB) *TraceHandler {

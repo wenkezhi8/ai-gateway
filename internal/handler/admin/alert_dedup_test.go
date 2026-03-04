@@ -227,7 +227,9 @@ func TestNewAlertHandler_ShouldKeepPersistedEmptyRules(t *testing.T) {
 		t.Fatalf("chdir temp dir: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originWD)
+		if chdirErr := os.Chdir(originWD); chdirErr != nil {
+			t.Fatalf("restore working directory: %v", chdirErr)
+		}
 		globalAlertHandler = nil
 	})
 
@@ -273,7 +275,9 @@ func TestNewAlertHandler_ShouldInjectDefaultRulesWithoutPersistedFile(t *testing
 		t.Fatalf("chdir temp dir: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originWD)
+		if chdirErr := os.Chdir(originWD); chdirErr != nil {
+			t.Fatalf("restore working directory: %v", chdirErr)
+		}
 		globalAlertHandler = nil
 	})
 

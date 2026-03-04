@@ -145,7 +145,6 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 	}
 }
 
-
 func TestTraceHandler_ClearTraces_ShouldDeleteAllAndReturnDeleted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
