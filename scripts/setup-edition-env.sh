@@ -5,13 +5,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+source "$SCRIPT_DIR/lib/container-names.sh"
+
 EDITION="standard"
 RUNTIME="docker"
 APPLY_CONFIG="false"
 PULL_EMBEDDING_MODEL="false"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
 
-REDIS_CONTAINER="ai-gateway-redis-stack"
+LEGACY_REDIS_CONTAINER="redis-stack"
 OLLAMA_CONTAINER="ai-gateway-ollama"
 QDRANT_CONTAINER="ai-gateway-qdrant"
 
@@ -77,6 +79,7 @@ ensure_docker_container() {
 }
 
 ensure_redis_docker() {
+  ensure_no_redis_container_conflict
   ensure_docker_container "$REDIS_CONTAINER" "redis/redis-stack-server:7.2.0-v18" "-p 6379:6379 -p 8001:8001"
 }
 
@@ -88,34 +91,23 @@ ensure_qdrant_docker() {
   ensure_docker_container "$QDRANT_CONTAINER" "qdrant/qdrant:latest" "-p 6333:6333"
 }
 
-ensure_redis_native_or_docker() {
+ensure_no_redis_container_conflict() {
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "$REDIS_CONTAINER" && docker ps -a --format '{{.Names}}' | grep -Fxq "$LEGACY_REDIS_CONTAINER"; then
+    fail "conflicting redis containers detected: $REDIS_CONTAINER and $LEGACY_REDIS_CONTAINER coexist. Cleanup manually: docker rm -f $LEGACY_REDIS_CONTAINER (or keep legacy and remove $REDIS_CONTAINER). No auto cleanup performed"
+  fi
+}
+
+ensure_redis_native() {
   if command -v redis-cli >/dev/null 2>&1 && redis-cli -h 127.0.0.1 -p 6379 PING >/dev/null 2>&1; then
     log "redis native service detected"
     return
   fi
-  log "redis native unavailable, fallback to docker"
-  ensure_redis_docker
+  fail "redis native dependency unavailable on 127.0.0.1:6379; docker fallback disabled for native runtime. Please install/start native Redis Stack manually"
 }
 
-ensure_ollama_native_or_docker() {
+ensure_ollama_native() {
   if ! command -v ollama >/dev/null 2>&1; then
-    case "$(uname -s)" in
-      Darwin)
-        require_cmd brew
-        log "installing ollama via brew"
-        brew install ollama >/dev/null
-        ;;
-      Linux)
-        require_cmd curl
-        log "installing ollama via official script"
-        curl -fsSL https://ollama.com/install.sh | sh >/dev/null
-        ;;
-      *)
-        log "unsupported OS for native ollama install, fallback to docker"
-        ensure_ollama_docker
-        return
-        ;;
-    esac
+    fail "ollama binary not found; docker fallback disabled for native runtime. Please install/start native ollama manually"
   fi
 
   if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
@@ -127,20 +119,17 @@ ensure_ollama_native_or_docker() {
   fi
 
   if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
-    log "ollama native unavailable, fallback to docker"
-    ensure_ollama_docker
-  else
-    log "ollama native service detected"
+    fail "ollama native service unavailable on 127.0.0.1:11434; docker fallback disabled for native runtime. Please start native ollama manually"
   fi
+  log "ollama native service detected"
 }
 
-ensure_qdrant_native_or_docker() {
+ensure_qdrant_native() {
   if curl -fsS "http://127.0.0.1:6333/collections" >/dev/null 2>&1; then
     log "qdrant native service detected"
     return
   fi
-  log "qdrant native unavailable, fallback to docker"
-  ensure_qdrant_docker
+  fail "qdrant native service unavailable on 127.0.0.1:6333; docker fallback disabled for native runtime. Please install/start native qdrant manually"
 }
 
 apply_config_values() {
@@ -285,13 +274,13 @@ if [[ "$RUNTIME" == "docker" ]]; then
   fi
 else
   if [[ "$EDITION" == "basic" || "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_redis_native_or_docker
+    ensure_redis_native
   fi
   if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_ollama_native_or_docker
+    ensure_ollama_native
   fi
   if [[ "$EDITION" == "enterprise" ]]; then
-    ensure_qdrant_native_or_docker
+    ensure_qdrant_native
   fi
 fi
 
