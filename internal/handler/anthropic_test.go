@@ -12,6 +12,7 @@ import (
 
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
+	"ai-gateway/internal/storage"
 )
 
 func boolPtrAnthropic(v bool) *bool {
@@ -223,4 +224,81 @@ func TestAnthropicMessages_SanitizesMetadataBeforeProviderRequest(t *testing.T) 
 	userMsg, ok := capture.lastChatReq.Messages[1].Content.(string)
 	require.True(t, ok)
 	assert.Equal(t, "hello", userMsg)
+}
+
+func TestAnthropicMessages_ProviderErrorShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(testConfig(), nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("anthropic", &failingProvider{
+		BaseProvider: provider.NewBaseProvider("anthropic", "test-key", "https://api.anthropic.com", []string{"unit-test-model"}, true),
+		chatErr: &provider.ProviderError{
+			Code:      http.StatusBadGateway,
+			Message:   "anthropic upstream failed",
+			Provider:  "anthropic",
+			Retryable: false,
+		},
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"model":"unit-test-model","messages":[{"role":"user","content":"hello anthropic failure"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.AnthropicMessages(c)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, "anthropic upstream failed", httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello anthropic failure", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello anthropic failure", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, "anthropic upstream failed", httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, "anthropic upstream failed", httpTrace.Attrs["error_message_full"])
+}
+
+func TestAnthropicMessages_StreamStartFailureShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(testConfig(), nil, nil)
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("anthropic", &streamStartFailProvider{
+		BaseProvider: provider.NewBaseProvider("anthropic", "test-key", "https://api.anthropic.com", []string{"unit-test-model"}, true),
+		streamErr:    assert.AnError,
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"model":"unit-test-model","stream":true,"messages":[{"role":"user","content":"hello anthropic stream failure"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.AnthropicMessages(c)
+
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Error)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(http.StatusBadGateway), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello anthropic stream failure", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello anthropic stream failure", httpTrace.Attrs["user_message_full"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_preview"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_full"])
 }

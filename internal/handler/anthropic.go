@@ -11,6 +11,7 @@ import (
 
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/routing"
+	"ai-gateway/internal/tracing"
 )
 
 const (
@@ -90,6 +91,11 @@ type AnthropicErrorResponse struct {
 //nolint:gocyclo // Handler logic is intentionally linear for request/response flow.
 func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	startTime := time.Now()
+	requestID := tracing.GenerateRequestID()
+	ctx := tracing.SetRequestIDToContext(c.Request.Context(), requestID)
+	c.Request = c.Request.WithContext(ctx)
+	c.Set("request_id", requestID)
+	c.Header("X-Request-ID", requestID)
 
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodySize)
 
@@ -97,19 +103,27 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
-			h.writeAnthropicError(c, http.StatusRequestEntityTooLarge, "request_too_large", "Request body exceeds maximum size of 10MB")
+			errorMessage := "Request body exceeds maximum size of 10MB"
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, "anthropic", "", errorMessage, http.StatusRequestEntityTooLarge)
+			h.writeAnthropicError(c, http.StatusRequestEntityTooLarge, "request_too_large", errorMessage)
 			return
 		}
-		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body: "+err.Error())
+		errorMessage := "Invalid request body: " + err.Error()
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, "anthropic", "", errorMessage, http.StatusBadRequest)
+		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", errorMessage)
 		return
 	}
 
 	if req.Model == "" {
-		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
+		errorMessage := "model is required"
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, "anthropic", "", errorMessage, http.StatusBadRequest)
+		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", errorMessage)
 		return
 	}
 	if len(req.Messages) == 0 {
-		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "messages is required and cannot be empty")
+		errorMessage := "messages is required and cannot be empty"
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, "anthropic", "", errorMessage, http.StatusBadRequest)
+		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", errorMessage)
 		return
 	}
 	sanitizeAnthropicRequestForIntentAndUpstream(&req)
@@ -125,7 +139,9 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 		c.Header(k, v)
 	}
 	if shouldBlockByRisk(controlCfg, assessment) {
-		h.writeAnthropicError(c, http.StatusForbidden, "permission_error", "Request blocked by control risk policy")
+		errorMessage := "Request blocked by control risk policy"
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, "anthropic", prompt, errorMessage, http.StatusForbidden)
+		h.writeAnthropicError(c, http.StatusForbidden, "permission_error", errorMessage)
 		return
 	}
 	applyControlToolGateAnthropic(&req, controlCfg, assessment)
@@ -161,12 +177,13 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	targetProvider, err := h.getProviderForRequest(c, providerReq.Model, "anthropic")
 	if err != nil {
 		h.recordMetrics("", "", providerReq.Model, time.Since(startTime), 0, false)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, providerReq.Model, "anthropic", prompt, err.Error(), http.StatusServiceUnavailable)
 		h.writeAnthropicError(c, http.StatusServiceUnavailable, "provider_error", err.Error())
 		return
 	}
 
 	if providerReq.Stream {
-		h.handleAnthropicStreamResponse(c, targetProvider, providerReq, startTime)
+		h.handleAnthropicStreamResponse(c, targetProvider, providerReq, prompt, startTime)
 		return
 	}
 
@@ -174,15 +191,18 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 	if err != nil {
 		h.recordMetrics("", "", providerReq.Model, time.Since(startTime), 0, false)
 		if pErr, ok := err.(*provider.ProviderError); ok {
+			h.recordHTTPResponseErrorSpan(ctx, startTime, providerReq.Model, targetProvider.Name(), prompt, pErr.Message, pErr.Code)
 			h.writeAnthropicError(c, pErr.Code, mapProviderErrorType(pErr.Code), pErr.Message)
 			return
 		}
+		h.recordHTTPResponseErrorSpan(ctx, startTime, providerReq.Model, targetProvider.Name(), prompt, err.Error(), http.StatusBadGateway)
 		h.writeAnthropicError(c, http.StatusBadGateway, "api_error", err.Error())
 		return
 	}
 
 	if resp.Error != nil {
 		h.recordMetrics("", "", providerReq.Model, time.Since(startTime), 0, false)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, providerReq.Model, targetProvider.Name(), prompt, resp.Error.Message, resp.Error.Code)
 		h.writeAnthropicError(c, resp.Error.Code, mapProviderErrorType(resp.Error.Code), resp.Error.Message)
 		return
 	}
@@ -442,7 +462,7 @@ func buildAnthropicResponseFromProvider(resp *provider.ChatResponse) AnthropicMe
 }
 
 //nolint:gocyclo // Stream event mapping needs explicit branching.
-func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.Provider, req *provider.ChatRequest, startTime time.Time) {
+func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.Provider, req *provider.ChatRequest, prompt string, startTime time.Time) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -451,6 +471,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 	stream, err := p.StreamChat(c.Request.Context(), req)
 	if err != nil {
 		h.recordMetrics("", "", req.Model, time.Since(startTime), 0, false)
+		h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 		h.writeAnthropicError(c, http.StatusBadGateway, "api_error", err.Error())
 		return
 	}
@@ -472,6 +493,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 			},
 		},
 	}); err != nil {
+		h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 		return
 	}
 
@@ -495,6 +517,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 							"text": "",
 						},
 					}); err != nil {
+						h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 						return
 					}
 					contentStarted = true
@@ -508,6 +531,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 						"text": choice.Delta.Content,
 					},
 				}); err != nil {
+					h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 					return
 				}
 			}
@@ -527,6 +551,7 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 			"type":  "content_block_stop",
 			"index": 0,
 		}); err != nil {
+			h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 			return
 		}
 	}
@@ -541,12 +566,14 @@ func (h *ProxyHandler) handleAnthropicStreamResponse(c *gin.Context, p provider.
 			"output_tokens": lastUsage.CompletionTokens,
 		},
 	}); err != nil {
+		h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 		return
 	}
 
 	if err := writeAnthropicSSE(c, "message_stop", map[string]interface{}{
 		"type": "message_stop",
 	}); err != nil {
+		h.recordHTTPResponseErrorSpan(c.Request.Context(), startTime, req.Model, p.Name(), prompt, err.Error(), http.StatusBadGateway)
 		return
 	}
 
