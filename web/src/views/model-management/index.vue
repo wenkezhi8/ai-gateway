@@ -428,6 +428,7 @@ import {
   type ModelManagementContext
 } from './provider-context'
 import { resolveProviderDisplayMeta } from './provider-display-meta-resolver'
+import { buildProviderIdsForSettings } from './provider-settings-sources'
 
 const { getModelLabel, fetchModelLabels } = useModelLabels()
 const route = useRoute()
@@ -631,9 +632,6 @@ async function loadSettings() {
       accounts: accountList
     })
 
-    const providerTypeIds = new Set(typeList.map(item => item.id))
-    const publicProviderIds = new Set(publicProviders.map(item => item.id))
-
     // Load model registry from backend - this is the single source of truth
     const modelsRes = await getModelRegistry().catch(() => [])
 
@@ -654,12 +652,11 @@ async function loadSettings() {
     }
 
     // Build provider settings from backend models and provider metadata
-    const providerIds = new Set<string>([
-      ...providerTypeIds,
-      ...publicProviderIds,
-      ...Object.keys(modelsByProvider),
-      ...Object.keys(providerDefaults)
-    ])
+    const providerIds = buildProviderIdsForSettings({
+      publicProviders,
+      modelsByProvider,
+      providerDefaults
+    })
     const newSettings: ProviderSetting[] = []
 
     for (const providerId of providerIds) {

@@ -70,7 +70,7 @@ services:
       - "prometheus.io/path=/metrics"
 
   redis:
-    image: redis/redis-stack-server:7.2.0-v18
+    image: redis/redis-stack-server:${REDIS_VERSION:-7.2.0-v18}
     container_name: ai-gateway-redis-stack
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -90,6 +90,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: ai-gateway-ollama
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - ai-gateway-network
+    profiles:
+      - standard
+      - enterprise
+
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION:-latest}
+    container_name: ai-gateway-qdrant
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - ai-gateway-network
+    profiles:
+      - enterprise
 
   intent-engine:
     # 意图识别引擎（可选）。默认不启动，避免依赖私有镜像。
@@ -209,6 +236,10 @@ volumes:
   gateway-data:
     driver: local
   redis-data:
+    driver: local
+  ollama-data:
+    driver: local
+  qdrant-data:
     driver: local
   prometheus-data:
     driver: local

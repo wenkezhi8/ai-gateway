@@ -9,18 +9,45 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 source "$SCRIPT_DIR/lib/container-names.sh"
+source "$SCRIPT_DIR/lib/edition-runtime.sh"
+source "$SCRIPT_DIR/lib/dependency-manager.sh"
 
 cd "$PROJECT_DIR"
 
-if [ ! -f "configs/config.json" ]; then
-    cp "configs/config.example.json" "configs/config.json"
-    echo "⚠️  检测到缺少 configs/config.json，已自动从示例文件创建"
+CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
+if [ ! -f "$CONFIG_PATH" ]; then
+    mkdir -p "$(dirname "$CONFIG_PATH")"
+    cp "$PROJECT_DIR/configs/config.example.json" "$CONFIG_PATH"
+    echo "⚠️  检测到缺少 $CONFIG_PATH，已自动从示例文件创建"
 fi
 
-SERVER_PORT=$(python3 -c 'import json;print(str((json.load(open("configs/config.json")).get("server") or {}).get("port") or "8566"))' 2>/dev/null || true)
+load_edition_runtime "$CONFIG_PATH"
+
+SERVER_PORT=$(python3 - "$CONFIG_PATH" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+except Exception:
+    data = {}
+
+server = data.get("server") if isinstance(data.get("server"), dict) else {}
+print(str(server.get("port") or "8566"))
+PY
+)
 if [ -z "$SERVER_PORT" ]; then
     SERVER_PORT="8566"
 fi
+
+echo "🧭 当前版本策略: edition=$EDITION_TYPE runtime=$EDITION_RUNTIME redis=$REDIS_VERSION ollama=$OLLAMA_VERSION qdrant=$QDRANT_VERSION"
+echo ""
+echo "🔌 按版本策略准备依赖..."
+ensure_required_running
+stop_non_required
+validate_required_health
 
 echo "🔨 构建前端..."
 cd web
@@ -30,32 +57,6 @@ echo ""
 echo "🔨 构建后端二进制..."
 cd "$PROJECT_DIR"
 go build -o bin/gateway ./cmd/gateway
-
-echo ""
-echo "🔍 检查 Redis Stack (6379)..."
-if ! lsof -ti:6379 >/dev/null 2>&1; then
-    echo "⚠️  Redis Stack 未运行，尝试自动启动 Docker 容器..."
-    if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-        docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
-        docker run -d --name "$REDIS_CONTAINER" -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18 >/dev/null
-        sleep 2
-    fi
-fi
-
-if ! lsof -ti:6379 >/dev/null 2>&1; then
-    echo "❌ Redis Stack 启动失败，无法继续（向量缓存依赖 RediSearch/RedisJSON）"
-    echo "   可手动执行: docker run -d --name $REDIS_CONTAINER -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
-    exit 1
-fi
-
-if ! redis-cli -p 6379 FT._LIST >/dev/null 2>&1; then
-    echo "❌ 当前 6379 不是 Redis Stack（缺少 FT 命令），请切换到 redis-stack-server"
-    echo "   建议执行: docker rm -f $REDIS_CONTAINER >/dev/null 2>&1 || true"
-    echo "   然后执行: docker run -d --name $REDIS_CONTAINER -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18"
-    exit 1
-fi
-
-echo "✓ Redis Stack 已就绪 (6379)"
 
 echo ""
 echo "🛑 停止所有旧服务（包括僵尸进程）..."

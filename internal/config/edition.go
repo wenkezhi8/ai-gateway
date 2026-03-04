@@ -10,6 +10,25 @@ const (
 	EditionEnterprise EditionType = "enterprise"
 )
 
+type EditionRuntime string
+
+const (
+	EditionRuntimeDocker EditionRuntime = "docker"
+	EditionRuntimeNative EditionRuntime = "native"
+)
+
+const (
+	DependencyRedis  = "redis"
+	DependencyOllama = "ollama"
+	DependencyQdrant = "qdrant"
+)
+
+const (
+	DefaultRedisVersion  = "7.2.0-v18"
+	DefaultOllamaVersion = "latest"
+	DefaultQdrantVersion = "latest"
+)
+
 type EditionFeatures struct {
 	VectorCache        bool `json:"vector_cache"`
 	VectorDBManagement bool `json:"vector_db_management"`
@@ -26,7 +45,69 @@ type EditionDefinition struct {
 }
 
 type EditionConfig struct {
-	Type string `json:"type"`
+	Type               string            `json:"type"`
+	Runtime            string            `json:"runtime"`
+	DependencyVersions map[string]string `json:"dependency_versions"`
+}
+
+func DefaultEditionDependencyVersions() map[string]string {
+	return map[string]string{
+		DependencyRedis:  DefaultRedisVersion,
+		DependencyOllama: DefaultOllamaVersion,
+		DependencyQdrant: DefaultQdrantVersion,
+	}
+}
+
+func CloneEditionDependencyVersions(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return map[string]string{}
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func IsValidEditionRuntime(runtime string) bool {
+	switch EditionRuntime(strings.TrimSpace(strings.ToLower(runtime))) {
+	case EditionRuntimeDocker, EditionRuntimeNative:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeEditionRuntime(runtime string) string {
+	v := strings.TrimSpace(strings.ToLower(runtime))
+	if !IsValidEditionRuntime(v) {
+		return string(EditionRuntimeDocker)
+	}
+	return v
+}
+
+func normalizeEditionDependencyVersions(raw map[string]string) map[string]string {
+	defaults := DefaultEditionDependencyVersions()
+	if len(raw) == 0 {
+		return defaults
+	}
+	normalized := make(map[string]string, len(defaults))
+	for key, fallback := range defaults {
+		value := strings.TrimSpace(raw[key])
+		if value == "" {
+			value = fallback
+		}
+		normalized[key] = value
+	}
+	return normalized
+}
+
+func normalizeEditionConfig(ec *EditionConfig) {
+	if ec == nil {
+		return
+	}
+	ec.Runtime = normalizeEditionRuntime(ec.Runtime)
+	ec.DependencyVersions = normalizeEditionDependencyVersions(ec.DependencyVersions)
 }
 
 var EditionDefinitions = map[EditionType]EditionDefinition{

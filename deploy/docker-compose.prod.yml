@@ -86,7 +86,7 @@ services:
       - "prometheus.io/path=/metrics"
 
   redis:
-    image: redis/redis-stack-server:7.2.0-v18
+    image: redis/redis-stack-server:${REDIS_VERSION:-7.2.0-v18}
     container_name: ai-gateway-redis-stack-prod
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -114,6 +114,43 @@ services:
         reservations:
           cpus: '0.25'
           memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: ai-gateway-ollama-prod
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: always
+    networks:
+      - ai-gateway-network
+    profiles:
+      - standard
+      - enterprise
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION:-latest}
+    container_name: ai-gateway-qdrant-prod
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: always
+    networks:
+      - ai-gateway-network
+    profiles:
+      - enterprise
     logging:
       driver: "json-file"
       options:
@@ -296,6 +333,10 @@ volumes:
   gateway-data:
     driver: local
   redis-data:
+    driver: local
+  ollama-data:
+    driver: local
+  qdrant-data:
     driver: local
   prometheus-data:
     driver: local

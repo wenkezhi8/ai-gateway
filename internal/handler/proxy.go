@@ -36,7 +36,7 @@ var defaultProviderModels = map[string][]string{
 		"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-turbo-preview",
 		"gpt-4", "gpt-3.5-turbo", "gpt-3.5-turbo-16k",
 		"o1", "o1-mini", "o1-preview", "o3-mini",
-		"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2 codex",
+		"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2-codex", "gpt-5.2 codex",
 	},
 	"anthropic": {
 		"claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620",
@@ -1336,7 +1336,7 @@ func getModelsForProvider(providerName string) []string {
 		"openai": {
 			"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo",
 			"o1", "o1-preview", "o1-mini", "o3-mini",
-			"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.2-codex", "gpt-5.2 codex",
+			"gpt-5", "gpt-5-mini", "gpt-5.3-codex", "gpt-5.3-codex-spark", "gpt-5.2-codex", "gpt-5.2 codex",
 		},
 		"anthropic": {
 			"claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022",
@@ -2670,69 +2670,183 @@ func (h *ProxyHandler) ListProviders(c *gin.Context) {
 
 // ListConfiguredProviders returns providers from account config (public)
 func (h *ProxyHandler) ListConfiguredProviders(c *gin.Context) {
-	providerMap := make(map[string]gin.H)
-
-	providers := h.registry.ListEnabled()
-	for _, p := range providers {
-		name := p.Name()
-		if name == "claude" {
-			name = "anthropic"
-		}
-		providerMap[name] = gin.H{
-			"name":    name,
-			"models":  p.Models(),
-			"enabled": p.IsEnabled(),
-		}
+	type providerConfigView struct {
+		Name    string   `json:"name"`
+		Models  []string `json:"models"`
+		Enabled bool     `json:"enabled"`
 	}
+	type accountProviderStatus struct {
+		HasAccount bool
+		Enabled    bool
+	}
+
+	ensureProvider := func(providerMap map[string]*providerConfigView, providerName string) *providerConfigView {
+		if existing, ok := providerMap[providerName]; ok {
+			return existing
+		}
+		next := &providerConfigView{
+			Name:   providerName,
+			Models: make([]string, 0),
+		}
+		providerMap[providerName] = next
+		return next
+	}
+
+	providerMap := make(map[string]*providerConfigView)
+	accountStatus := make(map[string]accountProviderStatus)
+	smartRouterModels := h.getEnabledSmartRouterModelsByProvider()
 
 	if h.accountManager != nil {
-		accounts := h.accountManager.GetAllAccounts()
-		for _, acc := range accounts {
-			providerName := acc.Provider
+		for _, acc := range h.accountManager.GetAllAccounts() {
+			providerName := inferProviderNameFromAccount(acc)
 			if providerName == "" {
-				providerName = acc.ProviderType
+				continue
 			}
-			if strings.Contains(acc.BaseURL, "deepseek.com") {
-				providerName = "deepseek"
-			} else if strings.Contains(acc.BaseURL, "volces.com") || strings.Contains(acc.BaseURL, "volcengine.com") {
-				providerName = "volcengine"
-			} else if strings.Contains(acc.BaseURL, "dashscope.aliyuncs.com") {
-				providerName = "qwen"
-			} else if strings.Contains(acc.BaseURL, "zhipuai.cn") || strings.Contains(acc.BaseURL, "bigmodel.cn") {
-				providerName = "zhipu"
-			} else if strings.Contains(acc.BaseURL, "moonshot.cn") || strings.Contains(acc.BaseURL, "kimi.ai") {
-				providerName = "moonshot"
-			} else if strings.Contains(acc.BaseURL, "minimax.com") {
-				providerName = "minimax"
-			} else if strings.Contains(acc.BaseURL, "baichuanai.com") {
-				providerName = "baichuan"
-			}
-
-			models := []string{}
-			if existing, ok := providerMap[providerName]; ok {
-				if existingModels, castOK := existing["models"].([]string); castOK {
-					models = existingModels
-				}
-			} else if defaultModels, ok := defaultProviderModels[providerName]; ok {
-				models = defaultModels
-			}
-
-			providerMap[providerName] = gin.H{
-				"name":    providerName,
-				"models":  models,
-				"enabled": acc.Enabled,
-			}
+			status := accountStatus[providerName]
+			status.HasAccount = true
+			status.Enabled = status.Enabled || acc.Enabled
+			accountStatus[providerName] = status
 		}
 	}
 
-	result := make([]gin.H, 0, len(providerMap))
-	for _, p := range providerMap {
-		result = append(result, p)
+	for _, p := range h.registry.ListEnabled() {
+		providerName := normalizeProviderName(p.Name())
+		if providerName == "" {
+			continue
+		}
+
+		entry := ensureProvider(providerMap, providerName)
+		entry.Models = mergeModelLists(entry.Models, p.Models())
+		entry.Models = mergeModelLists(entry.Models, smartRouterModels[providerName])
+
+		if status, ok := accountStatus[providerName]; ok && status.HasAccount {
+			entry.Enabled = status.Enabled
+		} else {
+			entry.Enabled = p.IsEnabled()
+		}
 	}
 
-	Success(c, gin.H{
-		"providers": result,
+	for providerName, status := range accountStatus {
+		entry := ensureProvider(providerMap, providerName)
+		entry.Models = mergeModelLists(entry.Models, getModelsForProvider(providerName))
+		entry.Models = mergeModelLists(entry.Models, smartRouterModels[providerName])
+		entry.Enabled = status.Enabled
+	}
+
+	for providerName, models := range smartRouterModels {
+		entry := ensureProvider(providerMap, providerName)
+		entry.Models = mergeModelLists(entry.Models, getModelsForProvider(providerName))
+		entry.Models = mergeModelLists(entry.Models, models)
+		if status, ok := accountStatus[providerName]; ok && status.HasAccount {
+			entry.Enabled = status.Enabled
+		}
+	}
+
+	result := make([]providerConfigView, 0, len(providerMap))
+	for _, p := range providerMap {
+		if len(p.Models) == 0 {
+			p.Models = mergeModelLists(p.Models, getModelsForProvider(p.Name))
+		}
+		sort.Strings(p.Models)
+		result = append(result, *p)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
 	})
+
+	Success(c, gin.H{"providers": result})
+}
+
+func mergeModelLists(existing []string, additions []string) []string {
+	if len(additions) == 0 {
+		return existing
+	}
+
+	existingSet := make(map[string]struct{}, len(existing))
+	for _, model := range existing {
+		if normalized := strings.TrimSpace(model); normalized != "" {
+			existingSet[normalized] = struct{}{}
+		}
+	}
+
+	for _, model := range additions {
+		normalized := strings.TrimSpace(model)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := existingSet[normalized]; ok {
+			continue
+		}
+		existing = append(existing, normalized)
+		existingSet[normalized] = struct{}{}
+	}
+
+	return existing
+}
+
+func inferProviderNameFromAccount(acc *limiter.AccountConfig) string {
+	if acc == nil {
+		return ""
+	}
+
+	providerName := strings.TrimSpace(acc.Provider)
+	if providerName == "" {
+		providerName = strings.TrimSpace(acc.ProviderType)
+	}
+	providerName = normalizeProviderName(providerName)
+
+	baseURL := strings.ToLower(strings.TrimSpace(acc.BaseURL))
+	switch {
+	case strings.Contains(baseURL, "deepseek.com"):
+		providerName = "deepseek"
+	case strings.Contains(baseURL, "volces.com"), strings.Contains(baseURL, "volcengine.com"):
+		providerName = "volcengine"
+	case strings.Contains(baseURL, "dashscope.aliyuncs.com"):
+		providerName = "qwen"
+	case strings.Contains(baseURL, "zhipuai.cn"), strings.Contains(baseURL, "bigmodel.cn"):
+		providerName = "zhipu"
+	case strings.Contains(baseURL, "moonshot.cn"), strings.Contains(baseURL, "kimi.ai"):
+		providerName = "moonshot"
+	case strings.Contains(baseURL, "minimax.com"):
+		providerName = "minimax"
+	case strings.Contains(baseURL, "baichuanai.com"):
+		providerName = "baichuan"
+	}
+
+	return normalizeProviderName(providerName)
+}
+
+func (h *ProxyHandler) getEnabledSmartRouterModelsByProvider() map[string][]string {
+	result := make(map[string][]string)
+	if h.smartRouter == nil {
+		return result
+	}
+
+	for modelID, score := range h.smartRouter.GetAllModelScores() {
+		if score == nil || !score.Enabled {
+			continue
+		}
+
+		model := strings.TrimSpace(modelID)
+		if model == "" {
+			model = strings.TrimSpace(score.Model)
+		}
+		if model == "" {
+			continue
+		}
+
+		providerName := normalizeProviderName(score.Provider)
+		if providerName == "" {
+			providerName = inferProviderFromModel(model)
+		}
+		if providerName == "" {
+			continue
+		}
+
+		result[providerName] = mergeModelLists(result[providerName], []string{model})
+	}
+
+	return result
 }
 
 // ListModels returns available models

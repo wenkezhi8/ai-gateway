@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,13 +22,21 @@ func TestEditionAPI_GetEdition(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
-	cfg := config.DefaultConfig()
-	cfg.Edition.Type = string(config.EditionBasic)
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("marshal config failed: %v", err)
-	}
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	raw := `{
+  "server": {"port":"8566","mode":"debug"},
+  "redis": {"host":"localhost","port":6379,"password":"","db":0},
+  "database": {"path":"./data/ai-gateway.db"},
+  "providers": [],
+  "limiter": {"enabled":true,"rate":100,"burst":200,"per_user":true},
+  "intent_engine": {"enabled":false,"base_url":"http://127.0.0.1:18566","timeout_ms":1500,"language":"zh-CN","expected_dimension":1024},
+  "vector_cache": {"enabled":true,"index_name":"idx_ai_cache_v2","key_prefix":"ai:v2:cache:","dimension":1024,"query_timeout_ms":1200,"thresholds":{"calc":0.97},"ttl_seconds":{"calc":10}},
+  "edition": {
+    "type":"basic",
+    "runtime":"native",
+    "dependency_versions":{"redis":"7.2.0-v18","ollama":"latest","qdrant":"latest"}
+  }
+}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write config failed: %v", err)
 	}
 
@@ -45,6 +54,33 @@ func TestEditionAPI_GetEdition(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type               string            `json:"type"`
+			Runtime            string            `json:"runtime"`
+			DependencyVersions map[string]string `json:"dependency_versions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("success = false body=%s", w.Body.String())
+	}
+	if resp.Data.Type != string(config.EditionBasic) {
+		t.Fatalf("edition type = %q, want %q", resp.Data.Type, config.EditionBasic)
+	}
+	if resp.Data.Runtime != "native" {
+		t.Fatalf("edition runtime = %q, want %q", resp.Data.Runtime, "native")
+	}
+	if len(resp.Data.DependencyVersions) == 0 {
+		t.Fatalf("dependency_versions should not be empty body=%s", w.Body.String())
+	}
+	if resp.Data.DependencyVersions["redis"] == "" {
+		t.Fatalf("dependency_versions.redis should not be empty body=%s", w.Body.String())
 	}
 }
 
@@ -239,5 +275,81 @@ func TestEditionAPI_SetupEditionTask_RunningStatusShowsIncrementalLogs(t *testin
 			t.Fatalf("task %s did not enter running status before timeout", resp.Data.TaskID)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestEditionAPI_SetupEditionTask_LogsAreCappedTo500Lines(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetEditionSetupTasksForTest()
+
+	origExecutor := editionSetupExecutor
+	defer func() { editionSetupExecutor = origExecutor }()
+	editionSetupExecutor = func(_ string, _ EditionSetupRequest, appendLog EditionSetupLogAppender) (string, error) {
+		for i := 1; i <= 520; i++ {
+			if appendLog != nil {
+				appendLog("step-" + strconv.Itoa(i))
+			}
+		}
+		return "streamed logs", nil
+	}
+
+	h := NewEditionHandler()
+	r := gin.New()
+	r.POST("/api/admin/edition/setup", h.SetupEditionEnvironment)
+
+	body := []byte(`{"edition":"standard","runtime":"docker","apply_config":false,"pull_embedding_model":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edition/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusAccepted, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			TaskID string `json:"task_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		task, ok := getEditionSetupTask(resp.Data.TaskID)
+		if ok && task.Status == EditionSetupStatusSuccess {
+			lines := strings.Split(strings.TrimSpace(task.Logs), "\n")
+			if len(lines) != 500 {
+				t.Fatalf("logs line count = %d, want 500", len(lines))
+			}
+			if lines[0] != "step-21" {
+				t.Fatalf("first retained line = %q, want %q", lines[0], "step-21")
+			}
+			if lines[len(lines)-1] != "step-520" {
+				t.Fatalf("last retained line = %q, want %q", lines[len(lines)-1], "step-520")
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task %s did not finish before timeout", resp.Data.TaskID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestFormatEditionSetupLogLine_ShouldIncludeTimestampSourceAndTruncate(t *testing.T) {
+	line := strings.Repeat("a", 3000)
+	formatted := formatEditionSetupLogLine("stdout", line)
+
+	if !strings.Contains(formatted, "[stdout]") {
+		t.Fatalf("formatted line missing source tag, got=%q", formatted)
+	}
+	if !strings.Contains(formatted, "...") {
+		t.Fatalf("formatted line should include truncation suffix, got=%q", formatted)
+	}
+	if len(formatted) > 2200 {
+		t.Fatalf("formatted line should be truncated, length=%d", len(formatted))
 	}
 }

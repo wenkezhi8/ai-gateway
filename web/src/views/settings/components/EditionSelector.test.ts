@@ -24,4 +24,22 @@ describe('edition selector component', () => {
     expect(content).toContain('安装目标版本')
     expect(content).toContain('edition: setupEdition.value')
   })
+
+  it('shows realtime setup logs panel and copy action', () => {
+    const file = resolve(process.cwd(), 'src/views/settings/components/EditionSelector.vue')
+    const content = readFileSync(file, 'utf-8')
+
+    expect(content).toContain('安装过程日志')
+    expect(content).toContain('setup-log-panel')
+    expect(content).toContain('复制日志')
+    expect(content).toContain('setupTask.logs')
+  })
+
+  it('shows native runtime no-auto-fallback guidance', () => {
+    const file = resolve(process.cwd(), 'src/views/settings/components/EditionSelector.vue')
+    const content = readFileSync(file, 'utf-8')
+
+    expect(content).toContain('native 模式')
+    expect(content).toContain('不会自动切换到 Docker')
+  })
 })

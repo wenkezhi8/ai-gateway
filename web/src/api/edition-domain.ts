@@ -16,6 +16,8 @@ export interface EditionConfig {
   display_name: string
   description: string
   dependencies: string[]
+  runtime: EditionSetupRuntime
+  dependency_versions: Record<string, string>
 }
 
 export interface DependencyStatus {

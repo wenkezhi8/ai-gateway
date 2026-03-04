@@ -234,6 +234,7 @@ const defaultExpandReasoning = ref(true)
 const answerHighlightEnabled = ref(true)
 const streamEnabled = ref(true)  // 流式响应开关
 const reasoningEffort = ref<'auto' | ReasoningEffort>('auto')
+const modelAutoCorrectNotified = ref(false)
 
 const selectedConversationsList = computed(() => {
   return conversations.value.filter(c => selectedConversationIds.value.has(c.id))
@@ -282,6 +283,10 @@ async function handleBatchSend(): Promise<void> {
     try {
       const conv = conversations.value.find(c => c.id === convId)
       if (!conv) return { success: false, convId }
+      normalizeConversationIfNeeded(convId)
+      if (!conv.provider || !conv.model) {
+        return { success: false, convId }
+      }
 
       const userMessage = createMessage('user', question)
       chatStore.addMessageToConversation(convId, userMessage)
@@ -448,6 +453,23 @@ function handleModelChange(provider: string, model: string): void {
   }
 }
 
+function notifyModelAutoCorrected(): void {
+  if (modelAutoCorrectNotified.value) return
+  modelAutoCorrectNotified.value = true
+  ElMessage.warning('检测到历史会话模型名异常，已自动纠正为可用模型')
+}
+
+function normalizeConversationIfNeeded(conversationId?: string): boolean {
+  const corrected = conversationId
+    ? chatStore.normalizeConversationModel(conversationId)
+    : chatStore.ensureCurrentConversationModel()
+
+  if (corrected) {
+    notifyModelAutoCorrected()
+  }
+  return corrected
+}
+
 function notifyDeepThinkUnsupported(): void {
   if (!deepThinkEnabled.value || !chatStore.currentConversation) return
 
@@ -463,6 +485,12 @@ function notifyDeepThinkUnsupported(): void {
 
 async function handleSend(text: string, files: any[] = []): Promise<void> {
   if ((!text.trim() && files.length === 0) || !chatStore.currentConversation) return
+
+  normalizeConversationIfNeeded()
+  if (!chatStore.currentConversation?.provider || !chatStore.currentConversation?.model) {
+    ElMessage.error('当前会话模型不可用，请先选择可用模型后重试')
+    return
+  }
 
   notifyDeepThinkUnsupported()
 
@@ -706,6 +734,8 @@ function selectFirstAvailableProvider(): void {
 }
 
 onMounted(async () => {
+  chatStore.setStorageScope(isPublicPage.value)
+
   const savedPrimaryColor = localStorage.getItem('ai-gateway-primary-color')
   if (savedPrimaryColor) {
     applyPrimaryColor(savedPrimaryColor)
@@ -722,6 +752,10 @@ onMounted(async () => {
   }
   
   await initializeProviders()
+  const correctedCount = chatStore.normalizeConversationModels()
+  if (correctedCount > 0) {
+    notifyModelAutoCorrected()
+  }
   selectFirstAvailableProvider()
   
   window.addEventListener('resize', () => {
@@ -729,6 +763,14 @@ onMounted(async () => {
       sidebarCollapsed.value = true
     }
   })
+})
+
+watch(isPublicPage, (isPublic) => {
+  chatStore.setStorageScope(isPublic)
+  const correctedCount = chatStore.normalizeConversationModels()
+  if (correctedCount > 0) {
+    notifyModelAutoCorrected()
+  }
 })
 
 watch(defaultExpandReasoning, (val) => {

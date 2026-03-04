@@ -33,7 +33,7 @@ services:
 
   # Redis Cache
   redis:
-    image: redis/redis-stack-server:7.2.0-v18
+    image: redis/redis-stack-server:${REDIS_VERSION:-7.2.0-v18}
     container_name: ai-gateway-redis-stack
     restart: unless-stopped
     command: redis-stack-server --appendonly yes
@@ -46,6 +46,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: ai-gateway-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - ai-gateway-network
+    profiles:
+      - standard
+      - enterprise
+
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_VERSION:-latest}
+    container_name: ai-gateway-qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - ai-gateway-network
+    profiles:
+      - enterprise
 
   # Nginx Reverse Proxy (Optional)
   nginx:
@@ -70,3 +97,5 @@ networks:
 volumes:
   gateway-data:
   redis-data:
+  ollama-data:
+  qdrant-data:

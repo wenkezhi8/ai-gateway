@@ -40,6 +40,11 @@ const (
 	EditionSetupStatusFailed  EditionSetupStatus = "failed"
 )
 
+const (
+	editionSetupLogMaxLines      = 500
+	editionSetupLogMaxLineLength = 2048
+)
+
 type EditionSetupRequest struct {
 	Edition            config.EditionType  `json:"edition" binding:"required"`
 	Runtime            EditionSetupRuntime `json:"runtime" binding:"required"`
@@ -134,6 +139,30 @@ func trimEditionSetupLogs(raw string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
+func truncateEditionSetupLogContent(raw string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	content := strings.TrimSpace(raw)
+	runes := []rune(content)
+	if len(runes) <= maxLen {
+		return content
+	}
+	return string(runes[:maxLen]) + "..."
+}
+
+func formatEditionSetupLogLine(source string, line string) string {
+	src := strings.TrimSpace(source)
+	if src == "" {
+		src = "stdout"
+	}
+	content := truncateEditionSetupLogContent(line, editionSetupLogMaxLineLength)
+	if content == "" {
+		return ""
+	}
+	return fmt.Sprintf("[%s][%s] %s", time.Now().UTC().Format(time.RFC3339), src, content)
+}
+
 func resolveEditionSetupScriptPath(configPath string) string {
 	if absConfigPath, err := filepath.Abs(configPath); err == nil {
 		candidate := filepath.Join(filepath.Dir(absConfigPath), "..", "scripts", "setup-edition-env.sh")
@@ -144,7 +173,7 @@ func resolveEditionSetupScriptPath(configPath string) string {
 	return filepath.Clean("./scripts/setup-edition-env.sh")
 }
 
-func streamEditionSetupLogs(reader io.Reader, appendLog EditionSetupLogAppender) {
+func streamEditionSetupLogs(reader io.Reader, source string, appendLog EditionSetupLogAppender) {
 	if reader == nil || appendLog == nil {
 		return
 	}
@@ -153,7 +182,11 @@ func streamEditionSetupLogs(reader io.Reader, appendLog EditionSetupLogAppender)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 	for scanner.Scan() {
-		appendLog(scanner.Text())
+		formatted := formatEditionSetupLogLine(source, scanner.Text())
+		if formatted == "" {
+			continue
+		}
+		appendLog(formatted)
 	}
 }
 
@@ -187,11 +220,11 @@ func runEditionSetupScript(configPath string, req EditionSetupRequest, appendLog
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		streamEditionSetupLogs(stdoutPipe, appendLog)
+		streamEditionSetupLogs(stdoutPipe, "stdout", appendLog)
 	}()
 	go func() {
 		defer wg.Done()
-		streamEditionSetupLogs(stderrPipe, appendLog)
+		streamEditionSetupLogs(stderrPipe, "stderr", appendLog)
 	}()
 
 	err = cmd.Wait()
@@ -229,9 +262,9 @@ func (h *EditionHandler) executeSetupTask(taskID string, req EditionSetupRequest
 			return
 		}
 		if currentTask.Logs == "" {
-			currentTask.Logs = trimEditionSetupLogs(logLine, 200)
+			currentTask.Logs = trimEditionSetupLogs(logLine, editionSetupLogMaxLines)
 		} else {
-			currentTask.Logs = trimEditionSetupLogs(currentTask.Logs+"\n"+logLine, 200)
+			currentTask.Logs = trimEditionSetupLogs(currentTask.Logs+"\n"+logLine, editionSetupLogMaxLines)
 		}
 		upsertEditionSetupTask(currentTask)
 	}
@@ -350,9 +383,10 @@ func (h *EditionHandler) GetEdition(c *gin.Context) {
 		return
 	}
 
+	editionData := buildEditionResponseData(cfg)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    cfg.GetEditionConfig(),
+		"data":    editionData,
 	})
 }
 
@@ -447,9 +481,22 @@ func (h *EditionHandler) UpdateEdition(c *gin.Context) {
 		"message": "版本配置已更新，重启后可确保全量生效",
 		"data": gin.H{
 			"restart_required": true,
-			"edition":          updatedCfg.GetEditionConfig(),
+			"edition":          buildEditionResponseData(updatedCfg),
 		},
 	})
+}
+
+func buildEditionResponseData(cfg *config.Config) gin.H {
+	def := cfg.GetEditionConfig()
+	return gin.H{
+		"type":                def.Type,
+		"features":            def.Features,
+		"display_name":        def.DisplayName,
+		"description":         def.Description,
+		"dependencies":        def.Dependencies,
+		"runtime":             cfg.Edition.Runtime,
+		"dependency_versions": cfg.Edition.DependencyVersions,
+	}
 }
 
 func collectMissingDependencies(def *config.EditionDefinition, status map[string]DependencyStatus) []string {

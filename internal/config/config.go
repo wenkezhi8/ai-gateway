@@ -202,7 +202,11 @@ func DefaultConfig() *Config {
 			ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
 			ColdVectorQdrantTimeoutMs:     1500,
 		},
-		Edition: EditionConfig{Type: string(EditionStandard)},
+		Edition: EditionConfig{
+			Type:               string(EditionStandard),
+			Runtime:            string(EditionRuntimeDocker),
+			DependencyVersions: DefaultEditionDependencyVersions(),
+		},
 	}
 }
 
@@ -399,6 +403,7 @@ func Load() (*Config, error) {
 	// Load providers from environment variables (takes precedence over config file)
 	// Format: PROVIDER_<NAME>_API_KEY (e.g., PROVIDER_OPENAI_API_KEY)
 	cfg.loadProvidersFromEnv()
+	normalizeEditionConfig(&cfg.Edition)
 
 	return cfg, nil
 }
@@ -674,6 +679,14 @@ func (c *Config) Validate() error {
 	editionType := EditionType(strings.TrimSpace(strings.ToLower(c.Edition.Type)))
 	if _, ok := EditionDefinitions[editionType]; !ok {
 		return &ValidationError{Field: "edition.type", Message: "edition.type must be basic/standard/enterprise"}
+	}
+	if !IsValidEditionRuntime(c.Edition.Runtime) {
+		return &ValidationError{Field: "edition.runtime", Message: "edition.runtime must be docker/native"}
+	}
+	for dep, version := range normalizeEditionDependencyVersions(c.Edition.DependencyVersions) {
+		if strings.TrimSpace(version) == "" {
+			return &ValidationError{Field: "edition.dependency_versions." + dep, Message: "dependency version must not be empty"}
+		}
 	}
 
 	return nil

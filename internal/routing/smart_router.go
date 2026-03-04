@@ -23,6 +23,36 @@ const routerConfigFile = constants.RouterConfigFilePath
 
 var routerLogger = logger.WithField("component", "routing")
 
+func normalizeProviderDefaults(defaults map[string]string) map[string]string {
+	normalized := make(map[string]string)
+	for provider, model := range defaults {
+		normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
+		normalizedModel := strings.TrimSpace(model)
+		if normalizedProvider == "" || normalizedModel == "" {
+			continue
+		}
+		normalized[normalizedProvider] = normalizedModel
+	}
+	return normalized
+}
+
+func providerDefaultsNeedRewrite(raw map[string]string, normalized map[string]string) bool {
+	if len(raw) != len(normalized) {
+		return true
+	}
+	for provider, model := range raw {
+		normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
+		normalizedModel := strings.TrimSpace(model)
+		if normalizedProvider == "" || normalizedModel == "" {
+			return true
+		}
+		if normalized[normalizedProvider] != normalizedModel {
+			return true
+		}
+	}
+	return false
+}
+
 // StrategyType defines the routing strategy.
 type StrategyType string
 
@@ -267,12 +297,17 @@ func (r *SmartRouter) loadFromFile() {
 	if err == nil {
 		var savedDefaults map[string]string
 		if err := json.Unmarshal(defaultsData, &savedDefaults); err == nil {
+			normalizedDefaults := normalizeProviderDefaults(savedDefaults)
+			needRewrite := providerDefaultsNeedRewrite(savedDefaults, normalizedDefaults)
 			r.mu.Lock()
-			for provider, model := range savedDefaults {
-				r.config.ProviderDefaults[provider] = model
-			}
+			r.config.ProviderDefaults = normalizedDefaults
 			r.mu.Unlock()
-			routerLogger.Infof("Loaded %d provider defaults from persistence file", len(savedDefaults))
+			if needRewrite {
+				if saveErr := r.SaveProviderDefaultsToFile(); saveErr != nil {
+					routerLogger.WithError(saveErr).Warn("Failed to rewrite normalized provider defaults")
+				}
+			}
+			routerLogger.Infof("Loaded %d provider defaults from persistence file", len(normalizedDefaults))
 		} else {
 			routerLogger.WithError(err).Warn("Failed to parse provider defaults file")
 		}
@@ -569,13 +604,9 @@ func (r *SmartRouter) GetProviderDefaults() map[string]string {
 
 // SetProviderDefaults sets provider default models and persists to file.
 func (r *SmartRouter) SetProviderDefaults(defaults map[string]string) {
+	normalizedDefaults := normalizeProviderDefaults(defaults)
 	r.mu.Lock()
-	if r.config.ProviderDefaults == nil {
-		r.config.ProviderDefaults = make(map[string]string)
-	}
-	for k, v := range defaults {
-		r.config.ProviderDefaults[k] = v
-	}
+	r.config.ProviderDefaults = normalizedDefaults
 	r.mu.Unlock()
 
 	// Save to file after updating (outside lock to avoid deadlock)

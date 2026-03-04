@@ -21,6 +21,7 @@ func LoadFromPath(configPath string) (*Config, error) {
 	file, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		if os.IsNotExist(err) {
+			normalizeEditionConfig(&cfg.Edition)
 			return cfg, nil
 		}
 		return nil, err
@@ -28,6 +29,7 @@ func LoadFromPath(configPath string) (*Config, error) {
 	if err := json.Unmarshal(file, cfg); err != nil {
 		return nil, err
 	}
+	normalizeEditionConfig(&cfg.Edition)
 	return cfg, nil
 }
 
