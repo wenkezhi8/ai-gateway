@@ -51,17 +51,29 @@
       <el-button type="success" :loading="setupRunning" @click="handleSetupDependencies">安装依赖</el-button>
     </div>
 
+    <div v-if="runtime === 'native'" class="runtime-hint">
+      native 模式：缺少依赖时不会自动切换到 Docker，请先手动安装并启动 Redis / Ollama / Qdrant。
+    </div>
+
     <div v-if="editionStore.setupTask" class="setup-status">
       <el-tag size="small" :type="setupStatusTag(editionStore.setupTask.status)">
         {{ editionStore.setupTask.status }}
       </el-tag>
       <span class="setup-summary">{{ editionStore.setupTask.summary || editionStore.setupTask.message || '-' }}</span>
     </div>
+
+    <div v-if="editionStore.setupTask?.logs" class="setup-log-panel">
+      <div class="setup-log-header">
+        <span>安装过程日志</span>
+        <el-button text size="small" @click="copySetupLogs">复制日志</el-button>
+      </div>
+      <pre ref="setupLogRef" class="setup-log-content">{{ editionStore.setupTask.logs }}</pre>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 
 import { useEditionStore } from '@/store/domain/edition'
@@ -74,6 +86,7 @@ const runtime = ref<EditionSetupRuntime>('docker')
 const applyConfig = ref(true)
 const pullEmbeddingModel = ref(false)
 const setupTaskId = ref('')
+const setupLogRef = ref<HTMLElement | null>(null)
 let setupPollTimer: ReturnType<typeof setTimeout> | null = null
 
 const definitionsReady = computed(() => editionStore.definitions.length > 0)
@@ -93,6 +106,16 @@ onMounted(async () => {
   selectedEdition.value = editionStore.config?.type ?? 'standard'
   setupEdition.value = selectedEdition.value
 })
+
+watch(
+  () => editionStore.setupTask?.logs,
+  () => {
+    nextTick(() => {
+      if (!setupLogRef.value) return
+      setupLogRef.value.scrollTop = setupLogRef.value.scrollHeight
+    })
+  }
+)
 
 function dependencyHealthy(dep: string): boolean {
   return editionStore.dependencies[dep]?.healthy ?? false
@@ -186,6 +209,41 @@ async function handleSetupDependencies() {
   }
 }
 
+async function copySetupLogs() {
+  const logs = editionStore.setupTask?.logs?.trim()
+  if (!logs) {
+    ElMessage.warning('暂无可复制日志')
+    return
+  }
+
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(logs)
+      ElMessage.success('日志已复制')
+      return
+    }
+
+    const textarea = document.createElement('textarea')
+    textarea.value = logs
+    textarea.setAttribute('readonly', 'true')
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(textarea)
+
+    if (copied) {
+      ElMessage.success('日志已复制')
+      return
+    }
+
+    throw new Error('copy_failed')
+  } catch {
+    ElMessage.error('复制日志失败，请手动复制')
+  }
+}
+
 onUnmounted(() => {
   clearSetupPoll()
 })
@@ -266,9 +324,45 @@ onUnmounted(() => {
   gap: 8px;
 }
 
+.runtime-hint {
+  color: var(--el-color-warning-dark-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .setup-summary {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.setup-log-panel {
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--el-fill-color-lighter);
+}
+
+.setup-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.setup-log-content {
+  margin: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  padding: 10px;
 }
 
 @media (max-width: 960px) {
