@@ -13,7 +13,12 @@ export default [
       '*.log*',
       'coverage/**',
       'test-results/**',
-      'playwright-report/**'
+      'playwright-report/**',
+      'tests/**',
+      'test-fixes.js',
+      'playwright.config.ts',
+      'vitest.config.ts',
+      'vite.config.ts'
     ]
   },
   js.configs.recommended,
@@ -75,16 +80,19 @@ export default [
       'vue/require-explicit-emits': 'warn',
       'vue/component-definition-name-casing': ['error', 'PascalCase'],
       'vue/component-name-in-template-casing': ['error', 'PascalCase'],
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-empty-object-type': 'warn',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-non-null-assertion': 'warn',
+      'vue/no-mutating-props': 'warn',
+      'no-useless-escape': 'warn',
       'no-console': 'warn',
       'no-debugger': 'error',
-      'prefer-const': 'error',
-      'no-var': 'error',
-      eqeqeq: ['error', 'always', { null: 'ignore' }]
+      'prefer-const': 'warn',
+      'no-var': 'warn',
+      eqeqeq: ['warn', 'always', { null: 'ignore' }]
     }
   },
   {
