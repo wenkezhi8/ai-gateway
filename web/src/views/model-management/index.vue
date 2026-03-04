@@ -427,6 +427,7 @@ import {
   parseModelManagementContext,
   type ModelManagementContext
 } from './provider-context'
+import { resolveProviderDisplayMeta } from './provider-display-meta-resolver'
 
 const { getModelLabel, fetchModelLabels } = useModelLabels()
 const route = useRoute()
@@ -630,9 +631,8 @@ async function loadSettings() {
       accounts: accountList
     })
 
-    const providerMetaMap = new Map(
-      publicProviders.map(item => [item.id, item])
-    )
+    const providerTypeIds = new Set(typeList.map(item => item.id))
+    const publicProviderIds = new Set(publicProviders.map(item => item.id))
 
     // Load model registry from backend - this is the single source of truth
     const modelsRes = await getModelRegistry().catch(() => [])
@@ -654,22 +654,31 @@ async function loadSettings() {
     }
 
     // Build provider settings from backend models and provider metadata
-    const providerIds = new Set<string>([...providerMetaMap.keys(), ...Object.keys(modelsByProvider), ...Object.keys(providerDefaults)])
+    const providerIds = new Set<string>([
+      ...providerTypeIds,
+      ...publicProviderIds,
+      ...Object.keys(modelsByProvider),
+      ...Object.keys(providerDefaults)
+    ])
     const newSettings: ProviderSetting[] = []
 
     for (const providerId of providerIds) {
-      const meta = providerMetaMap.get(providerId)
+      const displayMeta = resolveProviderDisplayMeta(providerId, {
+        providerTypes: typeList,
+        publicProviders,
+        fallbackColor: MODEL_MANAGEMENT_FALLBACK_COLOR
+      })
       const models = modelsByProvider[providerId] || []
-      const defaultModel = providerDefaults[providerId] || meta?.default_model || models[0] || ''
+      const defaultModel = providerDefaults[providerId] || displayMeta.defaultModel || models[0] || ''
 
       newSettings.push({
         id: providerId,
-        label: meta?.label || providerId,
-        color: meta?.color || MODEL_MANAGEMENT_FALLBACK_COLOR,
-        logo: meta?.logo || '',
+        label: displayMeta.label,
+        color: displayMeta.color,
+        logo: displayMeta.logo,
         defaultModel,
         models,
-        custom: !meta
+        custom: displayMeta.custom
       })
     }
 

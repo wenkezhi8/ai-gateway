@@ -9,13 +9,15 @@ describe('model management settings loading', () => {
     expect(viewFile).toContain('await fetchModelLabels().catch(() => undefined)')
     expect(viewFile).toContain('getModelRegistry().catch(() => [])')
     expect(viewFile).toContain('...Object.keys(providerDefaults)')
-    expect(viewFile).toContain('providerDefaults[providerId] || meta?.default_model || models[0] ||')
+    expect(viewFile).toContain('providerDefaults[providerId] || displayMeta.defaultModel || models[0] ||')
+    expect(viewFile).toContain('resolveProviderDisplayMeta(providerId, {')
   })
 
   it('falls back to provider icon when logo image fails', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/model-management/index.vue'), 'utf-8')
 
     expect(viewFile).toContain('brokenLogoProviders')
+    expect(viewFile).toContain('brokenLogoProviders.value.clear()')
     expect(viewFile).toContain('@error="handleLogoError(row.id)"')
     expect(viewFile).toContain('row.logo && !brokenLogoProviders.has(row.id)')
   })
