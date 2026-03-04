@@ -1,8 +1,9 @@
 package admin
 
 import (
-	"bytes"
+	"bufio"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -67,7 +68,11 @@ var editionSetupTaskStore = struct {
 	tasks: map[string]*EditionSetupTask{},
 }
 
-var editionSetupExecutor = runEditionSetupScript
+type EditionSetupLogAppender func(line string)
+
+type editionSetupExecutorFunc func(configPath string, req EditionSetupRequest, appendLog EditionSetupLogAppender) (string, error)
+
+var editionSetupExecutor editionSetupExecutorFunc = runEditionSetupScript
 
 func NewEditionHandler() *EditionHandler {
 	return &EditionHandler{configPath: config.ResolveConfigPath()}
@@ -139,7 +144,20 @@ func resolveEditionSetupScriptPath(configPath string) string {
 	return filepath.Clean("./scripts/setup-edition-env.sh")
 }
 
-func runEditionSetupScript(configPath string, req EditionSetupRequest) (string, string, error) {
+func streamEditionSetupLogs(reader io.Reader, appendLog EditionSetupLogAppender) {
+	if reader == nil || appendLog == nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(reader)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		appendLog(scanner.Text())
+	}
+}
+
+func runEditionSetupScript(configPath string, req EditionSetupRequest, appendLog EditionSetupLogAppender) (string, error) {
 	scriptPath := resolveEditionSetupScriptPath(configPath)
 	args := []string{
 		"--edition", string(req.Edition),
@@ -150,19 +168,38 @@ func runEditionSetupScript(configPath string, req EditionSetupRequest) (string, 
 	}
 
 	cmd := exec.Command(scriptPath, args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-
-	combined := strings.TrimSpace(strings.Join([]string{stdout.String(), stderr.String()}, "\n"))
-	logs := trimEditionSetupLogs(combined, 200)
 	summary := fmt.Sprintf("edition=%s runtime=%s", req.Edition, req.Runtime)
+
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		return logs, summary, err
+		return summary, err
 	}
-	return logs, summary, nil
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return summary, err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return summary, err
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		streamEditionSetupLogs(stdoutPipe, appendLog)
+	}()
+	go func() {
+		defer wg.Done()
+		streamEditionSetupLogs(stderrPipe, appendLog)
+	}()
+
+	err = cmd.Wait()
+	wg.Wait()
+	if err != nil {
+		return summary, err
+	}
+	return summary, nil
 }
 
 func resetEditionSetupTasksForTest() {
@@ -182,16 +219,36 @@ func (h *EditionHandler) executeSetupTask(taskID string, req EditionSetupRequest
 	task.StartedAt = &startedAt
 	upsertEditionSetupTask(task)
 
-	logs, summary, runErr := editionSetupExecutor(h.configPath, req)
+	appendLog := func(line string) {
+		logLine := strings.TrimSpace(line)
+		if logLine == "" {
+			return
+		}
+		currentTask, exists := getEditionSetupTask(taskID)
+		if !exists {
+			return
+		}
+		if currentTask.Logs == "" {
+			currentTask.Logs = trimEditionSetupLogs(logLine, 200)
+		} else {
+			currentTask.Logs = trimEditionSetupLogs(currentTask.Logs+"\n"+logLine, 200)
+		}
+		upsertEditionSetupTask(currentTask)
+	}
+
+	summary, runErr := editionSetupExecutor(h.configPath, req, appendLog)
 	cfg, cfgErr := config.LoadFromPath(h.configPath)
 	if cfgErr != nil {
 		cfg = config.DefaultConfig()
 	}
 	health := dependencyStatusProvider(cfg)
 
+	if currentTask, exists := getEditionSetupTask(taskID); exists {
+		task = currentTask
+	}
+
 	finishedAt := time.Now().UTC()
 	task.FinishedAt = &finishedAt
-	task.Logs = logs
 	task.Summary = summary
 	task.Health = cloneDependencyStatusMap(health)
 	if runErr != nil {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,8 +116,11 @@ func TestEditionAPI_SetupEdition_Accepted(t *testing.T) {
 
 	origExecutor := editionSetupExecutor
 	defer func() { editionSetupExecutor = origExecutor }()
-	editionSetupExecutor = func(_ string, _ EditionSetupRequest) (string, string, error) {
-		return "setup success", "installed redis, ollama", nil
+	editionSetupExecutor = func(_ string, _ EditionSetupRequest, appendLog EditionSetupLogAppender) (string, error) {
+		if appendLog != nil {
+			appendLog("setup success")
+		}
+		return "installed redis, ollama", nil
 	}
 
 	h := NewEditionHandler()
@@ -179,5 +183,61 @@ func TestEditionAPI_GetSetupTask_NotFound(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusNotFound, w.Body.String())
+	}
+}
+
+func TestEditionAPI_SetupEditionTask_RunningStatusShowsIncrementalLogs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	resetEditionSetupTasksForTest()
+
+	origExecutor := editionSetupExecutor
+	defer func() { editionSetupExecutor = origExecutor }()
+	editionSetupExecutor = func(_ string, _ EditionSetupRequest, appendLog EditionSetupLogAppender) (string, error) {
+		if appendLog != nil {
+			appendLog("[setup-edition] step-1")
+		}
+		time.Sleep(300 * time.Millisecond)
+		if appendLog != nil {
+			appendLog("[setup-edition] step-2")
+		}
+		return "streamed logs", nil
+	}
+
+	h := NewEditionHandler()
+	r := gin.New()
+	r.POST("/api/admin/edition/setup", h.SetupEditionEnvironment)
+
+	body := []byte(`{"edition":"standard","runtime":"docker","apply_config":false,"pull_embedding_model":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/edition/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusAccepted, w.Body.String())
+	}
+
+	var resp struct {
+		Data struct {
+			TaskID string `json:"task_id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		task, ok := getEditionSetupTask(resp.Data.TaskID)
+		if ok && task.Status == EditionSetupStatusRunning {
+			if !strings.Contains(task.Logs, "step-1") {
+				t.Fatalf("running task logs should include incremental output, got=%q", task.Logs)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("task %s did not enter running status before timeout", resp.Data.TaskID)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
