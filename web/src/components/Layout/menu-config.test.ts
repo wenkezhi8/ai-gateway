@@ -19,6 +19,9 @@ describe('layout menu config', () => {
 
     expect(menus.some((m) => m.path === '/ollama')).toBe(false)
     expect(menus.some((m) => m.path === '/settings')).toBe(true)
+
+    const providersAccountsMenu = menus.find((m) => m.path === '/providers-accounts')
+    expect(providersAccountsMenu?.title).toBe('AI服务商')
   })
 
   it('standard edition should show ollama menu', () => {
@@ -36,5 +39,10 @@ describe('layout menu config', () => {
     })
 
     expect(menus.some((m) => m.path === '/ollama')).toBe(true)
+  })
+
+  it('should keep providers accounts path stable', () => {
+    const menus = getMenuItems(null)
+    expect(menus.some((m) => m.path === '/providers-accounts' && m.title === 'AI服务商')).toBe(true)
   })
 })

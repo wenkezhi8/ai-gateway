@@ -80,7 +80,7 @@
           <div class="empty-tips">
             <div class="tip-item">
               <el-icon><InfoFilled /></el-icon>
-              <span>配置 AI 服务商后即可开始使用</span>
+              <span>配置AI服务商后即可开始使用</span>
             </div>
             <div class="tip-item">
               <el-icon><InfoFilled /></el-icon>
@@ -112,7 +112,7 @@
         <div class="hero-actions">
           <el-button type="primary" @click="$router.push('/alerts')">告警事件管理</el-button>
           <el-button @click="$router.push('/ops')">运维监控</el-button>
-          <el-button @click="$router.push('/providers-accounts')">账号与限额</el-button>
+          <el-button @click="$router.push('/providers-accounts')">AI服务商</el-button>
         </div>
       </div>
 
