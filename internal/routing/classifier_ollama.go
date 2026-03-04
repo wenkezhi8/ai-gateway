@@ -201,6 +201,7 @@ func buildClassifierPrompt(prompt, contextText string) string {
 可选 ttl_band: short, medium, long
 可选 risk_level: none, low, medium, high
 可选 context_load: low, medium, high
+忽略输入中仅用于追踪的元数据片段（例如方括号内 timestamp、message_id、request_id、session_id、conversation_id）。
 
 输出 JSON 字段:
 {

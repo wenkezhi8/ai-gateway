@@ -2,6 +2,7 @@ package routing
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -152,5 +153,12 @@ func TestParseClassifierOutput_InvalidTaskReturnsParseError(t *testing.T) {
 	}
 	if !errors.Is(err, ErrClassifierParseOutput) {
 		t.Fatalf("expected parse error wrapper, got %v", err)
+	}
+}
+
+func TestBuildClassifierPrompt_ContainsMetadataIgnoreInstruction(t *testing.T) {
+	prompt := buildClassifierPrompt("hello", "ctx")
+	if !strings.Contains(prompt, "忽略") {
+		t.Fatalf("expected classifier prompt to include metadata-ignore instruction, got: %s", prompt)
 	}
 }
