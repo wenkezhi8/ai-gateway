@@ -14,7 +14,13 @@ describe('layout menu config', () => {
       },
       display_name: '基础版',
       description: '',
-      dependencies: ['redis']
+      dependencies: ['redis'],
+      runtime: 'docker',
+      dependency_versions: {
+        redis: '7.2.0-v18',
+        ollama: 'latest',
+        qdrant: 'latest'
+      }
     })
 
     expect(menus.some((m) => m.path === '/ollama')).toBe(false)
@@ -35,7 +41,13 @@ describe('layout menu config', () => {
       },
       display_name: '标准版',
       description: '',
-      dependencies: ['redis', 'ollama']
+      dependencies: ['redis', 'ollama'],
+      runtime: 'docker',
+      dependency_versions: {
+        redis: '7.2.0-v18',
+        ollama: 'latest',
+        qdrant: 'latest'
+      }
     })
 
     expect(menus.some((m) => m.path === '/ollama')).toBe(true)

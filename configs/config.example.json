@@ -76,6 +76,12 @@
     "cold_vector_qdrant_timeout_ms": 1500
   },
   "edition": {
-    "type": "standard"
+    "type": "standard",
+    "runtime": "docker",
+    "dependency_versions": {
+      "redis": "7.2.0-v18",
+      "ollama": "latest",
+      "qdrant": "latest"
+    }
   }
 }

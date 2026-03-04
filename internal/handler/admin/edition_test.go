@@ -22,13 +22,21 @@ func TestEditionAPI_GetEdition(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.json")
-	cfg := config.DefaultConfig()
-	cfg.Edition.Type = string(config.EditionBasic)
-	data, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("marshal config failed: %v", err)
-	}
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+	raw := `{
+  "server": {"port":"8566","mode":"debug"},
+  "redis": {"host":"localhost","port":6379,"password":"","db":0},
+  "database": {"path":"./data/ai-gateway.db"},
+  "providers": [],
+  "limiter": {"enabled":true,"rate":100,"burst":200,"per_user":true},
+  "intent_engine": {"enabled":false,"base_url":"http://127.0.0.1:18566","timeout_ms":1500,"language":"zh-CN","expected_dimension":1024},
+  "vector_cache": {"enabled":true,"index_name":"idx_ai_cache_v2","key_prefix":"ai:v2:cache:","dimension":1024,"query_timeout_ms":1200,"thresholds":{"calc":0.97},"ttl_seconds":{"calc":10}},
+  "edition": {
+    "type":"basic",
+    "runtime":"native",
+    "dependency_versions":{"redis":"7.2.0-v18","ollama":"latest","qdrant":"latest"}
+  }
+}`
+	if err := os.WriteFile(configPath, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write config failed: %v", err)
 	}
 
@@ -46,6 +54,33 @@ func TestEditionAPI_GetEdition(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Type               string            `json:"type"`
+			Runtime            string            `json:"runtime"`
+			DependencyVersions map[string]string `json:"dependency_versions"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("success = false body=%s", w.Body.String())
+	}
+	if resp.Data.Type != string(config.EditionBasic) {
+		t.Fatalf("edition type = %q, want %q", resp.Data.Type, config.EditionBasic)
+	}
+	if resp.Data.Runtime != "native" {
+		t.Fatalf("edition runtime = %q, want %q", resp.Data.Runtime, "native")
+	}
+	if len(resp.Data.DependencyVersions) == 0 {
+		t.Fatalf("dependency_versions should not be empty body=%s", w.Body.String())
+	}
+	if resp.Data.DependencyVersions["redis"] == "" {
+		t.Fatalf("dependency_versions.redis should not be empty body=%s", w.Body.String())
 	}
 }
 

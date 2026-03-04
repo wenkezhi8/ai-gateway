@@ -383,9 +383,10 @@ func (h *EditionHandler) GetEdition(c *gin.Context) {
 		return
 	}
 
+	editionData := buildEditionResponseData(cfg)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    cfg.GetEditionConfig(),
+		"data":    editionData,
 	})
 }
 
@@ -480,9 +481,22 @@ func (h *EditionHandler) UpdateEdition(c *gin.Context) {
 		"message": "版本配置已更新，重启后可确保全量生效",
 		"data": gin.H{
 			"restart_required": true,
-			"edition":          updatedCfg.GetEditionConfig(),
+			"edition":          buildEditionResponseData(updatedCfg),
 		},
 	})
+}
+
+func buildEditionResponseData(cfg *config.Config) gin.H {
+	def := cfg.GetEditionConfig()
+	return gin.H{
+		"type":                def.Type,
+		"features":            def.Features,
+		"display_name":        def.DisplayName,
+		"description":         def.Description,
+		"dependencies":        def.Dependencies,
+		"runtime":             cfg.Edition.Runtime,
+		"dependency_versions": cfg.Edition.DependencyVersions,
+	}
 }
 
 func collectMissingDependencies(def *config.EditionDefinition, status map[string]DependencyStatus) []string {

@@ -105,6 +105,7 @@ onMounted(async () => {
 
   selectedEdition.value = editionStore.config?.type ?? 'standard'
   setupEdition.value = selectedEdition.value
+  runtime.value = editionStore.config?.runtime ?? 'docker'
 })
 
 watch(

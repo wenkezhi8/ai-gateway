@@ -26,7 +26,13 @@ function standardFallback(): EditionConfig {
     },
     display_name: '标准版',
     description: '网关 + 语义缓存，中大规模场景',
-    dependencies: ['redis', 'ollama']
+    dependencies: ['redis', 'ollama'],
+    runtime: 'docker',
+    dependency_versions: {
+      redis: '7.2.0-v18',
+      ollama: 'latest',
+      qdrant: 'latest'
+    }
   }
 }
 

@@ -14,8 +14,10 @@ PULL_EMBEDDING_MODEL="false"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
 
 LEGACY_REDIS_CONTAINER="redis-stack"
-OLLAMA_CONTAINER="ai-gateway-ollama"
-QDRANT_CONTAINER="ai-gateway-qdrant"
+
+REDIS_VERSION="${REDIS_VERSION:-7.2.0-v18}"
+OLLAMA_VERSION="${OLLAMA_VERSION:-latest}"
+QDRANT_VERSION="${QDRANT_VERSION:-latest}"
 
 usage() {
   cat <<'EOF'
@@ -98,15 +100,15 @@ ensure_docker_container() {
 
 ensure_redis_docker() {
   ensure_no_redis_container_conflict
-  ensure_docker_container "$REDIS_CONTAINER" "redis/redis-stack-server:7.2.0-v18" "-p 6379:6379 -p 8001:8001"
+  ensure_docker_container "$REDIS_CONTAINER" "redis/redis-stack-server:${REDIS_VERSION}" "-p 6379:6379 -p 8001:8001"
 }
 
 ensure_ollama_docker() {
-  ensure_docker_container "$OLLAMA_CONTAINER" "ollama/ollama:latest" "-p 11434:11434"
+  ensure_docker_container "$OLLAMA_CONTAINER" "ollama/ollama:${OLLAMA_VERSION}" "-p 11434:11434"
 }
 
 ensure_qdrant_docker() {
-  ensure_docker_container "$QDRANT_CONTAINER" "qdrant/qdrant:latest" "-p 6333:6333"
+  ensure_docker_container "$QDRANT_CONTAINER" "qdrant/qdrant:${QDRANT_VERSION}" "-p 6333:6333"
 }
 
 ensure_no_redis_container_conflict() {
@@ -155,20 +157,34 @@ ensure_qdrant_native() {
 }
 
 apply_config_values() {
-  python3 - "$CONFIG_PATH" "$EDITION" <<'PY'
+  python3 - "$CONFIG_PATH" "$EDITION" "$RUNTIME" "$REDIS_VERSION" "$OLLAMA_VERSION" "$QDRANT_VERSION" <<'PY'
 import json
 import pathlib
 import sys
 
 config_path = pathlib.Path(sys.argv[1])
 edition = sys.argv[2]
+runtime = sys.argv[3]
+redis_version = sys.argv[4]
+ollama_version = sys.argv[5]
+qdrant_version = sys.argv[6]
 
 if not config_path.exists():
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text("{}", encoding="utf-8")
 
 data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
-data.setdefault("edition", {})["type"] = edition
+edition_data = data.setdefault("edition", {})
+edition_data["type"] = edition
+edition_data["runtime"] = runtime
+
+dependency_versions = edition_data.get("dependency_versions")
+if not isinstance(dependency_versions, dict):
+    dependency_versions = {}
+dependency_versions["redis"] = dependency_versions.get("redis") or redis_version
+dependency_versions["ollama"] = dependency_versions.get("ollama") or ollama_version
+dependency_versions["qdrant"] = dependency_versions.get("qdrant") or qdrant_version
+edition_data["dependency_versions"] = dependency_versions
 
 vector_cache = data.setdefault("vector_cache", {})
 if edition in ("standard", "enterprise"):
