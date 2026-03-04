@@ -39,6 +39,24 @@ fail() {
   exit 1
 }
 
+print_manual_install_guidance() {
+  local dep="$1"
+  case "$dep" in
+    redis)
+      printf '[setup-edition] HINT: native install (example): brew install redis-stack && redis-stack-server\n' >&2
+      printf '[setup-edition] HINT: docker manual (no auto fallback): docker run -d --name %s -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18\n' "$REDIS_CONTAINER" >&2
+      ;;
+    ollama)
+      printf '[setup-edition] HINT: native install: https://ollama.com/download then run `ollama serve`\n' >&2
+      printf '[setup-edition] HINT: docker manual (no auto fallback): docker run -d --name %s -p 11434:11434 ollama/ollama:latest\n' "$OLLAMA_CONTAINER" >&2
+      ;;
+    qdrant)
+      printf '[setup-edition] HINT: native install: https://qdrant.tech/documentation/quickstart/\n' >&2
+      printf '[setup-edition] HINT: docker manual (no auto fallback): docker run -d --name %s -p 6333:6333 qdrant/qdrant:latest\n' "$QDRANT_CONTAINER" >&2
+      ;;
+  esac
+}
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     fail "missing required command: $1"
@@ -102,11 +120,13 @@ ensure_redis_native() {
     log "redis native service detected"
     return
   fi
+  print_manual_install_guidance redis
   fail "redis native dependency unavailable on 127.0.0.1:6379; docker fallback disabled for native runtime. Please install/start native Redis Stack manually"
 }
 
 ensure_ollama_native() {
   if ! command -v ollama >/dev/null 2>&1; then
+    print_manual_install_guidance ollama
     fail "ollama binary not found; docker fallback disabled for native runtime. Please install/start native ollama manually"
   fi
 
@@ -119,6 +139,7 @@ ensure_ollama_native() {
   fi
 
   if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+    print_manual_install_guidance ollama
     fail "ollama native service unavailable on 127.0.0.1:11434; docker fallback disabled for native runtime. Please start native ollama manually"
   fi
   log "ollama native service detected"
@@ -129,6 +150,7 @@ ensure_qdrant_native() {
     log "qdrant native service detected"
     return
   fi
+  print_manual_install_guidance qdrant
   fail "qdrant native service unavailable on 127.0.0.1:6333; docker fallback disabled for native runtime. Please install/start native qdrant manually"
 }
 

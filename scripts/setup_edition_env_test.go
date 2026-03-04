@@ -164,6 +164,9 @@ exit 1
 	if !strings.Contains(output, "docker fallback disabled") {
 		t.Fatalf("expected native failure guidance to mention docker fallback disabled, output=%s", output)
 	}
+	if !strings.Contains(output, "docker run -d --name ai-gateway-redis-stack") {
+		t.Fatalf("expected native failure guidance to include manual docker command, output=%s", output)
+	}
 
 	dockerCalls, readErr := os.ReadFile(dockerLogPath)
 	if readErr != nil {
@@ -242,5 +245,148 @@ exit 0
 	}
 	if strings.Contains(string(dockerCalls), "rm -f") {
 		t.Fatalf("conflict gate must not auto-delete containers, calls=%s", string(dockerCalls))
+	}
+}
+
+func TestSetupEditionEnv_NativeOllama_NoDockerAutoFallback(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	tempDir := t.TempDir()
+	tempBin := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(tempBin, 0o755); err != nil {
+		t.Fatalf("mkdir temp bin failed: %v", err)
+	}
+
+	dockerLogPath := filepath.Join(tempDir, "docker.log")
+	if err := os.WriteFile(dockerLogPath, nil, 0o644); err != nil {
+		t.Fatalf("create docker log failed: %v", err)
+	}
+
+	writeExecutable(t, filepath.Join(tempBin, "docker"), `#!/bin/bash
+set -eu
+: "${DOCKER_LOG_FILE:?}"
+printf '%s\n' "$*" >>"$DOCKER_LOG_FILE"
+exit 0
+`)
+
+	writeExecutable(t, filepath.Join(tempBin, "redis-cli"), `#!/bin/bash
+exit 0
+`)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	env := append(os.Environ(),
+		"PATH="+tempBin+":/usr/bin:/bin",
+		"DOCKER_LOG_FILE="+dockerLogPath,
+	)
+
+	output, err := runScript(
+		t,
+		setupPath,
+		env,
+		"--edition", "standard",
+		"--runtime", "native",
+		"--apply-config", "false",
+		"--pull-embedding-model", "false",
+		"--config-path", configPath,
+	)
+	if err == nil {
+		t.Fatalf("expected native setup to fail when ollama binary is unavailable")
+	}
+	if !strings.Contains(output, "ollama binary not found") {
+		t.Fatalf("expected native ollama failure message, output=%s", output)
+	}
+	if !strings.Contains(output, "docker fallback disabled") {
+		t.Fatalf("expected native failure guidance to mention docker fallback disabled, output=%s", output)
+	}
+	if !strings.Contains(output, "docker run -d --name ai-gateway-ollama") {
+		t.Fatalf("expected native failure guidance to include manual ollama docker command, output=%s", output)
+	}
+
+	dockerCalls, readErr := os.ReadFile(dockerLogPath)
+	if readErr != nil {
+		t.Fatalf("read docker log failed: %v", readErr)
+	}
+	if strings.TrimSpace(string(dockerCalls)) != "" {
+		t.Fatalf("docker should not be called in native no-fallback path, calls=%s", string(dockerCalls))
+	}
+}
+
+func TestSetupEditionEnv_NativeQdrant_NoDockerAutoFallback(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	tempDir := t.TempDir()
+	tempBin := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(tempBin, 0o755); err != nil {
+		t.Fatalf("mkdir temp bin failed: %v", err)
+	}
+
+	dockerLogPath := filepath.Join(tempDir, "docker.log")
+	if err := os.WriteFile(dockerLogPath, nil, 0o644); err != nil {
+		t.Fatalf("create docker log failed: %v", err)
+	}
+
+	writeExecutable(t, filepath.Join(tempBin, "docker"), `#!/bin/bash
+set -eu
+: "${DOCKER_LOG_FILE:?}"
+printf '%s\n' "$*" >>"$DOCKER_LOG_FILE"
+exit 0
+`)
+
+	writeExecutable(t, filepath.Join(tempBin, "redis-cli"), `#!/bin/bash
+exit 0
+`)
+
+	writeExecutable(t, filepath.Join(tempBin, "ollama"), `#!/bin/bash
+exit 0
+`)
+
+	writeExecutable(t, filepath.Join(tempBin, "curl"), `#!/bin/bash
+set -eu
+if [[ "$*" == *"11434/api/tags"* ]]; then
+  exit 0
+fi
+if [[ "$*" == *"6333/collections"* ]]; then
+  exit 1
+fi
+exit 1
+`)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	env := append(os.Environ(),
+		"PATH="+tempBin+":/usr/bin:/bin",
+		"DOCKER_LOG_FILE="+dockerLogPath,
+	)
+
+	output, err := runScript(
+		t,
+		setupPath,
+		env,
+		"--edition", "enterprise",
+		"--runtime", "native",
+		"--apply-config", "false",
+		"--pull-embedding-model", "false",
+		"--config-path", configPath,
+	)
+	if err == nil {
+		t.Fatalf("expected native setup to fail when qdrant is unavailable")
+	}
+	if !strings.Contains(output, "qdrant native service unavailable") {
+		t.Fatalf("expected native qdrant failure message, output=%s", output)
+	}
+	if !strings.Contains(output, "docker fallback disabled") {
+		t.Fatalf("expected native failure guidance to mention docker fallback disabled, output=%s", output)
+	}
+	if !strings.Contains(output, "docker run -d --name ai-gateway-qdrant") {
+		t.Fatalf("expected native failure guidance to include manual qdrant docker command, output=%s", output)
+	}
+
+	dockerCalls, readErr := os.ReadFile(dockerLogPath)
+	if readErr != nil {
+		t.Fatalf("read docker log failed: %v", readErr)
+	}
+	if strings.TrimSpace(string(dockerCalls)) != "" {
+		t.Fatalf("docker should not be called in native no-fallback path, calls=%s", string(dockerCalls))
 	}
 }
