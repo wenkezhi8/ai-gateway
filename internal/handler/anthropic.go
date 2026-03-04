@@ -112,6 +112,7 @@ func (h *ProxyHandler) AnthropicMessages(c *gin.Context) {
 		h.writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "messages is required and cannot be empty")
 		return
 	}
+	sanitizeAnthropicRequestForIntentAndUpstream(&req)
 
 	prompt := extractAnthropicPrompt(req.Messages)
 	assessment := h.smartRouter.AssessDifficulty(prompt, "")
@@ -585,6 +586,59 @@ func extractAnthropicPrompt(messages []AnthropicMessage) string {
 		}
 	}
 	return ""
+}
+
+func sanitizeAnthropicRequestForIntentAndUpstream(req *AnthropicMessagesRequest) {
+	if req == nil {
+		return
+	}
+	req.System = sanitizeAnthropicContent(req.System)
+	for i := range req.Messages {
+		req.Messages[i].Content = sanitizeAnthropicContent(req.Messages[i].Content)
+	}
+}
+
+func sanitizeAnthropicContent(content interface{}) interface{} {
+	switch v := content.(type) {
+	case string:
+		return routing.SanitizeIntentInput(v)
+	case []interface{}:
+		parts := make([]interface{}, len(v))
+		for i, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				parts[i] = item
+				continue
+			}
+
+			copied := make(map[string]interface{}, len(m))
+			for key, value := range m {
+				copied[key] = value
+			}
+
+			if copied["type"] == anthropicContentTypeText {
+				if text, ok := copied["text"].(string); ok {
+					copied["text"] = routing.SanitizeIntentInput(text)
+				}
+			}
+
+			parts[i] = copied
+		}
+		return parts
+	case map[string]interface{}:
+		copied := make(map[string]interface{}, len(v))
+		for key, value := range v {
+			copied[key] = value
+		}
+		if copied["type"] == anthropicContentTypeText {
+			if text, ok := copied["text"].(string); ok {
+				copied["text"] = routing.SanitizeIntentInput(text)
+			}
+		}
+		return copied
+	default:
+		return content
+	}
 }
 
 func getStringFromMap(data map[string]interface{}, key string) string {

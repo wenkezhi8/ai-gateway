@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -180,4 +184,43 @@ func TestApplyControlGenerationHintsAnthropic(t *testing.T) {
 	assert.Nil(t, shadowReq.Temperature)
 	assert.Nil(t, shadowReq.TopP)
 	assert.Equal(t, 0, shadowReq.MaxTokens)
+}
+
+func TestAnthropicMessages_SanitizesMetadataBeforeProviderRequest(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(testConfig(), nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("anthropic", "test-key", "https://api.anthropic.com", []string{"unit-test-model"}, true),
+	}
+	provider.RegisterProvider("anthropic", capture)
+
+	body := `{
+		"model":"unit-test-model",
+		"system":"[conversation_id=c-1] You are helpful.",
+		"messages":[
+			{"role":"user","content":"[2026-03-04T12:34:56Z] [request_id=req-1] hello"}
+		]
+	}`
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.AnthropicMessages(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	require.Len(t, capture.lastChatReq.Messages, 2)
+
+	systemMsg, ok := capture.lastChatReq.Messages[0].Content.(string)
+	require.True(t, ok)
+	assert.Equal(t, "You are helpful.", systemMsg)
+
+	userMsg, ok := capture.lastChatReq.Messages[1].Content.(string)
+	require.True(t, ok)
+	assert.Equal(t, "hello", userMsg)
 }

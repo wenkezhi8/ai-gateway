@@ -17,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -129,6 +130,58 @@ func TestChatCompletions_MultimodalContent(t *testing.T) {
 
 	// Should accept multimodal format
 	assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusServiceUnavailable)
+}
+
+func TestChatCompletions_SanitizesMetadataForAssessmentAndProvider(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(testConfig(), nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
+	}
+	provider.RegisterProvider("openai", capture)
+
+	body := `{
+		"provider":"openai",
+		"model":"unit-test-model",
+		"messages":[
+			{"role":"system","content":"[session_id=s-1] You are helpful."},
+			{"role":"user","content":[
+				{"type":"text","text":"[2026-03-04T12:34:56Z] [request_id=req-1] hello"},
+				{"type":"image_url","image_url":{"url":"https://example.com/a.png"}}
+			]}
+		]
+	}`
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, capture.lastChatReq)
+	require.Len(t, capture.lastChatReq.Messages, 2)
+
+	systemContent, ok := capture.lastChatReq.Messages[0].Content.(string)
+	require.True(t, ok)
+	assert.Equal(t, "You are helpful.", systemContent)
+
+	userParts, ok := capture.lastChatReq.Messages[1].Content.([]interface{})
+	require.True(t, ok)
+	require.Len(t, userParts, 2)
+
+	textPart, ok := userParts[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "text", textPart["type"])
+	assert.Equal(t, "hello", textPart["text"])
+
+	imagePart, ok := userParts[1].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "image_url", imagePart["type"])
 }
 
 // TestChatCompletions_Stream tests streaming response

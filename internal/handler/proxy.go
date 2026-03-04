@@ -209,6 +209,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
+	req.Messages = sanitizeChatMessagesForIntentAndUpstream(req.Messages)
 	explicitReasoningEffort := strings.TrimSpace(req.ReasoningEffort) != ""
 
 	// Get user context
@@ -3797,6 +3798,51 @@ func getTextContent(content interface{}) string {
 		}
 	}
 	return ""
+}
+
+func sanitizeChatMessagesForIntentAndUpstream(messages []ChatMessage) []ChatMessage {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	sanitized := make([]ChatMessage, len(messages))
+	for i, msg := range messages {
+		sanitized[i] = msg
+		sanitized[i].Content = sanitizeChatMessageContent(msg.Content)
+	}
+	return sanitized
+}
+
+func sanitizeChatMessageContent(content interface{}) interface{} {
+	switch v := content.(type) {
+	case string:
+		return routing.SanitizeIntentInput(v)
+	case []interface{}:
+		parts := make([]interface{}, len(v))
+		for i, item := range v {
+			m, ok := item.(map[string]interface{})
+			if !ok {
+				parts[i] = item
+				continue
+			}
+
+			copied := make(map[string]interface{}, len(m))
+			for key, value := range m {
+				copied[key] = value
+			}
+
+			if copied["type"] == "text" {
+				if text, ok := copied["text"].(string); ok {
+					copied["text"] = routing.SanitizeIntentInput(text)
+				}
+			}
+
+			parts[i] = copied
+		}
+		return parts
+	default:
+		return content
+	}
 }
 
 // GetModelMappingCache returns the model mapping cache for admin handlers
