@@ -48,4 +48,14 @@ describe('alerts page', () => {
     expect(viewFile).toContain('statsRequest.error')
     expect(viewFile).toContain('@click="fetchStats"')
   })
+
+  it('should support clear alert history action with confirm and refresh', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/alerts/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('清空告警历史')
+    expect(viewFile).toContain('@click="clearHistory"')
+    expect(viewFile).toContain('alertApi.clearHistory(')
+    expect(viewFile).toContain('ElMessageBox.confirm(')
+    expect(viewFile).toContain('Promise.all([fetchAlerts(), fetchStats()])')
+  })
 })

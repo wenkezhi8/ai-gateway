@@ -103,6 +103,9 @@
                   size="small"
                   style="margin-left: 10px"
                 />
+                <el-button type="danger" plain size="small" style="margin-left: 10px" @click="clearHistory">
+                  清空告警历史
+                </el-button>
               </div>
             </div>
           </template>
@@ -556,6 +559,25 @@ const resolveSimilar = async (alert: Alert) => {
   }
 }
 
+const clearHistory = async () => {
+  try {
+    await ElMessageBox.confirm('确定清空全部告警历史吗？该操作不可恢复。', '清空告警历史', {
+      type: 'warning'
+    })
+
+    const raw = await alertApi.clearHistory()
+    const data = extractClearHistoryPayload(raw)
+    const affected = Number(data.affected || 0)
+
+    handleSuccess(`已清空告警历史 ${affected} 条`)
+    await Promise.all([fetchAlerts(), fetchStats()])
+  } catch (error) {
+    if (!isCancelError(error)) {
+      handleApiError(error, '清空告警历史失败')
+    }
+  }
+}
+
 const viewDetail = (alert: Alert) => {
   selectedAlert.value = alert
   detailDialogVisible.value = true
@@ -596,6 +618,10 @@ type ResolveSimilarPayload = { affected?: number }
 type ResolveSimilarEnvelopePayload = { data?: ResolveSimilarPayload }
 type ResolveSimilarPayloadInput = ResolveSimilarPayload | ResolveSimilarEnvelopePayload
 
+type ClearHistoryPayload = { affected?: number }
+type ClearHistoryEnvelopePayload = { data?: ClearHistoryPayload }
+type ClearHistoryPayloadInput = ClearHistoryPayload | ClearHistoryEnvelopePayload
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
@@ -610,6 +636,10 @@ const isAlertStatsEnvelopePayload = (
 const isResolveSimilarEnvelopePayload = (
   payload: ResolveSimilarPayloadInput
 ): payload is ResolveSimilarEnvelopePayload => isRecord(payload) && 'data' in payload
+
+const isClearHistoryEnvelopePayload = (
+  payload: ClearHistoryPayloadInput
+): payload is ClearHistoryEnvelopePayload => isRecord(payload) && 'data' in payload
 
 const extractHistoryPayload = (payload: AlertHistoryPayloadInput): { list: Alert[]; total: number } => {
   if (Array.isArray(payload)) {
@@ -641,6 +671,14 @@ const extractStatsPayload = (payload: AlertStatsPayloadInput): AlertStatsApiMode
 
 const extractResolveSimilarPayload = (payload: ResolveSimilarPayloadInput): ResolveSimilarPayload => {
   if (isResolveSimilarEnvelopePayload(payload)) {
+    return payload.data || {}
+  }
+
+  return payload
+}
+
+const extractClearHistoryPayload = (payload: ClearHistoryPayloadInput): ClearHistoryPayload => {
+  if (isClearHistoryEnvelopePayload(payload)) {
     return payload.data || {}
   }
 
