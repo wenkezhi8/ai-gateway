@@ -158,4 +158,10 @@ func TestProviderHandler_DeleteProvider_ShouldCascadeAndPersist(t *testing.T) {
 			t.Fatalf("expected no openai account in persisted accounts")
 		}
 	}
+
+	reloadedRouter := routing.NewSmartRouter()
+	reloadedDefaults := reloadedRouter.GetProviderDefaults()
+	if _, ok := reloadedDefaults["openai"]; ok {
+		t.Fatalf("expected openai default to stay removed after router reload")
+	}
 }

@@ -8,7 +8,8 @@ describe('model management settings loading', () => {
 
     expect(viewFile).toContain('await fetchModelLabels().catch(() => undefined)')
     expect(viewFile).toContain('getModelRegistry().catch(() => [])')
-    expect(viewFile).toContain('...Object.keys(providerDefaults)')
+    expect(viewFile).toContain('buildProviderIdsForSettings({')
+    expect(viewFile).not.toContain('...Object.keys(providerDefaults)')
     expect(viewFile).toContain('providerDefaults[providerId] || displayMeta.defaultModel || models[0] ||')
     expect(viewFile).toContain('resolveProviderDisplayMeta(providerId, {')
   })
