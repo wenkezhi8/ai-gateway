@@ -9,7 +9,7 @@
             placement="right"
             content="首版范围说明：当前页面首版仅覆盖服务连通、意图路由与向量管理。"
           >
-            <el-icon class="subtitle-info"><InfoFilled /></el-icon>
+            <el-icon class="subtitle-info-badge"><InfoFilled /></el-icon>
           </el-tooltip>
         </div>
       </div>
@@ -101,10 +101,25 @@ const ctx = proxyRefs(useOllamaConsole())
     font-size: 13px;
   }
 
-  .subtitle-info {
-    color: var(--el-color-primary);
+  .subtitle-info-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 1px solid var(--el-border-color-lighter);
+    background: var(--el-fill-color-light);
+    color: var(--el-text-color-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     cursor: help;
-    font-size: 14px;
+    font-size: 13px;
+    transition: all 0.2s ease;
+
+    &:hover {
+      color: var(--el-color-info);
+      border-color: var(--el-color-info-light-5);
+      background: var(--el-color-info-light-9);
+    }
   }
 
   .panel {

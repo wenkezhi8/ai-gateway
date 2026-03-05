@@ -25,6 +25,8 @@ describe('ollama page', () => {
     expect(content).toContain('首版范围说明')
     expect(content).toContain('当前页面首版仅覆盖服务连通、意图路由与向量管理')
     expect(content).toContain('<InfoFilled />')
+    expect(content).toContain('subtitle-info-badge')
+    expect(content).toContain('border-radius: 50%')
     expect(content).toContain('class="panel service-panel"')
     expect(content).toContain('class="panel tabs-panel"')
     expect(content.indexOf('class="panel service-panel"')).toBeLessThan(content.indexOf('class="panel tabs-panel"'))
