@@ -97,7 +97,7 @@ nano .env
 
 ### Redis配置
 
-> 说明：项目默认要求 **Redis Stack**（必须支持 RediSearch `FT.*` 与 RedisJSON `JSON.*`），否则向量缓存与索引重建会不可用。
+> 说明：当启用向量缓存（`vector_cache.enabled=true`）时要求 **Redis Stack**（必须支持 RediSearch `FT.*` 与 RedisJSON `JSON.*`）；向量缓存关闭时可不依赖 Redis。
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|

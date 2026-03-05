@@ -460,7 +460,8 @@ type RoutingDecision struct {
 git clone https://github.com/wenkezhi8/ai-gateway.git
 cd ai-gateway
 
-# 2. 启动依赖服务（Redis Stack，必需）
+# 2. 启动依赖服务（按场景）
+# 若启用向量缓存（vector_cache.enabled=true），需要 Redis Stack
 # 推荐：docker run -d --name ai-gateway-redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack-server:7.2.0-v18
 # 验证：redis-cli -p 6379 FT._LIST
 

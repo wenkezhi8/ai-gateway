@@ -8,7 +8,7 @@ AI Gateway 支持三个版本，系统设置中可直接切换：
 
 - 基础版（`basic`）
   - 纯网关能力
-  - 依赖：Redis
+  - 依赖：默认无（若启用向量缓存则需 Redis Stack）
 - 标准版（`standard`）
   - 含基础版全部能力
   - 增加语义缓存（Ollama 向量能力）
