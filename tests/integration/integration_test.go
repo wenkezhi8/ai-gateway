@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"ai-gateway/internal/limiter"
 	"ai-gateway/internal/provider"
 	"ai-gateway/internal/router"
+	"ai-gateway/internal/routing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -23,6 +26,17 @@ import (
 
 func TestIntegration_FullRequestFlow(t *testing.T) {
 	setGinTestMode()
+	ensureSmartRouterModelsForIntegrationTest(t, map[string]*routing.ModelScore{
+		"gpt-4": {
+			Model:        "gpt-4",
+			Provider:     "mock-provider",
+			DisplayName:  "gpt-4",
+			QualityScore: 80,
+			SpeedScore:   80,
+			CostScore:    80,
+			Enabled:      true,
+		},
+	})
 
 	// Clear global registry before test
 	provider.ClearRegistry()
@@ -191,6 +205,41 @@ func TestIntegration_RouterStrategy(t *testing.T) {
 		result := router.ParseStrategyType(s.input)
 		assert.Equal(t, s.expected, result)
 	}
+}
+
+func ensureSmartRouterModelsForIntegrationTest(t *testing.T, modelScores map[string]*routing.ModelScore) {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	tempRoot := t.TempDir()
+	dataDir := filepath.Join(tempRoot, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+
+	payload := make(map[string]*routing.ModelScore, len(modelScores))
+	for modelID, score := range modelScores {
+		if score == nil {
+			continue
+		}
+		copied := *score
+		if copied.Model == "" {
+			copied.Model = modelID
+		}
+		if copied.DisplayName == "" {
+			copied.DisplayName = copied.Model
+		}
+		payload[modelID] = &copied
+	}
+
+	content, err := json.MarshalIndent(payload, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "model_scores.json"), content, 0o640))
+	require.NoError(t, os.Chdir(tempRoot))
+
+	t.Cleanup(func() {
+		_ = os.Chdir(wd)
+	})
 }
 
 type mockProviderForIntegration struct {

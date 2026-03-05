@@ -29,6 +29,7 @@ const (
 	ErrCodeProviderError   = "provider_error"
 	ErrCodeInternalError   = "internal_error"
 	ErrCodeModelNotFound   = "model_not_found"
+	ErrCodeModelNotReg     = "model_not_registered"
 )
 
 // Success returns a successful response

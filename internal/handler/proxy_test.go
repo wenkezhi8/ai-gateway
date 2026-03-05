@@ -74,6 +74,7 @@ func TestProxyHandler_ListProviders_Empty(t *testing.T) {
 func TestProxyHandler_ChatCompletions(t *testing.T) {
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -409,6 +410,7 @@ func TestProxyHandler_ChatCompletions_StreamShouldRecordHTTPResponseSpan(t *test
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 	provider.RegisterProvider("openai", &doneStreamProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
@@ -455,6 +457,7 @@ func TestProxyHandler_ChatCompletions_StreamFallbackShouldRecordHTTPResponseSpan
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 	provider.RegisterProvider("openai", &fallbackStreamProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
@@ -502,6 +505,7 @@ func TestProxyHandler_ChatCompletions_StreamClosedWithoutDoneShouldFinalizeTrace
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 	provider.RegisterProvider("openai", &noDoneStreamProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
@@ -542,6 +546,7 @@ func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithM
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 	provider.RegisterProvider("openai", &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
@@ -575,6 +580,7 @@ func TestProxyHandler_ChatCompletions_CacheHitShouldRecordHTTPResponseSpanWithMe
 
 	cacheManager := cache.NewManagerWithCache(cache.NewMemoryCache())
 	h := NewProxyHandler(&config.Config{}, nil, cacheManager)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 	provider.RegisterProvider("openai", &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
@@ -924,6 +930,94 @@ type configuredProviderPayload struct {
 	Enabled bool     `json:"enabled"`
 }
 
+func setSmartRouterModelScoresForTest(t *testing.T, h *ProxyHandler, scores map[string]*routing.ModelScore) {
+	t.Helper()
+
+	routerConfig := h.smartRouter.GetConfig()
+	originalScores := routerConfig.ModelScores
+	replacement := make(map[string]*routing.ModelScore, len(scores))
+	for key, score := range scores {
+		if score == nil {
+			continue
+		}
+		copied := *score
+		replacement[key] = &copied
+	}
+	routerConfig.ModelScores = replacement
+	t.Cleanup(func() {
+		routerConfig.ModelScores = originalScores
+	})
+}
+
+func ensureModelRegistryModelsForTest(t *testing.T, h *ProxyHandler, providerName string, models ...string) {
+	t.Helper()
+
+	normalizedProvider := normalizeProviderName(providerName)
+	routerConfig := h.smartRouter.GetConfig()
+	if routerConfig.ModelScores == nil {
+		routerConfig.ModelScores = make(map[string]*routing.ModelScore)
+	}
+
+	originalEntries := make(map[string]*routing.ModelScore, len(models))
+	originalExists := make(map[string]bool, len(models))
+	for _, model := range models {
+		modelID := strings.TrimSpace(model)
+		if modelID == "" {
+			continue
+		}
+
+		if _, alreadyCaptured := originalExists[modelID]; !alreadyCaptured {
+			previous := routerConfig.ModelScores[modelID]
+			originalExists[modelID] = previous != nil
+			if previous != nil {
+				copied := *previous
+				originalEntries[modelID] = &copied
+			}
+		}
+
+		routerConfig.ModelScores[modelID] = &routing.ModelScore{
+			Model:        modelID,
+			Provider:     normalizedProvider,
+			DisplayName:  modelID,
+			QualityScore: 80,
+			SpeedScore:   80,
+			CostScore:    80,
+			Enabled:      true,
+		}
+	}
+
+	t.Cleanup(func() {
+		for _, model := range models {
+			modelID := strings.TrimSpace(model)
+			if modelID == "" {
+				continue
+			}
+			if !originalExists[modelID] {
+				delete(routerConfig.ModelScores, modelID)
+				continue
+			}
+			if previous, ok := originalEntries[modelID]; ok && previous != nil {
+				copied := *previous
+				routerConfig.ModelScores[modelID] = &copied
+				continue
+			}
+			delete(routerConfig.ModelScores, modelID)
+		}
+	})
+}
+
+func registerMockFactory(r *provider.Registry, name string) {
+	r.RegisterFactory(name, func(cfg *provider.ProviderConfig) provider.Provider {
+		enabled := cfg.Enabled
+		if !enabled {
+			enabled = true
+		}
+		return &mockProvider{
+			BaseProvider: provider.NewBaseProvider(cfg.Name, cfg.APIKey, cfg.BaseURL, cfg.Models, enabled),
+		}
+	})
+}
+
 func decodeConfiguredProvidersResponse(t *testing.T, body []byte) map[string]configuredProviderPayload {
 	t.Helper()
 
@@ -943,31 +1037,192 @@ func decodeConfiguredProvidersResponse(t *testing.T, body []byte) map[string]con
 	return result
 }
 
-func TestProxyHandler_GetProviderForRequest_UsesInferredProviderWhenModelNotMapped(t *testing.T) {
-	// Clear global registry before test
+func TestProxyHandler_ChatCompletions_ModelRegistryProviderShouldOverrideConflictingRequestProvider(t *testing.T) {
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	setSmartRouterModelScoresForTest(t, h, map[string]*routing.ModelScore{
+		"registry-routed-model": {
+			Model:    "registry-routed-model",
+			Provider: "openai",
+			Enabled:  true,
+		},
+	})
+
+	openaiCapture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "openai-key", "https://api.openai.com/v1", []string{"registry-routed-model"}, true),
+	}
+	zhipuCapture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("zhipu", "zhipu-key", "https://open.bigmodel.cn/api/paas/v4", []string{"registry-routed-model"}, true),
+	}
+	provider.RegisterProvider("openai", openaiCapture)
+	provider.RegisterProvider("zhipu", zhipuCapture)
+
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"zhipu","model":"registry-routed-model","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
 
-	// Register a Google provider that does not explicitly include gemini-3.1-pro-preview in model list
-	googleProvider := &mockProvider{
-		BaseProvider: provider.NewBaseProvider(
-			"google",
-			"test-key",
-			"https://generativelanguage.googleapis.com/v1beta",
-			[]string{"gemini-1.5-pro"},
-			true,
-		),
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NotNil(t, openaiCapture.lastChatReq)
+	assert.Nil(t, zhipuCapture.lastChatReq)
+}
+
+func TestProxyHandler_ChatCompletions_ShouldRejectUnregisteredModel(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	capture := &capturingProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "openai-key", "https://api.openai.com/v1", []string{"unregistered-test-model"}, true),
 	}
-	provider.RegisterProvider("google", googleProvider)
+	provider.RegisterProvider("openai", capture)
 
-	selected, err := h.getProviderForRequest(c, "gemini-3.1-pro-preview", "")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"unregistered-test-model","messages":[{"role":"user","content":"hello"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Nil(t, capture.lastChatReq)
+
+	var resp Response
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Error)
+	assert.Equal(t, "model_not_registered", resp.Error.Code)
+	assert.Contains(t, resp.Error.Message, "模型未在模型管理中注册")
+}
+
+func TestProxyHandler_GetProviderForRequest_PreferSameProviderAccountOverCompatibleType(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-openai-strict",
+		Name:         "OpenAI Strict",
+		Provider:     "openai",
+		ProviderType: "openai",
+		APIKey:       "sk-openai",
+		BaseURL:      "https://api.openai.com/v1",
+		Enabled:      true,
+		Priority:     1,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-zhipu-compatible",
+		Name:         "Zhipu Compatible",
+		Provider:     "zhipu",
+		ProviderType: "openai",
+		APIKey:       "sk-zhipu",
+		BaseURL:      "https://open.bigmodel.cn/api/paas/v4",
+		Enabled:      true,
+		Priority:     100,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	h := NewProxyHandler(&config.Config{}, accountManager, nil)
+	registerMockFactory(h.registry, "openai")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	prov, err := h.getProviderForRequest(c, "gpt-4o", "openai")
 	require.NoError(t, err)
-	require.NotNil(t, selected)
-	assert.Equal(t, "google", selected.Name())
+	require.NotNil(t, prov)
+
+	selectedID, ok := c.Get("selected_account_id")
+	require.True(t, ok)
+	assert.Equal(t, "acc-openai-strict", selectedID)
+
+	_, hasFallback := c.Get("fallback_account_type")
+	assert.False(t, hasFallback)
+}
+
+func TestProxyHandler_GetProviderForRequest_ShouldFallbackToCompatibleProviderTypeWhenNoSameProviderAccount(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-zhipu-compatible",
+		Name:         "Zhipu Compatible",
+		Provider:     "zhipu",
+		ProviderType: "openai",
+		APIKey:       "sk-zhipu",
+		BaseURL:      "https://open.bigmodel.cn/api/paas/v4",
+		Enabled:      true,
+		Priority:     100,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	h := NewProxyHandler(&config.Config{}, accountManager, nil)
+	registerMockFactory(h.registry, "openai")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	prov, err := h.getProviderForRequest(c, "gpt-4o", "openai")
+	require.NoError(t, err)
+	require.NotNil(t, prov)
+
+	selectedID, ok := c.Get("selected_account_id")
+	require.True(t, ok)
+	assert.Equal(t, "acc-zhipu-compatible", selectedID)
+
+	fallbackType, hasFallback := c.Get("fallback_account_type")
+	require.True(t, hasFallback)
+	assert.Equal(t, "provider_type_compatible", fallbackType)
+}
+
+func TestProxyHandler_GetProviderForRequest_ShouldNotFallbackWhenSameProviderExistsButDisabled(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-openai-disabled",
+		Name:         "OpenAI Disabled",
+		Provider:     "openai",
+		ProviderType: "openai",
+		APIKey:       "sk-openai-disabled",
+		BaseURL:      "https://api.openai.com/v1",
+		Enabled:      false,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-zhipu-compatible",
+		Name:         "Zhipu Compatible",
+		Provider:     "zhipu",
+		ProviderType: "openai",
+		APIKey:       "sk-zhipu",
+		BaseURL:      "https://open.bigmodel.cn/api/paas/v4",
+		Enabled:      true,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	h := NewProxyHandler(&config.Config{}, accountManager, nil)
+	registerMockFactory(h.registry, "openai")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	prov, err := h.getProviderForRequest(c, "gpt-4o", "openai")
+	require.Error(t, err)
+	assert.Nil(t, prov)
+	assert.Contains(t, err.Error(), "disabled")
+
+	_, selected := c.Get("selected_account_id")
+	assert.False(t, selected)
 }
 
 func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *testing.T) {
@@ -975,6 +1230,7 @@ func TestProxyHandler_ChatCompletions_ShouldPassthroughUpstreamProviderError(t *
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "google", "gemini-3.1-pro-preview")
 
 	googleProvider := &failingProvider{
 		BaseProvider: provider.NewBaseProvider(
@@ -1016,6 +1272,7 @@ func TestProxyHandler_ChatCompletions_ProviderErrorShouldRecordHTTPResponseError
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 
 	provider.RegisterProvider("openai", &failingProvider{
@@ -1057,6 +1314,7 @@ func TestProxyHandler_ChatCompletions_StreamStartFailureShouldRecordHTTPResponse
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 	db := storage.GetSQLiteStorage().GetDB()
 
 	provider.RegisterProvider("openai", &streamStartFailProvider{
@@ -1290,6 +1548,7 @@ func TestProxyHandler_ChatCompletions_ShouldBridgeExtrasToProviderRequest(t *tes
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "unit-test-model")
 	capture := &capturingProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
 	}
@@ -1325,6 +1584,7 @@ func TestProxyHandler_ChatCompletions_Stream_ShouldBridgeExtrasToProviderRequest
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "unit-test-model")
 	capture := &capturingProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
 	}
@@ -1366,6 +1626,7 @@ func TestProxyHandler_ChatCompletions_NonOpenAIProvider_ShouldIgnoreReasoningEff
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "anthropic", "unit-test-model")
 	capture := &capturingProvider{
 		BaseProvider: provider.NewBaseProvider("anthropic", "test-key", "https://api.anthropic.com", []string{"unit-test-model"}, true),
 	}
@@ -1390,6 +1651,7 @@ func TestProxyHandler_ChatCompletions_ShouldRetryWithoutReasoningEffortForUnsupp
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "reasoning-downgrade-model")
 	retryProvider := &reasoningDowngradeProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"reasoning-downgrade-model"}, true),
 	}
@@ -1424,6 +1686,7 @@ func TestProxyHandler_ChatCompletions_Stream_ShouldRetryWithoutReasoningEffortFo
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "reasoning-downgrade-stream-model")
 	retryProvider := &reasoningDowngradeProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"reasoning-downgrade-stream-model"}, true),
 	}
@@ -1553,6 +1816,7 @@ func TestProxyHandler_ChatCompletions_ShouldCanonicalizeAliasBeforeForwarding(t 
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-5.3-codex")
 	capture := &capturingProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-5.3-codex"}, true),
 	}
@@ -1577,6 +1841,7 @@ func TestProxyHandler_ChatCompletions_ModelNotFoundShouldNotFallbackAcrossModels
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "missing-model")
 	probe := &modelNotFoundProbeProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-model", "gpt-4o"}, true),
 	}
@@ -1605,6 +1870,7 @@ func TestProxyHandler_ChatCompletions_StreamFallback_ModelNotFoundShouldNotFallb
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "missing-stream-model")
 	probe := &modelNotFoundProbeProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"missing-stream-model", "gpt-4o"}, true),
 	}

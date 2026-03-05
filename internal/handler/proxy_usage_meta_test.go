@@ -42,6 +42,7 @@ func TestProxyHandler_ChatCompletions_ShouldPersistUsageMetaForNonStream(t *test
 	}))
 
 	h := NewProxyHandler(&config.Config{}, accountManager, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "usage-meta-non-stream-model")
 	h.registry.Register("openai", &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"usage-meta-non-stream-model"}, true),
 	})
@@ -73,6 +74,7 @@ func TestProxyHandler_ChatCompletions_ShouldPersistUsageMetaForStream(t *testing
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "usage-meta-stream-model")
 	h.registry.Register("openai", &doneStreamProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"usage-meta-stream-model"}, true),
 	})
@@ -102,6 +104,7 @@ func TestProxyHandler_ChatCompletions_ShouldInferHighInferenceIntensityFromDeepT
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "usage-meta-deep-think-model")
 	h.registry.Register("openai", &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"usage-meta-deep-think-model"}, true),
 	})
@@ -122,6 +125,33 @@ func TestProxyHandler_ChatCompletions_ShouldInferHighInferenceIntensityFromDeepT
 	meta := fetchLatestUsageRuntimeMetaByModel(t, storage.GetSQLiteStorage().GetDB(), "usage-meta-deep-think-model")
 	assert.Equal(t, "high", meta.InferenceIntensity)
 	assert.Equal(t, "non_stream", meta.RequestType)
+}
+
+func TestBuildUsageRuntimeMeta_ShouldPreferSelectedAccountContext(t *testing.T) {
+	accountManager := limiter.NewAccountManager(nil, nil)
+	require.NoError(t, accountManager.AddAccount(&limiter.AccountConfig{
+		ID:           "acc-compat",
+		Name:         "Compatible Account",
+		Provider:     "zhipu",
+		ProviderType: "openai",
+		APIKey:       "sk-compat",
+		BaseURL:      "https://open.bigmodel.cn/api/paas/v4",
+		Enabled:      true,
+		Limits:       map[limiter.LimitType]*limiter.LimitConfig{},
+	}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	req := &ChatCompletionRequest{
+		Model:    "gpt-5.3-codex-spark",
+		Provider: "openai",
+		Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+	}
+	c.Set("selected_account_id", "acc-compat")
+	c.Set("selected_account_name", "Compatible Account")
+
+	meta := buildUsageRuntimeMeta(c, req, nil, accountManager)
+	assert.Equal(t, "Compatible Account", meta.Account)
 }
 
 func fetchLatestUsageRuntimeMetaByModel(t *testing.T, db *sql.DB, model string) usageRuntimeMetaRecord {
