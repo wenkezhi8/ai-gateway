@@ -2182,6 +2182,73 @@ func (h *ProxyHandler) handleStreamResponse(
 		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
 			h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
 		}
+
+		if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
+			responsePayload := map[string]interface{}{
+				"id":               fmt.Sprintf("chatcmpl-stream-%d", time.Now().UnixNano()),
+				"object":           "chat.completion",
+				"created":          time.Now().Unix(),
+				"model":            req.Model,
+				"task_type":        taskType,
+				"task_type_source": taskTypeSource,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"message": map[string]interface{}{
+							"role":    "assistant",
+							"content": fullContent.String(),
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.Total),
+			}
+
+			if body, err := json.Marshal(responsePayload); err == nil {
+				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
+				if keyErr == nil {
+					cachedResp := &cache.CachedResponse{
+						StatusCode:     http.StatusOK,
+						Headers:        map[string]string{"Content-Type": "application/json"},
+						Body:           body,
+						CreatedAt:      time.Now(),
+						HitCount:       0,
+						HitModels:      map[string]int64{req.Model: 1},
+						Provider:       providerName,
+						Model:          req.Model,
+						Prompt:         prompt,
+						TaskType:       taskType,
+						TaskTypeSource: taskTypeSource,
+					}
+					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+						if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
+							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+						}
+					} else {
+						if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
+							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+						}
+					}
+					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
+						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
+					}
+				}
+
+				if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
+					queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+					h.semanticCache.Set(
+						c.Request.Context(),
+						semanticQuery,
+						queryVector,
+						body,
+						req.Model,
+						providerName,
+						taskType,
+						recommendedTTL,
+					)
+				}
+			}
+		}
 	}
 
 	if !streamCompletedByDone && (receivedChunks == 0 || fallbackNeeded) {

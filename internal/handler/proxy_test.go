@@ -541,6 +541,34 @@ func TestProxyHandler_ChatCompletions_StreamClosedWithoutDoneShouldFinalizeTrace
 	assert.False(t, hasFallback)
 }
 
+func TestProxyHandler_ChatCompletions_StreamClosedWithoutDoneShouldWriteResponseCache(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	cacheManager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	h := NewProxyHandler(&config.Config{}, nil, cacheManager)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
+	provider.RegisterProvider("openai", &noDoneStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello cache no done"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, strings.Count(w.Body.String(), "[DONE]"))
+
+	entries := cacheManager.ListEntries("response", "")
+	require.Len(t, entries, 1, "stream close without done should still write response cache")
+}
+
 func TestProxyHandler_ChatCompletions_NonStreamShouldRecordHTTPResponseSpanWithMessages(t *testing.T) {
 	provider.ClearRegistry()
 	defer provider.ClearRegistry()
