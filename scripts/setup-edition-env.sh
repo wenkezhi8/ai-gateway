@@ -13,6 +13,7 @@ RUNTIME="docker"
 APPLY_CONFIG="false"
 PULL_EMBEDDING_MODEL="false"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
+EDITION_EXPLICIT="false"
 RUNTIME_EXPLICIT="false"
 
 LEGACY_REDIS_CONTAINER="redis-stack"
@@ -22,6 +23,8 @@ OLLAMA_VERSION="${OLLAMA_VERSION:-latest}"
 QDRANT_VERSION="${QDRANT_VERSION:-latest}"
 
 REQUIRED_DEPENDENCIES=()
+SUMMARY_ACTION=""
+SUMMARY_DEPENDENCIES=""
 
 usage() {
   cat <<'EOF'
@@ -35,8 +38,9 @@ Options:
   --config-path <path>
 
 说明:
+  未传 --edition 时，脚本会在交互终端中提示选择版本（basic/standard/enterprise）。
   未传 --runtime 时，脚本会在交互终端中提示选择安装环境（docker/native）。
-  非交互环境默认使用 docker。
+  非交互环境默认使用 standard + docker。
 EOF
 }
 
@@ -77,6 +81,36 @@ is_bool() {
   case "$1" in
     true|false) return 0 ;;
     *) return 1 ;;
+  esac
+}
+
+normalize_choice_input() {
+  printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | xargs
+}
+
+parse_edition_choice() {
+  case "$(normalize_choice_input "$1")" in
+    1|basic) printf 'basic' ;;
+    2|standard) printf 'standard' ;;
+    3|enterprise) printf 'enterprise' ;;
+    *) printf '' ;;
+  esac
+}
+
+parse_runtime_choice() {
+  case "$(normalize_choice_input "$1")" in
+    1|docker) printf 'docker' ;;
+    2|native) printf 'native' ;;
+    *) printf '' ;;
+  esac
+}
+
+edition_display_name() {
+  case "$1" in
+    basic) printf '基础版' ;;
+    standard) printf '标准版' ;;
+    enterprise) printf '企业版' ;;
+    *) printf '%s' "$1" ;;
   esac
 }
 
@@ -277,6 +311,93 @@ validate_required_health() {
   done
 }
 
+stop_all_dependencies_by_runtime() {
+  if [[ "$RUNTIME" == "docker" ]]; then
+    local running_names container
+    local -a running_containers=()
+    running_names="$(docker ps --format '{{.Names}}')"
+
+    for container in "$REDIS_CONTAINER" "$OLLAMA_CONTAINER" "$QDRANT_CONTAINER"; do
+      if printf '%s\n' "$running_names" | grep -Fxq "$container"; then
+        running_containers+=("$container")
+      fi
+    done
+
+    if [[ ${#running_containers[@]} -gt 0 ]]; then
+      log "基础版：停止所有依赖 -> 批量停止容器: ${running_containers[*]}"
+      docker stop "${running_containers[@]}" >/dev/null 2>&1 || true
+      SUMMARY_DEPENDENCIES="${running_containers[*]}"
+    else
+      log "基础版：停止所有依赖 -> 未检测到运行中的依赖容器"
+      SUMMARY_DEPENDENCIES="无（未检测到运行中的依赖）"
+    fi
+    return
+  fi
+
+  # native 模式仅停止，不执行卸载。
+  local -a stopped_native_deps=()
+
+  if pgrep -f "redis-server|redis-stack-server" >/dev/null 2>&1; then
+    pkill -f "redis-server|redis-stack-server" >/dev/null 2>&1 || true
+    log "基础版：停止所有依赖 -> 已尝试停止 native redis"
+    stopped_native_deps+=("redis")
+  else
+    log "基础版：停止所有依赖 -> native redis 未运行，跳过"
+  fi
+
+  if pgrep -f "ollama serve" >/dev/null 2>&1; then
+    pkill -f "ollama serve" >/dev/null 2>&1 || true
+    log "基础版：停止所有依赖 -> 已尝试停止 native ollama"
+    stopped_native_deps+=("ollama")
+  else
+    log "基础版：停止所有依赖 -> native ollama 未运行，跳过"
+  fi
+
+  if pgrep -f "qdrant" >/dev/null 2>&1; then
+    pkill -f "qdrant" >/dev/null 2>&1 || true
+    log "基础版：停止所有依赖 -> 已尝试停止 native qdrant"
+    stopped_native_deps+=("qdrant")
+  else
+    log "基础版：停止所有依赖 -> native qdrant 未运行，跳过"
+  fi
+
+  if [[ ${#stopped_native_deps[@]} -gt 0 ]]; then
+    SUMMARY_DEPENDENCIES="${stopped_native_deps[*]}"
+  else
+    SUMMARY_DEPENDENCIES="无（未检测到运行中的依赖）"
+  fi
+}
+
+choose_edition_interactively_if_needed() {
+  if [[ "$EDITION_EXPLICIT" == "true" ]]; then
+    return
+  fi
+
+  if [[ ! -t 0 ]]; then
+    log "未指定 --edition，当前为非交互环境，默认使用 standard。"
+    EDITION="standard"
+    return
+  fi
+
+  echo "请选择版本："
+  echo "  1) 基础版（basic，停止所有依赖）"
+  echo "  2) 标准版（standard，推荐）"
+  echo "  3) 企业版（enterprise）"
+
+  while true; do
+    read -r -p "请输入 1/2/3（默认 2）: " edition_choice
+    edition_choice="${edition_choice:-2}"
+    parsed_edition="$(parse_edition_choice "$edition_choice")"
+    if [[ -n "$parsed_edition" ]]; then
+      EDITION="$parsed_edition"
+      break
+    fi
+    echo "输入无效，请输入 1、2、3 或 basic/standard/enterprise。"
+  done
+
+  log "已选择版本: $(edition_display_name "$EDITION") (${EDITION})"
+}
+
 choose_runtime_interactively_if_needed() {
   if [[ "$RUNTIME_EXPLICIT" == "true" ]]; then
     return
@@ -295,19 +416,12 @@ choose_runtime_interactively_if_needed() {
   while true; do
     read -r -p "请输入 1 或 2（默认 1）: " runtime_choice
     runtime_choice="${runtime_choice:-1}"
-    case "$(echo "$runtime_choice" | tr '[:upper:]' '[:lower:]' | xargs)" in
-      1|docker)
-        RUNTIME="docker"
-        break
-        ;;
-      2|native)
-        RUNTIME="native"
-        break
-        ;;
-      *)
-        echo "输入无效，请输入 1 或 2。"
-        ;;
-    esac
+    parsed_runtime="$(parse_runtime_choice "$runtime_choice")"
+    if [[ -n "$parsed_runtime" ]]; then
+      RUNTIME="$parsed_runtime"
+      break
+    fi
+    echo "输入无效，请输入 1 或 2。"
   done
 
   log "已选择安装环境: $RUNTIME"
@@ -317,6 +431,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --edition)
       EDITION="$2"
+      EDITION_EXPLICIT="true"
       shift 2
       ;;
     --runtime)
@@ -346,6 +461,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+choose_edition_interactively_if_needed
 choose_runtime_interactively_if_needed
 
 case "$EDITION" in
@@ -368,40 +484,56 @@ fi
 
 resolve_required_dependencies
 
-if [[ "$RUNTIME" == "docker" ]]; then
-  docker_available || fail "docker runtime requested but docker is unavailable"
-  local_dep=""
-  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
-    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
-      case "$local_dep" in
-        redis)
-          ensure_redis_docker
-          ;;
-        ollama)
-          ensure_ollama_docker
-          ;;
-        qdrant)
-          ensure_qdrant_docker
-          ;;
-      esac
-    done
+if [[ "$EDITION" == "basic" ]]; then
+  SUMMARY_ACTION="停止依赖"
+  log "基础版：停止所有依赖"
+  if [[ "$RUNTIME" == "docker" ]]; then
+    docker_available || fail "docker runtime requested but docker is unavailable"
   fi
+  stop_all_dependencies_by_runtime
 else
-  local_dep=""
+  SUMMARY_ACTION="安装/确保依赖运行"
   if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
-    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
-      case "$local_dep" in
-        redis)
-          ensure_redis_native
-          ;;
-        ollama)
-          ensure_ollama_native
-          ;;
-        qdrant)
-          ensure_qdrant_native
-          ;;
-      esac
-    done
+    SUMMARY_DEPENDENCIES="${REQUIRED_DEPENDENCIES[*]}"
+  else
+    SUMMARY_DEPENDENCIES="无"
+  fi
+
+  if [[ "$RUNTIME" == "docker" ]]; then
+    docker_available || fail "docker runtime requested but docker is unavailable"
+    local_dep=""
+    if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+      for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+        case "$local_dep" in
+          redis)
+            ensure_redis_docker
+            ;;
+          ollama)
+            ensure_ollama_docker
+            ;;
+          qdrant)
+            ensure_qdrant_docker
+            ;;
+        esac
+      done
+    fi
+  else
+    local_dep=""
+    if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+      for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+        case "$local_dep" in
+          redis)
+            ensure_redis_native
+            ;;
+          ollama)
+            ensure_ollama_native
+            ;;
+          qdrant)
+            ensure_qdrant_native
+            ;;
+        esac
+      done
+    fi
   fi
 fi
 
@@ -411,6 +543,14 @@ if [[ "$APPLY_CONFIG" == "true" ]]; then
 fi
 
 pull_embedding_model_if_needed
-validate_required_health
+if [[ "$EDITION" != "basic" ]]; then
+  validate_required_health
+fi
+
+log "本次动作摘要:"
+log "  版本: $(edition_display_name "$EDITION") (${EDITION})"
+log "  环境: $RUNTIME"
+log "  动作: $SUMMARY_ACTION"
+log "  依赖清单: $SUMMARY_DEPENDENCIES"
 
 log "setup completed: edition=$EDITION runtime=$RUNTIME apply_config=$APPLY_CONFIG pull_embedding_model=$PULL_EMBEDDING_MODEL"

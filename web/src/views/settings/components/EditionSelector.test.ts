@@ -42,4 +42,24 @@ describe('edition selector component', () => {
     expect(content).toContain('native 模式')
     expect(content).toContain('不会自动切换到 Docker')
   })
+
+  it('shows manual script install guide with command synced to current selection', () => {
+    const file = resolve(process.cwd(), 'src/views/settings/components/EditionSelector.vue')
+    const content = readFileSync(file, 'utf-8')
+
+    expect(content).toContain('手动脚本安装（与当前选择一致）')
+    expect(content).toContain('./scripts/setup-edition-env.sh')
+    expect(content).toContain('--edition')
+    expect(content).toContain('--runtime')
+    expect(content).toContain('manualInstallCommand')
+    expect(content).toContain('copyManualInstallCommand')
+  })
+
+  it('uses unified basic edition wording as stop all dependencies', () => {
+    const file = resolve(process.cwd(), 'src/views/settings/components/EditionSelector.vue')
+    const content = readFileSync(file, 'utf-8')
+
+    expect(content).toContain('基础版：停止所有依赖')
+    expect(content).not.toContain('卸载所有依赖')
+  })
 })
