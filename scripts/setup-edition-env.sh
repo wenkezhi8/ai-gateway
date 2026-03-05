@@ -105,6 +105,15 @@ parse_runtime_choice() {
   esac
 }
 
+edition_display_name() {
+  case "$1" in
+    basic) printf '基础版' ;;
+    standard) printf '标准版' ;;
+    enterprise) printf '企业版' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 docker_available() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 }
@@ -370,10 +379,10 @@ choose_edition_interactively_if_needed() {
     return
   fi
 
-  echo "请选择版本（basic/standard/enterprise）："
-  echo "  1) basic（基础版：停止所有依赖）"
-  echo "  2) standard（推荐）"
-  echo "  3) enterprise"
+  echo "请选择版本："
+  echo "  1) 基础版（basic，停止所有依赖）"
+  echo "  2) 标准版（standard，推荐）"
+  echo "  3) 企业版（enterprise）"
 
   while true; do
     read -r -p "请输入 1/2/3（默认 2）: " edition_choice
@@ -386,7 +395,7 @@ choose_edition_interactively_if_needed() {
     echo "输入无效，请输入 1、2、3 或 basic/standard/enterprise。"
   done
 
-  log "已选择版本: $EDITION"
+  log "已选择版本: $(edition_display_name "$EDITION") (${EDITION})"
 }
 
 choose_runtime_interactively_if_needed() {
@@ -538,7 +547,7 @@ if [[ "$EDITION" != "basic" ]]; then
 fi
 
 log "本次动作摘要:"
-log "  版本: $EDITION"
+log "  版本: $(edition_display_name "$EDITION") (${EDITION})"
 log "  环境: $RUNTIME"
 log "  动作: $SUMMARY_ACTION"
 log "  依赖清单: $SUMMARY_DEPENDENCIES"
