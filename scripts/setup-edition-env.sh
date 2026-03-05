@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 source "$SCRIPT_DIR/lib/container-names.sh"
+source "$SCRIPT_DIR/lib/edition-deps-policy.sh"
 
 EDITION="standard"
 RUNTIME="docker"
@@ -18,6 +19,8 @@ LEGACY_REDIS_CONTAINER="redis-stack"
 REDIS_VERSION="${REDIS_VERSION:-7.2.0-v18}"
 OLLAMA_VERSION="${OLLAMA_VERSION:-latest}"
 QDRANT_VERSION="${QDRANT_VERSION:-latest}"
+
+REQUIRED_DEPENDENCIES=()
 
 usage() {
   cat <<'EOF'
@@ -188,6 +191,10 @@ edition_data["dependency_versions"] = dependency_versions
 
 vector_cache = data.setdefault("vector_cache", {})
 if edition in ("standard", "enterprise"):
+    vector_cache["enabled"] = True
+elif edition == "basic":
+    vector_cache["enabled"] = False
+if edition in ("standard", "enterprise"):
     vector_cache.setdefault("ollama_base_url", "http://127.0.0.1:11434")
 if edition == "enterprise" and not vector_cache.get("cold_vector_qdrant_url"):
     vector_cache["cold_vector_qdrant_url"] = "http://127.0.0.1:6333"
@@ -225,13 +232,27 @@ check_qdrant() {
   curl -fsS "http://127.0.0.1:6333/collections" >/dev/null 2>&1
 }
 
-validate_required_health() {
-  local required=("redis")
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    required+=("ollama")
+resolve_required_dependencies() {
+  local required_line
+  required_line="$(edition_required_dependencies "$EDITION" "$CONFIG_PATH")"
+
+  # Apply-config 模式下按目标版本默认行为计算，避免 basic 被旧配置中的向量开关误伤。
+  if [[ "$APPLY_CONFIG" == "true" && "$EDITION" == "basic" ]]; then
+    required_line=""
   fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    required+=("qdrant")
+
+  # shellcheck disable=SC2206
+  REQUIRED_DEPENDENCIES=($required_line)
+}
+
+validate_required_health() {
+  local required=()
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    required=("${REQUIRED_DEPENDENCIES[@]}")
+  fi
+
+  if [[ ${#required[@]} -eq 0 ]]; then
+    return
   fi
 
   local dep
@@ -301,24 +322,42 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   cp "$PROJECT_DIR/configs/config.example.json" "$CONFIG_PATH"
 fi
 
+resolve_required_dependencies
+
 if [[ "$RUNTIME" == "docker" ]]; then
   docker_available || fail "docker runtime requested but docker is unavailable"
-  ensure_redis_docker
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_ollama_docker
-  fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    ensure_qdrant_docker
+  local_dep=""
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+      case "$local_dep" in
+        redis)
+          ensure_redis_docker
+          ;;
+        ollama)
+          ensure_ollama_docker
+          ;;
+        qdrant)
+          ensure_qdrant_docker
+          ;;
+      esac
+    done
   fi
 else
-  if [[ "$EDITION" == "basic" || "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_redis_native
-  fi
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_ollama_native
-  fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    ensure_qdrant_native
+  local_dep=""
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+      case "$local_dep" in
+        redis)
+          ensure_redis_native
+          ;;
+        ollama)
+          ensure_ollama_native
+          ;;
+        qdrant)
+          ensure_qdrant_native
+          ;;
+      esac
+    done
   fi
 fi
 

@@ -121,7 +121,7 @@ var EditionDefinitions = map[EditionType]EditionDefinition{
 			KnowledgeBase:      false,
 			ColdHotTiering:     false,
 		},
-		Dependencies: []string{"redis"},
+		Dependencies: []string{},
 	},
 	EditionStandard: {
 		Type:        EditionStandard,

@@ -28,3 +28,12 @@ func TestEditionDefinitions_EnterpriseDependencies(t *testing.T) {
 		}
 	}
 }
+
+func TestEditionDefinitions_BasicDependencies_ShouldBeEmpty(t *testing.T) {
+	t.Parallel()
+
+	edition := EditionDefinitions[EditionBasic]
+	if len(edition.Dependencies) != 0 {
+		t.Fatalf("basic dependencies = %v, want empty", edition.Dependencies)
+	}
+}

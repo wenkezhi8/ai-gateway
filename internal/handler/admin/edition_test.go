@@ -127,6 +127,67 @@ func TestEditionAPI_UpdateEdition(t *testing.T) {
 	}
 }
 
+func TestEditionAPI_UpdateEdition_ToBasicWithoutRedis_ShouldSucceed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.json")
+	cfg := config.DefaultConfig()
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal config failed: %v", err)
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	orig := os.Getenv("CONFIG_PATH")
+	defer os.Setenv("CONFIG_PATH", orig)
+	os.Setenv("CONFIG_PATH", configPath)
+
+	origDeps := dependencyStatusProvider
+	defer func() { dependencyStatusProvider = origDeps }()
+	dependencyStatusProvider = func(_ *config.Config) map[string]DependencyStatus {
+		return map[string]DependencyStatus{
+			"redis":  {Healthy: false, Message: "redis down"},
+			"ollama": {Healthy: false, Message: "ollama down"},
+			"qdrant": {Healthy: false, Message: "qdrant down"},
+		}
+	}
+
+	h := NewEditionHandler()
+	r := gin.New()
+	r.PUT("/api/admin/edition", h.UpdateEdition)
+
+	body := []byte(`{"type":"basic"}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/admin/edition", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", w.Code, http.StatusOK, w.Body.String())
+	}
+
+	var resp struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Edition struct {
+				Type string `json:"type"`
+			} `json:"edition"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("expected success=true, body=%s", w.Body.String())
+	}
+	if resp.Data.Edition.Type != string(config.EditionBasic) {
+		t.Fatalf("edition type = %q, want %q", resp.Data.Edition.Type, config.EditionBasic)
+	}
+}
+
 func TestEditionAPI_SetupEdition_InvalidRuntime(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	resetEditionSetupTasksForTest()
