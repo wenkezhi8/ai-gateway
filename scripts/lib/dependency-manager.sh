@@ -7,6 +7,9 @@ source "$DEPENDENCY_MANAGER_DIR/edition-deps-policy.sh"
 
 LEGACY_REDIS_CONTAINER="redis-stack"
 
+REQUIRED_DEPENDENCIES=()
+ALL_DEPENDENCIES=()
+
 dep_log() {
   printf '[dependency-manager] %s\n' "$*"
 }
@@ -83,8 +86,11 @@ dependency_docker_manual_hint() {
 required_dependencies_array() {
   local required_line
   required_line="$(edition_required_dependencies "${EDITION_TYPE:-standard}")"
-  # shellcheck disable=SC2206
-  REQUIRED_DEPENDENCIES=($required_line)
+  REQUIRED_DEPENDENCIES=()
+  if [[ -n "$required_line" ]]; then
+    # shellcheck disable=SC2206
+    REQUIRED_DEPENDENCIES=($required_line)
+  fi
 }
 
 all_dependencies_array() {
@@ -132,6 +138,11 @@ dependency_health_check_native() {
 
 validate_required_health() {
   required_dependencies_array
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -eq 0 ]]; then
+    dep_log "当前版本无强制依赖，跳过依赖健康检查"
+    return
+  fi
+
   local dep
   for dep in "${REQUIRED_DEPENDENCIES[@]}"; do
     if [[ "${EDITION_RUNTIME:-docker}" == "docker" ]]; then
@@ -167,6 +178,11 @@ ensure_docker_container() {
 
 ensure_required_running() {
   required_dependencies_array
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -eq 0 ]]; then
+    dep_log "当前版本无强制依赖，跳过依赖拉起"
+    return
+  fi
+
   local dep
 
   if [[ "${EDITION_RUNTIME:-docker}" == "docker" ]]; then
@@ -219,7 +235,7 @@ stop_non_required() {
 
   local dep name
   for dep in "${ALL_DEPENDENCIES[@]}"; do
-    if edition_dep_in_list "$dep" "${REQUIRED_DEPENDENCIES[@]}"; then
+    if edition_dep_in_list "$dep" "${REQUIRED_DEPENDENCIES[@]-}"; then
       continue
     fi
 

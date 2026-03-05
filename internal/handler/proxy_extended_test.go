@@ -29,6 +29,7 @@ func TestMain(m *testing.M) {
 func TestChatCompletions_InvalidJSON(t *testing.T) {
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4o")
 
 	tests := []struct {
 		name       string
@@ -137,6 +138,7 @@ func TestChatCompletions_SanitizesMetadataForAssessmentAndProvider(t *testing.T)
 	defer provider.ClearRegistry()
 
 	h := NewProxyHandler(testConfig(), nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "unit-test-model")
 	capture := &capturingProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"unit-test-model"}, true),
 	}
@@ -191,6 +193,7 @@ func TestChatCompletions_Stream(t *testing.T) {
 
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 
 	mockP := &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com", []string{"gpt-4"}, true),
@@ -276,6 +279,7 @@ func TestProxyHandler_WithAccountManager(t *testing.T) {
 func TestChatCompletions_TooLargeBody(t *testing.T) {
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 
 	// Create a very large body
 	largeContent := strings.Repeat("x", 20*1024*1024) // 20MB
@@ -297,6 +301,7 @@ func TestChatCompletions_TooLargeBody(t *testing.T) {
 func TestListModels(t *testing.T) {
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -341,6 +346,7 @@ func TestChatCompletions_WithTemperature(t *testing.T) {
 
 	cfg := testConfig()
 	h := NewProxyHandler(cfg, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
 
 	mockP := &mockProvider{
 		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com", []string{"gpt-4"}, true),

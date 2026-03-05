@@ -6,18 +6,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 source "$SCRIPT_DIR/lib/container-names.sh"
+source "$SCRIPT_DIR/lib/edition-deps-policy.sh"
 
 EDITION="standard"
 RUNTIME="docker"
 APPLY_CONFIG="false"
 PULL_EMBEDDING_MODEL="false"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
+RUNTIME_EXPLICIT="false"
 
 LEGACY_REDIS_CONTAINER="redis-stack"
 
 REDIS_VERSION="${REDIS_VERSION:-7.2.0-v18}"
 OLLAMA_VERSION="${OLLAMA_VERSION:-latest}"
 QDRANT_VERSION="${QDRANT_VERSION:-latest}"
+
+REQUIRED_DEPENDENCIES=()
 
 usage() {
   cat <<'EOF'
@@ -29,6 +33,10 @@ Options:
   --apply-config <true|false>
   --pull-embedding-model <true|false>
   --config-path <path>
+
+说明:
+  未传 --runtime 时，脚本会在交互终端中提示选择安装环境（docker/native）。
+  非交互环境默认使用 docker。
 EOF
 }
 
@@ -188,6 +196,10 @@ edition_data["dependency_versions"] = dependency_versions
 
 vector_cache = data.setdefault("vector_cache", {})
 if edition in ("standard", "enterprise"):
+    vector_cache["enabled"] = True
+elif edition == "basic":
+    vector_cache["enabled"] = False
+if edition in ("standard", "enterprise"):
     vector_cache.setdefault("ollama_base_url", "http://127.0.0.1:11434")
 if edition == "enterprise" and not vector_cache.get("cold_vector_qdrant_url"):
     vector_cache["cold_vector_qdrant_url"] = "http://127.0.0.1:6333"
@@ -225,13 +237,27 @@ check_qdrant() {
   curl -fsS "http://127.0.0.1:6333/collections" >/dev/null 2>&1
 }
 
-validate_required_health() {
-  local required=("redis")
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    required+=("ollama")
+resolve_required_dependencies() {
+  local required_line
+  required_line="$(edition_required_dependencies "$EDITION" "$CONFIG_PATH")"
+
+  # Apply-config 模式下按目标版本默认行为计算，避免 basic 被旧配置中的向量开关误伤。
+  if [[ "$APPLY_CONFIG" == "true" && "$EDITION" == "basic" ]]; then
+    required_line=""
   fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    required+=("qdrant")
+
+  # shellcheck disable=SC2206
+  REQUIRED_DEPENDENCIES=($required_line)
+}
+
+validate_required_health() {
+  local required=()
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    required=("${REQUIRED_DEPENDENCIES[@]}")
+  fi
+
+  if [[ ${#required[@]} -eq 0 ]]; then
+    return
   fi
 
   local dep
@@ -251,6 +277,42 @@ validate_required_health() {
   done
 }
 
+choose_runtime_interactively_if_needed() {
+  if [[ "$RUNTIME_EXPLICIT" == "true" ]]; then
+    return
+  fi
+
+  if [[ ! -t 0 ]]; then
+    log "未指定 --runtime，当前为非交互环境，默认使用 docker。"
+    RUNTIME="docker"
+    return
+  fi
+
+  echo "请选择安装环境（docker/native）："
+  echo "  1) docker（推荐）"
+  echo "  2) native（本机安装）"
+
+  while true; do
+    read -r -p "请输入 1 或 2（默认 1）: " runtime_choice
+    runtime_choice="${runtime_choice:-1}"
+    case "$(echo "$runtime_choice" | tr '[:upper:]' '[:lower:]' | xargs)" in
+      1|docker)
+        RUNTIME="docker"
+        break
+        ;;
+      2|native)
+        RUNTIME="native"
+        break
+        ;;
+      *)
+        echo "输入无效，请输入 1 或 2。"
+        ;;
+    esac
+  done
+
+  log "已选择安装环境: $RUNTIME"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --edition)
@@ -259,6 +321,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --runtime)
       RUNTIME="$2"
+      RUNTIME_EXPLICIT="true"
       shift 2
       ;;
     --apply-config)
@@ -283,6 +346,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+choose_runtime_interactively_if_needed
+
 case "$EDITION" in
   basic|standard|enterprise) ;;
   *) fail "invalid edition: $EDITION" ;;
@@ -301,24 +366,42 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
   cp "$PROJECT_DIR/configs/config.example.json" "$CONFIG_PATH"
 fi
 
+resolve_required_dependencies
+
 if [[ "$RUNTIME" == "docker" ]]; then
   docker_available || fail "docker runtime requested but docker is unavailable"
-  ensure_redis_docker
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_ollama_docker
-  fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    ensure_qdrant_docker
+  local_dep=""
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+      case "$local_dep" in
+        redis)
+          ensure_redis_docker
+          ;;
+        ollama)
+          ensure_ollama_docker
+          ;;
+        qdrant)
+          ensure_qdrant_docker
+          ;;
+      esac
+    done
   fi
 else
-  if [[ "$EDITION" == "basic" || "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_redis_native
-  fi
-  if [[ "$EDITION" == "standard" || "$EDITION" == "enterprise" ]]; then
-    ensure_ollama_native
-  fi
-  if [[ "$EDITION" == "enterprise" ]]; then
-    ensure_qdrant_native
+  local_dep=""
+  if [[ ${#REQUIRED_DEPENDENCIES[@]} -gt 0 ]]; then
+    for local_dep in "${REQUIRED_DEPENDENCIES[@]}"; do
+      case "$local_dep" in
+        redis)
+          ensure_redis_native
+          ;;
+        ollama)
+          ensure_ollama_native
+          ;;
+        qdrant)
+          ensure_qdrant_native
+          ;;
+      esac
+    done
   fi
 fi
 

@@ -144,6 +144,9 @@ exit 1
 `)
 
 	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vector_cache":{"enabled":true}}`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
 	env := append(os.Environ(),
 		"PATH="+tempBin+":"+os.Getenv("PATH"),
 		"DOCKER_LOG_FILE="+dockerLogPath,
@@ -175,6 +178,43 @@ exit 1
 	}
 	if strings.TrimSpace(string(dockerCalls)) != "" {
 		t.Fatalf("docker should not be called in native no-fallback path, calls=%s", string(dockerCalls))
+	}
+}
+
+func TestSetupEditionEnv_BasicWithoutVector_ShouldSkipRedisRequirement(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	tempDir := t.TempDir()
+	tempBin := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(tempBin, 0o755); err != nil {
+		t.Fatalf("mkdir temp bin failed: %v", err)
+	}
+
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vector_cache":{"enabled":false}}`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	env := append(os.Environ(),
+		"PATH="+tempBin+":/usr/bin:/bin",
+	)
+
+	output, err := runScript(
+		t,
+		setupPath,
+		env,
+		"--edition", "basic",
+		"--runtime", "native",
+		"--apply-config", "false",
+		"--pull-embedding-model", "false",
+		"--config-path", configPath,
+	)
+	if err != nil {
+		t.Fatalf("expected basic setup success without redis when vector disabled, err=%v output=%s", err, output)
+	}
+	if !strings.Contains(output, "setup completed") {
+		t.Fatalf("expected setup success output, got=%s", output)
 	}
 }
 
@@ -216,6 +256,9 @@ exit 0
 `)
 
 	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vector_cache":{"enabled":true}}`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
 	env := append(os.Environ(),
 		"PATH="+tempBin+":"+os.Getenv("PATH"),
 		"DOCKER_LOG_FILE="+dockerLogPath,
@@ -466,6 +509,24 @@ exit 1
 	}
 	if strings.TrimSpace(asString(depVersions["qdrant"])) == "" {
 		t.Fatalf("edition.dependency_versions.qdrant should not be empty, config=%s", string(raw))
+	}
+}
+
+func TestSetupEditionEnv_ScriptContainsInteractiveRuntimePrompt(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	content, err := os.ReadFile(setupPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", setupPath, err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "请选择安装环境") {
+		t.Fatalf("setup-edition-env.sh should include Chinese interactive runtime prompt")
+	}
+	if !strings.Contains(text, "docker|native") {
+		t.Fatalf("setup-edition-env.sh should provide docker/native runtime selection guidance")
 	}
 }
 

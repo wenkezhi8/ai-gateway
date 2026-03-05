@@ -1,0 +1,17 @@
+{
+  "base_by_edition": {
+    "basic": [],
+    "standard": [
+      "redis",
+      "ollama"
+    ],
+    "enterprise": [
+      "redis",
+      "ollama",
+      "qdrant"
+    ]
+  },
+  "vector_enabled_append_dependencies": [
+    "redis"
+  ]
+}

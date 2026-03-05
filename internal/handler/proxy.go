@@ -305,8 +305,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}).Info("Request difficulty assessment")
 
 	// Handle "auto", "latest", and "default" model selection
+	originalRequestModel := strings.ToLower(strings.TrimSpace(req.Model))
+	isVirtualModelRequest := originalRequestModel == "auto" || originalRequestModel == "latest" || originalRequestModel == "default"
 	requestedModel := req.Model
-	if req.Model == "auto" || req.Model == "latest" || req.Model == "default" {
+	if isVirtualModelRequest {
 		// Get available models from account manager
 		var availableModels []string
 		if h.accountManager != nil {
@@ -351,6 +353,32 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if req.Provider == "" {
 			req.Provider = h.smartRouter.GetProviderForModel(requestedModel)
 		}
+	}
+
+	requestedModel = h.resolveCanonicalModelID(requestedModel)
+	req.Model = requestedModel
+
+	requestedProvider := normalizeProviderName(req.Provider)
+	req.Provider = requestedProvider
+
+	if !isVirtualModelRequest {
+		resolvedProvider, ok := h.resolveProviderFromModelRegistry(requestedModel)
+		if !ok {
+			errorMessage := "模型未在模型管理中注册，请先在 /model-management 绑定服务商"
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, requestedProvider, prompt, errorMessage, http.StatusBadRequest)
+			Error(c, http.StatusBadRequest, ErrCodeModelNotReg, errorMessage)
+			return
+		}
+		if requestedProvider != "" && requestedProvider != resolvedProvider {
+			logrus.WithFields(logrus.Fields{
+				"requested_provider": requestedProvider,
+				"resolved_provider":  resolvedProvider,
+				"model":              requestedModel,
+			}).Warn("Request provider conflicts with model registry mapping; using model registry provider")
+		}
+		req.Provider = resolvedProvider
+	} else if req.Provider == "" {
+		req.Provider = inferProviderFromModel(requestedModel)
 	}
 
 	usageMeta := buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
@@ -564,61 +592,41 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
-	// Get provider for the request - try scheduler first, then fallback
 	providerType := req.Provider
 	if providerType == "" {
 		providerType = inferProviderFromModel(requestedModel)
 	}
 
-	var targetProvider provider.Provider
-	var scheduleResult *ScheduleResult
-
-	// Try scheduler if account manager has it enabled
-	if h.accountManager != nil && h.accountManager.IsSchedulerEnabled() {
-		scheduleCtx := extractScheduleContext(c, requestedModel, providerType)
-		p, result, schedErr := h.getProviderWithScheduler(c.Request.Context(), scheduleCtx)
-		if schedErr == nil && p != nil && result != nil {
-			targetProvider = *p
-			scheduleResult = result
-			usageMeta = buildUsageRuntimeMeta(c, &req, scheduleResult, h.accountManager)
-			// Set response headers for debugging
-			c.Header("X-Account-ID", result.Account.ID)
-			c.Header("X-Schedule-Layer", string(result.Decision.Layer))
-			c.Header("X-Sticky-Hit", fmt.Sprintf("%v", result.Decision.StickyHit))
+	providerStart := time.Now()
+	targetProvider, providerSelectErr := h.getProviderForRequest(c, requestedModel, providerType)
+	if h.traceRecorder != nil {
+		providerProtocol := providerType
+		if targetProvider != nil {
+			providerProtocol = targetProvider.Name()
 		}
+		h.traceRecorder.RecordSimpleSpan(ctx, "provider.select", map[string]interface{}{
+			"duration_ms":   time.Since(providerStart).Milliseconds(),
+			"model":         requestedModel,
+			"provider":      providerType,
+			"provider_type": providerProtocol,
+			"provider_name": providerType,
+			"user_id":       userID,
+		})
+	}
+	usageMeta = buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
+	if providerSelectErr != nil {
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
+		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, providerSelectErr.Error(), http.StatusServiceUnavailable)
+		Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, providerSelectErr.Error())
+		return
 	}
 
-	// Fallback to original logic if scheduler didn't work
-	if targetProvider == nil {
-		providerStart := time.Now()
-		var fallbackErr error
-		targetProvider, fallbackErr = h.getProviderForRequest(c, requestedModel, req.Provider)
-		if h.traceRecorder != nil {
-			providerProtocol := req.Provider
-			if targetProvider != nil {
-				providerProtocol = targetProvider.Name()
-			}
-			h.traceRecorder.RecordSimpleSpan(ctx, "provider.select", map[string]interface{}{
-				"duration_ms":   time.Since(providerStart).Milliseconds(),
-				"model":         requestedModel,
-				"provider":      providerType,
-				"provider_type": providerProtocol,
-				"provider_name": providerType,
-				"user_id":       userID,
-			})
+	// Keep compatibility with existing scheduler release hook if set by other paths.
+	if releaseFuncValue, ok := c.Get("scheduler_release_func"); ok {
+		if releaseFunc, ok := releaseFuncValue.(func()); ok && releaseFunc != nil {
+			defer releaseFunc()
 		}
-		if fallbackErr != nil {
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
-			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, fallbackErr.Error(), http.StatusServiceUnavailable)
-			Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, fallbackErr.Error())
-			return
-		}
-	}
-
-	// Ensure slot is released after request completes
-	if scheduleResult != nil && scheduleResult.ReleaseFunc != nil {
-		defer scheduleResult.ReleaseFunc()
 	}
 
 	// Get default temperature based on model
@@ -1031,62 +1039,19 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 }
 
 // getProviderForRequest gets the appropriate provider for the request
-// First tries to use account manager to get active account credentials
-// Falls back to registry providers if no account manager or no active account
+// First resolves accounts with strict provider matching, then falls back to provider_type compatibility.
+// Falls back to registry providers only when account selection is unavailable.
 func (h *ProxyHandler) getProviderForRequest(c *gin.Context, model string, providerName string) (provider.Provider, error) {
 	providerName = normalizeProviderName(providerName)
 	if providerName == "" {
-		providerName = inferProviderFromModel(model)
-	}
-	var lastCreateErr error
-
-	// Try scheduler first if gin.Context is provided and scheduler is enabled
-	if c != nil && h.accountManager != nil && h.accountManager.IsSchedulerEnabled() {
-		sessionHash := c.GetHeader("X-Session-Hash")
-		previousResponseID := c.GetHeader("X-Previous-Response-ID")
-
-		if sessionHash != "" || previousResponseID != "" {
-			scheduleReq := limiter.ScheduleRequest{
-				ProviderType:       providerName,
-				Model:              model,
-				SessionHash:        sessionHash,
-				PreviousResponseID: previousResponseID,
-			}
-
-			account, decision, releaseFunc, err := h.accountManager.SelectAccount(c.Request.Context(), scheduleReq)
-			if err == nil && account != nil {
-				backendProvider := mapProviderName(account.Provider)
-				if account.ProviderType != "" {
-					backendProvider = account.ProviderType
-				}
-
-				provConfig := &provider.ProviderConfig{
-					Name:    backendProvider,
-					APIKey:  account.APIKey,
-					BaseURL: account.BaseURL,
-					Models:  getModelsForProvider(account.Provider),
-					Enabled: true,
-				}
-
-				p, createErr := h.registry.CreateProvider(provConfig)
-				if createErr == nil {
-					c.Set("scheduler_account_id", account.ID)
-					c.Set("scheduler_decision", decision)
-					c.Set("scheduler_release_func", releaseFunc)
-					c.Header("X-Account-ID", account.ID)
-					c.Header("X-Schedule-Layer", string(decision.Layer))
-					if decision.StickyHit {
-						c.Header("X-Sticky-Hit", "1")
-					}
-					return p, nil
-				}
-				lastCreateErr = createErr
-				if releaseFunc != nil {
-					releaseFunc()
-				}
-			}
+		return nil, &provider.ProviderError{
+			Message:   "No available provider for model: " + model,
+			Code:      http.StatusServiceUnavailable,
+			Retryable: false,
 		}
 	}
+	backendProvider := normalizeProviderName(mapProviderName(providerName))
+	var lastCreateErr error
 
 	// Try route cache first
 	if h.cache != nil && h.cache.RouteCache != nil && providerName != "" {
@@ -1101,179 +1066,176 @@ func (h *ProxyHandler) getProviderForRequest(c *gin.Context, model string, provi
 		_ = cached // We still need to create provider from account, but cache records the hit
 	}
 
-	// Try to get provider from account manager
+	// Tier 1 / Tier 2 account selection
 	if h.accountManager != nil && providerName != "" {
-		// Map frontend provider to backend provider type
-		backendProvider := mapProviderName(providerName)
-
-		// First try to get account by provider name directly (handles coding plan endpoints)
-		account := h.accountManager.GetAccountByProvider(providerName)
-
-		if account != nil && account.Enabled {
-			logrus.WithFields(logrus.Fields{
-				"provider": providerName,
-				"backend":  backendProvider,
-				"base_url": account.BaseURL,
-				"enabled":  account.Enabled,
-			}).Info("Found account by provider name")
-
-			provConfig := &provider.ProviderConfig{
-				Name:    backendProvider,
-				APIKey:  account.APIKey,
-				BaseURL: account.BaseURL,
-				Models:  getModelsForProvider(providerName),
-				Enabled: true,
-			}
-			p, err := h.registry.CreateProvider(provConfig)
-			if err == nil {
-				// Cache the route decision
-				if h.cache != nil && h.cache.RouteCache != nil {
-					cacheKey := model + ":" + providerName
-					if setErr := h.cache.RouteCache.Set(context.Background(), cacheKey, nil, &cache.RouteDecision{
-						Provider: providerName,
-						Model:    model,
-					}); setErr != nil {
-						logrus.WithError(setErr).WithField("cache_key", cacheKey).Debug("failed to write route cache")
-					}
-				}
-				return p, nil
-			}
-			lastCreateErr = err
-			logrus.WithError(err).Warn("Failed to create provider from account")
-		} else {
-			logrus.WithField("provider", providerName).Info("No account found by provider name")
-		}
-
-		// Get base URL for this provider
-		baseURL := getBaseURLForProvider(providerName)
-
-		// Try both the original provider name and the mapped backend provider type
-		// because accounts may be registered with either key
-		providerKeys := []string{providerName, backendProvider}
-
-		for _, pk := range providerKeys {
-			// First try to get by base URL and provider type (more specific match)
-			if baseURL != "" {
-				account := h.accountManager.GetAccountByBaseURLAndType(baseURL, pk)
-				if account != nil && account.Enabled {
-					provConfig := &provider.ProviderConfig{
-						Name:    backendProvider,
-						APIKey:  account.APIKey,
-						BaseURL: account.BaseURL,
-						Models:  getModelsForProvider(providerName),
-						Enabled: true,
-					}
-					p, err := h.registry.CreateProvider(provConfig)
-					if err == nil {
-						return p, nil
-					}
-					lastCreateErr = err
+		tierOneAccounts, tierOneExists, tierTwoAccounts := h.collectProviderAccounts(providerName, backendProvider)
+		if tierOneExists {
+			if len(tierOneAccounts) == 0 {
+				return nil, &provider.ProviderError{
+					Message:   "Provider '" + providerName + "' is disabled. Please enable it in the provider settings.",
+					Code:      http.StatusServiceUnavailable,
+					Retryable: false,
 				}
 			}
-
-			// Fallback: try to get active account by provider type
-			account, accountErr := h.accountManager.GetActiveAccount(pk)
-			if accountErr != nil {
-				logrus.WithError(accountErr).WithField("provider", pk).Debug("failed to fetch active account")
-				continue
-			}
-			if account != nil && account.Enabled {
-				provConfig := &provider.ProviderConfig{
-					Name:    backendProvider,
-					APIKey:  account.APIKey,
-					BaseURL: account.BaseURL,
-					Models:  getModelsForProvider(providerName),
-					Enabled: true,
-				}
-				p, err := h.registry.CreateProvider(provConfig)
-				if err == nil {
+			selected := selectAccountByPriority(tierOneAccounts)
+			if selected != nil {
+				p, createErr := h.createProviderFromAccount(c, selected, providerName, model, "")
+				if createErr == nil {
 					return p, nil
 				}
-				lastCreateErr = err
+				lastCreateErr = createErr
 			}
-		}
-	}
-
-	// Check if any accounts exist for this provider
-	if h.accountManager != nil && providerName != "" {
-		hasAccounts := false
-		hasEnabledAccounts := false
-		for _, acc := range h.accountManager.GetAllAccounts() {
-			if acc.Provider == providerName || acc.Provider == mapProviderName(providerName) {
-				hasAccounts = true
-				if acc.Enabled {
-					hasEnabledAccounts = true
-					break
+		} else if len(tierTwoAccounts) > 0 {
+			selected := selectAccountByPriority(tierTwoAccounts)
+			if selected != nil {
+				p, createErr := h.createProviderFromAccount(c, selected, providerName, model, "provider_type_compatible")
+				if createErr == nil {
+					return p, nil
 				}
-			}
-		}
-
-		// If accounts exist but none are enabled, return error (don't fallback to static config)
-		if hasAccounts && !hasEnabledAccounts {
-			return nil, &provider.ProviderError{
-				Message:   "Provider '" + providerName + "' is disabled. Please enable it in the provider settings.",
-				Code:      http.StatusServiceUnavailable,
-				Retryable: false,
+				lastCreateErr = createErr
 			}
 		}
 	}
 
-	// Fallback for OpenAI-family models: use any enabled OpenAI-compatible account
-	// (covers custom provider IDs that proxy OpenAI protocol)
-	if h.accountManager != nil && inferProviderFromModel(model) == "openai" {
-		if account := h.findAnyOpenAICompatibleAccount(); account != nil {
-			provConfig := &provider.ProviderConfig{
-				Name:    "openai",
-				APIKey:  account.APIKey,
-				BaseURL: account.BaseURL,
-				Models:  getModelsForProvider("openai"),
-				Enabled: true,
-			}
-			if p, err := h.registry.CreateProvider(provConfig); err == nil {
-				return p, nil
-			} else {
-				lastCreateErr = err
-			}
+	// Registry fallback keeps compatibility for deployments that still rely on static provider registration.
+	candidates := []string{providerName, backendProvider}
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		candidate = normalizeProviderName(candidate)
+		if candidate == "" {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		if p, ok := h.registry.Get(candidate); ok && p.IsEnabled() {
+			return p, nil
 		}
 	}
 
-	// Fallback to registry lookup by model (only when no dynamic accounts configured)
 	targetProvider, ok := h.registry.GetByModel(model)
-	if !ok {
-		// Last resort: when model is newer than local model list, route by inferred provider name
-		// and let upstream return the canonical error message.
-		candidates := []string{
-			normalizeProviderName(providerName),
-			normalizeProviderName(mapProviderName(providerName)),
-		}
-		seen := make(map[string]struct{}, len(candidates))
-		for _, candidate := range candidates {
-			if candidate == "" {
-				continue
-			}
-			if _, exists := seen[candidate]; exists {
-				continue
-			}
-			seen[candidate] = struct{}{}
-			if p, ok := h.registry.Get(candidate); ok && p.IsEnabled() {
-				return p, nil
-			}
-		}
+	if ok {
+		return targetProvider, nil
+	}
 
-		if lastCreateErr != nil {
-			return nil, &provider.ProviderError{
-				Message:   lastCreateErr.Error(),
-				Code:      http.StatusBadGateway,
-				Retryable: false,
-			}
-		}
+	if lastCreateErr != nil {
 		return nil, &provider.ProviderError{
-			Message:   "No available provider for model: " + model,
-			Code:      http.StatusServiceUnavailable,
+			Message:   lastCreateErr.Error(),
+			Code:      http.StatusBadGateway,
 			Retryable: false,
 		}
 	}
-	return targetProvider, nil
+	return nil, &provider.ProviderError{
+		Message:   "No available provider for model: " + model,
+		Code:      http.StatusServiceUnavailable,
+		Retryable: false,
+	}
+}
+
+func (h *ProxyHandler) collectProviderAccounts(providerName, backendProvider string) (tierOneEnabled []*limiter.AccountConfig, tierOneExists bool, tierTwoEnabled []*limiter.AccountConfig) {
+	if h.accountManager == nil {
+		return nil, false, nil
+	}
+
+	for _, acc := range h.accountManager.GetAllAccounts() {
+		if acc == nil {
+			continue
+		}
+		accountProvider := normalizeProviderName(acc.Provider)
+		accountProviderType := normalizeProviderName(acc.ProviderType)
+		if accountProviderType == "" {
+			accountProviderType = accountProvider
+		}
+
+		if accountProvider == providerName {
+			tierOneExists = true
+			if acc.Enabled {
+				tierOneEnabled = append(tierOneEnabled, acc)
+			}
+			continue
+		}
+
+		if accountProviderType == backendProvider && acc.Enabled {
+			tierTwoEnabled = append(tierTwoEnabled, acc)
+		}
+	}
+
+	sortAccountCandidates(tierOneEnabled)
+	sortAccountCandidates(tierTwoEnabled)
+
+	return tierOneEnabled, tierOneExists, tierTwoEnabled
+}
+
+func sortAccountCandidates(accounts []*limiter.AccountConfig) {
+	sort.Slice(accounts, func(i, j int) bool {
+		if accounts[i].Priority == accounts[j].Priority {
+			return accounts[i].ID < accounts[j].ID
+		}
+		return accounts[i].Priority > accounts[j].Priority
+	})
+}
+
+func selectAccountByPriority(accounts []*limiter.AccountConfig) *limiter.AccountConfig {
+	if len(accounts) == 0 {
+		return nil
+	}
+	return accounts[0]
+}
+
+func (h *ProxyHandler) createProviderFromAccount(c *gin.Context, account *limiter.AccountConfig, providerName, model, fallbackType string) (provider.Provider, error) {
+	if account == nil {
+		return nil, fmt.Errorf("account is nil")
+	}
+
+	backendProvider := normalizeProviderName(account.ProviderType)
+	if backendProvider == "" {
+		backendProvider = normalizeProviderName(mapProviderName(account.Provider))
+	}
+	if backendProvider == "" {
+		backendProvider = normalizeProviderName(mapProviderName(providerName))
+	}
+
+	models := getModelsForProvider(providerName)
+	if len(models) == 0 {
+		models = getModelsForProvider(account.Provider)
+	}
+
+	provConfig := &provider.ProviderConfig{
+		Name:    backendProvider,
+		APIKey:  account.APIKey,
+		BaseURL: account.BaseURL,
+		Models:  models,
+		Enabled: true,
+	}
+
+	p, err := h.registry.CreateProvider(provConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if c != nil {
+		c.Set("selected_account_id", account.ID)
+		c.Set("selected_account_name", strings.TrimSpace(account.Name))
+		c.Set("scheduler_account_id", account.ID)
+		c.Header("X-Account-ID", account.ID)
+		if fallbackType != "" {
+			c.Set("fallback_account_type", fallbackType)
+			c.Header("X-Account-Fallback", fallbackType)
+		}
+	}
+
+	if h.cache != nil && h.cache.RouteCache != nil && providerName != "" {
+		cacheKey := model + ":" + providerName
+		if setErr := h.cache.RouteCache.Set(context.Background(), cacheKey, nil, &cache.RouteDecision{
+			Provider: providerName,
+			Model:    model,
+		}); setErr != nil {
+			logrus.WithError(setErr).WithField("cache_key", cacheKey).Debug("failed to write route cache")
+		}
+	}
+
+	return p, nil
 }
 
 // getBaseURLForProvider returns the base URL for a provider
@@ -1491,6 +1453,49 @@ func (h *ProxyHandler) resolveCanonicalModelID(model string) string {
 	}
 
 	return canonical
+}
+
+func (h *ProxyHandler) resolveProviderFromModelRegistry(model string) (string, bool) {
+	if h.smartRouter == nil {
+		return "", false
+	}
+
+	canonicalModel := h.resolveCanonicalModelID(model)
+	if canonicalModel == "" {
+		return "", false
+	}
+
+	if score := h.smartRouter.GetModelScore(canonicalModel); score != nil {
+		providerName := normalizeProviderName(score.Provider)
+		if providerName != "" && score.Enabled {
+			return providerName, true
+		}
+	}
+
+	for modelID, score := range h.smartRouter.GetAllModelScores() {
+		if score == nil || !score.Enabled {
+			continue
+		}
+
+		currentModelID := strings.TrimSpace(modelID)
+		if currentModelID == "" {
+			currentModelID = strings.TrimSpace(score.Model)
+		}
+		if currentModelID == "" {
+			continue
+		}
+
+		if normalizeModelAlias(currentModelID) != canonicalModel {
+			continue
+		}
+
+		providerName := normalizeProviderName(score.Provider)
+		if providerName != "" {
+			return providerName, true
+		}
+	}
+
+	return "", false
 }
 
 func (h *ProxyHandler) findAnyOpenAICompatibleAccount() *limiter.AccountConfig {
@@ -2918,6 +2923,28 @@ func buildUsageRuntimeMeta(c *gin.Context, req *ChatCompletionRequest, scheduleR
 	}
 	if meta.UserAgent == "" {
 		meta.UserAgent = "-"
+	}
+
+	if c != nil {
+		if selectedNameValue, ok := c.Get("selected_account_name"); ok {
+			selectedName := strings.TrimSpace(fmt.Sprintf("%v", selectedNameValue))
+			if selectedName != "" && selectedName != "<nil>" {
+				meta.Account = selectedName
+				return meta
+			}
+		}
+		if selectedIDValue, ok := c.Get("selected_account_id"); ok && accountManager != nil {
+			selectedID := strings.TrimSpace(fmt.Sprintf("%v", selectedIDValue))
+			if selectedID != "" && selectedID != "<nil>" {
+				account, err := accountManager.GetAccount(selectedID)
+				if err == nil && account != nil {
+					if name := strings.TrimSpace(account.Name); name != "" {
+						meta.Account = name
+						return meta
+					}
+				}
+			}
+		}
 	}
 
 	if scheduleResult != nil && scheduleResult.Account != nil {
