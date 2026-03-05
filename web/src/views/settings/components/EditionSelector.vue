@@ -55,6 +55,18 @@
       native 模式：缺少依赖时不会自动切换到 Docker，请先手动安装并启动 Redis / Ollama / Qdrant。
     </div>
 
+    <div class="manual-script-panel">
+      <div class="manual-script-header">
+        <span>手动脚本安装（与当前选择一致）</span>
+        <el-button text size="small" @click="copyManualInstallCommand">复制命令</el-button>
+      </div>
+      <div class="manual-script-tip">
+        <span v-if="setupEdition === 'basic'">基础版：停止所有依赖</span>
+        <span v-else>标准版/企业版会按当前版本与安装模式确保依赖可用。</span>
+      </div>
+      <pre class="manual-script-content">{{ manualInstallCommand }}</pre>
+    </div>
+
     <div v-if="editionStore.setupTask" class="setup-status">
       <el-tag size="small" :type="setupStatusTag(editionStore.setupTask.status)">
         {{ editionStore.setupTask.status }}
@@ -94,6 +106,11 @@ const setupRunning = computed(() => {
   if (editionStore.setupLoading) return true
   const status = editionStore.setupTask?.status
   return status === 'pending' || status === 'running'
+})
+const manualInstallCommand = computed(() => {
+  const applyConfigArg = applyConfig.value ? 'true' : 'false'
+  const pullEmbeddingArg = pullEmbeddingModel.value ? 'true' : 'false'
+  return `cd /Users/openclaw/ai-gateway && ./scripts/setup-edition-env.sh --edition ${setupEdition.value} --runtime ${runtime.value} --apply-config ${applyConfigArg} --pull-embedding-model ${pullEmbeddingArg} --config-path ./configs/config.json`
 })
 
 onMounted(async () => {
@@ -210,22 +227,22 @@ async function handleSetupDependencies() {
   }
 }
 
-async function copySetupLogs() {
-  const logs = editionStore.setupTask?.logs?.trim()
-  if (!logs) {
-    ElMessage.warning('暂无可复制日志')
+async function copyTextWithFallback(text: string, successMessage: string, emptyMessage: string) {
+  const normalizedText = text.trim()
+  if (!normalizedText) {
+    ElMessage.warning(emptyMessage)
     return
   }
 
   try {
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(logs)
-      ElMessage.success('日志已复制')
+      await navigator.clipboard.writeText(normalizedText)
+      ElMessage.success(successMessage)
       return
     }
 
     const textarea = document.createElement('textarea')
-    textarea.value = logs
+    textarea.value = normalizedText
     textarea.setAttribute('readonly', 'true')
     textarea.style.position = 'fixed'
     textarea.style.left = '-9999px'
@@ -235,14 +252,23 @@ async function copySetupLogs() {
     document.body.removeChild(textarea)
 
     if (copied) {
-      ElMessage.success('日志已复制')
+      ElMessage.success(successMessage)
       return
     }
 
     throw new Error('copy_failed')
   } catch {
-    ElMessage.error('复制日志失败，请手动复制')
+    ElMessage.error('复制失败，请手动复制')
   }
+}
+
+async function copyManualInstallCommand() {
+  await copyTextWithFallback(manualInstallCommand.value, '命令已复制', '暂无可复制命令')
+}
+
+async function copySetupLogs() {
+  const logs = editionStore.setupTask?.logs ?? ''
+  await copyTextWithFallback(logs, '日志已复制', '暂无可复制日志')
 }
 
 onUnmounted(() => {
@@ -323,6 +349,40 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.manual-script-panel {
+  border: 1px solid var(--el-border-color);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--el-bg-color-page);
+}
+
+.manual-script-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+}
+
+.manual-script-tip {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--el-color-warning-dark-2);
+}
+
+.manual-script-content {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--el-bg-color);
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 6px;
+  padding: 10px;
 }
 
 .runtime-hint {
