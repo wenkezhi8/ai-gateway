@@ -156,7 +156,7 @@ exit 1
 		t,
 		setupPath,
 		env,
-		"--edition", "basic",
+		"--edition", "standard",
 		"--runtime", "native",
 		"--apply-config", "false",
 		"--pull-embedding-model", "false",
@@ -270,7 +270,7 @@ exit 0
 		t,
 		setupPath,
 		env,
-		"--edition", "basic",
+		"--edition", "standard",
 		"--runtime", "docker",
 		"--apply-config", "false",
 		"--pull-embedding-model", "false",
@@ -527,6 +527,192 @@ func TestSetupEditionEnv_ScriptContainsInteractiveRuntimePrompt(t *testing.T) {
 	}
 	if !strings.Contains(text, "docker|native") {
 		t.Fatalf("setup-edition-env.sh should provide docker/native runtime selection guidance")
+	}
+}
+
+func TestSetupEditionEnv_ScriptContainsInteractiveEditionPrompt(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	content, err := os.ReadFile(setupPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", setupPath, err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "请选择版本") {
+		t.Fatalf("setup-edition-env.sh should include Chinese interactive edition prompt")
+	}
+	if !strings.Contains(text, "基础版：停止所有依赖") {
+		t.Fatalf("setup-edition-env.sh should describe basic edition as stop-all-dependencies")
+	}
+}
+
+func TestSetupEditionEnv_BasicDocker_StopOnly_NoDelete(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	tempDir := t.TempDir()
+	tempBin := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(tempBin, 0o755); err != nil {
+		t.Fatalf("mkdir temp bin failed: %v", err)
+	}
+
+	dockerLogPath := filepath.Join(tempDir, "docker.log")
+	if err := os.WriteFile(dockerLogPath, nil, 0o644); err != nil {
+		t.Fatalf("create docker log failed: %v", err)
+	}
+
+	writeExecutable(t, filepath.Join(tempBin, "docker"), `#!/bin/bash
+set -eu
+: "${DOCKER_LOG_FILE:?}"
+printf '%s\n' "$*" >>"$DOCKER_LOG_FILE"
+if [[ "$1" == "info" ]]; then
+  exit 0
+fi
+if [[ "$1" == "ps" && "$2" == "--format" ]]; then
+  printf '%b' "${DOCKER_PS_NAMES:-}"
+  exit 0
+fi
+if [[ "$1" == "stop" ]]; then
+  exit 0
+fi
+exit 0
+`)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vector_cache":{"enabled":true}}`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	env := append(os.Environ(),
+		"PATH="+tempBin+":"+os.Getenv("PATH"),
+		"DOCKER_LOG_FILE="+dockerLogPath,
+		"DOCKER_PS_NAMES=ai-gateway-redis-stack\nai-gateway-ollama\nai-gateway-qdrant\n",
+	)
+
+	output, err := runScript(
+		t,
+		setupPath,
+		env,
+		"--edition", "basic",
+		"--runtime", "docker",
+		"--apply-config", "false",
+		"--pull-embedding-model", "false",
+		"--config-path", configPath,
+	)
+	if err != nil {
+		t.Fatalf("expected basic docker setup success, err=%v output=%s", err, output)
+	}
+
+	dockerCalls, readErr := os.ReadFile(dockerLogPath)
+	if readErr != nil {
+		t.Fatalf("read docker log failed: %v", readErr)
+	}
+	callText := string(dockerCalls)
+	if !strings.Contains(callText, "stop ai-gateway-redis-stack ai-gateway-ollama ai-gateway-qdrant") {
+		t.Fatalf("expected single batch stop call for all dependencies, calls=%s", callText)
+	}
+	if strings.Count(callText, "ps --format {{.Names}}") != 1 {
+		t.Fatalf("expected one docker ps scan before batch stop, calls=%s", callText)
+	}
+	if strings.Contains(callText, " rm ") || strings.Contains(callText, " down -v") {
+		t.Fatalf("basic stop-only mode must not delete containers/volumes, calls=%s", callText)
+	}
+	if !strings.Contains(output, "本次动作摘要") {
+		t.Fatalf("expected action summary in output, output=%s", output)
+	}
+	if !strings.Contains(output, "动作: 停止依赖") {
+		t.Fatalf("expected stop action summary for basic mode, output=%s", output)
+	}
+}
+
+func TestSetupEditionEnv_NonInteractive_DefaultEditionStandard(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	tempDir := t.TempDir()
+	tempBin := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(tempBin, 0o755); err != nil {
+		t.Fatalf("mkdir temp bin failed: %v", err)
+	}
+
+	dockerLogPath := filepath.Join(tempDir, "docker.log")
+	if err := os.WriteFile(dockerLogPath, nil, 0o644); err != nil {
+		t.Fatalf("create docker log failed: %v", err)
+	}
+
+	writeExecutable(t, filepath.Join(tempBin, "docker"), `#!/bin/bash
+set -eu
+: "${DOCKER_LOG_FILE:?}"
+printf '%s\n' "$*" >>"$DOCKER_LOG_FILE"
+if [[ "$1" == "info" ]]; then
+  exit 0
+fi
+if [[ "$1" == "ps" && "$2" == "--format" ]]; then
+  printf '%b' "${DOCKER_PS_NAMES:-}"
+  exit 0
+fi
+if [[ "$1" == "ps" && "$2" == "-a" && "$3" == "--format" ]]; then
+  printf '%b' "${DOCKER_PSA_NAMES:-}"
+  exit 0
+fi
+if [[ "$1" == "run" ]]; then
+  exit 0
+fi
+if [[ "$1" == "start" ]]; then
+  exit 0
+fi
+if [[ "$1" == "exec" ]]; then
+  exit 0
+fi
+exit 0
+`)
+	writeExecutable(t, filepath.Join(tempBin, "redis-cli"), `#!/bin/bash
+exit 0
+`)
+	writeExecutable(t, filepath.Join(tempBin, "curl"), `#!/bin/bash
+set -eu
+if [[ "$*" == *"11434/api/tags"* ]]; then
+  exit 0
+fi
+exit 1
+`)
+
+	configPath := filepath.Join(tempDir, "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"vector_cache":{"enabled":true}}`), 0o644); err != nil {
+		t.Fatalf("write config failed: %v", err)
+	}
+
+	env := append(os.Environ(),
+		"PATH="+tempBin+":"+os.Getenv("PATH"),
+		"DOCKER_LOG_FILE="+dockerLogPath,
+		"DOCKER_PS_NAMES=\n",
+		"DOCKER_PSA_NAMES=\n",
+	)
+
+	output, err := runScript(
+		t,
+		setupPath,
+		env,
+		"--apply-config", "false",
+		"--pull-embedding-model", "false",
+		"--config-path", configPath,
+	)
+	if err != nil {
+		t.Fatalf("expected non-interactive default setup success, err=%v output=%s", err, output)
+	}
+	if !strings.Contains(output, "默认使用 standard") {
+		t.Fatalf("expected non-interactive default edition log, output=%s", output)
+	}
+	if !strings.Contains(output, "默认使用 docker") {
+		t.Fatalf("expected non-interactive default runtime log, output=%s", output)
+	}
+	if !strings.Contains(output, "本次动作摘要") {
+		t.Fatalf("expected action summary in output, output=%s", output)
+	}
+	if !strings.Contains(output, "动作: 安装/确保依赖运行") {
+		t.Fatalf("expected ensure action summary for standard mode, output=%s", output)
 	}
 }
 
