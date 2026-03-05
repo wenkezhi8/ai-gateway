@@ -14,7 +14,7 @@ describe('layout menu config', () => {
       },
       display_name: '基础版',
       description: '',
-      dependencies: ['redis'],
+      dependencies: [],
       runtime: 'docker',
       dependency_versions: {
         redis: '7.2.0-v18',
