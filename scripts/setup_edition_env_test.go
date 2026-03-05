@@ -512,6 +512,24 @@ exit 1
 	}
 }
 
+func TestSetupEditionEnv_ScriptContainsInteractiveRuntimePrompt(t *testing.T) {
+	root := projectRoot(t)
+	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
+
+	content, err := os.ReadFile(setupPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", setupPath, err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "请选择安装环境") {
+		t.Fatalf("setup-edition-env.sh should include Chinese interactive runtime prompt")
+	}
+	if !strings.Contains(text, "docker|native") {
+		t.Fatalf("setup-edition-env.sh should provide docker/native runtime selection guidance")
+	}
+}
+
 func TestStartGatewayScript_NativeRuntime_ShouldFailBeforeDocker(t *testing.T) {
 	root := projectRoot(t)
 	scriptPath := filepath.Join(root, "scripts", "start-gateway.sh")

@@ -13,6 +13,7 @@ RUNTIME="docker"
 APPLY_CONFIG="false"
 PULL_EMBEDDING_MODEL="false"
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
+RUNTIME_EXPLICIT="false"
 
 LEGACY_REDIS_CONTAINER="redis-stack"
 
@@ -32,6 +33,10 @@ Options:
   --apply-config <true|false>
   --pull-embedding-model <true|false>
   --config-path <path>
+
+说明:
+  未传 --runtime 时，脚本会在交互终端中提示选择安装环境（docker/native）。
+  非交互环境默认使用 docker。
 EOF
 }
 
@@ -272,6 +277,42 @@ validate_required_health() {
   done
 }
 
+choose_runtime_interactively_if_needed() {
+  if [[ "$RUNTIME_EXPLICIT" == "true" ]]; then
+    return
+  fi
+
+  if [[ ! -t 0 ]]; then
+    log "未指定 --runtime，当前为非交互环境，默认使用 docker。"
+    RUNTIME="docker"
+    return
+  fi
+
+  echo "请选择安装环境（docker/native）："
+  echo "  1) docker（推荐）"
+  echo "  2) native（本机安装）"
+
+  while true; do
+    read -r -p "请输入 1 或 2（默认 1）: " runtime_choice
+    runtime_choice="${runtime_choice:-1}"
+    case "$(echo "$runtime_choice" | tr '[:upper:]' '[:lower:]' | xargs)" in
+      1|docker)
+        RUNTIME="docker"
+        break
+        ;;
+      2|native)
+        RUNTIME="native"
+        break
+        ;;
+      *)
+        echo "输入无效，请输入 1 或 2。"
+        ;;
+    esac
+  done
+
+  log "已选择安装环境: $RUNTIME"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --edition)
@@ -280,6 +321,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --runtime)
       RUNTIME="$2"
+      RUNTIME_EXPLICIT="true"
       shift 2
       ;;
     --apply-config)
@@ -303,6 +345,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+choose_runtime_interactively_if_needed
 
 case "$EDITION" in
   basic|standard|enterprise) ;;
