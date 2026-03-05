@@ -715,7 +715,6 @@ exit 1
 		t.Fatalf("expected ensure action summary for standard mode, output=%s", output)
 	}
 }
-
 func TestStartGatewayScript_NativeRuntime_ShouldFailBeforeDocker(t *testing.T) {
 	root := projectRoot(t)
 	scriptPath := filepath.Join(root, "scripts", "start-gateway.sh")

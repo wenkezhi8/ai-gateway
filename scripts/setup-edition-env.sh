@@ -498,6 +498,7 @@ else
   else
     SUMMARY_DEPENDENCIES="无"
   fi
+
   if [[ "$RUNTIME" == "docker" ]]; then
     docker_available || fail "docker runtime requested but docker is unavailable"
     local_dep=""
