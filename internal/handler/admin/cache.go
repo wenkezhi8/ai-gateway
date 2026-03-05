@@ -2671,11 +2671,41 @@ func (h *CacheHandler) setTestCacheValue(
 
 // POST /api/admin/cache/test-entry.
 func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
+	if gin.Mode() == gin.ReleaseMode {
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "not_found",
+				"message": "Not Found",
+			},
+		})
+		return
+	}
+
 	var req AddTestCacheEntryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"error":   gin.H{"code": "invalid_request", "message": err.Error()},
+		})
+		return
+	}
+
+	req.TaskType = normalizeTaskType(req.TaskType)
+	req.UserMessage = strings.TrimSpace(req.UserMessage)
+	req.AIResponse = strings.TrimSpace(req.AIResponse)
+	req.Model = strings.TrimSpace(req.Model)
+	req.Provider = strings.TrimSpace(req.Provider)
+	if req.TaskType == "" {
+		req.TaskType = taskTypeUnknown
+	}
+	if req.UserMessage == "" || req.AIResponse == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "invalid_request",
+				"message": "user_message and ai_response must not be empty",
+			},
 		})
 		return
 	}
@@ -2693,6 +2723,12 @@ func (h *CacheHandler) AddTestCacheEntry(c *gin.Context) {
 
 	// Build response data
 	responseData := map[string]interface{}{
+		"prompt":           req.UserMessage,
+		"user_message":     req.UserMessage,
+		"task_type":        req.TaskType,
+		"task_type_source": "manual",
+		"model":            req.Model,
+		"provider":         req.Provider,
 		"choices": []map[string]interface{}{
 			{
 				"message": map[string]string{
