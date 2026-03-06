@@ -80,6 +80,12 @@ dependency_docker_manual_hint() {
   name="$(dependency_container_name "$dep")"
   image="$(dependency_image "$dep")"
   ports="$(dependency_ports "$dep")"
+
+  if [[ "$dep" == "redis" ]]; then
+    printf '%s\n' "docker run -d --name $name $ports -v redis-data:/data $image redis-stack-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000"
+    return
+  fi
+
   printf 'docker run -d --name %s %s %s\n' "$name" "$ports" "$image"
 }
 
@@ -173,6 +179,13 @@ ensure_docker_container() {
     return
   fi
   dep_log "创建容器 $name ($image)"
+  if [[ "$dep" == "redis" ]]; then
+    docker volume create redis-data >/dev/null
+    docker run -d --name "$name" "${port_args[@]}" -v redis-data:/data "$image" \
+      redis-stack-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1000 >/dev/null
+    return
+  fi
+
   docker run -d --name "$name" "${port_args[@]}" "$image" >/dev/null
 }
 
@@ -236,6 +249,12 @@ stop_non_required() {
   local dep name
   for dep in "${ALL_DEPENDENCIES[@]}"; do
     if edition_dep_in_list "$dep" "${REQUIRED_DEPENDENCIES[@]-}"; then
+      continue
+    fi
+
+    # Redis 在基础版是可选加速依赖。开发重启时默认保留，避免缓存面板内容在重启后看起来“丢失”。
+    if [[ "$dep" == "redis" ]]; then
+      dep_log "保留可选依赖 redis（不自动停止）"
       continue
     fi
 
