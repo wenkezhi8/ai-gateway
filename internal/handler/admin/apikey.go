@@ -23,6 +23,17 @@ type APIKey struct {
 	Enabled     bool       `json:"enabled"`
 }
 
+type persistedAPIKey struct {
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Key         string     `json:"key"`
+	Description string     `json:"description,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	LastUsed    *time.Time `json:"last_used,omitempty"`
+	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
+	Enabled     bool       `json:"enabled"`
+}
+
 type APIKeyCreateRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
@@ -55,13 +66,28 @@ func (h *APIKeyHandler) loadFromFile() {
 		return
 	}
 
-	var keys []*APIKey
+	var keys []*persistedAPIKey
 	if err := json.Unmarshal(data, &keys); err != nil {
 		return
 	}
 
 	for _, k := range keys {
-		h.store[k.ID] = k
+		if k == nil {
+			continue
+		}
+		lastUsed := k.LastUsed
+		if lastUsed == nil && k.LastUsedAt != nil {
+			lastUsed = k.LastUsedAt
+		}
+		h.store[k.ID] = &APIKey{
+			ID:          k.ID,
+			Name:        k.Name,
+			Key:         k.Key,
+			Description: k.Description,
+			CreatedAt:   k.CreatedAt,
+			LastUsed:    lastUsed,
+			Enabled:     k.Enabled,
+		}
 	}
 }
 

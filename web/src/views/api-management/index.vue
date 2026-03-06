@@ -678,6 +678,7 @@ import {
   type UpdateRouterConfigResponseData
 } from '@/api/routing-domain'
 import { mapRouterConfigForView } from './router-config-contract'
+import { normalizeApiKeyRecord, type ApiKeyApiRecord } from './api-key-contract'
 
 interface ApiKey {
   id: string
@@ -1020,7 +1021,7 @@ async function loadApiKeys() {
     })
     const data = await res.json()
     if (data.success) {
-      apiKeys.value = (data.data || []).map((k: any) => ({ ...k, visible: false }))
+      apiKeys.value = (data.data || []).map((k: ApiKeyApiRecord) => ({ ...normalizeApiKeyRecord(k), visible: false }))
       syncSelectedConfigKeyToTestForm()
     }
   } catch (e) {
