@@ -48,6 +48,11 @@ import { handleApiError, handleSuccess } from '@/utils/errorHandler'
 import { formatDuration } from '@/utils/format-duration'
 import {
   DEFAULT_CLASSIFIER_CONFIG,
+  ROUTING_OLLAMA_DEFAULT_BASE_URL,
+  ROUTING_OLLAMA_DEFAULT_EMBEDDING_DIMENSION,
+  ROUTING_OLLAMA_DEFAULT_EMBEDDING_ENDPOINT_MODE,
+  ROUTING_OLLAMA_DEFAULT_EMBEDDING_MODEL,
+  ROUTING_OLLAMA_DEFAULT_EMBEDDING_TIMEOUT_MS,
   ROUTING_OLLAMA_DEFAULT_MODEL,
   createDefaultTaskModelMapping,
   createDefaultTaskTypes,
@@ -146,16 +151,16 @@ export function useOllamaConsoleCore() {
 
   const dualModelConfig = reactive({
     classifier_enabled: true,
-    classifier_base_url: 'http://127.0.0.1:11434',
+    classifier_base_url: ROUTING_OLLAMA_DEFAULT_BASE_URL,
     classifier_active_model: ROUTING_OLLAMA_DEFAULT_MODEL,
     classifier_candidate_models: [ROUTING_OLLAMA_DEFAULT_MODEL] as string[],
-    classifier_timeout_ms: 1500,
+    classifier_timeout_ms: DEFAULT_CLASSIFIER_CONFIG.timeout_ms,
     vector_pipeline_enabled: true,
-    vector_ollama_base_url: 'http://127.0.0.1:11434',
-    vector_ollama_embedding_model: 'nomic-embed-text',
-    vector_ollama_embedding_dimension: 1024,
-    vector_ollama_embedding_timeout_ms: 3000,
-    vector_ollama_endpoint_mode: 'auto',
+    vector_ollama_base_url: ROUTING_OLLAMA_DEFAULT_BASE_URL,
+    vector_ollama_embedding_model: ROUTING_OLLAMA_DEFAULT_EMBEDDING_MODEL,
+    vector_ollama_embedding_dimension: ROUTING_OLLAMA_DEFAULT_EMBEDDING_DIMENSION,
+    vector_ollama_embedding_timeout_ms: ROUTING_OLLAMA_DEFAULT_EMBEDDING_TIMEOUT_MS,
+    vector_ollama_endpoint_mode: ROUTING_OLLAMA_DEFAULT_EMBEDDING_ENDPOINT_MODE,
     vector_writeback_enabled: true
   })
 
@@ -346,6 +351,26 @@ export function useOllamaConsoleCore() {
       classifierConfig.confidence_threshold = value / 100
     }
   })
+
+  function syncClassifierConfigFromDualModel() {
+    const normalizedCandidates = (dualModelConfig.classifier_candidate_models || [])
+      .map(model => (model || '').trim())
+      .filter(Boolean)
+    const activeModel = (dualModelConfig.classifier_active_model || ROUTING_OLLAMA_DEFAULT_MODEL).trim() || ROUTING_OLLAMA_DEFAULT_MODEL
+    const baseUrl = (dualModelConfig.classifier_base_url || ROUTING_OLLAMA_DEFAULT_BASE_URL).trim() || ROUTING_OLLAMA_DEFAULT_BASE_URL
+
+    dualModelConfig.classifier_active_model = activeModel
+    dualModelConfig.classifier_base_url = baseUrl
+    dualModelConfig.classifier_candidate_models = normalizedCandidates.length > 0 ? normalizedCandidates : [activeModel]
+    dualModelConfig.classifier_timeout_ms = Number(dualModelConfig.classifier_timeout_ms || DEFAULT_CLASSIFIER_CONFIG.timeout_ms)
+
+    classifierConfig.enabled = dualModelConfig.classifier_enabled
+    classifierConfig.base_url = dualModelConfig.classifier_base_url
+    classifierConfig.active_model = dualModelConfig.classifier_active_model
+    classifierConfig.candidate_models = [...dualModelConfig.classifier_candidate_models]
+    classifierConfig.timeout_ms = dualModelConfig.classifier_timeout_ms
+    classifierSwitchModel.value = dualModelConfig.classifier_active_model
+  }
 
   function ensureControlConfig() {
     if (!classifierConfig.control) {
@@ -554,13 +579,7 @@ export function useOllamaConsoleCore() {
       dualModelConfig.vector_ollama_endpoint_mode = data.vector_ollama_endpoint_mode || dualModelConfig.vector_ollama_endpoint_mode
       dualModelConfig.vector_writeback_enabled = Boolean(data.vector_writeback_enabled ?? dualModelConfig.vector_writeback_enabled)
 
-      // 同步策略页中的分类器核心模型字段，避免展示与运行配置不一致。
-      classifierConfig.enabled = dualModelConfig.classifier_enabled
-      classifierConfig.base_url = dualModelConfig.classifier_base_url
-      classifierConfig.active_model = dualModelConfig.classifier_active_model
-      classifierConfig.candidate_models = [...dualModelConfig.classifier_candidate_models]
-      classifierConfig.timeout_ms = dualModelConfig.classifier_timeout_ms
-      classifierSwitchModel.value = dualModelConfig.classifier_active_model
+      syncClassifierConfigFromDualModel()
     } catch (e) {
       console.warn('Failed to load dual model config:', e)
     }
@@ -577,12 +596,12 @@ export function useOllamaConsoleCore() {
         classifier_base_url: dualModelConfig.classifier_base_url,
         classifier_active_model: dualModelConfig.classifier_active_model,
         classifier_candidate_models: normalizedCandidates.length > 0 ? normalizedCandidates : [dualModelConfig.classifier_active_model],
-        classifier_timeout_ms: Number(dualModelConfig.classifier_timeout_ms || 1500),
+        classifier_timeout_ms: Number(dualModelConfig.classifier_timeout_ms || DEFAULT_CLASSIFIER_CONFIG.timeout_ms),
         vector_pipeline_enabled: dualModelConfig.vector_pipeline_enabled,
         vector_ollama_base_url: dualModelConfig.vector_ollama_base_url,
         vector_ollama_embedding_model: dualModelConfig.vector_ollama_embedding_model,
         vector_ollama_embedding_dimension: Number(dualModelConfig.vector_ollama_embedding_dimension || 1024),
-        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || 1500),
+        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || ROUTING_OLLAMA_DEFAULT_EMBEDDING_TIMEOUT_MS),
         vector_ollama_endpoint_mode: dualModelConfig.vector_ollama_endpoint_mode,
         vector_writeback_enabled: dualModelConfig.vector_writeback_enabled
       }
@@ -616,7 +635,7 @@ export function useOllamaConsoleCore() {
         vector_ollama_base_url: dualModelConfig.vector_ollama_base_url,
         vector_ollama_embedding_model: vectorModel,
         vector_ollama_embedding_dimension: Number(dualModelConfig.vector_ollama_embedding_dimension || 1024),
-        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || 1500),
+        vector_ollama_embedding_timeout_ms: Number(dualModelConfig.vector_ollama_embedding_timeout_ms || ROUTING_OLLAMA_DEFAULT_EMBEDDING_TIMEOUT_MS),
         vector_ollama_endpoint_mode: dualModelConfig.vector_ollama_endpoint_mode,
         vector_writeback_enabled: dualModelConfig.vector_writeback_enabled
       })
@@ -857,6 +876,7 @@ export function useOllamaConsoleCore() {
   async function saveClassifierConfig() {
     classifierSaving.value = true
     try {
+      syncClassifierConfigFromDualModel()
       await updateRouterConfig({
         classifier: {
           ...classifierConfig,

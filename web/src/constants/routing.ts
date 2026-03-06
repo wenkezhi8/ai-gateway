@@ -11,13 +11,20 @@ export type TaskTypeItem = {
   color: string
 }
 
+export const ROUTING_OLLAMA_DEFAULT_BASE_URL = 'http://127.0.0.1:11434'
+export const ROUTING_OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b-instruct'
+export const ROUTING_OLLAMA_DEFAULT_EMBEDDING_MODEL = 'nomic-embed-text'
+export const ROUTING_OLLAMA_DEFAULT_EMBEDDING_DIMENSION = 1024
+export const ROUTING_OLLAMA_DEFAULT_EMBEDDING_TIMEOUT_MS = 3000
+export const ROUTING_OLLAMA_DEFAULT_EMBEDDING_ENDPOINT_MODE = 'auto'
+
 export const DEFAULT_CLASSIFIER_CONFIG = {
   enabled: true,
   shadow_mode: false,
   provider: 'ollama',
-  base_url: 'http://127.0.0.1:11434',
-  active_model: 'qwen2.5:0.5b-instruct',
-  candidate_models: ['qwen2.5:0.5b-instruct'],
+  base_url: ROUTING_OLLAMA_DEFAULT_BASE_URL,
+  active_model: ROUTING_OLLAMA_DEFAULT_MODEL,
+  candidate_models: [ROUTING_OLLAMA_DEFAULT_MODEL],
   timeout_ms: 5000,
   confidence_threshold: 0.65,
   fail_open: true,
@@ -34,8 +41,6 @@ export const DEFAULT_CLASSIFIER_CONFIG = {
     parameter_hint_enable: false
   }
 }
-
-export const ROUTING_OLLAMA_DEFAULT_MODEL = 'qwen2.5:0.5b-instruct'
 
 export const DEFAULT_TASK_MODEL_MAPPING: Record<string, TaskModelMappingItem> = {
   code: { enabled: false, model: '' },
