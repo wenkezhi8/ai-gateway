@@ -163,7 +163,9 @@ func (s *ResponseColdArchiveService) scanLoop(ctx context.Context) {
 			}
 			return
 		case <-timer.C:
-			_, _ = s.ScanExpiringResponses(ctx)
+			if _, err := s.ScanExpiringResponses(ctx); err != nil {
+				s.recordFailure(err)
+			}
 		}
 	}
 }

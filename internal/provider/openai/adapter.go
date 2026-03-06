@@ -490,8 +490,10 @@ func getFloatFromMap(m map[string]interface{}, key string) float64 {
 	case int32:
 		return float64(v)
 	case json.Number:
-		f, _ := v.Float64()
-		return f
+		if f, err := v.Float64(); err == nil {
+			return f
+		}
+		return 0
 	}
 	return 0
 }

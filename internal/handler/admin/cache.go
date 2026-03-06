@@ -970,7 +970,9 @@ func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
 	payload := map[string]any{}
 	raw, err := json.Marshal(stats)
 	if err == nil {
-		_ = json.Unmarshal(raw, &payload)
+		if unmarshalErr := json.Unmarshal(raw, &payload); unmarshalErr != nil {
+			payload = map[string]any{}
+		}
 	}
 	if archiveService := h.manager.GetResponseColdArchiveService(); archiveService != nil {
 		archiveStats := archiveService.Stats()
