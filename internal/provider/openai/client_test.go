@@ -358,6 +358,57 @@ func TestExtractResponsesTextAndUsage(t *testing.T) {
 	assert.Equal(t, 12, usage.PromptTokens)
 	assert.Equal(t, 8, usage.CompletionTokens)
 	assert.Equal(t, 20, usage.TotalTokens)
+	assert.Equal(t, 0, usage.CachedReadTokens)
+}
+
+func TestExtractResponsesUsage_WithInputTokensDetailsCachedTokens(t *testing.T) {
+	resp := map[string]interface{}{
+		"usage": map[string]interface{}{
+			"input_tokens":  42.0,
+			"output_tokens": 18.0,
+			"total_tokens":  60.0,
+			"input_tokens_details": map[string]interface{}{
+				"cached_tokens": 9.0,
+			},
+		},
+	}
+
+	usage := extractResponsesUsage(resp)
+	assert.Equal(t, 42, usage.PromptTokens)
+	assert.Equal(t, 18, usage.CompletionTokens)
+	assert.Equal(t, 60, usage.TotalTokens)
+	assert.Equal(t, 9, usage.CachedReadTokens)
+}
+
+func TestConvertResponse_WithPromptTokensDetailsCachedTokens(t *testing.T) {
+	content := "Hello!"
+	resp := &ChatResponse{
+		ID:      "test-id-cached",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   "gpt-4",
+		Choices: []ChatResponseChoice{
+			{
+				Index: 0,
+				Message: ChatMessage{
+					Role:    "assistant",
+					Content: content,
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: ChatResponseUsage{
+			PromptTokens:     10,
+			CompletionTokens: 20,
+			TotalTokens:      30,
+			PromptTokensDetails: TokenDetails{
+				CachedTokens: 7,
+			},
+		},
+	}
+
+	provResp := ConvertResponse(resp)
+	assert.Equal(t, 7, provResp.Usage.CachedReadTokens)
 }
 
 func TestChatRequest_Marshal(t *testing.T) {

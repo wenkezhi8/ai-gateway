@@ -200,9 +200,25 @@ type ChatResponseChoice struct {
 
 // ChatResponseUsage represents token usage
 type ChatResponseUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int          `json:"prompt_tokens"`
+	CompletionTokens    int          `json:"completion_tokens"`
+	TotalTokens         int          `json:"total_tokens"`
+	PromptTokensDetails TokenDetails `json:"prompt_tokens_details,omitempty"`
+	InputTokensDetails  TokenDetails `json:"input_tokens_details,omitempty"`
+}
+
+type TokenDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
+}
+
+func (u ChatResponseUsage) CachedReadTokens() int {
+	if u.PromptTokensDetails.CachedTokens > 0 {
+		return u.PromptTokensDetails.CachedTokens
+	}
+	if u.InputTokensDetails.CachedTokens > 0 {
+		return u.InputTokensDetails.CachedTokens
+	}
+	return 0
 }
 
 // ChatResponseError represents an error response

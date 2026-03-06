@@ -194,6 +194,7 @@ func (s *SQLiteStorage) migrate() error {
 			tokens INTEGER DEFAULT 0,
 			input_tokens INTEGER DEFAULT 0,
 			output_tokens INTEGER DEFAULT 0,
+			cached_read_tokens INTEGER DEFAULT 0,
 			latency_ms INTEGER DEFAULT 0,
 			ttft_ms INTEGER DEFAULT 0,
 			cache_hit INTEGER DEFAULT 0,
@@ -934,6 +935,7 @@ type UsageLog struct {
 	Tokens             int64  `json:"tokens"`
 	InputTokens        int64  `json:"input_tokens"`
 	OutputTokens       int64  `json:"output_tokens"`
+	CachedReadTokens   int64  `json:"cached_read_tokens"`
 	LatencyMs          int64  `json:"latency_ms"`
 	TTFTMs             int64  `json:"ttft_ms"`
 	CacheHit           bool   `json:"cache_hit"`
@@ -1006,9 +1008,9 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 
 	_, err := s.db.Exec(`INSERT INTO usage_logs (
 		request_id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
-		tokens, input_tokens, output_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type,
+		tokens, input_tokens, output_tokens, cached_read_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type,
 		difficulty, experiment_tag, domain_tag, usage_source, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		usageStringValue(log, "request_id"),
 		timestamp,
 		usageStringValue(log, "model"),
@@ -1022,6 +1024,7 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 		usageInt64Value(log, "tokens"),
 		usageInt64Value(log, "input_tokens"),
 		usageInt64Value(log, "output_tokens"),
+		usageInt64Value(log, "cached_read_tokens"),
 		usageInt64Value(log, "latency_ms"),
 		usageInt64Value(log, "ttft_ms"),
 		boolToInt(usageBoolValue(log, "cache_hit")),
@@ -1045,7 +1048,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	whereClause, args := buildUsageWhereClause(filter)
 	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
 	query := `SELECT id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
-		tokens, input_tokens, output_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty,
+		tokens, input_tokens, output_tokens, cached_read_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty,
 		experiment_tag, domain_tag, usage_source, created_at
 		FROM usage_logs WHERE ` + whereClause
 
@@ -1061,14 +1064,14 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	var logs []map[string]interface{}
 	for rows.Next() {
 		var id int64
-		var timestamp, tokens, inputTokens, outputTokens, latencyMs, ttftMs int64
+		var timestamp, tokens, inputTokens, outputTokens, cachedReadTokens, latencyMs, ttftMs int64
 		var model, createdAt string
 		var cacheHitInt, successInt int
 		var provider, account, userID, apiKey, userAgent, requestType, inferenceIntensity sql.NullString
 		var errorType, taskType, difficulty, experimentTag, domainTag, usageSource sql.NullString
 		if err := rows.Scan(
 			&id, &timestamp, &model, &provider, &account, &userID, &apiKey, &userAgent, &requestType, &inferenceIntensity,
-			&tokens, &inputTokens, &outputTokens, &latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType,
+			&tokens, &inputTokens, &outputTokens, &cachedReadTokens, &latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType,
 			&difficulty, &experimentTag, &domainTag, &usageSource, &createdAt,
 		); err != nil {
 			return nil, err
@@ -1087,6 +1090,7 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 			"tokens":              tokens,
 			"input_tokens":        inputTokens,
 			"output_tokens":       outputTokens,
+			"cached_read_tokens":  cachedReadTokens,
 			"latency_ms":          latencyMs,
 			"ttft_ms":             ttftMs,
 			"cache_hit":           cacheHitInt == 1,
@@ -1131,6 +1135,7 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 		"user_agent":          "TEXT DEFAULT ''",
 		"request_type":        "TEXT DEFAULT 'non_stream'",
 		"inference_intensity": "TEXT DEFAULT ''",
+		"cached_read_tokens":  "INTEGER DEFAULT 0",
 	}
 
 	rows, err := s.db.Query(`PRAGMA table_info(usage_logs)`)

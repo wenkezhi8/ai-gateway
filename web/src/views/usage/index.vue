@@ -170,6 +170,11 @@
             {{ formatCompact(row.outputTokens) }}
           </template>
         </el-table-column>
+        <el-table-column label="缓存读取 Token" width="132" align="right" class-name="cell-num">
+          <template #default="{ row }">
+            <span class="token-total">{{ formatCompact(row.cachedReadTokens) }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="总 Token" width="120" align="right" class-name="cell-num">
           <template #default="{ row }">
             <span class="token-total">{{ formatCompact(row.totalTokens) }}</span>
@@ -185,7 +190,7 @@
             <div class="token-total">{{ formatCompact(row.savedTokens) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="缓存命中" width="92" align="center" class-name="cell-center">
+        <el-table-column label="本地缓存" width="92" align="center" class-name="cell-center">
           <template #default="{ row }">
             <span>{{ row.cacheHit }}</span>
           </template>
@@ -438,6 +443,7 @@ const exportCsv = () => {
     row.userAgent,
     row.inputTokens,
     row.outputTokens,
+    row.cachedReadTokens,
     row.totalTokens,
     row.usageSourceLabel,
     row.savedTokens,
