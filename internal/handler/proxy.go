@@ -236,13 +236,17 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	assessStart := time.Now()
 	assessment := h.smartRouter.AssessDifficulty(prompt, contextStr)
 	if h.traceRecorder != nil {
-		h.traceRecorder.RecordSimpleSpan(ctx, "classifier.assess", map[string]interface{}{
+		assessAttrs := map[string]interface{}{
 			"duration_ms":     time.Since(assessStart).Milliseconds(),
 			"task_type":       assessment.TaskType,
 			"difficulty":      assessment.Difficulty,
 			"recommended_ttl": assessment.SuggestedTTL,
 			"user_id":         userID,
-		})
+		}
+		for key, value := range buildPromptPreviewAttributes(prompt) {
+			assessAttrs[key] = value
+		}
+		h.traceRecorder.RecordSimpleSpan(ctx, "classifier.assess", assessAttrs)
 	}
 	recommendedTTL := assessment.SuggestedTTL
 	classifierCfg := h.smartRouter.GetClassifierConfig()
@@ -1835,7 +1839,25 @@ func (h *ProxyHandler) handleStreamResponse(
 	streamCompletedByDone := false
 	var ttftMs int64 = 0 // Time to first token
 	// Stream chunks to client
-	for chunk := range stream {
+streamLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			cancelMessage := "stream canceled"
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				cancelMessage = ctxErr.Error()
+			}
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, cancelMessage, 499)
+			return
+		case chunk, ok := <-stream:
+			if !ok {
+				break streamLoop
+			}
+			if chunk == nil {
+				continue
+			}
 		if chunk.Error != nil {
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
@@ -1875,7 +1897,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		if chunk.Done {
 			if strings.TrimSpace(fullContent.String()) == "" && !hasReasoningOutput {
 				fallbackNeeded = true
-				break
+				break streamLoop
 			}
 
 			resolvedUsage, usageSource := resolveUsageWithFallback(
@@ -2054,7 +2076,7 @@ func (h *ProxyHandler) handleStreamResponse(
 				}
 			}
 			streamCompletedByDone = true
-			break
+			break streamLoop
 		}
 		streamResp := StreamingResponse{
 			ID:      chunk.ID,
@@ -2118,6 +2140,7 @@ func (h *ProxyHandler) handleStreamResponse(
 
 		c.SSEvent("message", streamResp)
 		c.Writer.Flush()
+		}
 	}
 
 	if receivedChunks > 0 && !fallbackNeeded && !streamCompletedByDone {
@@ -3226,9 +3249,13 @@ func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedA
 	for key, value := range buildPromptPreviewAttributes(prompt) {
 		attrs[key] = value
 	}
-	for key, value := range buildTraceErrorMessageAttributes(errorMessage) {
+	errorPreviewAttrs := buildTraceErrorMessageAttributes(errorMessage)
+	for key, value := range errorPreviewAttrs {
 		attrs[key] = value
 	}
+	attrs["ai_response_preview"] = errorPreviewAttrs["error_message_preview"]
+	attrs["ai_response_full"] = errorPreviewAttrs["error_message_full"]
+	attrs["ai_response_truncated"] = errorPreviewAttrs["error_message_truncated"]
 
 	h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 }

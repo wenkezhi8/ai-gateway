@@ -243,6 +243,10 @@ type streamStartFailProvider struct {
 	streamErr error
 }
 
+type hangingStreamProvider struct {
+	*provider.BaseProvider
+}
+
 type doneStreamProvider struct {
 	*provider.BaseProvider
 }
@@ -737,6 +741,35 @@ func (s *streamStartFailProvider) StreamChat(_ context.Context, _ *provider.Chat
 }
 
 func (s *streamStartFailProvider) ValidateKey(_ context.Context) bool {
+	return true
+}
+
+func (h *hangingStreamProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
+	return &provider.ChatResponse{
+		ID:      "hanging-fallback-id",
+		Object:  "chat.completion",
+		Created: 1234567890,
+		Model:   req.Model,
+		Choices: []provider.Choice{
+			{
+				Index: 0,
+				Message: provider.ChatMessage{
+					Role:    "assistant",
+					Content: "unused",
+				},
+				FinishReason: "stop",
+			},
+		},
+		Usage: provider.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
+	}, nil
+}
+
+func (h *hangingStreamProvider) StreamChat(_ context.Context, _ *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
+	// Intentionally never sends/never closes to simulate upstream streaming stall.
+	return make(chan *provider.StreamChunk), nil
+}
+
+func (h *hangingStreamProvider) ValidateKey(_ context.Context) bool {
 	return true
 }
 
@@ -1335,6 +1368,8 @@ func TestProxyHandler_ChatCompletions_ProviderErrorShouldRecordHTTPResponseError
 	assert.Equal(t, "hello failure trace", httpTrace.Attrs["user_message_full"])
 	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_preview"])
 	assert.Equal(t, "upstream failed", httpTrace.Attrs["error_message_full"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["ai_response_preview"])
+	assert.Equal(t, "upstream failed", httpTrace.Attrs["ai_response_full"])
 }
 
 func TestProxyHandler_ChatCompletions_StreamStartFailureShouldRecordHTTPResponseErrorSpan(t *testing.T) {
@@ -1372,6 +1407,43 @@ func TestProxyHandler_ChatCompletions_StreamStartFailureShouldRecordHTTPResponse
 	assert.Equal(t, "hello stream failure", httpTrace.Attrs["user_message_full"])
 	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_preview"])
 	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["error_message_full"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["ai_response_preview"])
+	assert.Equal(t, assert.AnError.Error(), httpTrace.Attrs["ai_response_full"])
+}
+
+func TestProxyHandler_ChatCompletions_StreamContextCanceledShouldRecordHTTPResponseErrorSpan(t *testing.T) {
+	provider.ClearRegistry()
+	defer provider.ClearRegistry()
+
+	h := NewProxyHandler(&config.Config{}, nil, nil)
+	ensureModelRegistryModelsForTest(t, h, "openai", "gpt-4")
+	db := storage.GetSQLiteStorage().GetDB()
+
+	provider.RegisterProvider("openai", &hangingStreamProvider{
+		BaseProvider: provider.NewBaseProvider("openai", "test-key", "https://api.openai.com/v1", []string{"gpt-4"}, true),
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body := `{"provider":"openai","model":"gpt-4","stream":true,"messages":[{"role":"user","content":"hello canceled stream"}]}`
+	reqCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequest("POST", "/api/v1/chat/completions", strings.NewReader(body)).WithContext(reqCtx)
+	req.Header.Set("Content-Type", "application/json")
+	c.Request = req
+
+	h.ChatCompletions(c)
+
+	requestID := w.Header().Get("X-Request-ID")
+	require.NotEmpty(t, requestID)
+
+	httpTrace := fetchOperationTraceRecord(t, db, requestID, "http.response")
+	assert.Equal(t, "error", httpTrace.Status)
+	assert.Equal(t, false, httpTrace.Attrs["success"])
+	assert.Equal(t, float64(499), httpTrace.Attrs["status_code"])
+	assert.Equal(t, "hello canceled stream", httpTrace.Attrs["user_message_preview"])
+	assert.Equal(t, "hello canceled stream", httpTrace.Attrs["user_message_full"])
+	assert.Contains(t, httpTrace.Error, "context canceled")
 }
 
 type capturingProvider struct {
