@@ -117,6 +117,43 @@ func TestRedisContainerNames_AreUnifiedAcrossSetupScripts(t *testing.T) {
 	}
 }
 
+func TestDependencyManager_RedisDockerRun_UsesPersistentVolumeAndAOF(t *testing.T) {
+	root := projectRoot(t)
+	depManagerPath := filepath.Join(root, "scripts", "lib", "dependency-manager.sh")
+	content, err := os.ReadFile(depManagerPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", depManagerPath, err)
+	}
+	text := string(content)
+
+	if !strings.Contains(text, "-v redis-data:/data") {
+		t.Fatalf("dependency-manager.sh must mount redis-data volume for redis container")
+	}
+	if !strings.Contains(text, "--appendonly yes") {
+		t.Fatalf("dependency-manager.sh must enable AOF when creating redis container")
+	}
+	if !strings.Contains(text, "docker volume create redis-data") {
+		t.Fatalf("dependency-manager.sh must ensure redis-data volume exists before docker run")
+	}
+}
+
+func TestDependencyManager_StopNonRequired_ShouldKeepRedis(t *testing.T) {
+	root := projectRoot(t)
+	depManagerPath := filepath.Join(root, "scripts", "lib", "dependency-manager.sh")
+	content, err := os.ReadFile(depManagerPath)
+	if err != nil {
+		t.Fatalf("read %s failed: %v", depManagerPath, err)
+	}
+	text := string(content)
+
+	if !strings.Contains(text, "if [[ \"$dep\" == \"redis\" ]]; then") {
+		t.Fatalf("dependency-manager.sh must preserve redis in stop_non_required")
+	}
+	if !strings.Contains(text, "保留可选依赖 redis（不自动停止）") {
+		t.Fatalf("dependency-manager.sh must log redis preservation in stop_non_required")
+	}
+}
+
 func TestSetupEditionEnv_NativeRedis_NoDockerAutoFallback(t *testing.T) {
 	root := projectRoot(t)
 	setupPath := filepath.Join(root, "scripts", "setup-edition-env.sh")
