@@ -287,6 +287,33 @@ describe('pages static config extraction', () => {
     expect(routingConsoleFile).not.toContain("data.default_model || 'deepseek-chat'")
   })
 
+  it('should remove latest mode config from api management view', () => {
+    const apiManagementViewFile = readFileSync(
+      join(process.cwd(), 'src/views/api-management/index.vue'),
+      'utf-8'
+    )
+
+    expect(apiManagementViewFile).not.toContain('<el-radio-button value="latest">')
+    expect(apiManagementViewFile).not.toContain("routerConfig.value.use_auto_mode === 'latest'")
+    expect(apiManagementViewFile).not.toContain('<el-option label="latest (最新模型)" value="latest" />')
+  })
+
+  it('should consume routing-domain facade for api-management router config endpoints', () => {
+    const apiManagementViewFile = readFileSync(
+      join(process.cwd(), 'src/views/api-management/index.vue'),
+      'utf-8'
+    )
+
+    expect(apiManagementViewFile).toContain("from '@/api/routing-domain'")
+    expect(apiManagementViewFile).toContain('getRouterConfig')
+    expect(apiManagementViewFile).toContain('updateRouterConfig')
+    expect(apiManagementViewFile).toContain('getAvailableModels')
+    expect(apiManagementViewFile).not.toContain('fetch(API.ROUTER.CONFIG')
+    expect(apiManagementViewFile).not.toContain('fetch(API.ROUTER.AVAILABLE_MODELS')
+    expect(apiManagementViewFile).not.toContain('fetch(API.ROUTER.TOP_MODELS')
+    expect(apiManagementViewFile).not.toContain('fetch(API.ROUTER.PROVIDER_DEFAULTS')
+  })
+
   it('should enforce api facade boundaries in stores and composables', () => {
     const alertsStoreFile = readFileSync(join(process.cwd(), 'src/store/alerts.ts'), 'utf-8')
     const globalDataComposableFile = readFileSync(
