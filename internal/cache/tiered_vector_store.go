@@ -362,6 +362,34 @@ func (t *TieredVectorStore) Upsert(ctx context.Context, doc *VectorCacheDocument
 	return nil
 }
 
+// ArchiveCold writes one document directly into configured cold backends.
+func (t *TieredVectorStore) ArchiveCold(ctx context.Context, doc *VectorCacheDocument) error {
+	if t == nil || doc == nil || !t.isColdEnabled() {
+		return nil
+	}
+	if strings.TrimSpace(doc.CacheKey) == "" {
+		return nil
+	}
+	if doc.CreateTS <= 0 {
+		doc.CreateTS = time.Now().Unix()
+	}
+	if doc.LastHitTS <= 0 {
+		doc.LastHitTS = doc.CreateTS
+	}
+	copyDoc := *doc
+	copyDoc.Tier = VectorTierCold
+	for backend, store := range t.collectColdTargets(false) {
+		if store == nil {
+			continue
+		}
+		if err := store.Upsert(ctx, &copyDoc); err != nil {
+			t.recordColdError(backend, err)
+			return err
+		}
+	}
+	return nil
+}
+
 // Delete removes one key from hot and configured cold stores.
 func (t *TieredVectorStore) Delete(ctx context.Context, cacheKey string) error {
 	if t == nil {

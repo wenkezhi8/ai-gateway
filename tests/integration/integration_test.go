@@ -238,7 +238,7 @@ func ensureSmartRouterModelsForIntegrationTest(t *testing.T, modelScores map[str
 	require.NoError(t, os.Chdir(tempRoot))
 
 	t.Cleanup(func() {
-		_ = os.Chdir(wd)
+		require.NoError(t, os.Chdir(wd))
 	})
 }
 

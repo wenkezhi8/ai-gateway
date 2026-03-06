@@ -925,15 +925,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 				}
 
 				// Use SetWithTaskType to record task type for filtering
-				if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-					taskTypeStr := string(assessment.TaskType)
-					if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, taskTypeStr, string(assessment.Source)); err != nil {
-						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
-					}
-				} else {
-					if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
-						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
-					}
+				if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, string(assessment.TaskType), string(assessment.Source)); err != nil {
+					logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
 				}
 
 				if shouldUsePromptOnlyCache(assessment.TaskType) {
@@ -1012,7 +1005,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// V2 cache async write path.
-	h.processCacheV2Write(c.Request.Context(), intentResult, req.Provider, req.Model, assessment.TaskType, response)
+	h.processCacheV2Write(c.Request.Context(), prompt, normalizedQuery, intentResult, req.Provider, req.Model, assessment.TaskType, response)
 
 	// 记录 Span 9: 响应返回
 	if h.traceRecorder != nil {
@@ -2052,14 +2045,8 @@ streamLoop:
 								TaskType:       taskType,
 								TaskTypeSource: taskTypeSource,
 							}
-							if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-								if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
-									logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-								}
-							} else {
-								if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
-									logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-								}
+							if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
+								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
 							}
 							if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 								h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
@@ -2251,14 +2238,8 @@ streamLoop:
 						TaskType:       taskType,
 						TaskTypeSource: taskTypeSource,
 					}
-					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-						if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
-							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-						}
-					} else {
-						if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
-							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-						}
+					if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
+						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
 					}
 					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
@@ -2451,14 +2432,8 @@ streamLoop:
 						TaskType:       taskType,
 						TaskTypeSource: taskTypeSource,
 					}
-					if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-						if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource); err != nil {
-							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
-						}
-					} else {
-						if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
-							logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
-						}
+					if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource); err != nil {
+						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
 					}
 					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
 						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, model, taskType, prompt, cacheKey)
@@ -4027,6 +4002,34 @@ func (h *ProxyHandler) persistResponseCacheHit(ctx context.Context, cacheKey str
 	}
 }
 
+func (h *ProxyHandler) writeResponseCacheEntry(
+	ctx context.Context,
+	cacheKey string,
+	cachedResp *cache.CachedResponse,
+	ttl time.Duration,
+	model string,
+	provider string,
+	taskType string,
+	taskTypeSource string,
+) error {
+	if h.cache == nil || h.cache.ResponseCache == nil || cachedResp == nil {
+		return nil
+	}
+	if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+		if err := mc.SetWithTaskType(ctx, cacheKey, cachedResp, ttl, model, provider, taskType, taskTypeSource); err != nil {
+			return err
+		}
+	} else {
+		if err := h.cache.ResponseCache.SetWithTTL(ctx, cacheKey, cachedResp, ttl); err != nil {
+			return err
+		}
+	}
+	if archiveService := h.cache.GetResponseColdArchiveService(); archiveService != nil {
+		archiveService.NotifyWrite(cacheKey, cachedResp, ttl)
+	}
+	return nil
+}
+
 func (h *ProxyHandler) processCacheV2Read(
 	ctx context.Context,
 	prompt string,
@@ -4056,13 +4059,15 @@ func (h *ProxyHandler) processCacheV2Read(
 
 func (h *ProxyHandler) processCacheV2Write(
 	ctx context.Context,
+	prompt string,
+	normalizedQuery string,
 	intentResult *intent.EmbeddingResult,
 	providerName string,
 	model string,
 	taskType routing.TaskType,
 	response ChatCompletionResponse,
 ) {
-	if intentResult == nil || h.vectorStore == nil {
+	if h.vectorStore == nil {
 		return
 	}
 
@@ -4076,6 +4081,13 @@ func (h *ProxyHandler) processCacheV2Write(
 		pipeline = NewVectorPipeline(h.vectorStore, h.textNormalizer, func() cache.CacheSettings {
 			return settingsCopy
 		})
+	}
+	if intentResult == nil {
+		rebuilt, err := pipeline.buildIntentEmbeddingResult(ctx, prompt, normalizedQuery, string(taskType), settings)
+		if err != nil || rebuilt == nil {
+			return
+		}
+		intentResult = rebuilt
 	}
 	pipeline.Write(
 		ctx,

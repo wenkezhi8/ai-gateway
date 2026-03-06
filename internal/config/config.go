@@ -85,37 +85,41 @@ type IntentEngineConfig struct {
 
 // VectorCacheConfig holds Redis Stack vector cache configuration.
 type VectorCacheConfig struct {
-	Enabled                       bool               `json:"enabled"`
-	IndexName                     string             `json:"index_name"`
-	KeyPrefix                     string             `json:"key_prefix"`
-	Dimension                     int                `json:"dimension"`
-	QueryTimeoutMs                int                `json:"query_timeout_ms"`
-	Thresholds                    map[string]float64 `json:"thresholds"`
-	TTLSeconds                    map[string]int64   `json:"ttl_seconds"`
-	PipelineEnabled               bool               `json:"pipeline_enabled"`
-	StandardKeyVersion            string             `json:"standard_key_version"`
-	EmbeddingProvider             string             `json:"embedding_provider"`
-	OllamaBaseURL                 string             `json:"ollama_base_url"`
-	OllamaEmbeddingModel          string             `json:"ollama_embedding_model"`
-	OllamaEmbeddingDimension      int                `json:"ollama_embedding_dimension"`
-	OllamaEmbeddingTimeoutMs      int                `json:"ollama_embedding_timeout_ms"`
-	OllamaEndpointMode            string             `json:"ollama_endpoint_mode"`
-	WritebackEnabled              bool               `json:"writeback_enabled"`
-	ColdVectorEnabled             bool               `json:"cold_vector_enabled"`
-	ColdVectorQueryEnabled        bool               `json:"cold_vector_query_enabled"`
-	ColdVectorBackend             string             `json:"cold_vector_backend"`
-	ColdVectorDualWriteEnabled    bool               `json:"cold_vector_dual_write_enabled"`
-	ColdVectorSimilarityThreshold float64            `json:"cold_vector_similarity_threshold"`
-	ColdVectorTopK                int                `json:"cold_vector_top_k"`
-	HotMemoryHighWatermarkPercent float64            `json:"hot_memory_high_watermark_percent"`
-	HotMemoryReliefPercent        float64            `json:"hot_memory_relief_percent"`
-	HotToColdBatchSize            int                `json:"hot_to_cold_batch_size"`
-	HotToColdIntervalSeconds      int                `json:"hot_to_cold_interval_seconds"`
-	ColdVectorSQLitePath          string             `json:"cold_vector_sqlite_path"`
-	ColdVectorQdrantURL           string             `json:"cold_vector_qdrant_url"`
-	ColdVectorQdrantAPIKey        string             `json:"cold_vector_qdrant_api_key"`
-	ColdVectorQdrantCollection    string             `json:"cold_vector_qdrant_collection"`
-	ColdVectorQdrantTimeoutMs     int                `json:"cold_vector_qdrant_timeout_ms"`
+	Enabled                        bool               `json:"enabled"`
+	IndexName                      string             `json:"index_name"`
+	KeyPrefix                      string             `json:"key_prefix"`
+	Dimension                      int                `json:"dimension"`
+	QueryTimeoutMs                 int                `json:"query_timeout_ms"`
+	Thresholds                     map[string]float64 `json:"thresholds"`
+	TTLSeconds                     map[string]int64   `json:"ttl_seconds"`
+	PipelineEnabled                bool               `json:"pipeline_enabled"`
+	StandardKeyVersion             string             `json:"standard_key_version"`
+	EmbeddingProvider              string             `json:"embedding_provider"`
+	OllamaBaseURL                  string             `json:"ollama_base_url"`
+	OllamaEmbeddingModel           string             `json:"ollama_embedding_model"`
+	OllamaEmbeddingDimension       int                `json:"ollama_embedding_dimension"`
+	OllamaEmbeddingTimeoutMs       int                `json:"ollama_embedding_timeout_ms"`
+	OllamaEndpointMode             string             `json:"ollama_endpoint_mode"`
+	WritebackEnabled               bool               `json:"writeback_enabled"`
+	ColdVectorEnabled              bool               `json:"cold_vector_enabled"`
+	ColdVectorQueryEnabled         bool               `json:"cold_vector_query_enabled"`
+	ColdVectorBackend              string             `json:"cold_vector_backend"`
+	ColdVectorDualWriteEnabled     bool               `json:"cold_vector_dual_write_enabled"`
+	ColdArchiveEnabled             bool               `json:"cold_archive_enabled"`
+	ColdArchiveMode                string             `json:"cold_archive_mode"`
+	ColdArchiveNearExpirySeconds   int                `json:"cold_archive_near_expiry_seconds"`
+	ColdArchiveScanIntervalSeconds int                `json:"cold_archive_scan_interval_seconds"`
+	ColdVectorSimilarityThreshold  float64            `json:"cold_vector_similarity_threshold"`
+	ColdVectorTopK                 int                `json:"cold_vector_top_k"`
+	HotMemoryHighWatermarkPercent  float64            `json:"hot_memory_high_watermark_percent"`
+	HotMemoryReliefPercent         float64            `json:"hot_memory_relief_percent"`
+	HotToColdBatchSize             int                `json:"hot_to_cold_batch_size"`
+	HotToColdIntervalSeconds       int                `json:"hot_to_cold_interval_seconds"`
+	ColdVectorSQLitePath           string             `json:"cold_vector_sqlite_path"`
+	ColdVectorQdrantURL            string             `json:"cold_vector_qdrant_url"`
+	ColdVectorQdrantAPIKey         string             `json:"cold_vector_qdrant_api_key"`
+	ColdVectorQdrantCollection     string             `json:"cold_vector_qdrant_collection"`
+	ColdVectorQdrantTimeoutMs      int                `json:"cold_vector_qdrant_timeout_ms"`
 }
 
 // LimitConfig holds a single limit configuration.
@@ -179,28 +183,32 @@ func DefaultConfig() *Config {
 				"qa":        24 * 3600,
 				"chat":      12 * 3600,
 			},
-			PipelineEnabled:               true,
-			StandardKeyVersion:            "v2",
-			EmbeddingProvider:             "ollama",
-			OllamaBaseURL:                 "http://127.0.0.1:11434",
-			OllamaEmbeddingModel:          "nomic-embed-text",
-			OllamaEmbeddingDimension:      1024,
-			OllamaEmbeddingTimeoutMs:      1500,
-			OllamaEndpointMode:            "auto",
-			WritebackEnabled:              true,
-			ColdVectorEnabled:             false,
-			ColdVectorQueryEnabled:        true,
-			ColdVectorBackend:             "sqlite",
-			ColdVectorDualWriteEnabled:    false,
-			ColdVectorSimilarityThreshold: 0.92,
-			ColdVectorTopK:                1,
-			HotMemoryHighWatermarkPercent: 75,
-			HotMemoryReliefPercent:        65,
-			HotToColdBatchSize:            500,
-			HotToColdIntervalSeconds:      30,
-			ColdVectorSQLitePath:          "data/ai-gateway-cold-vectors.db",
-			ColdVectorQdrantCollection:    "ai_gateway_cold_vectors",
-			ColdVectorQdrantTimeoutMs:     1500,
+			PipelineEnabled:                true,
+			StandardKeyVersion:             "v2",
+			EmbeddingProvider:              "ollama",
+			OllamaBaseURL:                  "http://127.0.0.1:11434",
+			OllamaEmbeddingModel:           "nomic-embed-text",
+			OllamaEmbeddingDimension:       1024,
+			OllamaEmbeddingTimeoutMs:       3000,
+			OllamaEndpointMode:             "auto",
+			WritebackEnabled:               true,
+			ColdVectorEnabled:              false,
+			ColdVectorQueryEnabled:         true,
+			ColdVectorBackend:              "sqlite",
+			ColdVectorDualWriteEnabled:     false,
+			ColdArchiveEnabled:             true,
+			ColdArchiveMode:                "reusable",
+			ColdArchiveNearExpirySeconds:   120,
+			ColdArchiveScanIntervalSeconds: 30,
+			ColdVectorSimilarityThreshold:  0.92,
+			ColdVectorTopK:                 1,
+			HotMemoryHighWatermarkPercent:  75,
+			HotMemoryReliefPercent:         65,
+			HotToColdBatchSize:             500,
+			HotToColdIntervalSeconds:       30,
+			ColdVectorSQLitePath:           "data/ai-gateway-cold-vectors.db",
+			ColdVectorQdrantCollection:     "ai_gateway_cold_vectors",
+			ColdVectorQdrantTimeoutMs:      1500,
 		},
 		Edition: EditionConfig{
 			Type:               string(EditionStandard),
@@ -346,6 +354,22 @@ func Load() (*Config, error) {
 	}
 	if enabled := os.Getenv("VECTOR_COLD_DUAL_WRITE_ENABLED"); enabled != "" {
 		cfg.VectorCache.ColdVectorDualWriteEnabled = parseBool(enabled)
+	}
+	if enabled := os.Getenv("VECTOR_COLD_ARCHIVE_ENABLED"); enabled != "" {
+		cfg.VectorCache.ColdArchiveEnabled = parseBool(enabled)
+	}
+	if mode := os.Getenv("VECTOR_COLD_ARCHIVE_MODE"); mode != "" {
+		cfg.VectorCache.ColdArchiveMode = strings.ToLower(strings.TrimSpace(mode))
+	}
+	if nearExpiry := os.Getenv("VECTOR_COLD_ARCHIVE_NEAR_EXPIRY_SECONDS"); nearExpiry != "" {
+		if v, err := strconv.Atoi(nearExpiry); err == nil {
+			cfg.VectorCache.ColdArchiveNearExpirySeconds = v
+		}
+	}
+	if scanInterval := os.Getenv("VECTOR_COLD_ARCHIVE_SCAN_INTERVAL_SECONDS"); scanInterval != "" {
+		if v, err := strconv.Atoi(scanInterval); err == nil {
+			cfg.VectorCache.ColdArchiveScanIntervalSeconds = v
+		}
 	}
 	if threshold := os.Getenv("VECTOR_COLD_SIMILARITY_THRESHOLD"); threshold != "" {
 		if v, err := strconv.ParseFloat(threshold, 64); err == nil {
@@ -651,6 +675,16 @@ func (c *Config) Validate() error {
 			if backend == "qdrant" && strings.TrimSpace(c.VectorCache.ColdVectorQdrantURL) == "" {
 				return &ValidationError{Field: "vector_cache.cold_vector_qdrant_url", Message: "cold_vector_qdrant_url is required when qdrant backend is active"}
 			}
+		}
+		archiveMode := strings.ToLower(strings.TrimSpace(c.VectorCache.ColdArchiveMode))
+		if archiveMode != "" && archiveMode != "reusable" && archiveMode != "all" {
+			return &ValidationError{Field: "vector_cache.cold_archive_mode", Message: "cold_archive_mode must be reusable or all"}
+		}
+		if c.VectorCache.ColdArchiveNearExpirySeconds <= 0 {
+			return &ValidationError{Field: "vector_cache.cold_archive_near_expiry_seconds", Message: "cold_archive_near_expiry_seconds must be positive"}
+		}
+		if c.VectorCache.ColdArchiveScanIntervalSeconds <= 0 {
+			return &ValidationError{Field: "vector_cache.cold_archive_scan_interval_seconds", Message: "cold_archive_scan_interval_seconds must be positive"}
 		}
 		if strings.TrimSpace(c.VectorCache.StandardKeyVersion) == "" {
 			return &ValidationError{Field: "vector_cache.standard_key_version", Message: "standard_key_version is required when vector_cache is enabled"}

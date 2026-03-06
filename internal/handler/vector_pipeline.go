@@ -129,7 +129,7 @@ func (p *VectorPipeline) Write(
 	}
 
 	go func() {
-		writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		writeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if err := p.vectorStore.Upsert(writeCtx, doc); err != nil {
 			return

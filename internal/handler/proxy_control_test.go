@@ -272,9 +272,20 @@ func TestIntentTTLSeconds(t *testing.T) {
 
 func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 	store := &mockVectorStoreForProxy{}
+	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	settings := manager.GetSettings()
+	settings.VectorEnabled = true
+	settings.VectorPipelineEnabled = true
+	settings.VectorEmbeddingProvider = "ollama"
+	settings.VectorOllamaBaseURL = "http://127.0.0.1:11434"
+	settings.VectorOllamaEmbeddingModel = "nomic-embed-text"
+	settings.VectorOllamaEmbeddingDimension = 1
+	manager.UpdateSettings(settings)
 	h := &ProxyHandler{
-		config:      &config.Config{},
-		vectorStore: store,
+		config:         &config.Config{},
+		vectorStore:    store,
+		cache:          manager,
+		textNormalizer: cache.NewTextNormalizer(),
 	}
 	resp := ChatCompletionResponse{
 		Choices: []Choice{
@@ -283,7 +294,7 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 			},
 		},
 	}
-	h.processCacheV2Write(context.Background(), &intent.EmbeddingResult{
+	h.processCacheV2Write(context.Background(), "test", "test", &intent.EmbeddingResult{
 		Intent:        "unknown",
 		StandardKey:   "intent:unknown",
 		Embedding:     []float64{0.1},
@@ -293,6 +304,59 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 	if store.upsertCalled {
 		t.Fatal("expected unknown intent to skip vector cache write")
 	}
+}
+
+func TestProcessCacheV2Write_MissingIntentResult_ShouldBuildAndWrite(t *testing.T) {
+	ollamaServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embed" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"embeddings": [][]float64{{0.1, 0.2}},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer ollamaServer.Close()
+
+	store := &mockVectorStoreForProxy{}
+	manager := cache.NewManagerWithCache(cache.NewMemoryCache())
+	settings := manager.GetSettings()
+	settings.VectorEnabled = true
+	settings.VectorPipelineEnabled = true
+	settings.VectorWritebackEnabled = true
+	settings.VectorEmbeddingProvider = "ollama"
+	settings.VectorOllamaBaseURL = ollamaServer.URL
+	settings.VectorOllamaEmbeddingModel = "nomic-embed-text"
+	settings.VectorOllamaEmbeddingDimension = 2
+	settings.VectorOllamaEmbeddingTimeoutMs = 300
+	settings.VectorOllamaEndpointMode = cache.OllamaEndpointModeAuto
+	manager.UpdateSettings(settings)
+
+	h := &ProxyHandler{
+		config:         &config.Config{},
+		vectorStore:    store,
+		cache:          manager,
+		textNormalizer: cache.NewTextNormalizer(),
+	}
+	resp := ChatCompletionResponse{
+		Choices: []Choice{{
+			Message: &ChatMessage{Role: "assistant", Content: "ok"},
+		}},
+	}
+
+	h.processCacheV2Write(context.Background(), "解释缓存回收", "解释缓存回收", nil, "openai", "gpt-4o-mini", routing.TaskTypeFact, resp)
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if store.upsertCalled {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("expected vector write to rebuild intent result and upsert")
 }
 
 type proxyTierHotStore struct {

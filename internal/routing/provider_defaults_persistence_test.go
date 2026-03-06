@@ -13,7 +13,9 @@ func TestSmartRouter_LoadProviderDefaults_ShouldReplaceNotMerge(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originalWD)
+		if chdirErr := os.Chdir(originalWD); chdirErr != nil {
+			t.Errorf("restore wd: %v", chdirErr)
+		}
 	})
 
 	tmpDir := t.TempDir()
@@ -56,7 +58,9 @@ func TestSmartRouter_SetProviderDefaults_ShouldReplaceSnapshot(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(originalWD)
+		if chdirErr := os.Chdir(originalWD); chdirErr != nil {
+			t.Errorf("restore wd: %v", chdirErr)
+		}
 	})
 
 	tmpDir := t.TempDir()

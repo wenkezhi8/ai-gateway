@@ -803,20 +803,24 @@ func (h *CacheHandler) buildVectorTierConfigResponse(settings *cache.CacheSettin
 		return gin.H{}
 	}
 	return gin.H{
-		"cold_vector_enabled":               settings.ColdVectorEnabled,
-		"cold_vector_query_enabled":         settings.ColdVectorQueryEnabled,
-		"cold_vector_backend":               settings.ColdVectorBackend,
-		"cold_vector_dual_write_enabled":    settings.ColdVectorDualWriteEnabled,
-		"cold_vector_similarity_threshold":  settings.ColdVectorSimilarityThreshold,
-		"cold_vector_top_k":                 settings.ColdVectorTopK,
-		"hot_memory_high_watermark_percent": settings.HotMemoryHighWatermarkPercent,
-		"hot_memory_relief_percent":         settings.HotMemoryReliefPercent,
-		"hot_to_cold_batch_size":            settings.HotToColdBatchSize,
-		"hot_to_cold_interval_seconds":      settings.HotToColdIntervalSeconds,
-		"cold_vector_qdrant_url":            settings.ColdVectorQdrantURL,
-		"cold_vector_qdrant_api_key":        settings.ColdVectorQdrantAPIKey,
-		"cold_vector_qdrant_collection":     settings.ColdVectorQdrantCollection,
-		"cold_vector_qdrant_timeout_ms":     settings.ColdVectorQdrantTimeoutMs,
+		"cold_vector_enabled":                settings.ColdVectorEnabled,
+		"cold_vector_query_enabled":          settings.ColdVectorQueryEnabled,
+		"cold_vector_backend":                settings.ColdVectorBackend,
+		"cold_vector_dual_write_enabled":     settings.ColdVectorDualWriteEnabled,
+		"cold_archive_enabled":               settings.ColdArchiveEnabled,
+		"cold_archive_mode":                  settings.ColdArchiveMode,
+		"cold_archive_near_expiry_seconds":   settings.ColdArchiveNearExpirySeconds,
+		"cold_archive_scan_interval_seconds": settings.ColdArchiveScanIntervalSeconds,
+		"cold_vector_similarity_threshold":   settings.ColdVectorSimilarityThreshold,
+		"cold_vector_top_k":                  settings.ColdVectorTopK,
+		"hot_memory_high_watermark_percent":  settings.HotMemoryHighWatermarkPercent,
+		"hot_memory_relief_percent":          settings.HotMemoryReliefPercent,
+		"hot_to_cold_batch_size":             settings.HotToColdBatchSize,
+		"hot_to_cold_interval_seconds":       settings.HotToColdIntervalSeconds,
+		"cold_vector_qdrant_url":             settings.ColdVectorQdrantURL,
+		"cold_vector_qdrant_api_key":         settings.ColdVectorQdrantAPIKey,
+		"cold_vector_qdrant_collection":      settings.ColdVectorQdrantCollection,
+		"cold_vector_qdrant_timeout_ms":      settings.ColdVectorQdrantTimeoutMs,
 	}
 }
 
@@ -850,6 +854,22 @@ func (h *CacheHandler) applyVectorTierConfigToSettings(settings *cache.CacheSett
 	}
 	if req.ColdVectorDualWriteEnabled != nil {
 		settings.ColdVectorDualWriteEnabled = *req.ColdVectorDualWriteEnabled
+	}
+	if req.ColdArchiveEnabled != nil {
+		settings.ColdArchiveEnabled = *req.ColdArchiveEnabled
+	}
+	if req.ColdArchiveMode != nil {
+		mode := strings.ToLower(strings.TrimSpace(*req.ColdArchiveMode))
+		if mode != cache.ColdArchiveModeReusable && mode != cache.ColdArchiveModeAll {
+			return &vectorTierValidationError{code: "invalid_cold_archive_mode", message: "cold_archive_mode must be reusable or all"}
+		}
+		settings.ColdArchiveMode = mode
+	}
+	if req.ColdArchiveNearExpirySeconds != nil && *req.ColdArchiveNearExpirySeconds > 0 {
+		settings.ColdArchiveNearExpirySeconds = *req.ColdArchiveNearExpirySeconds
+	}
+	if req.ColdArchiveScanIntervalSeconds != nil && *req.ColdArchiveScanIntervalSeconds > 0 {
+		settings.ColdArchiveScanIntervalSeconds = *req.ColdArchiveScanIntervalSeconds
 	}
 	if req.ColdVectorSimilarityThreshold != nil {
 		value := *req.ColdVectorSimilarityThreshold
@@ -947,7 +967,28 @@ func (h *CacheHandler) GetVectorTierStats(c *gin.Context) {
 		return
 	}
 
-	respondVectorStoreStatsSuccess(c, stats)
+	payload := map[string]any{}
+	raw, err := json.Marshal(stats)
+	if err == nil {
+		if unmarshalErr := json.Unmarshal(raw, &payload); unmarshalErr != nil {
+			payload = map[string]any{}
+		}
+	}
+	if archiveService := h.manager.GetResponseColdArchiveService(); archiveService != nil {
+		archiveStats := archiveService.Stats()
+		payload["cold_archive_enabled"] = archiveStats.Enabled
+		payload["cold_archive_mode"] = archiveStats.Mode
+		payload["cold_archive_near_expiry_seconds"] = archiveStats.NearExpirySeconds
+		payload["cold_archive_scan_interval_seconds"] = archiveStats.ScanIntervalSeconds
+		payload["archive_enqueued"] = archiveStats.ArchiveEnqueued
+		payload["archive_succeeded"] = archiveStats.ArchiveSucceeded
+		payload["archive_failed"] = archiveStats.ArchiveFailed
+		payload["archive_retrying"] = archiveStats.ArchiveRetrying
+		payload["archive_queue_depth"] = archiveStats.ArchiveQueueDepth
+		payload["archive_last_error"] = archiveStats.ArchiveLastError
+	}
+
+	respondVectorStoreStatsSuccess(c, payload)
 }
 
 func respondVectorStoreUnavailable(c *gin.Context, message string) {
@@ -1216,6 +1257,10 @@ func persistVectorCacheSettings(settings *cache.CacheSettings) error {
 	vectorCfg["cold_vector_query_enabled"] = settings.ColdVectorQueryEnabled
 	vectorCfg["cold_vector_backend"] = settings.ColdVectorBackend
 	vectorCfg["cold_vector_dual_write_enabled"] = settings.ColdVectorDualWriteEnabled
+	vectorCfg["cold_archive_enabled"] = settings.ColdArchiveEnabled
+	vectorCfg["cold_archive_mode"] = settings.ColdArchiveMode
+	vectorCfg["cold_archive_near_expiry_seconds"] = settings.ColdArchiveNearExpirySeconds
+	vectorCfg["cold_archive_scan_interval_seconds"] = settings.ColdArchiveScanIntervalSeconds
 	vectorCfg["cold_vector_similarity_threshold"] = settings.ColdVectorSimilarityThreshold
 	vectorCfg["cold_vector_top_k"] = settings.ColdVectorTopK
 	vectorCfg["hot_memory_high_watermark_percent"] = settings.HotMemoryHighWatermarkPercent

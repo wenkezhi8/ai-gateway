@@ -19,9 +19,10 @@ type Manager struct {
 	UsageCache    *UsageCache
 
 	// Semantic cache (optional).
-	semanticCache *SemanticCache
-	vectorStore   VectorCacheStore
-	tieredStore   *TieredVectorStore
+	semanticCache       *SemanticCache
+	vectorStore         VectorCacheStore
+	tieredStore         *TieredVectorStore
+	responseColdArchive *ResponseColdArchiveService
 
 	// Statistics.
 	stats *StatsCollector
@@ -249,6 +250,16 @@ func (m *Manager) SetTieredVectorStore(store *TieredVectorStore) {
 	if store != nil {
 		m.vectorStore = store
 	}
+}
+
+// SetResponseColdArchiveService registers response cold archive service.
+func (m *Manager) SetResponseColdArchiveService(service *ResponseColdArchiveService) {
+	m.responseColdArchive = service
+}
+
+// GetResponseColdArchiveService returns response cold archive service.
+func (m *Manager) GetResponseColdArchiveService() *ResponseColdArchiveService {
+	return m.responseColdArchive
 }
 
 // GetTieredVectorStore returns tiered vector store if initialized.

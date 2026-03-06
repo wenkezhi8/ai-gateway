@@ -148,20 +148,24 @@ func TestCacheHandler_VectorTierConfigEndpoints_ShouldGetAndUpdate(t *testing.T)
 	}
 
 	body := map[string]any{
-		"cold_vector_enabled":               true,
-		"cold_vector_query_enabled":         false,
-		"cold_vector_backend":               "sqlite",
-		"cold_vector_dual_write_enabled":    true,
-		"cold_vector_similarity_threshold":  0.91,
-		"cold_vector_top_k":                 2,
-		"hot_memory_high_watermark_percent": 78,
-		"hot_memory_relief_percent":         66,
-		"hot_to_cold_batch_size":            320,
-		"hot_to_cold_interval_seconds":      45,
-		"cold_vector_qdrant_url":            "http://127.0.0.1:6333",
-		"cold_vector_qdrant_api_key":        "test-key",
-		"cold_vector_qdrant_collection":     "cache_v22",
-		"cold_vector_qdrant_timeout_ms":     1900,
+		"cold_vector_enabled":                true,
+		"cold_vector_query_enabled":          false,
+		"cold_vector_backend":                "sqlite",
+		"cold_vector_dual_write_enabled":     true,
+		"cold_archive_enabled":               true,
+		"cold_archive_mode":                  "reusable",
+		"cold_archive_near_expiry_seconds":   180,
+		"cold_archive_scan_interval_seconds": 12,
+		"cold_vector_similarity_threshold":   0.91,
+		"cold_vector_top_k":                  2,
+		"hot_memory_high_watermark_percent":  78,
+		"hot_memory_relief_percent":          66,
+		"hot_to_cold_batch_size":             320,
+		"hot_to_cold_interval_seconds":       45,
+		"cold_vector_qdrant_url":             "http://127.0.0.1:6333",
+		"cold_vector_qdrant_api_key":         "test-key",
+		"cold_vector_qdrant_collection":      "cache_v22",
+		"cold_vector_qdrant_timeout_ms":      1900,
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -188,6 +192,15 @@ func TestCacheHandler_VectorTierConfigEndpoints_ShouldGetAndUpdate(t *testing.T)
 	}
 	if !settings.ColdVectorDualWriteEnabled {
 		t.Fatal("expected cold dual-write enabled")
+	}
+	if !settings.ColdArchiveEnabled {
+		t.Fatal("expected cold archive enabled")
+	}
+	if settings.ColdArchiveMode != cache.ColdArchiveModeReusable {
+		t.Fatalf("expected reusable archive mode, got %s", settings.ColdArchiveMode)
+	}
+	if settings.ColdArchiveNearExpirySeconds != 180 {
+		t.Fatalf("expected near expiry 180, got %d", settings.ColdArchiveNearExpirySeconds)
 	}
 	if settings.HotToColdBatchSize != 320 {
 		t.Fatalf("expected batch size 320, got %d", settings.HotToColdBatchSize)
@@ -324,6 +337,10 @@ func TestCacheHandler_VectorTierConfig_ShouldPersistToConfigFile(t *testing.T) {
 		"cold_vector_enabled":                true,
 		"cold_vector_query_enabled":          false,
 		"cold_vector_backend":                "qdrant",
+		"cold_archive_enabled":               true,
+		"cold_archive_mode":                  "reusable",
+		"cold_archive_near_expiry_seconds":   240,
+		"cold_archive_scan_interval_seconds": 18,
 		"cold_vector_similarity_threshold":   0.9,
 		"cold_vector_top_k":                  3,
 		"hot_memory_high_watermark_percent":  79,
@@ -383,8 +400,19 @@ func TestCacheHandler_VectorTierConfig_ShouldPersistToConfigFile(t *testing.T) {
 	if !ok || !writebackEnabled {
 		t.Fatalf("expected writeback_enabled=true in persisted config, got %#v", vectorCache["writeback_enabled"])
 	}
+	archiveEnabled, ok := vectorCache["cold_archive_enabled"].(bool)
+	if !ok || !archiveEnabled {
+		t.Fatalf("expected cold_archive_enabled=true in persisted config, got %#v", vectorCache["cold_archive_enabled"])
+	}
+	archiveMode, ok := vectorCache["cold_archive_mode"].(string)
+	if !ok || archiveMode != "reusable" {
+		t.Fatalf("expected cold_archive_mode=reusable in persisted config, got %#v", vectorCache["cold_archive_mode"])
+	}
 	if topK, ok := vectorCache["cold_vector_top_k"].(float64); !ok || int(topK) != 3 {
 		t.Fatalf("expected cold_vector_top_k=3 in persisted config, got %#v", vectorCache["cold_vector_top_k"])
+	}
+	if nearExpiry, ok := vectorCache["cold_archive_near_expiry_seconds"].(float64); !ok || int(nearExpiry) != 240 {
+		t.Fatalf("expected cold_archive_near_expiry_seconds=240 in persisted config, got %#v", vectorCache["cold_archive_near_expiry_seconds"])
 	}
 }
 
