@@ -25,7 +25,7 @@ func TestNormalizeAutoMode(t *testing.T) {
 		{"auto", "auto", "auto"},
 		{"default", "default", "default"},
 		{"fixed", "fixed", "fixed"},
-		{"latest", "latest", "latest"},
+		{"latest", "latest", "auto"},
 		{"unknown", "unknown", "auto"},
 		{"empty", "", "auto"},
 		{"random", "random_value", "auto"},
@@ -70,7 +70,7 @@ func TestParseAutoModeJSON(t *testing.T) {
 			name:     "string latest",
 			input:    `"latest"`,
 			fallback: "auto",
-			expected: "latest",
+			expected: "auto",
 		},
 		{
 			name:     "boolean true",
@@ -111,5 +111,49 @@ func TestParseAutoModeJSON(t *testing.T) {
 				t.Errorf("parseAutoModeJSON(%q, %q) = %q, want %q", tt.input, tt.fallback, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestResolveAutoModeMigrationNotice(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "latest should return notice", input: "latest", expected: true},
+		{name: "auto should not return notice", input: "auto", expected: false},
+		{name: "fixed should not return notice", input: "fixed", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			notice := resolveAutoModeMigrationNotice(tt.input)
+			if tt.expected && notice == "" {
+				t.Fatalf("expected non-empty migration notice for input %q", tt.input)
+			}
+			if !tt.expected && notice != "" {
+				t.Fatalf("expected empty migration notice for input %q, got %q", tt.input, notice)
+			}
+		})
+	}
+}
+
+func TestBuildUseAutoModeContract(t *testing.T) {
+	contract := buildUseAutoModeContract()
+
+	if len(contract.AllowedModes) != 3 {
+		t.Fatalf("expected 3 allowed modes, got %d", len(contract.AllowedModes))
+	}
+
+	if contract.AllowedModes[0] != "auto" || contract.AllowedModes[1] != "default" || contract.AllowedModes[2] != "fixed" {
+		t.Fatalf("unexpected allowed modes: %#v", contract.AllowedModes)
+	}
+
+	if contract.DeprecatedMappings["latest"] != "auto" {
+		t.Fatalf("expected latest => auto mapping, got %#v", contract.DeprecatedMappings)
+	}
+
+	if contract.MigrationHint == "" {
+		t.Fatal("expected non-empty migration hint")
 	}
 }

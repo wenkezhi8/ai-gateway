@@ -114,7 +114,6 @@
                     <el-radio-button value="auto">Auto 智能选择</el-radio-button>
                     <el-radio-button value="default">Default 默认</el-radio-button>
                     <el-radio-button value="fixed">固定模型</el-radio-button>
-                    <el-radio-button value="latest">Latest 最新</el-radio-button>
                   </el-radio-group>
                 </el-form-item>
               </el-form>
@@ -159,13 +158,6 @@
                     :value="model.id"
                   />
                 </el-select>
-              </el-form-item>
-
-              <el-form-item v-if="routerConfig.use_auto_mode === 'latest'">
-                <div class="latest-hint">
-                  <el-icon><InfoFilled /></el-icon>
-                  <span>自动使用效果评分最高的模型</span>
-                </div>
               </el-form-item>
             </el-form>
 
@@ -500,9 +492,6 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
               <div class="model-tag">
                 <el-tag type="primary">default (服务商默认)</el-tag>
               </div>
-              <div class="model-tag">
-                <el-tag type="warning">latest (最新模型)</el-tag>
-              </div>
               <div class="model-tag" v-for="model in topModels" :key="model">
                 <el-tag>{{ model }}</el-tag>
               </div>
@@ -563,7 +552,6 @@ ANTHROPIC_DEFAULT_MODEL={{ selectedModelForConfig }}</code></pre>
               <el-select v-model="testForm.model" filterable style="width: 100%">
                 <el-option label="auto (智能选择)" value="auto" />
                 <el-option label="default (服务商默认)" value="default" />
-                <el-option label="latest (最新模型)" value="latest" />
                 <el-option-group label="指定模型">
                   <el-option
                     v-for="model in availableModels"
@@ -678,8 +666,18 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { API } from '@/constants/api'
+import { USE_AUTO_MODE_AUTO } from '@/constants/router-mode'
 import { API_MANAGEMENT_STRATEGIES } from '@/constants/pages/api-management'
 import { LOGIN_ROUTE } from '@/constants/navigation'
+import {
+  getAvailableModels as getAvailableModelsApi,
+  getProviderDefaults as getProviderDefaultsApi,
+  getRouterConfig as getRouterConfigApi,
+  getTopModels as getTopModelsApi,
+  updateRouterConfig as updateRouterConfigApi,
+  type UpdateRouterConfigResponseData
+} from '@/api/routing-domain'
+import { mapRouterConfigForView } from './router-config-contract'
 
 interface ApiKey {
   id: string
@@ -725,10 +723,11 @@ const newKeyRules: FormRules = {
 const enabledApiKeys = computed(() => apiKeys.value.filter(k => k.enabled))
 
 const routerConfig = ref({
-  use_auto_mode: 'auto',
-  default_strategy: 'auto',
+  use_auto_mode: USE_AUTO_MODE_AUTO,
+  default_strategy: USE_AUTO_MODE_AUTO,
   default_model: ''
 })
+const hasShownRouterMigrationNotice = ref(false)
 
 const strategies = API_MANAGEMENT_STRATEGIES
 
@@ -760,8 +759,6 @@ const selectedModelForConfig = computed(() => {
     return 'default'
   } else if (routerConfig.value.use_auto_mode === 'fixed') {
     return routerConfig.value.default_model || 'auto'
-  } else if (routerConfig.value.use_auto_mode === 'latest') {
-    return 'latest'
   }
   return 'auto'
 })
@@ -907,8 +904,6 @@ const codeExample = computed(() => {
     model = 'default'
   } else if (routerConfig.value.use_auto_mode === 'fixed') {
     model = routerConfig.value.default_model
-  } else if (routerConfig.value.use_auto_mode === 'latest') {
-    model = 'latest'
   }
 
   if (selectedProtocol.value === 'openai') {
@@ -927,8 +922,7 @@ const codeExample = computed(() => {
 
 # 可用的特殊模型参数:
 # - auto: 智能选择 (效果+速度+成本综合最优)
-# - default: 服务商默认模型 (根据服务商配置自动选择)
-# - latest: 最新模型 (效果评分最高)`
+# - default: 服务商默认模型 (根据服务商配置自动选择)`
     } else if (selectedLang.value === 'python') {
       return `from openai import OpenAI
 
@@ -1118,17 +1112,17 @@ async function deleteKey(row: ApiKey) {
 
 async function loadRouterConfig() {
   try {
-    const token = getToken()
-    if (!token) return
-    const res = await fetch(API.ROUTER.CONFIG, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    if (data.success) {
+    const data = await getRouterConfigApi()
+    if (data) {
+      const mapped = mapRouterConfigForView(data)
       routerConfig.value = {
-        use_auto_mode: data.data.use_auto_mode || 'auto',
-        default_strategy: data.data.default_strategy || 'auto',
-        default_model: data.data.default_model || ''
+        use_auto_mode: mapped.useAutoMode,
+        default_strategy: mapped.defaultStrategy,
+        default_model: mapped.defaultModel
+      }
+      if (mapped.migrationNotice && !hasShownRouterMigrationNotice.value) {
+        ElMessage.warning(mapped.migrationNotice)
+        hasShownRouterMigrationNotice.value = true
       }
     }
   } catch (e) {
@@ -1138,20 +1132,23 @@ async function loadRouterConfig() {
 
 async function updateRouterConfig() {
   try {
-    const token = getToken()
-    if (!token) return
-    await fetch(API.ROUTER.CONFIG, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        use_auto_mode: routerConfig.value.use_auto_mode,
-        default_strategy: routerConfig.value.default_strategy,
-        default_model: routerConfig.value.default_model
-      })
+    const response = await updateRouterConfigApi({
+      use_auto_mode: routerConfig.value.use_auto_mode,
+      default_strategy: routerConfig.value.default_strategy,
+      default_model: routerConfig.value.default_model
     })
+    const payload = response as UpdateRouterConfigResponseData | undefined
+    if (!hasShownRouterMigrationNotice.value && payload?.migration_notice) {
+      ElMessage.warning(payload.migration_notice)
+      hasShownRouterMigrationNotice.value = true
+    } else if (
+      !hasShownRouterMigrationNotice.value &&
+      payload?.mode_migration?.from &&
+      payload?.mode_migration?.to
+    ) {
+      ElMessage.warning(`调用模式已从 ${payload.mode_migration.from} 迁移为 ${payload.mode_migration.to}`)
+      hasShownRouterMigrationNotice.value = true
+    }
     ElMessage.success('设置已保存')
   } catch (e) {
     ElMessage.error('保存失败')
@@ -1160,15 +1157,8 @@ async function updateRouterConfig() {
 
 async function loadAvailableModels() {
   try {
-    const token = getToken()
-    if (!token) return
-    const res = await fetch(API.ROUTER.AVAILABLE_MODELS + '?format=object', {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    if (data.success) {
-      availableModels.value = data.data || []
-    }
+    const data = await getAvailableModelsApi()
+    availableModels.value = Array.isArray(data) ? data : []
   } catch (e) {
     console.error('Failed to load models:', e)
   }
@@ -1176,15 +1166,8 @@ async function loadAvailableModels() {
 
 async function loadTopModels() {
   try {
-    const token = getToken()
-    if (!token) return
-    const res = await fetch(API.ROUTER.TOP_MODELS, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    if (data.success) {
-      topModels.value = data.data || []
-    }
+    const data = await getTopModelsApi()
+    topModels.value = Array.isArray(data) ? data : []
   } catch (e) {
     console.error('Failed to load top models:', e)
   }
@@ -1192,13 +1175,8 @@ async function loadTopModels() {
 
 async function loadProviderDefaults() {
   try {
-    const token = getToken()
-    if (!token) return
-    const res = await fetch(API.ROUTER.PROVIDER_DEFAULTS, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await res.json()
-    if (data.success && data.data) {
+    const data = await getProviderDefaultsApi()
+    if (data && typeof data === 'object') {
       const providerLabels: Record<string, string> = {
         deepseek: 'DeepSeek',
         openai: 'OpenAI',
@@ -1211,7 +1189,7 @@ async function loadProviderDefaults() {
         volcengine: '火山方舟',
         google: 'Google'
       }
-      providerDefaults.value = Object.entries(data.data as Record<string, string>).map(([id, defaultModel]) => ({
+      providerDefaults.value = Object.entries(data as Record<string, string>).map(([id, defaultModel]) => ({
         id,
         label: providerLabels[id] || id,
         defaultModel
@@ -1588,7 +1566,6 @@ watch(selectedConfigKeyId, () => {
     border-top: 1px solid var(--el-border-color-lighter);
   }
 
-  .latest-hint,
   .default-hint {
     display: flex;
     align-items: center;

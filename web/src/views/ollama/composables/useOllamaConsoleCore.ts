@@ -52,6 +52,12 @@ import {
   createDefaultTaskModelMapping,
   createDefaultTaskTypes,
 } from '@/constants/routing'
+import {
+  USE_AUTO_MODE_AUTO,
+  USE_AUTO_MODE_LABELS,
+  normalizeUseAutoMode,
+  resolveUseAutoModeMigrationNotice
+} from '@/constants/router-mode'
 import type { RoutingPanelState } from '../../routing/routing-types'
 
 interface CascadeRule {
@@ -116,6 +122,7 @@ export function useOllamaConsoleCore() {
   const tierMigrating = ref(false)
   const tierPromoting = ref(false)
   const promoteCacheKey = ref('')
+  const hasShownModeMigrationNotice = ref(false)
 
   const classifierConfig = reactive(JSON.parse(JSON.stringify(DEFAULT_CLASSIFIER_CONFIG)))
 
@@ -259,8 +266,8 @@ export function useOllamaConsoleCore() {
   })
 
   const config = reactive({
-    mode: 'auto',
-    defaultStrategy: 'auto',
+    mode: USE_AUTO_MODE_AUTO,
+    defaultStrategy: USE_AUTO_MODE_AUTO,
     defaultModel: ''
   })
 
@@ -304,13 +311,8 @@ export function useOllamaConsoleCore() {
   ])
 
   const modeLabel = computed(() => {
-    const labels: Record<string, string> = {
-      auto: 'Auto 智能选择',
-      default: 'Default 服务商默认',
-      fixed: '固定模型',
-      latest: 'Latest 最新'
-    }
-    return labels[config.mode] || config.mode
+    const normalizedMode = normalizeUseAutoMode(config.mode)
+    return USE_AUTO_MODE_LABELS[normalizedMode] || config.mode
   })
 
   const strategyLabel = computed(() => {
@@ -389,13 +391,15 @@ export function useOllamaConsoleCore() {
     try {
       const data: any = await getRouterConfig()
       if (data) {
-        config.defaultStrategy = data.default_strategy || 'auto'
+        config.defaultStrategy = data.default_strategy || USE_AUTO_MODE_AUTO
         config.defaultModel = data.default_model || ''
-        const mode = data.use_auto_mode
-        if (typeof mode === 'string') {
-          config.mode = mode
-        } else {
-          config.mode = mode ? 'auto' : 'fixed'
+        config.mode = normalizeUseAutoMode(data.use_auto_mode, data.use_auto_mode_contract)
+        const migrationNotice = typeof data.migration_notice === 'string' && data.migration_notice.trim()
+          ? data.migration_notice
+          : resolveUseAutoModeMigrationNotice(data.use_auto_mode, data.use_auto_mode_contract)
+        if (migrationNotice && !hasShownModeMigrationNotice.value) {
+          handleSuccess(migrationNotice)
+          hasShownModeMigrationNotice.value = true
         }
         if (data.strategies) {
           strategies.value = data.strategies

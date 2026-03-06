@@ -16,6 +16,13 @@ const (
 	RoutingDefaultStrategy = "auto"
 	RoutingDefaultModel    = "deepseek-chat"
 
+	RoutingUseAutoModeAuto    = "auto"
+	RoutingUseAutoModeDefault = "default"
+	RoutingUseAutoModeFixed   = "fixed"
+	RoutingUseAutoModeLatest  = "latest"
+
+	RoutingUseAutoModeMigrationHint = "检测到 use_auto_mode=latest 已废弃，系统已自动迁移为 auto。"
+
 	RoutingCascadeFallbackStartLevel             = "medium"
 	RoutingCascadeFallbackMaxLevel               = "large"
 	RoutingCascadeFallbackEnabled                = true
@@ -26,6 +33,16 @@ const (
 	RoutingAutoSpeedWeight   = 0.35
 	RoutingAutoCostWeight    = 0.25
 )
+
+var RoutingUseAutoModeAllowedValues = []string{
+	RoutingUseAutoModeAuto,
+	RoutingUseAutoModeDefault,
+	RoutingUseAutoModeFixed,
+}
+
+var RoutingUseAutoModeDeprecatedMappings = map[string]string{
+	RoutingUseAutoModeLatest: RoutingUseAutoModeAuto,
+}
 
 const (
 	ClassifierDefaultProvider            = "ollama"

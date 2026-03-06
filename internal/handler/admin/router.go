@@ -61,11 +61,26 @@ func NewRouterHandler(router *routing.SmartRouter, cacheManager *cache.Manager) 
 
 // RouterConfigResponse represents the router configuration response.
 type RouterConfigResponse struct {
-	UseAutoMode     string                   `json:"use_auto_mode"` // "auto", "default", "fixed", "latest"
+	UseAutoMode     string                   `json:"use_auto_mode"` // "auto", "default", "fixed"
 	DefaultStrategy string                   `json:"default_strategy"`
 	DefaultModel    string                   `json:"default_model"`
 	Classifier      routing.ClassifierConfig `json:"classifier"`
 	Strategies      []StrategyOption         `json:"strategies"`
+	ModeContract    UseAutoModeContract      `json:"use_auto_mode_contract"`
+	MigrationNotice string                   `json:"migration_notice,omitempty"`
+}
+
+// UseAutoModeContract represents the backend/frontend shared mode contract.
+type UseAutoModeContract struct {
+	AllowedModes       []string          `json:"allowed_modes"`
+	DeprecatedMappings map[string]string `json:"deprecated_mappings"`
+	MigrationHint      string            `json:"migration_hint"`
+}
+
+// UseAutoModeMigration represents mode migration from legacy/deprecated input.
+type UseAutoModeMigration struct {
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
 // StrategyOption represents a strategy option.
@@ -89,7 +104,7 @@ type ModelScoreResponse struct {
 
 // UpdateRouterConfigRequest represents update request.
 type UpdateRouterConfigRequest struct {
-	UseAutoMode     json.RawMessage           `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed", "latest" or bool
+	UseAutoMode     json.RawMessage           `json:"use_auto_mode,omitempty"` // "auto", "default", "fixed" or bool
 	DefaultStrategy *string                   `json:"default_strategy,omitempty"`
 	DefaultModel    *string                   `json:"default_model,omitempty"`
 	Classifier      *routing.ClassifierConfig `json:"classifier,omitempty"`
@@ -131,17 +146,41 @@ type PersistedRouterConfig struct {
 
 const routerUIConfigFile = constants.RouterUIConfigFilePath
 const routerConfigFile = constants.RouterConfigFilePath
-const autoModeAuto = "auto"
-const autoModeFixed = "fixed"
 
 var persistedConfig *PersistedRouterConfig
 
 func normalizeAutoMode(value string) string {
+	value = strings.TrimSpace(value)
 	switch value {
-	case autoModeAuto, "default", autoModeFixed, "latest":
+	case constants.RoutingUseAutoModeLatest:
+		return constants.RoutingUseAutoModeAuto
+	case constants.RoutingUseAutoModeAuto, constants.RoutingUseAutoModeDefault, constants.RoutingUseAutoModeFixed:
 		return value
 	default:
 		return constants.RoutingDefaultStrategy
+	}
+}
+
+func resolveAutoModeMigrationNotice(raw string) string {
+	if strings.TrimSpace(raw) == constants.RoutingUseAutoModeLatest {
+		return constants.RoutingUseAutoModeMigrationHint
+	}
+	return ""
+}
+
+func buildUseAutoModeContract() UseAutoModeContract {
+	allowedModes := make([]string, 0, len(constants.RoutingUseAutoModeAllowedValues))
+	allowedModes = append(allowedModes, constants.RoutingUseAutoModeAllowedValues...)
+
+	deprecatedMappings := make(map[string]string, len(constants.RoutingUseAutoModeDeprecatedMappings))
+	for from, to := range constants.RoutingUseAutoModeDeprecatedMappings {
+		deprecatedMappings[from] = to
+	}
+
+	return UseAutoModeContract{
+		AllowedModes:       allowedModes,
+		DeprecatedMappings: deprecatedMappings,
+		MigrationHint:      constants.RoutingUseAutoModeMigrationHint,
 	}
 }
 
@@ -161,7 +200,7 @@ func parseAutoModeJSON(raw json.RawMessage, fallback string) string {
 		if b {
 			return constants.RoutingDefaultStrategy
 		}
-		return autoModeFixed
+		return constants.RoutingUseAutoModeFixed
 	}
 	return normalizeAutoMode(fallback)
 }
@@ -487,7 +526,7 @@ func (h *RouterHandler) migrateLegacyRouterConfig() {
 	if raw.DefaultModel != "" {
 		h.router.SetDefaultModel(raw.DefaultModel)
 	}
-	h.router.SetUseAutoMode(mode == autoModeAuto)
+	h.router.SetUseAutoMode(mode == constants.RoutingUseAutoModeAuto)
 }
 
 // loadConfig loads persisted config from file.
@@ -502,7 +541,7 @@ func (h *RouterHandler) loadConfig() {
 	h.migrateLegacyRouterConfig()
 
 	config := h.router.GetConfig()
-	mode := autoModeFixed
+	mode := constants.RoutingUseAutoModeFixed
 	if config.UseAutoMode {
 		mode = constants.RoutingDefaultStrategy
 	}
@@ -575,6 +614,8 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	h.mu.RLock()
 	cfg := *persistedConfig
 	h.mu.RUnlock()
+	migrationNotice := resolveAutoModeMigrationNotice(cfg.UseAutoMode)
+	normalizedMode := normalizeAutoMode(cfg.UseAutoMode)
 
 	config := h.router.GetConfig()
 	classifierCfg := h.router.GetClassifierConfig()
@@ -592,11 +633,13 @@ func (h *RouterHandler) GetRouterConfig(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"data": RouterConfigResponse{
-			UseAutoMode:     normalizeAutoMode(cfg.UseAutoMode),
+			UseAutoMode:     normalizedMode,
 			DefaultStrategy: cfg.DefaultStrategy,
 			DefaultModel:    cfg.DefaultModel,
 			Classifier:      cfg.Classifier,
 			Strategies:      strategies,
+			ModeContract:    buildUseAutoModeContract(),
+			MigrationNotice: migrationNotice,
 		},
 	})
 }
@@ -631,12 +674,28 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 		return
 	}
 
+	migrationNotice := ""
+	var modeMigration *UseAutoModeMigration
+	if len(req.UseAutoMode) != 0 && req.UseAutoMode[0] == '"' {
+		var requestedMode string
+		if err := json.Unmarshal(req.UseAutoMode, &requestedMode); err == nil {
+			normalizedRequestedMode := normalizeAutoMode(requestedMode)
+			if strings.TrimSpace(requestedMode) != normalizedRequestedMode {
+				modeMigration = &UseAutoModeMigration{
+					From: strings.TrimSpace(requestedMode),
+					To:   normalizedRequestedMode,
+				}
+			}
+			migrationNotice = resolveAutoModeMigrationNotice(requestedMode)
+		}
+	}
+
 	h.mu.Lock()
 	if len(req.UseAutoMode) != 0 {
 		mode := parseAutoModeJSON(req.UseAutoMode, persistedConfig.UseAutoMode)
 		persistedConfig.UseAutoMode = mode
 		// 同时更新SmartRouter的UseAutoMode布尔值用于向后兼容
-		h.router.SetUseAutoMode(mode == autoModeAuto)
+		h.router.SetUseAutoMode(mode == constants.RoutingUseAutoModeAuto)
 	}
 	if req.DefaultStrategy != nil {
 		persistedConfig.DefaultStrategy = *req.DefaultStrategy
@@ -650,6 +709,7 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 		persistedConfig.Classifier = routing.ClampClassifierConfig(*req.Classifier)
 		h.router.SetClassifierConfig(persistedConfig.Classifier)
 	}
+	currentMode := persistedConfig.UseAutoMode
 	h.mu.Unlock()
 
 	if err := h.saveConfig(); err != nil {
@@ -663,10 +723,19 @@ func (h *RouterHandler) UpdateRouterConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": "Router configuration updated",
-	})
+	response := gin.H{
+		"success":                true,
+		"message":                "Router configuration updated",
+		"use_auto_mode":          normalizeAutoMode(currentMode),
+		"use_auto_mode_contract": buildUseAutoModeContract(),
+	}
+	if migrationNotice != "" {
+		response["migration_notice"] = migrationNotice
+	}
+	if modeMigration != nil {
+		response["mode_migration"] = modeMigration
+	}
+	c.JSON(200, response)
 }
 
 type OllamaDualModelConfig struct {

@@ -1,5 +1,6 @@
 import { request } from './request'
 import { unwrapEnvelope } from './envelope'
+import type { UseAutoModeContract } from '@/constants/router-mode'
 
 export type OllamaStartupMode = 'auto' | 'app' | 'cli' | 'manual'
 
@@ -64,9 +65,33 @@ export interface UpsertModelRegistryPayload {
   enabled?: boolean
 }
 
+export interface RouterConfigResponseData {
+  use_auto_mode: string | boolean
+  default_strategy: string
+  default_model: string
+  classifier?: Record<string, unknown>
+  strategies?: Array<{ value: string; label: string; description: string }>
+  use_auto_mode_contract?: UseAutoModeContract
+  migration_notice?: string
+}
+
+export interface RouterModeMigration {
+  from: string
+  to: string
+}
+
+export interface UpdateRouterConfigResponseData {
+  success: boolean
+  message?: string
+  use_auto_mode?: string
+  use_auto_mode_contract?: UseAutoModeContract
+  migration_notice?: string
+  mode_migration?: RouterModeMigration
+}
+
 export async function getRouterConfig() {
   const raw = await request.get('/admin/router/config')
-  return unwrapEnvelope<any>(raw)
+  return unwrapEnvelope<RouterConfigResponseData>(raw)
 }
 
 export async function getModelRegistry() {
@@ -77,6 +102,16 @@ export async function getModelRegistry() {
 export async function getAvailableModels() {
   const raw = await request.get('/admin/router/available-models?format=object')
   return unwrapEnvelope<any[]>(raw)
+}
+
+export async function getTopModels() {
+  const raw = await request.get('/admin/router/top-models')
+  return unwrapEnvelope<string[]>(raw)
+}
+
+export async function getProviderDefaults() {
+  const raw = await request.get('/admin/router/provider-defaults')
+  return unwrapEnvelope<Record<string, string>>(raw)
 }
 
 export async function getCascadeRules() {
@@ -95,8 +130,7 @@ export async function putTaskModelMapping(data: Record<string, string>) {
 }
 
 export async function updateRouterConfig(data: Record<string, unknown>) {
-  const raw = await request.put('/admin/router/config', data)
-  return unwrapEnvelope(raw, { allowPlain: true })
+  return request.put('/admin/router/config', data) as Promise<UpdateRouterConfigResponseData>
 }
 
 export async function upsertModelRegistry(model: string, payload: UpsertModelRegistryPayload) {
