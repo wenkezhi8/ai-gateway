@@ -63,30 +63,33 @@ describe('theme', () => {
     globalThis.localStorage = createLocalStorageMock()
   })
 
-  it('applies stored theme and mode to dataset on init', async () => {
+  it('normalizes legacy dashboard variant and applies mode theme on init', async () => {
     setSystemTheme(false)
     localStorage.setItem('ai-gateway-theme', JSON.stringify({ variant: 'dashboard', mode: 'dark' }))
     const { useTheme } = await import('../composables/useTheme')
     useTheme()
 
-    expect(document.documentElement.dataset.theme).toBe('dashboard')
+    expect(document.documentElement.dataset.theme).toBe('dark')
     expect(document.documentElement.dataset.mode).toBe('dark')
+    expect(document.documentElement.dataset.themeVariant).toBe('apple')
   })
 
-  it('setVariant updates dataset and localStorage', async () => {
+  it('setTheme updates dataset mode and keeps apple variant', async () => {
     setSystemTheme(false)
     localStorage.setItem('ai-gateway-theme', JSON.stringify({ variant: 'apple', mode: 'light' }))
     const { useTheme } = await import('../composables/useTheme')
-    const { setVariant } = useTheme()
-    setVariant('dashboard')
+    const { setTheme } = useTheme()
+    setTheme('dark')
     await nextTick()
 
-    expect(document.documentElement.dataset.theme).toBe('dashboard')
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(document.documentElement.dataset.themeVariant).toBe('apple')
     const stored = JSON.parse(localStorage.getItem('ai-gateway-theme') || '{}')
-    expect(stored.variant).toBe('dashboard')
+    expect(stored.variant).toBe('apple')
+    expect(stored.mode).toBe('dark')
   })
 
-  it('auto mode follows system scheme changes', async () => {
+  it('auto mode follows system scheme changes and updates theme attribute', async () => {
     const listeners: Array<(event: MediaQueryListEvent) => void> = []
     let isDark = false
     const matchMedia = vi.fn().mockReturnValue({
@@ -102,11 +105,29 @@ describe('theme', () => {
 
     const { useTheme } = await import('../composables/useTheme')
     useTheme()
+    expect(document.documentElement.dataset.theme).toBe('light')
     expect(document.documentElement.dataset.mode).toBe('light')
+    expect(document.documentElement.dataset.themeVariant).toBe('apple')
 
     isDark = true
     listeners.forEach(cb => cb({ matches: true } as MediaQueryListEvent))
     await nextTick()
+    expect(document.documentElement.dataset.theme).toBe('dark')
     expect(document.documentElement.dataset.mode).toBe('dark')
+  })
+
+  it('registers system theme listener once even when useTheme is called multiple times', async () => {
+    const addEventListener = vi.fn()
+    window.matchMedia = vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener,
+      removeEventListener: vi.fn()
+    })
+
+    const { useTheme } = await import('../composables/useTheme')
+    useTheme()
+    useTheme()
+
+    expect(addEventListener).toHaveBeenCalledTimes(1)
   })
 })

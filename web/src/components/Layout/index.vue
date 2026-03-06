@@ -129,9 +129,9 @@
           <div class="header-divider"></div>
 
           <!-- 主题切换 -->
-          <el-dropdown trigger="click" @command="handleThemeCommand">
+          <el-dropdown trigger="hover" @command="handleThemeCommand">
             <el-tooltip :content="themeTooltip" placement="bottom">
-              <button class="theme-btn">
+              <button type="button" class="theme-btn" @click.stop="handleThemeButtonClick">
                 <el-icon :size="18">
                   <Sunny v-if="isDarkMode" />
                   <Moon v-else />
@@ -142,7 +142,6 @@
               <el-dropdown-menu>
                 <el-dropdown-item disabled>主题风格</el-dropdown-item>
                 <el-dropdown-item command="variant:apple">Apple</el-dropdown-item>
-                <el-dropdown-item command="variant:dashboard">仪表盘</el-dropdown-item>
                 <el-dropdown-item divided disabled>模式</el-dropdown-item>
                 <el-dropdown-item command="mode:light">亮色</el-dropdown-item>
                 <el-dropdown-item command="mode:dark">暗色</el-dropdown-item>
@@ -255,10 +254,9 @@ const themeTooltip = computed(() => {
     auto: '跟随系统'
   }
   const variantMap: Record<string, string> = {
-    apple: 'Apple',
-    dashboard: '仪表盘'
+    apple: 'Apple'
   }
-  return `当前：${variantMap[currentTheme.value.variant]} · ${modeMap[currentTheme.value.mode]}`
+  return `当前：${variantMap[currentTheme.value.variant] || 'Apple'} · ${modeMap[currentTheme.value.selectedMode]}`
 })
 
 const isActive = (path: string) => {
@@ -284,7 +282,7 @@ const handleWechatQrError = () => {
 
 const handleThemeCommand = (command: string) => {
   if (command.startsWith('variant:')) {
-    const variant = command.split(':')[1] as 'apple' | 'dashboard'
+    const variant = command.split(':')[1] as 'apple'
     setVariant(variant)
     return
   }
@@ -296,6 +294,10 @@ const handleThemeCommand = (command: string) => {
     }
     setTheme(mode as 'light' | 'dark' | 'auto')
   }
+}
+
+const handleThemeButtonClick = () => {
+  toggleTheme()
 }
 
 const handleUserCommand = (command: string) => {

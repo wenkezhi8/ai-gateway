@@ -62,7 +62,6 @@
             <el-form-item label="主题风格">
               <el-radio-group v-model="settings.themeVariant" @change="handleThemeVariantChange">
                 <el-radio-button value="apple">Apple</el-radio-button>
-                <el-radio-button value="dashboard">仪表盘</el-radio-button>
               </el-radio-group>
             </el-form-item>
             <el-form-item label="主题模式">
@@ -377,7 +376,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, Check } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
@@ -518,7 +517,7 @@ const handleThemeChange = (theme: string) => {
 }
 
 const handleThemeVariantChange = (variant: string) => {
-  setVariant(variant as 'apple' | 'dashboard')
+  setVariant(variant as 'apple')
 }
 
 // 应用主题色到 CSS 变量
@@ -703,7 +702,7 @@ async function loadSettings() {
 // 页面加载时从 localStorage 加载设置
 onMounted(async () => {
   // 同步主题设置
-  settings.theme = currentTheme.value.mode
+  settings.theme = currentTheme.value.selectedMode
   settings.themeVariant = currentTheme.value.variant
 
   // 加载保存的主题色
@@ -714,6 +713,14 @@ onMounted(async () => {
   }
 
   await loadSettings()
+})
+
+watch(() => currentTheme.value.selectedMode, (mode) => {
+  settings.theme = mode
+})
+
+watch(() => currentTheme.value.variant, (variant) => {
+  settings.themeVariant = variant
 })
 
 const resetSettings = async () => {
