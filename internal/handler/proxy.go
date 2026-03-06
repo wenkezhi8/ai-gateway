@@ -3147,7 +3147,15 @@ func maskAPIKey(key string) string {
 	return key[:4] + "****" + key[len(key)-4:]
 }
 
+type apiKeyValidator interface {
+	ValidateAPIKey(apiKey string) bool
+}
+
 func resolveAPIKeyFromRequest(c *gin.Context) string {
+	return resolveAPIKeyFromRequestWithHandler(c, admin.GetApiKeyHandler())
+}
+
+func resolveAPIKeyFromRequestWithHandler(c *gin.Context, keyValidator apiKeyValidator) string {
 	if c == nil {
 		return ""
 	}
@@ -3169,8 +3177,8 @@ func resolveAPIKeyFromRequest(c *gin.Context) string {
 		return ""
 	}
 
-	if keyHandler := admin.GetApiKeyHandler(); keyHandler != nil {
-		if name := keyHandler.FindNameByKey(rawKey); name != "" {
+	if keyValidator != nil {
+		if keyValidator.ValidateAPIKey(rawKey) {
 			return rawKey
 		}
 	}
