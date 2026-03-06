@@ -235,6 +235,7 @@ func TestUsageHandler_GetUsageLogs_ShouldReturnExpandedFieldsAndAliases(t *testi
 		"tokens":              int64(160),
 		"input_tokens":        int64(90),
 		"output_tokens":       int64(70),
+		"cached_read_tokens":  int64(24),
 		"latency_ms":          int64(620),
 		"ttft_ms":             int64(190),
 		"cache_hit":           true,
@@ -271,5 +272,45 @@ func TestUsageHandler_GetUsageLogs_ShouldReturnExpandedFieldsAndAliases(t *testi
 	assert.Equal(t, float64(190), item["time_to_first_token"])
 	assert.Equal(t, float64(620), item["total_duration"])
 	assert.Equal(t, float64(160), item["total_tokens"])
+	assert.Equal(t, float64(24), item["cached_read_tokens"])
 	assert.Equal(t, float64(160), item["saved_tokens"])
+}
+
+func TestUsageHandler_GetUsageLogs_ShouldDefaultCachedReadTokensToZero(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := filepath.Join(t.TempDir(), "usage-handler-default-cached-read.db")
+	store, err := storage.NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	now := time.Now().UnixMilli()
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id": "req-usage-default-cached-read-1",
+		"timestamp":  now,
+		"model":      "gpt-4o-mini",
+		"provider":   "openai",
+		"tokens":     int64(20),
+		"success":    true,
+	}))
+
+	handler := NewUsageHandler(store)
+	r := gin.New()
+	r.GET("/admin/usage/logs", handler.GetUsageLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/logs?limit=1", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool                     `json:"success"`
+		Data    []map[string]interface{} `json:"data"`
+		Total   int                      `json:"total"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	require.Len(t, resp.Data, 1)
+
+	assert.Equal(t, float64(0), resp.Data[0]["cached_read_tokens"])
 }

@@ -216,6 +216,7 @@ func ConvertResponse(resp *ChatResponse) *provider.ChatResponse {
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			CachedReadTokens: resp.Usage.CachedReadTokens(),
 		},
 		Error: providerErr,
 	}
@@ -259,6 +260,7 @@ func ConvertStreamChunk(resp *StreamResponse, done bool) *provider.StreamChunk {
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			CachedReadTokens: resp.Usage.CachedReadTokens(),
 		}
 	}
 

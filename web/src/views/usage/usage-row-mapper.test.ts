@@ -19,6 +19,7 @@ describe('usage-row-mapper', () => {
         user_agent: 'Mozilla/5.0',
         input_tokens: 120,
         output_tokens: 80,
+        cached_read_tokens: 16,
         total_tokens: 200,
         tokens: 999,
         saved_tokens: 30,
@@ -40,6 +41,7 @@ describe('usage-row-mapper', () => {
     expect(row.inputTokens).toBe(120)
     expect(row.outputTokens).toBe(80)
     expect(row.totalTokens).toBe(200)
+    expect(row.cachedReadTokens).toBe(16)
     expect(row.savedTokens).toBe(30)
     expect(row.firstTokenLatency).toBe('0.42s')
     expect(row.totalLatency).toBe('1.55s')
@@ -72,6 +74,7 @@ describe('usage-row-mapper', () => {
     expect(row.inputTokens).toBe(30)
     expect(row.outputTokens).toBe(20)
     expect(row.totalTokens).toBe(50)
+    expect(row.cachedReadTokens).toBe(0)
     expect(row.savedTokens).toBe(50)
     expect(row.firstTokenLatency).toBe('0 ms')
     expect(row.totalLatency).toBe('0 ms')
@@ -84,6 +87,7 @@ describe('usage-row-mapper', () => {
         provider: 'provider-z',
         task_type: 'long_text',
         type: 'stream',
+        cached_read_tokens: 5,
         total_tokens: 10,
         usage_source: 'actual'
       },
@@ -94,6 +98,7 @@ describe('usage-row-mapper', () => {
     expect(longTextRow.taskTypeLabel).toBe('长文本')
     expect(longTextRow.taskTypeRaw).toBe('long_text')
     expect(longTextRow.usageSourceLabel).toBe('真实')
+    expect(longTextRow.cachedReadTokens).toBe(5)
 
     const unknownRow = mapUsageLogToRow(
       {

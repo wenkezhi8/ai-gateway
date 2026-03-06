@@ -11,9 +11,10 @@ export const USAGE_CSV_HEADER = [
   '用户代理',
   '入Token',
   '出Token',
+  '缓存读取Token',
   '总Token',
   'Token来源',
   '节省Token',
-  '缓存命中',
+  '本地缓存',
   '费用'
 ] as const

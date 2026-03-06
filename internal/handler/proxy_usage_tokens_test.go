@@ -56,6 +56,41 @@ func TestExtractUsageTokensFromBody_WithoutUsage_ReturnsZero(t *testing.T) {
 	}
 }
 
+func TestExtractUsageTokensFromBody_WithCachedTokensDetails(t *testing.T) {
+	body := []byte(`{
+		"usage":{
+			"prompt_tokens":120,
+			"completion_tokens":40,
+			"total_tokens":160,
+			"prompt_tokens_details":{"cached_tokens":33}
+		}
+	}`)
+
+	tokens := extractUsageTokensFromBody(body)
+	if tokens.CachedRead != 33 {
+		t.Fatalf("expected cached read tokens 33, got %d", tokens.CachedRead)
+	}
+}
+
+func TestExtractUsageTokensFromBody_WithInputTokensDetailsCachedTokens(t *testing.T) {
+	body := []byte(`{
+		"usage":{
+			"input_tokens":100,
+			"output_tokens":20,
+			"total_tokens":120,
+			"input_tokens_details":{"cached_tokens":11}
+		}
+	}`)
+
+	tokens := extractUsageTokensFromBody(body)
+	if tokens.Prompt != 100 || tokens.Completion != 20 || tokens.Total != 120 {
+		t.Fatalf("unexpected tokens parsed from input/output usage: %+v", tokens)
+	}
+	if tokens.CachedRead != 11 {
+		t.Fatalf("expected cached read tokens 11, got %d", tokens.CachedRead)
+	}
+}
+
 func TestEstimateTokensByText_MixedAsciiAndCJK(t *testing.T) {
 	// ascii=4 -> 1 token, non-ascii=2 -> 2 tokens, total ceil(2.333)=3
 	got := estimateTokensByText("abcd你好")
@@ -72,7 +107,7 @@ func TestEstimateTokensByText_EmptyText_ReturnsZero(t *testing.T) {
 }
 
 func TestBuildCachedUsage_UsesPromptTokensFromInput(t *testing.T) {
-	usage := buildCachedUsage(12, 8, 20)
+	usage := buildCachedUsage(12, 8, 3, 20)
 	if usage["prompt_tokens"] != 12 {
 		t.Fatalf("expected prompt_tokens 12, got %d", usage["prompt_tokens"])
 	}
@@ -81,6 +116,9 @@ func TestBuildCachedUsage_UsesPromptTokensFromInput(t *testing.T) {
 	}
 	if usage["total_tokens"] != 20 {
 		t.Fatalf("expected total_tokens 20, got %d", usage["total_tokens"])
+	}
+	if usage["cached_read_tokens"] != 3 {
+		t.Fatalf("expected cached_read_tokens 3, got %d", usage["cached_read_tokens"])
 	}
 }
 

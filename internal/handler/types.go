@@ -95,6 +95,7 @@ type Usage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+	CachedReadTokens int `json:"cached_read_tokens,omitempty"`
 }
 
 // CompletionRequest represents an OpenAI-compatible completion request

@@ -37,6 +37,7 @@ type UsageLogResponse struct {
 	Tokens             int64  `json:"tokens"`
 	InputTokens        int64  `json:"input_tokens"`
 	OutputTokens       int64  `json:"output_tokens"`
+	CachedReadTokens   int64  `json:"cached_read_tokens"`
 	TotalTokens        int64  `json:"total_tokens"`
 	SavedTokens        int64  `json:"saved_tokens"`
 	LatencyMs          int64  `json:"latency_ms"`
@@ -165,6 +166,7 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 			Tokens:             tokens,
 			InputTokens:        getInt64(log, "input_tokens"),
 			OutputTokens:       getInt64(log, "output_tokens"),
+			CachedReadTokens:   getInt64(log, "cached_read_tokens"),
 			TotalTokens:        tokens,
 			SavedTokens:        savedTokens,
 			LatencyMs:          latencyMs,

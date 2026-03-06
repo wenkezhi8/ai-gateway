@@ -14,10 +14,18 @@ describe('usage table layout and copy', () => {
   it('should split total token and usage source into two columns', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/usage/index.vue'), 'utf-8')
 
+    expect(viewFile).toContain('label="缓存读取 Token"')
     expect(viewFile).toContain('label="总 Token"')
     expect(viewFile).toContain('label="Token来源"')
     expect(viewFile).not.toContain('class="token-cell"')
     expect(viewFile).toContain('row.usageSourceLabel')
+  })
+
+  it('should rename cache hit column to local cache', () => {
+    const viewFile = readFileSync(join(process.cwd(), 'src/views/usage/index.vue'), 'utf-8')
+
+    expect(viewFile).toContain('label="本地缓存"')
+    expect(viewFile).not.toContain('label="缓存命中"')
   })
 
   it('should display task type in chinese and keep raw english in tooltip', () => {

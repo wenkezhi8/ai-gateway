@@ -417,7 +417,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if v2CacheHit && len(v2CachedBody) > 0 {
 		tokenUsage := extractUsageTokensFromBody(v2CachedBody)
 		resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(v2CachedBody), tokenUsage)
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 		if h.traceRecorder != nil {
 			attrs := map[string]interface{}{
@@ -493,7 +493,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			h.semanticCache.IncrementHitCount(semanticEntry.ID)
 			tokenUsage := extractUsageTokensFromBody(semanticEntry.Response)
 			resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(semanticEntry.Response), tokenUsage)
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 			if h.traceRecorder != nil {
 				attrs := map[string]interface{}{
@@ -566,7 +566,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 					tokenUsage := extractUsageTokensFromBody(cached.Body)
 					resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(cached.Body), tokenUsage)
-					h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+					h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 					admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 					h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
 					if h.traceRecorder != nil {
@@ -619,7 +619,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 	usageMeta = buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
 	if providerSelectErr != nil {
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, providerSelectErr.Error(), http.StatusServiceUnavailable)
 		Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, providerSelectErr.Error())
@@ -781,7 +781,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		logMsg := fmt.Sprintf("Provider request failed: %v", err)
 		if providerErr, ok := err.(*provider.ProviderError); ok {
@@ -838,7 +838,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		if providerName == "" && targetProvider != nil {
 			providerName = targetProvider.Name()
 		}
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, resp.Error.Message, http.StatusBadGateway)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
@@ -855,6 +855,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			Prompt:     resp.Usage.PromptTokens,
 			Completion: resp.Usage.CompletionTokens,
 			Total:      resp.Usage.TotalTokens,
+			CachedRead: resp.Usage.CachedReadTokens,
 		},
 	)
 
@@ -865,7 +866,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if providerName == "" && targetProvider != nil {
 		providerName = targetProvider.Name()
 	}
-	h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 	admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 	// Record successful model name mapping if different from original
@@ -885,6 +886,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			PromptTokens:     resolvedUsage.Prompt,
 			CompletionTokens: resolvedUsage.Completion,
 			TotalTokens:      resolvedUsage.Total,
+			CachedReadTokens: resolvedUsage.CachedRead,
 		},
 	}
 	if reasoningEffortDowngraded {
@@ -1822,7 +1824,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	}
 	if err != nil {
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 		c.SSEvent("error", gin.H{"error": err.Error()})
@@ -1832,6 +1834,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	var totalTokens int
 	var promptTokens int
 	var completionTokens int
+	var cachedReadTokens int
 	var fullContent strings.Builder
 	receivedChunks := 0
 	hasReasoningOutput := false
@@ -1847,7 +1850,7 @@ streamLoop:
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				cancelMessage = ctxErr.Error()
 			}
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, cancelMessage, 499)
 			return
@@ -1858,288 +1861,292 @@ streamLoop:
 			if chunk == nil {
 				continue
 			}
-		if chunk.Error != nil {
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
-			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			errorStatusCode := chunk.Error.Code
-			if errorStatusCode < http.StatusBadRequest || errorStatusCode >= 600 {
-				errorStatusCode = http.StatusBadGateway
+			if chunk.Error != nil {
+				h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+				admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
+				errorStatusCode := chunk.Error.Code
+				if errorStatusCode < http.StatusBadRequest || errorStatusCode >= 600 {
+					errorStatusCode = http.StatusBadGateway
+				}
+				h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, chunk.Error.Message, errorStatusCode)
+				c.SSEvent("error", gin.H{
+					"error": gin.H{
+						"code":    chunk.Error.Code,
+						"message": chunk.Error.Message,
+					},
+				})
+				c.Writer.Flush()
+				return
 			}
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, chunk.Error.Message, errorStatusCode)
-			c.SSEvent("error", gin.H{
-				"error": gin.H{
-					"code":    chunk.Error.Code,
-					"message": chunk.Error.Message,
-				},
-			})
-			c.Writer.Flush()
-			return
-		}
 
-		receivedChunks++
-		if chunk.Usage != nil {
-			totalTokens = chunk.Usage.TotalTokens
-			promptTokens = chunk.Usage.PromptTokens
-			completionTokens = chunk.Usage.CompletionTokens
-		}
-		for _, ch := range chunk.Choices {
-			if ch.Delta != nil && ch.Delta.Content != "" {
-				fullContent.WriteString(ch.Delta.Content)
-				// Record TTFT on first token
-				if ttftMs == 0 {
-					ttftMs = time.Since(startTime).Milliseconds()
+			receivedChunks++
+			if chunk.Usage != nil {
+				totalTokens = chunk.Usage.TotalTokens
+				promptTokens = chunk.Usage.PromptTokens
+				completionTokens = chunk.Usage.CompletionTokens
+				cachedReadTokens = chunk.Usage.CachedReadTokens
+			}
+			for _, ch := range chunk.Choices {
+				if ch.Delta != nil && ch.Delta.Content != "" {
+					fullContent.WriteString(ch.Delta.Content)
+					// Record TTFT on first token
+					if ttftMs == 0 {
+						ttftMs = time.Since(startTime).Milliseconds()
+					}
+				}
+				if ch.Delta != nil && (strings.TrimSpace(ch.Delta.ReasoningContent) != "" || strings.TrimSpace(ch.Delta.Reasoning) != "") {
+					hasReasoningOutput = true
 				}
 			}
-			if ch.Delta != nil && (strings.TrimSpace(ch.Delta.ReasoningContent) != "" || strings.TrimSpace(ch.Delta.Reasoning) != "") {
-				hasReasoningOutput = true
-			}
-		}
-		if chunk.Done {
-			if strings.TrimSpace(fullContent.String()) == "" && !hasReasoningOutput {
-				fallbackNeeded = true
+			if chunk.Done {
+				if strings.TrimSpace(fullContent.String()) == "" && !hasReasoningOutput {
+					fallbackNeeded = true
+					break streamLoop
+				}
+
+				resolvedUsage, usageSource := resolveUsageWithFallback(
+					prompt,
+					fullContent.String(),
+					usageTokens{
+						Prompt:     promptTokens,
+						Completion: completionTokens,
+						Total:      totalTokens,
+						CachedRead: cachedReadTokens,
+					},
+				)
+
+				// Send the final chunk with usage (if present) before [DONE]
+				if chunk.Usage != nil || len(chunk.Choices) > 0 {
+					streamResp := StreamingResponse{
+						ID:      chunk.ID,
+						Object:  chunk.Object,
+						Created: chunk.Created,
+						Model:   chunk.Model,
+						Choices: make([]StreamChoice, len(chunk.Choices)),
+					}
+					if reasoningEffortDowngraded {
+						streamResp.GatewayMeta = &GatewayMeta{ReasoningEffortDowngraded: true}
+					}
+					if resolvedUsage.Total > 0 {
+						streamResp.Usage = &Usage{
+							PromptTokens:     resolvedUsage.Prompt,
+							CompletionTokens: resolvedUsage.Completion,
+							TotalTokens:      resolvedUsage.Total,
+							CachedReadTokens: resolvedUsage.CachedRead,
+						}
+					}
+					for i, ch := range chunk.Choices {
+						var finishReason *string
+						if ch.FinishReason != "" {
+							finishReason = &ch.FinishReason
+						}
+						var delta *ChatMessage
+						if ch.Delta != nil {
+							delta = &ChatMessage{
+								Role:    ch.Delta.Role,
+								Content: ch.Delta.Content,
+							}
+						}
+						streamResp.Choices[i] = StreamChoice{
+							Index:        ch.Index,
+							Delta:        delta,
+							FinishReason: finishReason,
+						}
+					}
+					c.SSEvent("message", streamResp)
+					c.Writer.Flush()
+				}
+
+				if h.traceRecorder != nil {
+					h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
+						"duration_ms":   time.Since(startTime).Milliseconds(),
+						"model":         req.Model,
+						"provider":      providerLabel,
+						"provider_type": providerProtocol,
+						"provider_name": providerLabel,
+						"stream":        true,
+						"success":       true,
+					})
+				}
+
+				// Send [DONE] marker
+				c.SSEvent("message", "[DONE]")
+				c.Writer.Flush()
+
+				if h.traceRecorder != nil {
+					responsePayload := map[string]interface{}{
+						"choices": []map[string]interface{}{
+							{
+								"index": 0,
+								"message": map[string]interface{}{
+									"role":    "assistant",
+									"content": fullContent.String(),
+								},
+							},
+						},
+					}
+					responseBody, marshalErr := json.Marshal(responsePayload)
+					if marshalErr != nil {
+						responseBody = []byte("{}")
+					}
+					attrs := map[string]interface{}{
+						"duration_ms": time.Since(startTime).Milliseconds(),
+						"model":       req.Model,
+						"provider":    providerName,
+						"status_code": http.StatusOK,
+						"cache_hit":   false,
+					}
+					for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+						attrs[key] = value
+					}
+					h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+				}
+
+				// Record metrics for stream completion
+				latency := time.Since(startTime)
+				// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
+				h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+				admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
+
+				// Record successful model name mapping if different from original
+				if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
+					h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
+				}
+
+				// Record stream response into cache for observability/management page
+				// Skip caching when provider returned no text content to avoid empty-cache pollution.
+				if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
+					responsePayload := map[string]interface{}{
+						"id":               chunk.ID,
+						"object":           "chat.completion",
+						"created":          chunk.Created,
+						"model":            req.Model,
+						"task_type":        taskType,
+						"task_type_source": taskTypeSource,
+						"choices": []map[string]interface{}{
+							{
+								"index": 0,
+								"message": map[string]interface{}{
+									"role":    "assistant",
+									"content": fullContent.String(),
+								},
+								"finish_reason": "stop",
+							},
+						},
+						"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.CachedRead, resolvedUsage.Total),
+					}
+
+					if body, err := json.Marshal(responsePayload); err == nil {
+						cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
+						if keyErr == nil {
+							cachedResp := &cache.CachedResponse{
+								StatusCode:     http.StatusOK,
+								Headers:        map[string]string{"Content-Type": "application/json"},
+								Body:           body,
+								CreatedAt:      time.Now(),
+								HitCount:       0,
+								HitModels:      map[string]int64{req.Model: 1},
+								Provider:       providerName,
+								Model:          req.Model,
+								Prompt:         prompt,
+								TaskType:       taskType,
+								TaskTypeSource: taskTypeSource,
+							}
+							if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
+								if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
+									logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+								}
+							} else {
+								if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
+									logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
+								}
+							}
+							if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
+								h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
+							}
+						}
+
+						if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
+							queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+							h.semanticCache.Set(
+								c.Request.Context(),
+								semanticQuery,
+								queryVector,
+								body,
+								req.Model,
+								providerName,
+								taskType,
+								recommendedTTL,
+							)
+						}
+					}
+				}
+				streamCompletedByDone = true
 				break streamLoop
 			}
+			streamResp := StreamingResponse{
+				ID:      chunk.ID,
+				Object:  chunk.Object,
+				Created: chunk.Created,
+				Model:   chunk.Model,
+				Choices: make([]StreamChoice, len(chunk.Choices)),
+			}
 
-			resolvedUsage, usageSource := resolveUsageWithFallback(
-				prompt,
-				fullContent.String(),
-				usageTokens{
-					Prompt:     promptTokens,
-					Completion: completionTokens,
-					Total:      totalTokens,
-				},
-			)
+			// Include usage if present
+			if chunk.Usage != nil {
+				streamResp.Usage = &Usage{
+					PromptTokens:     chunk.Usage.PromptTokens,
+					CompletionTokens: chunk.Usage.CompletionTokens,
+					TotalTokens:      chunk.Usage.TotalTokens,
+					CachedReadTokens: chunk.Usage.CachedReadTokens,
+				}
+			}
 
-			// Send the final chunk with usage (if present) before [DONE]
-			if chunk.Usage != nil || len(chunk.Choices) > 0 {
-				streamResp := StreamingResponse{
-					ID:      chunk.ID,
-					Object:  chunk.Object,
-					Created: chunk.Created,
-					Model:   chunk.Model,
-					Choices: make([]StreamChoice, len(chunk.Choices)),
+			for i, ch := range chunk.Choices {
+				var finishReason *string
+				if ch.FinishReason != "" {
+					finishReason = &ch.FinishReason
 				}
-				if reasoningEffortDowngraded {
-					streamResp.GatewayMeta = &GatewayMeta{ReasoningEffortDowngraded: true}
-				}
-				if resolvedUsage.Total > 0 {
-					streamResp.Usage = &Usage{
-						PromptTokens:     resolvedUsage.Prompt,
-						CompletionTokens: resolvedUsage.Completion,
-						TotalTokens:      resolvedUsage.Total,
-					}
-				}
-				for i, ch := range chunk.Choices {
-					var finishReason *string
-					if ch.FinishReason != "" {
-						finishReason = &ch.FinishReason
-					}
-					var delta *ChatMessage
-					if ch.Delta != nil {
-						delta = &ChatMessage{
-							Role:    ch.Delta.Role,
-							Content: ch.Delta.Content,
+				var delta *ChatMessage
+				if ch.Delta != nil {
+					var toolCalls []ToolCall
+					if len(ch.Delta.ToolCalls) > 0 {
+						toolCalls = make([]ToolCall, len(ch.Delta.ToolCalls))
+						for j, tc := range ch.Delta.ToolCalls {
+							toolCalls[j] = ToolCall{
+								Index: tc.Index,
+								ID:    tc.ID,
+								Type:  tc.Type,
+								Function: FunctionCall{
+									Name:      tc.Function.Name,
+									Arguments: tc.Function.Arguments,
+								},
+							}
 						}
 					}
-					streamResp.Choices[i] = StreamChoice{
-						Index:        ch.Index,
-						Delta:        delta,
-						FinishReason: finishReason,
+					delta = &ChatMessage{
+						Role:      ch.Delta.Role,
+						Content:   ch.Delta.Content,
+						ToolCalls: toolCalls,
+					}
+					// 处理深度思考内容 (DeepSeek R1)
+					if ch.Delta.ReasoningContent != "" || ch.Delta.Reasoning != "" {
+						reasoning := ch.Delta.ReasoningContent
+						if reasoning == "" {
+							reasoning = ch.Delta.Reasoning
+						}
+						delta.ReasoningContent = reasoning
 					}
 				}
-				c.SSEvent("message", streamResp)
-				c.Writer.Flush()
+				streamResp.Choices[i] = StreamChoice{
+					Index:        ch.Index,
+					Delta:        delta,
+					FinishReason: finishReason,
+				}
 			}
 
-			if h.traceRecorder != nil {
-				h.traceRecorder.RecordSimpleSpan(ctx, "provider.chat", map[string]interface{}{
-					"duration_ms":   time.Since(startTime).Milliseconds(),
-					"model":         req.Model,
-					"provider":      providerLabel,
-					"provider_type": providerProtocol,
-					"provider_name": providerLabel,
-					"stream":        true,
-					"success":       true,
-				})
-			}
-
-			// Send [DONE] marker
-			c.SSEvent("message", "[DONE]")
+			c.SSEvent("message", streamResp)
 			c.Writer.Flush()
-
-			if h.traceRecorder != nil {
-				responsePayload := map[string]interface{}{
-					"choices": []map[string]interface{}{
-						{
-							"index": 0,
-							"message": map[string]interface{}{
-								"role":    "assistant",
-								"content": fullContent.String(),
-							},
-						},
-					},
-				}
-				responseBody, marshalErr := json.Marshal(responsePayload)
-				if marshalErr != nil {
-					responseBody = []byte("{}")
-				}
-				attrs := map[string]interface{}{
-					"duration_ms": time.Since(startTime).Milliseconds(),
-					"model":       req.Model,
-					"provider":    providerName,
-					"status_code": http.StatusOK,
-					"cache_hit":   false,
-				}
-				for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
-					attrs[key] = value
-				}
-				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
-			}
-
-			// Record metrics for stream completion
-			latency := time.Since(startTime)
-			// CHANGED: include provider/user/api info and prompt tokens in usage logs for stream completion.
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
-			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
-
-			// Record successful model name mapping if different from original
-			if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
-				h.modelMappingCache.RecordSuccess(providerName, originalModelID, req.Model)
-			}
-
-			// Record stream response into cache for observability/management page
-			// Skip caching when provider returned no text content to avoid empty-cache pollution.
-			if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 && strings.TrimSpace(fullContent.String()) != "" {
-				responsePayload := map[string]interface{}{
-					"id":               chunk.ID,
-					"object":           "chat.completion",
-					"created":          chunk.Created,
-					"model":            req.Model,
-					"task_type":        taskType,
-					"task_type_source": taskTypeSource,
-					"choices": []map[string]interface{}{
-						{
-							"index": 0,
-							"message": map[string]interface{}{
-								"role":    "assistant",
-								"content": fullContent.String(),
-							},
-							"finish_reason": "stop",
-						},
-					},
-					"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.Total),
-				}
-
-				if body, err := json.Marshal(responsePayload); err == nil {
-					cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
-					if keyErr == nil {
-						cachedResp := &cache.CachedResponse{
-							StatusCode:     http.StatusOK,
-							Headers:        map[string]string{"Content-Type": "application/json"},
-							Body:           body,
-							CreatedAt:      time.Now(),
-							HitCount:       0,
-							HitModels:      map[string]int64{req.Model: 1},
-							Provider:       providerName,
-							Model:          req.Model,
-							Prompt:         prompt,
-							TaskType:       taskType,
-							TaskTypeSource: taskTypeSource,
-						}
-						if mc, ok := h.cache.Cache().(*cache.MemoryCache); ok {
-							if err := mc.SetWithTaskType(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
-								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-							}
-						} else {
-							if err := h.cache.ResponseCache.SetWithTTL(c.Request.Context(), cacheKey, cachedResp, recommendedTTL); err != nil {
-								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-							}
-						}
-						if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
-							h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
-						}
-					}
-
-					if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
-						queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-						h.semanticCache.Set(
-							c.Request.Context(),
-							semanticQuery,
-							queryVector,
-							body,
-							req.Model,
-							providerName,
-							taskType,
-							recommendedTTL,
-						)
-					}
-				}
-			}
-			streamCompletedByDone = true
-			break streamLoop
-		}
-		streamResp := StreamingResponse{
-			ID:      chunk.ID,
-			Object:  chunk.Object,
-			Created: chunk.Created,
-			Model:   chunk.Model,
-			Choices: make([]StreamChoice, len(chunk.Choices)),
-		}
-
-		// Include usage if present
-		if chunk.Usage != nil {
-			streamResp.Usage = &Usage{
-				PromptTokens:     chunk.Usage.PromptTokens,
-				CompletionTokens: chunk.Usage.CompletionTokens,
-				TotalTokens:      chunk.Usage.TotalTokens,
-			}
-		}
-
-		for i, ch := range chunk.Choices {
-			var finishReason *string
-			if ch.FinishReason != "" {
-				finishReason = &ch.FinishReason
-			}
-			var delta *ChatMessage
-			if ch.Delta != nil {
-				var toolCalls []ToolCall
-				if len(ch.Delta.ToolCalls) > 0 {
-					toolCalls = make([]ToolCall, len(ch.Delta.ToolCalls))
-					for j, tc := range ch.Delta.ToolCalls {
-						toolCalls[j] = ToolCall{
-							Index: tc.Index,
-							ID:    tc.ID,
-							Type:  tc.Type,
-							Function: FunctionCall{
-								Name:      tc.Function.Name,
-								Arguments: tc.Function.Arguments,
-							},
-						}
-					}
-				}
-				delta = &ChatMessage{
-					Role:      ch.Delta.Role,
-					Content:   ch.Delta.Content,
-					ToolCalls: toolCalls,
-				}
-				// 处理深度思考内容 (DeepSeek R1)
-				if ch.Delta.ReasoningContent != "" || ch.Delta.Reasoning != "" {
-					reasoning := ch.Delta.ReasoningContent
-					if reasoning == "" {
-						reasoning = ch.Delta.Reasoning
-					}
-					delta.ReasoningContent = reasoning
-				}
-			}
-			streamResp.Choices[i] = StreamChoice{
-				Index:        ch.Index,
-				Delta:        delta,
-				FinishReason: finishReason,
-			}
-		}
-
-		c.SSEvent("message", streamResp)
-		c.Writer.Flush()
 		}
 	}
 
@@ -2151,6 +2158,7 @@ streamLoop:
 				Prompt:     promptTokens,
 				Completion: completionTokens,
 				Total:      totalTokens,
+				CachedRead: cachedReadTokens,
 			},
 		)
 
@@ -2199,7 +2207,7 @@ streamLoop:
 		}
 
 		latency := time.Since(startTime)
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, ttftMs, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 		if h.modelMappingCache != nil && originalModelID != "" && originalModelID != req.Model {
@@ -2224,7 +2232,7 @@ streamLoop:
 						"finish_reason": "stop",
 					},
 				},
-				"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.Total),
+				"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.CachedRead, resolvedUsage.Total),
 			}
 
 			if body, err := json.Marshal(responsePayload); err == nil {
@@ -2299,7 +2307,7 @@ streamLoop:
 
 		if err != nil {
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": err.Error()})
@@ -2309,7 +2317,7 @@ streamLoop:
 
 		if resp == nil || len(resp.Choices) == 0 {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty response", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
@@ -2320,7 +2328,7 @@ streamLoop:
 		content := getTextContent(resp.Choices[0].Message.Content)
 		if strings.TrimSpace(content) == "" {
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
-			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
+			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
 			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty content", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
@@ -2348,6 +2356,7 @@ streamLoop:
 				Prompt:     resp.Usage.PromptTokens,
 				Completion: resp.Usage.CompletionTokens,
 				Total:      resp.Usage.TotalTokens,
+				CachedRead: resp.Usage.CachedReadTokens,
 			},
 		)
 
@@ -2394,6 +2403,7 @@ streamLoop:
 				PromptTokens:     resolvedUsage.Prompt,
 				CompletionTokens: resolvedUsage.Completion,
 				TotalTokens:      resolvedUsage.Total,
+				CachedReadTokens: resolvedUsage.CachedRead,
 			},
 		}
 		if reasoningEffortDowngraded {
@@ -2422,7 +2432,7 @@ streamLoop:
 						"finish_reason": "stop",
 					},
 				},
-				"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.Total),
+				"usage": buildCachedUsage(resolvedUsage.Prompt, resolvedUsage.Completion, resolvedUsage.CachedRead, resolvedUsage.Total),
 			}
 
 			if body, marshalErr := json.Marshal(responsePayload); marshalErr == nil {
@@ -2473,7 +2483,7 @@ streamLoop:
 
 		latency := time.Since(startTime)
 		// CHANGED: include provider/user/api info and prompt tokens in usage logs for fallback success.
-		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
+		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, latency, resolvedUsage.Total, true, false, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, true, latency.Milliseconds(), resolvedUsage.Total)
 
 		if h.traceRecorder != nil {
@@ -2610,6 +2620,7 @@ func (h *ProxyHandler) Completions(c *gin.Context) {
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
+			CachedReadTokens: resp.Usage.CachedReadTokens,
 		},
 	})
 
@@ -3083,14 +3094,14 @@ func buildUsageRuntimeMeta(c *gin.Context, req *ChatCompletionRequest, scheduleR
 }
 
 func (h *ProxyHandler) recordMetricsExtended(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, taskType, difficulty, errorType, experimentTag, domainTag string) {
-	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, "actual", taskType, difficulty, errorType, experimentTag, domainTag)
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, 0, "actual", taskType, difficulty, errorType, experimentTag, domainTag)
 }
 
 func (h *ProxyHandler) recordMetricsExtendedWithUsageSource(userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, usageSource, taskType, difficulty, errorType, experimentTag, domainTag string) {
-	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, usageSource, taskType, difficulty, errorType, experimentTag, domainTag)
+	h.recordMetricsExtendedWithMetaAndUsageSource(usageRuntimeMeta{}, userID, apiKey, model, provider, latency, tokens, success, cacheHit, ttftMs, inputTokens, 0, usageSource, taskType, difficulty, errorType, experimentTag, domainTag)
 }
 
-func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRuntimeMeta, userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, usageSource, taskType, difficulty, errorType, experimentTag, domainTag string) {
+func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRuntimeMeta, userID, apiKey, model, provider string, latency time.Duration, tokens int, success bool, cacheHit bool, ttftMs int64, inputTokens int, cachedReadTokens int, usageSource, taskType, difficulty, errorType, experimentTag, domainTag string) {
 	// Update dashboard stats
 	if dh := admin.GetDashboardHandler(); dh != nil {
 		dh.UpdateStats(success, latency.Milliseconds(), int64(tokens), model)
@@ -3110,6 +3121,9 @@ func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRun
 		if outputTokens < 0 {
 			outputTokens = 0
 		}
+		if cachedReadTokens < 0 {
+			cachedReadTokens = 0
+		}
 		if err := storage.LogUsage(map[string]interface{}{
 			"timestamp":           time.Now().UnixMilli(),
 			"model":               model,
@@ -3123,6 +3137,7 @@ func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRun
 			"tokens":              int64(tokens),
 			"input_tokens":        int64(inputTokens),
 			"output_tokens":       int64(outputTokens),
+			"cached_read_tokens":  int64(cachedReadTokens),
 			"latency_ms":          latency.Milliseconds(),
 			"ttft_ms":             ttftMs,
 			"cache_hit":           cacheHit,
@@ -3641,6 +3656,7 @@ type usageTokens struct {
 	Prompt     int
 	Completion int
 	Total      int
+	CachedRead int
 }
 
 func estimateTokensByText(text string) int {
@@ -3665,20 +3681,24 @@ func estimateTokensByText(text string) int {
 	return int(math.Ceil(estimate))
 }
 
-func buildCachedUsage(promptTokens, completionTokens, totalTokens int) map[string]int {
+func buildCachedUsage(promptTokens, completionTokens, cachedReadTokens, totalTokens int) map[string]int {
 	if promptTokens < 0 {
 		promptTokens = 0
 	}
 	if completionTokens < 0 {
 		completionTokens = 0
 	}
+	if cachedReadTokens < 0 {
+		cachedReadTokens = 0
+	}
 	if totalTokens <= 0 {
 		totalTokens = promptTokens + completionTokens
 	}
 	return map[string]int{
-		"prompt_tokens":     promptTokens,
-		"completion_tokens": completionTokens,
-		"total_tokens":      totalTokens,
+		"prompt_tokens":      promptTokens,
+		"completion_tokens":  completionTokens,
+		"cached_read_tokens": cachedReadTokens,
+		"total_tokens":       totalTokens,
 	}
 }
 
@@ -3686,6 +3706,7 @@ func resolveUsageWithFallback(promptText, outputText string, provided usageToken
 	provided.Prompt = max(0, provided.Prompt)
 	provided.Completion = max(0, provided.Completion)
 	provided.Total = max(0, provided.Total)
+	provided.CachedRead = max(0, provided.CachedRead)
 
 	if provided.Total <= 0 && (provided.Prompt > 0 || provided.Completion > 0) {
 		provided.Total = provided.Prompt + provided.Completion
@@ -3716,6 +3737,7 @@ func resolveUsageWithFallback(promptText, outputText string, provided usageToken
 		Prompt:     estimatedPrompt,
 		Completion: estimatedCompletion,
 		Total:      estimatedTotal,
+		CachedRead: provided.CachedRead,
 	}, "estimated"
 }
 
@@ -3732,11 +3754,32 @@ func extractUsageTokensFromBody(body []byte) usageTokens {
 		Prompt:     extractTokenInt(usage["prompt_tokens"]),
 		Completion: extractTokenInt(usage["completion_tokens"]),
 		Total:      extractTokenInt(usage["total_tokens"]),
+		CachedRead: extractTokenInt(usage["cached_read_tokens"]),
+	}
+	if tokens.Prompt <= 0 {
+		tokens.Prompt = extractTokenInt(usage["input_tokens"])
+	}
+	if tokens.Completion <= 0 {
+		tokens.Completion = extractTokenInt(usage["output_tokens"])
+	}
+	if tokens.CachedRead <= 0 {
+		tokens.CachedRead = extractNestedTokenInt(usage, "prompt_tokens_details", "cached_tokens")
+	}
+	if tokens.CachedRead <= 0 {
+		tokens.CachedRead = extractNestedTokenInt(usage, "input_tokens_details", "cached_tokens")
 	}
 	if tokens.Total <= 0 {
 		tokens.Total = tokens.Prompt + tokens.Completion
 	}
 	return tokens
+}
+
+func extractNestedTokenInt(root map[string]interface{}, parentKey, tokenKey string) int {
+	parent, ok := root[parentKey].(map[string]interface{})
+	if !ok {
+		return 0
+	}
+	return extractTokenInt(parent[tokenKey])
 }
 
 func extractAssistantTextFromBody(body []byte) string {
@@ -3778,6 +3821,16 @@ func extractTokenInt(raw interface{}) int {
 		return int(v)
 	case int:
 		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	case json.Number:
+		n, err := v.Int64()
+		if err != nil {
+			return 0
+		}
+		return int(n)
 	default:
 		return 0
 	}
@@ -3868,6 +3921,7 @@ func (h *ProxyHandler) writeCachedResponseAsStream(c *gin.Context, model string,
 			PromptTokens:     cachedResp.Usage.PromptTokens,
 			CompletionTokens: cachedResp.Usage.CompletionTokens,
 			TotalTokens:      cachedResp.Usage.TotalTokens,
+			CachedReadTokens: cachedResp.Usage.CachedReadTokens,
 		},
 	}
 	c.SSEvent("message", finalChunk)

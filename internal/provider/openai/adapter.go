@@ -293,6 +293,7 @@ func (a *Adapter) streamViaResponses(ctx context.Context, req *provider.ChatRequ
 				PromptTokens:     resp.Usage.PromptTokens,
 				CompletionTokens: resp.Usage.CompletionTokens,
 				TotalTokens:      resp.Usage.TotalTokens,
+				CachedReadTokens: resp.Usage.CachedReadTokens,
 			},
 			Done: true,
 		}
@@ -441,10 +442,28 @@ func extractResponsesUsage(resp map[string]interface{}) provider.Usage {
 	usage.PromptTokens = int(getFloatFromMap(usageMap, "input_tokens"))
 	usage.CompletionTokens = int(getFloatFromMap(usageMap, "output_tokens"))
 	usage.TotalTokens = int(getFloatFromMap(usageMap, "total_tokens"))
+	usage.CachedReadTokens = extractCachedTokensFromUsageMap(usageMap)
 	if usage.TotalTokens == 0 {
 		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	}
 	return usage
+}
+
+func extractCachedTokensFromUsageMap(usageMap map[string]interface{}) int {
+	if direct := int(getFloatFromMap(usageMap, "cached_read_tokens")); direct > 0 {
+		return direct
+	}
+
+	for _, key := range []string{"prompt_tokens_details", "input_tokens_details"} {
+		detailMap, ok := usageMap[key].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if cached := int(getFloatFromMap(detailMap, "cached_tokens")); cached > 0 {
+			return cached
+		}
+	}
+	return 0
 }
 
 func getStringFromMap(m map[string]interface{}, key string) string {
@@ -461,8 +480,18 @@ func getFloatFromMap(m map[string]interface{}, key string) float64 {
 	if m == nil {
 		return 0
 	}
-	if v, ok := m[key].(float64); ok {
+	switch v := m[key].(type) {
+	case float64:
 		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case json.Number:
+		f, _ := v.Float64()
+		return f
 	}
 	return 0
 }

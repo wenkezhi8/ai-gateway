@@ -24,6 +24,7 @@ export interface UsageRow {
   userAgent: string
   inputTokens: number
   outputTokens: number
+  cachedReadTokens: number
   totalTokens: number
   savedTokens: number
   usageSource: UsageSource
@@ -51,6 +52,7 @@ export interface UsageLogPayload {
   total_duration?: number | string
   input_tokens?: number | string
   output_tokens?: number | string
+  cached_read_tokens?: number | string
   total_tokens?: number | string
   tokens?: number | string
   saved_tokens?: number | string
@@ -138,6 +140,7 @@ export function mapUsageLogToRow(
   const totalTokens = toNumber(log.total_tokens) || toNumber(log.tokens)
   const inputTokens = toNumber(log.input_tokens) || Math.round(totalTokens * 0.6)
   const outputTokens = toNumber(log.output_tokens) || Math.max(0, totalTokens - inputTokens)
+  const cachedReadTokens = toNumber(log.cached_read_tokens)
   const success = Boolean(log.success)
   const cacheHit = Boolean(log.cache_hit)
   const taskTypeInfo = toTaskTypeInfo(log.task_type)
@@ -166,6 +169,7 @@ export function mapUsageLogToRow(
     userAgent: (log.user_agent || '-').trim() || '-',
     inputTokens,
     outputTokens,
+    cachedReadTokens,
     totalTokens,
     savedTokens,
     usageSource,
