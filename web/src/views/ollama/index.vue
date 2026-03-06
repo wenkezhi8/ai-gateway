@@ -12,6 +12,12 @@
             <el-icon class="subtitle-info-badge"><InfoFilled /></el-icon>
           </el-tooltip>
         </div>
+        <div class="hero-steps" aria-label="新手只需 3 步">
+          <span class="hero-steps-label">新手只需 3 步</span>
+          <el-tag effect="plain" round>启动 Ollama</el-tag>
+          <el-tag effect="plain" round>下载推荐模型</el-tag>
+          <el-tag effect="plain" round>预热 / 执行一次测试</el-tag>
+        </div>
       </div>
       <el-button type="primary" @click="ctx.reloadAllPanels">
         <el-icon><Refresh /></el-icon>
@@ -120,6 +126,19 @@ const ctx = proxyRefs(useOllamaConsole())
       border-color: var(--el-color-info-light-5);
       background: var(--el-color-info-light-9);
     }
+  }
+
+  .hero-steps {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+  }
+
+  .hero-steps-label {
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
   }
 
   .panel {
