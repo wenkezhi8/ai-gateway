@@ -154,7 +154,7 @@ export function useOllamaConsoleCore() {
     vector_ollama_base_url: 'http://127.0.0.1:11434',
     vector_ollama_embedding_model: 'nomic-embed-text',
     vector_ollama_embedding_dimension: 1024,
-    vector_ollama_embedding_timeout_ms: 1500,
+    vector_ollama_embedding_timeout_ms: 3000,
     vector_ollama_endpoint_mode: 'auto',
     vector_writeback_enabled: true
   })
@@ -174,6 +174,10 @@ export function useOllamaConsoleCore() {
     cold_vector_query_enabled: false,
     cold_vector_backend: 'sqlite',
     cold_vector_dual_write_enabled: false,
+    cold_archive_enabled: false,
+    cold_archive_mode: 'reusable',
+    cold_archive_near_expiry_seconds: 120,
+    cold_archive_scan_interval_seconds: 30,
     hot_memory_usage_percent: 0,
     hot_memory_high_watermark_percent: 75,
     hot_memory_relief_percent: 65,
@@ -182,6 +186,12 @@ export function useOllamaConsoleCore() {
     migration_failed: 0,
     promote_success: 0,
     promote_failed: 0,
+    archive_enqueued: 0,
+    archive_succeeded: 0,
+    archive_failed: 0,
+    archive_retrying: 0,
+    archive_queue_depth: 0,
+    archive_last_error: '',
     message: ''
   })
 
@@ -190,6 +200,10 @@ export function useOllamaConsoleCore() {
     cold_vector_query_enabled: true,
     cold_vector_backend: 'sqlite',
     cold_vector_dual_write_enabled: false,
+    cold_archive_enabled: true,
+    cold_archive_mode: 'reusable',
+    cold_archive_near_expiry_seconds: 120,
+    cold_archive_scan_interval_seconds: 30,
     cold_vector_similarity_threshold: 0.92,
     cold_vector_top_k: 1,
     hot_memory_high_watermark_percent: 75,
@@ -1063,6 +1077,10 @@ export function useOllamaConsoleCore() {
       vectorTierConfig.cold_vector_query_enabled = Boolean(configData?.cold_vector_query_enabled ?? true)
       vectorTierConfig.cold_vector_backend = configData?.cold_vector_backend || 'sqlite'
       vectorTierConfig.cold_vector_dual_write_enabled = Boolean(configData?.cold_vector_dual_write_enabled)
+      vectorTierConfig.cold_archive_enabled = Boolean(configData?.cold_archive_enabled)
+      vectorTierConfig.cold_archive_mode = String(configData?.cold_archive_mode || 'reusable')
+      vectorTierConfig.cold_archive_near_expiry_seconds = Number(configData?.cold_archive_near_expiry_seconds || 120)
+      vectorTierConfig.cold_archive_scan_interval_seconds = Number(configData?.cold_archive_scan_interval_seconds || 30)
       vectorTierConfig.cold_vector_similarity_threshold = Number(configData?.cold_vector_similarity_threshold || 0.92)
       vectorTierConfig.cold_vector_top_k = Number(configData?.cold_vector_top_k || 1)
       vectorTierConfig.hot_memory_high_watermark_percent = Number(configData?.hot_memory_high_watermark_percent || 75)
@@ -1089,6 +1107,10 @@ export function useOllamaConsoleCore() {
         vectorTierConfig.cold_vector_query_enabled = Boolean(configData.cold_vector_query_enabled ?? true)
         vectorTierConfig.cold_vector_backend = configData.cold_vector_backend || 'sqlite'
         vectorTierConfig.cold_vector_dual_write_enabled = Boolean(configData.cold_vector_dual_write_enabled)
+        vectorTierConfig.cold_archive_enabled = Boolean(configData.cold_archive_enabled)
+        vectorTierConfig.cold_archive_mode = String(configData.cold_archive_mode || 'reusable')
+        vectorTierConfig.cold_archive_near_expiry_seconds = Number(configData.cold_archive_near_expiry_seconds || 120)
+        vectorTierConfig.cold_archive_scan_interval_seconds = Number(configData.cold_archive_scan_interval_seconds || 30)
         vectorTierConfig.cold_vector_similarity_threshold = Number(configData.cold_vector_similarity_threshold || 0.92)
         vectorTierConfig.cold_vector_top_k = Number(configData.cold_vector_top_k || 1)
         vectorTierConfig.hot_memory_high_watermark_percent = Number(configData.hot_memory_high_watermark_percent || 75)
@@ -1118,6 +1140,10 @@ export function useOllamaConsoleCore() {
       vectorTierStats.cold_vector_query_enabled = Boolean(stats?.cold_vector_query_enabled)
       vectorTierStats.cold_vector_backend = stats?.cold_vector_backend || 'sqlite'
       vectorTierStats.cold_vector_dual_write_enabled = Boolean(stats?.cold_vector_dual_write_enabled)
+      vectorTierStats.cold_archive_enabled = Boolean(stats?.cold_archive_enabled)
+      vectorTierStats.cold_archive_mode = String(stats?.cold_archive_mode || 'reusable')
+      vectorTierStats.cold_archive_near_expiry_seconds = Number(stats?.cold_archive_near_expiry_seconds || 120)
+      vectorTierStats.cold_archive_scan_interval_seconds = Number(stats?.cold_archive_scan_interval_seconds || 30)
       vectorTierStats.hot_memory_usage_percent = Number(stats?.hot_memory_usage_percent || 0)
       vectorTierStats.hot_memory_high_watermark_percent = Number(stats?.hot_memory_high_watermark_percent || 75)
       vectorTierStats.hot_memory_relief_percent = Number(stats?.hot_memory_relief_percent || 65)
@@ -1126,6 +1152,12 @@ export function useOllamaConsoleCore() {
       vectorTierStats.migration_failed = Number(stats?.migration_failed || 0)
       vectorTierStats.promote_success = Number(stats?.promote_success || 0)
       vectorTierStats.promote_failed = Number(stats?.promote_failed || 0)
+      vectorTierStats.archive_enqueued = Number(stats?.archive_enqueued || 0)
+      vectorTierStats.archive_succeeded = Number(stats?.archive_succeeded || 0)
+      vectorTierStats.archive_failed = Number(stats?.archive_failed || 0)
+      vectorTierStats.archive_retrying = Number(stats?.archive_retrying || 0)
+      vectorTierStats.archive_queue_depth = Number(stats?.archive_queue_depth || 0)
+      vectorTierStats.archive_last_error = String(stats?.archive_last_error || '')
       vectorTierStats.message = stats?.message || ''
     } catch (e) {
       vectorTierStats.message = '获取分层状态失败'

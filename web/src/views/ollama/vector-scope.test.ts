@@ -18,6 +18,10 @@ describe('ollama vector scope', () => {
     expect(tabFile).toContain('手动迁移')
     expect(tabFile).toContain('手动回暖')
     expect(tabFile).toContain('cold_vector_backend')
+    expect(tabFile).toContain('cold_archive_enabled')
+    expect(tabFile).toContain('cold_archive_mode')
+    expect(tabFile).toContain('cold_archive_near_expiry_seconds')
+    expect(tabFile).toContain('archive_queue_depth')
 
     expect(logicFile).toContain('getVectorTierConfig')
     expect(logicFile).toContain('updateVectorTierConfig')

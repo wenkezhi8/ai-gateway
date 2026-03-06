@@ -157,6 +157,46 @@
                 @change="(value: boolean) => ctx.saveVectorTierConfigPatch({ cold_vector_dual_write_enabled: value })"
               />
             </el-form-item>
+            <el-form-item label="响应冷归档开关">
+              <el-switch
+                :model-value="ctx.vectorTierConfig.cold_archive_enabled"
+                :loading="ctx.vectorTierConfigSaving"
+                @change="(value: boolean) => ctx.saveVectorTierConfigPatch({ cold_archive_enabled: value })"
+              />
+            </el-form-item>
+            <el-form-item label="归档模式">
+              <el-select
+                :model-value="ctx.vectorTierConfig.cold_archive_mode"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: string) => ctx.saveVectorTierConfigPatch({ cold_archive_mode: value })"
+              >
+                <el-option label="仅可复用回答" value="reusable" />
+                <el-option label="全部回答" value="all" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="临期窗口(s)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.cold_archive_near_expiry_seconds"
+                :min="10"
+                :max="3600"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ cold_archive_near_expiry_seconds: Number(value || 120) })"
+              />
+            </el-form-item>
+            <el-form-item label="归档扫描周期(s)">
+              <el-input-number
+                :model-value="ctx.vectorTierConfig.cold_archive_scan_interval_seconds"
+                :min="5"
+                :max="600"
+                controls-position="right"
+                style="width: 100%"
+                :disabled="ctx.vectorTierConfigSaving"
+                @change="(value: number) => ctx.saveVectorTierConfigPatch({ cold_archive_scan_interval_seconds: Number(value || 30) })"
+              />
+            </el-form-item>
             <el-form-item label="冷层相似阈值">
               <el-input-number
                 :model-value="ctx.vectorTierConfig.cold_vector_similarity_threshold"
@@ -271,6 +311,10 @@
             <el-descriptions-item label="热层内存">{{ ctx.vectorTierStats.hot_memory_usage_percent.toFixed(2) }}%</el-descriptions-item>
             <el-descriptions-item label="迁移计数">{{ ctx.vectorTierStats.migration_moved }} / 失败 {{ ctx.vectorTierStats.migration_failed }}</el-descriptions-item>
             <el-descriptions-item label="回暖计数">{{ ctx.vectorTierStats.promote_success }} / 失败 {{ ctx.vectorTierStats.promote_failed }}</el-descriptions-item>
+            <el-descriptions-item label="归档入队">{{ ctx.vectorTierStats.archive_enqueued }} / 队列 {{ ctx.vectorTierStats.archive_queue_depth }}</el-descriptions-item>
+            <el-descriptions-item label="归档结果">{{ ctx.vectorTierStats.archive_succeeded }} / 失败 {{ ctx.vectorTierStats.archive_failed }}</el-descriptions-item>
+            <el-descriptions-item label="归档模式">{{ ctx.vectorTierStats.cold_archive_mode }}</el-descriptions-item>
+            <el-descriptions-item label="归档异常">{{ ctx.vectorTierStats.archive_last_error || '-' }}</el-descriptions-item>
             <el-descriptions-item label="状态信息">{{ ctx.vectorTierStats.message || '-' }}</el-descriptions-item>
           </el-descriptions>
 

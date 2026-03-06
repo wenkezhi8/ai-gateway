@@ -2,6 +2,11 @@ package cache
 
 import "time"
 
+const (
+	ColdArchiveModeReusable = "reusable"
+	ColdArchiveModeAll      = "all"
+)
+
 // CacheStrategy defines cache matching strategy.
 //
 //nolint:revive // Type name kept for compatibility with persisted config.
@@ -47,6 +52,10 @@ type CacheSettings struct {
 	ColdVectorQueryEnabled         bool               `json:"cold_vector_query_enabled"`
 	ColdVectorBackend              string             `json:"cold_vector_backend"`
 	ColdVectorDualWriteEnabled     bool               `json:"cold_vector_dual_write_enabled"`
+	ColdArchiveEnabled             bool               `json:"cold_archive_enabled"`
+	ColdArchiveMode                string             `json:"cold_archive_mode"`
+	ColdArchiveNearExpirySeconds   int                `json:"cold_archive_near_expiry_seconds"`
+	ColdArchiveScanIntervalSeconds int                `json:"cold_archive_scan_interval_seconds"`
 	ColdVectorSimilarityThreshold  float64            `json:"cold_vector_similarity_threshold"`
 	ColdVectorTopK                 int                `json:"cold_vector_top_k"`
 	HotMemoryHighWatermarkPercent  float64            `json:"hot_memory_high_watermark_percent"`
@@ -85,13 +94,17 @@ func DefaultCacheSettings() CacheSettings {
 		VectorOllamaBaseURL:            "http://127.0.0.1:11434",
 		VectorOllamaEmbeddingModel:     "nomic-embed-text",
 		VectorOllamaEmbeddingDimension: 1024,
-		VectorOllamaEmbeddingTimeoutMs: 1500,
+		VectorOllamaEmbeddingTimeoutMs: 3000,
 		VectorOllamaEndpointMode:       "auto",
 		VectorWritebackEnabled:         true,
 		ColdVectorEnabled:              false,
 		ColdVectorQueryEnabled:         true,
 		ColdVectorBackend:              ColdVectorBackendSQLite,
 		ColdVectorDualWriteEnabled:     false,
+		ColdArchiveEnabled:             true,
+		ColdArchiveMode:                ColdArchiveModeReusable,
+		ColdArchiveNearExpirySeconds:   120,
+		ColdArchiveScanIntervalSeconds: 30,
 		ColdVectorSimilarityThreshold:  0.92,
 		ColdVectorTopK:                 1,
 		HotMemoryHighWatermarkPercent:  75,

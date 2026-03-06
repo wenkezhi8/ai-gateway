@@ -225,6 +225,16 @@ func initVectorStore(cfg *config.Config, cacheManager *cache.Manager, logger *lo
 	}
 	tieredStore.StartHotToColdWorker(context.Background())
 	cacheManager.SetTieredVectorStore(tieredStore)
+	responseColdArchive := cache.NewResponseColdArchiveService(cacheManager, tieredStore, func(settings cache.CacheSettings) cache.EmbeddingProvider {
+		return cache.NewOllamaEmbeddingService(cache.OllamaEmbeddingConfig{
+			BaseURL:      settings.VectorOllamaBaseURL,
+			Model:        settings.VectorOllamaEmbeddingModel,
+			Timeout:      time.Duration(settings.VectorOllamaEmbeddingTimeoutMs) * time.Millisecond,
+			EndpointMode: settings.VectorOllamaEndpointMode,
+		})
+	})
+	responseColdArchive.Start(context.Background())
+	cacheManager.SetResponseColdArchiveService(responseColdArchive)
 
 	logger.WithFields(logrus.Fields{
 		"index":         vectorCfg.IndexName,
@@ -333,6 +343,10 @@ func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Confi
 	settings.ColdVectorQueryEnabled = cfg.VectorCache.ColdVectorQueryEnabled
 	settings.ColdVectorBackend = cfg.VectorCache.ColdVectorBackend
 	settings.ColdVectorDualWriteEnabled = cfg.VectorCache.ColdVectorDualWriteEnabled
+	settings.ColdArchiveEnabled = cfg.VectorCache.ColdArchiveEnabled
+	settings.ColdArchiveMode = cfg.VectorCache.ColdArchiveMode
+	settings.ColdArchiveNearExpirySeconds = cfg.VectorCache.ColdArchiveNearExpirySeconds
+	settings.ColdArchiveScanIntervalSeconds = cfg.VectorCache.ColdArchiveScanIntervalSeconds
 	settings.ColdVectorSimilarityThreshold = cfg.VectorCache.ColdVectorSimilarityThreshold
 	settings.ColdVectorTopK = cfg.VectorCache.ColdVectorTopK
 	settings.HotMemoryHighWatermarkPercent = cfg.VectorCache.HotMemoryHighWatermarkPercent

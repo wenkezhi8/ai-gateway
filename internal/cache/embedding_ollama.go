@@ -41,7 +41,7 @@ func NewOllamaEmbeddingService(cfg OllamaEmbeddingConfig) *OllamaEmbeddingServic
 	}
 	timeout := cfg.Timeout
 	if timeout <= 0 {
-		timeout = 1500 * time.Millisecond
+		timeout = 3 * time.Second
 	}
 	mode := normalizeOllamaEndpointMode(cfg.EndpointMode)
 
@@ -72,6 +72,9 @@ func (s *OllamaEmbeddingService) GetEmbedding(ctx context.Context, text string) 
 		vec, err := s.callEmbedEndpoint(ctx, text)
 		if err == nil {
 			return vec, nil
+		}
+		if isOllamaEmbeddingTimeout(err) {
+			return nil, err
 		}
 		return s.callEmbeddingsEndpoint(ctx, text)
 	}
@@ -196,4 +199,12 @@ func normalizeOllamaEndpointMode(mode string) string {
 	default:
 		return OllamaEndpointModeAuto
 	}
+}
+
+func isOllamaEmbeddingTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "deadline exceeded") || strings.Contains(msg, "client.timeout")
 }
