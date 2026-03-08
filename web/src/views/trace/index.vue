@@ -280,11 +280,11 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 }
 
 const ANSWER_SOURCE_LABELS: Record<TraceSummary['answer_source'], string> = {
-  exact_raw: 'exact_raw',
-  exact_prompt: 'exact_prompt',
-  semantic: 'semantic',
-  v2: 'v2',
-  provider_chat: 'provider_chat'
+  exact_raw: '原始缓存',
+  exact_prompt: '精确缓存',
+  semantic: '语义缓存',
+  v2: '向量缓存',
+  provider_chat: '上游回源'
 }
 
 onMounted(() => {
