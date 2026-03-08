@@ -26,6 +26,7 @@
     "test:providers": "playwright test tests/scenarios/providers.spec.ts",
     "test:accounts": "playwright test tests/scenarios/accounts.spec.ts",
     "test:navigation": "playwright test tests/scenarios/navigation.spec.ts",
+    "test:trace": "playwright test tests/scenarios/trace.spec.ts",
     "test:data-loading": "playwright test tests/scenarios/data-loading.spec.ts",
     "test:performance": "playwright test tests/scenarios/performance-errors.spec.ts",
     "test:e2e": "playwright test tests/scenarios/e2e.spec.ts",
@@ -46,6 +47,7 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@vue/test-utils": "^2.4.6",
     "@eslint/js": "^9.0.0",
     "@playwright/test": "^1.58.2",
     "@types/node": "^24.10.13",
@@ -55,6 +57,7 @@
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-vue": "^9.30.0",
+    "jsdom": "^26.1.0",
     "prettier": "^3.2.5",
     "sass": "^1.97.3",
     "typescript": "~5.9.3",

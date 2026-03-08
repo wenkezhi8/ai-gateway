@@ -1,5 +1,6 @@
 import { request } from './request'
 import { unwrapEnvelope } from './envelope'
+import type { CacheRequestSource } from '@/constants/trace-answer-source'
 
 export interface CacheTaskTypeConfig {
   key: string
@@ -14,8 +15,6 @@ export interface CacheModelOptionGroup {
   provider_label: string
   models: string[]
 }
-
-export type CacheRequestSource = 'all' | 'exact_raw' | 'exact_prompt' | 'semantic' | 'v2' | 'provider_chat'
 
 export interface CacheRequestQuery {
   window?: string

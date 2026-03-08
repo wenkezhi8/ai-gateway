@@ -1,7 +1,26 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { mount, flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
+import ElementPlus from 'element-plus'
+
+import TraceView from './index.vue'
+
+const traceApiMock = vi.hoisted(() => ({
+  getTraces: vi.fn(),
+  getTraceDetail: vi.fn(),
+  clearTraces: vi.fn()
+}))
+
+vi.mock('@/api/trace-domain', () => ({
+  getTraces: traceApiMock.getTraces,
+  getTraceDetail: traceApiMock.getTraceDetail,
+  clearTraces: traceApiMock.clearTraces
+}))
 
 function getIndexOrThrow(content: string, fragment: string) {
   const idx = content.indexOf(fragment)
@@ -9,7 +28,76 @@ function getIndexOrThrow(content: string, fragment: string) {
   return idx
 }
 
+function normalizeHtmlForSnapshot(html: string) {
+  return html
+    .replace(/el-id-\d+-\d+/g, 'el-id-x')
+    .replace(/#el-popper-container-\d+/g, '#el-popper-container-x')
+    .replace(/z-index: \d+;/g, 'z-index: X;')
+}
+
+class ResizeObserverStub {
+  constructor(_callback: ResizeObserverCallback) {}
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+const globalWithResizeObserver = globalThis as unknown as {
+  ResizeObserver?: typeof ResizeObserver
+}
+
+if (!globalWithResizeObserver.ResizeObserver) {
+  globalWithResizeObserver.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
+}
+
 describe('trace detail view', () => {
+  beforeEach(() => {
+    traceApiMock.getTraces.mockReset()
+    traceApiMock.getTraceDetail.mockReset()
+    traceApiMock.clearTraces.mockReset()
+  })
+
+  it('renders answer source label in real DOM', async () => {
+    traceApiMock.getTraces.mockResolvedValue({
+      total: 1,
+      data: [
+        {
+          request_id: 'req-dom-1',
+          method: 'POST',
+          path: '/api/v1/chat/completions',
+          status: 'success',
+          duration_ms: 120,
+          created_at: '2026-03-09T00:00:00Z',
+          step_count: 4,
+          answer_source: 'v2',
+          task_type: 'analysis',
+          model: 'deepseek-chat',
+          provider: 'openai'
+        }
+      ]
+    })
+
+    const wrapper = mount(TraceView, {
+      global: {
+        plugins: [ElementPlus],
+        stubs: {
+          ElDialog: {
+            template: '<div><slot /></div>'
+          },
+          teleport: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await nextTick()
+
+    expect(traceApiMock.getTraces).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('AI回复来源')
+    expect(wrapper.text()).toContain('向量缓存')
+    expect(normalizeHtmlForSnapshot(wrapper.find('.trace-page').html())).toMatchSnapshot()
+  })
+
   it('shows raw request, derived prompt and ai preview blocks with full-text actions', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
 
@@ -25,22 +113,12 @@ describe('trace detail view', () => {
     expect(viewFile).toContain('activeMessageContent')
   })
 
-  it('shows answer source column and clear traces action', () => {
+  it('references centralized answer source labels', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
 
-    expect(viewFile).toContain('AI回复来源')
-    expect(viewFile).toContain('任务类型')
-    expect(viewFile).toContain('prop="task_type"')
-    expect(viewFile).toContain('清理链路记录')
-    expect(viewFile).toContain('clearTraces')
-    expect(viewFile).toContain('const clearing = ref(false)')
-    expect(viewFile).toContain("exact_raw: '原始缓存'")
-    expect(viewFile).toContain("exact_prompt: '精确缓存'")
-    expect(viewFile).toContain("semantic: '语义缓存'")
-    expect(viewFile).toContain("v2: '向量缓存'")
-    expect(viewFile).toContain("provider_chat: '上游回源'")
-    expect(viewFile).not.toContain("unknown: '未知'")
-    expect(viewFile).not.toContain("|| '未知'")
+    expect(viewFile).toContain('TRACE_ANSWER_SOURCE_LABELS')
+    expect(viewFile).toContain('TRACE_ANSWER_SOURCE_FALLBACK')
+    expect(viewFile).not.toContain("provider_chat: '上游回源'")
   })
 
   it('removes frontend span grouping and consumes backend request summaries', () => {
