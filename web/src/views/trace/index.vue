@@ -139,8 +139,21 @@
                     查看完整命中答案
                   </el-button>
                 </div>
+                <div v-if="trace.attributes?.user_message_raw_preview || trace.attributes?.user_message_raw_full" class="step-answer">
+                  <div class="step-answer-title">原始请求预览</div>
+                  <div class="step-answer-content">{{ trace.attributes.user_message_raw_preview || trace.attributes.user_message_raw_full }}</div>
+                  <el-button
+                    v-if="trace.attributes?.user_message_raw_full"
+                    type="primary"
+                    link
+                    size="small"
+                    @click="showFullMessage(trace, 'user_raw')"
+                  >
+                    查看原始请求全文
+                  </el-button>
+                </div>
                 <div v-if="trace.attributes?.user_message_preview" class="step-answer">
-                  <div class="step-answer-title">用户消息预览</div>
+                  <div class="step-answer-title">清洗后问题</div>
                   <div class="step-answer-content">{{ trace.attributes.user_message_preview }}</div>
                   <el-button
                     v-if="trace.attributes?.user_message_full"
@@ -149,7 +162,7 @@
                     size="small"
                     @click="showFullMessage(trace, 'user')"
                   >
-                    查看用户消息全文
+                    查看清洗后问题全文
                   </el-button>
                 </div>
                 <div v-if="trace.attributes?.ai_response_preview" class="step-answer">
@@ -267,10 +280,11 @@ const DIFFICULTY_LABELS: Record<string, string> = {
 }
 
 const ANSWER_SOURCE_LABELS: Record<TraceSummary['answer_source'], string> = {
-  cache_v2: 'V2缓存查询',
-  cache_semantic: '语义缓存查询',
-  cache_exact: '精确缓存查询',
-  provider_chat: '调用上游模型'
+  exact_raw: 'exact_raw',
+  exact_prompt: 'exact_prompt',
+  semantic: 'semantic',
+  v2: 'v2',
+  provider_chat: 'provider_chat'
 }
 
 onMounted(() => {
@@ -362,7 +376,7 @@ async function viewDetail(row: TraceSummary) {
 }
 
 function getAnswerSourceLabel(source: TraceSummary['answer_source']) {
-  return ANSWER_SOURCE_LABELS[source] || '调用上游模型'
+  return ANSWER_SOURCE_LABELS[source] || source || 'provider_chat'
 }
 
 function getMethodType(method: string) {
@@ -427,10 +441,13 @@ function showFullAnswer(trace: RequestTrace) {
   answerVisible.value = true
 }
 
-function showFullMessage(trace: RequestTrace, kind: 'user' | 'ai') {
+function showFullMessage(trace: RequestTrace, kind: 'user_raw' | 'user' | 'ai') {
   const attrs = trace.attributes || {}
-  if (kind === 'user') {
-    messageDialogTitle.value = '用户消息全文'
+  if (kind === 'user_raw') {
+    messageDialogTitle.value = '原始请求全文'
+    activeMessageContent.value = String(attrs.user_message_raw_full || attrs.user_message_raw_preview || '-')
+  } else if (kind === 'user') {
+    messageDialogTitle.value = '清洗后问题全文'
     activeMessageContent.value = String(attrs.user_message_full || attrs.user_message_preview || '-')
   } else {
     messageDialogTitle.value = 'AI 回复全文'

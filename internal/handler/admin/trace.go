@@ -26,7 +26,7 @@ type traceSummary struct {
 	StepCount    int    `json:"step_count"`
 	AnswerSource string `json:"answer_source"`
 	TaskType     string `json:"task_type"`
-	Model        string `json:"model"` // 新增
+	Model        string `json:"model"`
 }
 
 func NewTraceHandler(db *sql.DB) *TraceHandler {
@@ -70,13 +70,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 					MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
 					''
 				) AS task_type,
-				CASE
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
-					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
-					ELSE 'provider_chat'
-				END AS answer_source,
+				` + requestAggAnswerSourceSQL() + `,
 				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
@@ -116,13 +110,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 					MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.task_type'), '') END),
 					''
 				) AS task_type,
-				CASE
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
-					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
-					ELSE 'provider_chat'
-				END AS answer_source,
+				` + requestAggAnswerSourceSQL() + `,
 				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id

@@ -1450,6 +1450,8 @@ type capturingProvider struct {
 	*provider.BaseProvider
 
 	mu            sync.Mutex
+	chatCalls     int
+	streamCalls   int
 	lastChatReq   *provider.ChatRequest
 	lastStreamReq *provider.ChatRequest
 }
@@ -1587,7 +1589,8 @@ func (p *capturingProvider) ValidateKey(_ context.Context) bool {
 
 func (p *capturingProvider) Chat(_ context.Context, req *provider.ChatRequest) (*provider.ChatResponse, error) {
 	p.mu.Lock()
-	p.lastChatReq = req
+	p.chatCalls++
+	p.lastChatReq = cloneProviderChatRequest(req)
 	p.mu.Unlock()
 
 	return &provider.ChatResponse{
@@ -1609,7 +1612,8 @@ func (p *capturingProvider) Chat(_ context.Context, req *provider.ChatRequest) (
 
 func (p *capturingProvider) StreamChat(_ context.Context, req *provider.ChatRequest) (<-chan *provider.StreamChunk, error) {
 	p.mu.Lock()
-	p.lastStreamReq = req
+	p.streamCalls++
+	p.lastStreamReq = cloneProviderChatRequest(req)
 	p.mu.Unlock()
 
 	ch := make(chan *provider.StreamChunk, 2)

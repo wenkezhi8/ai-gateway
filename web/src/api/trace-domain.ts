@@ -25,16 +25,19 @@ export interface RequestTrace {
 
 export interface TraceAttributes extends Record<string, any> {
   // Preview fields are capped at 200 chars.
+  user_message_raw_preview?: string
   user_message_preview?: string
   ai_response_preview?: string
   // Full fields are capped at 4000 chars.
+  user_message_raw_full?: string
   user_message_full?: string
   ai_response_full?: string
+  user_message_raw_truncated?: boolean
   user_message_truncated?: boolean
   ai_response_truncated?: boolean
 }
 
-export type TraceAnswerSource = 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat'
+export type TraceAnswerSource = 'exact_raw' | 'exact_prompt' | 'semantic' | 'v2' | 'provider_chat'
 
 export interface TraceSummary {
   request_id: string

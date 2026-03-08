@@ -214,22 +214,27 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		BadRequest(c, err.Error())
 		return
 	}
-	req.Messages = sanitizeChatMessagesForIntentAndUpstream(req.Messages)
+	rawMessages := cloneChatMessages(req.Messages)
+	proxyMode := h.chatProxyMode()
+	cacheThenProxy := proxyMode == config.ChatProxyModeCacheThenProxy
+	sanitizedMessages := sanitizeChatMessagesForIntentAndUpstream(rawMessages)
 	explicitReasoningEffort := strings.TrimSpace(req.ReasoningEffort) != ""
 
 	// Get user context
 	userID := middleware.GetUserID(c)
 	apiKey := resolveAPIKeyFromRequest(c)
 
-	// Extract prompt from messages for smart routing and assessment
+	// Extract prompt from messages for routing, cache matching and trace preview.
 	prompt := ""
+	rawPrompt := ""
 	contextStr := ""
-	for _, msg := range req.Messages {
-		if msg.Role == "user" {
-			prompt = getTextContent(msg.Content)
-		} else if msg.Role == "system" {
-			contextStr = getTextContent(msg.Content)
-		}
+	if cacheThenProxy {
+		rawPrompt = collectTextContentByRole(rawMessages, "user")
+		prompt = routing.SanitizeIntentInput(rawPrompt)
+		_, contextStr = extractLatestPromptAndContext(sanitizedMessages)
+	} else {
+		req.Messages = sanitizedMessages
+		prompt, contextStr = extractLatestPromptAndContext(req.Messages)
 	}
 
 	// 记录 Span 2: 分类器评估
@@ -243,7 +248,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			"recommended_ttl": assessment.SuggestedTTL,
 			"user_id":         userID,
 		}
-		for key, value := range buildPromptPreviewAttributes(prompt) {
+		for key, value := range buildPromptPreviewAttributesWithRaw(prompt, rawPrompt) {
 			assessAttrs[key] = value
 		}
 		h.traceRecorder.RecordSimpleSpan(ctx, "classifier.assess", assessAttrs)
@@ -271,23 +276,28 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	for k, v := range buildControlHeaders(controlCfg, assessment) {
 		c.Header(k, v)
 	}
-	if shouldBlockByRisk(controlCfg, assessment) {
+	if !cacheThenProxy && shouldBlockByRisk(controlCfg, assessment) {
 		errorMessage := "Request blocked by control risk policy"
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, req.Provider, prompt, errorMessage, http.StatusForbidden)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, req.Provider, prompt, rawPrompt, errorMessage, http.StatusForbidden)
 		Error(c, http.StatusForbidden, "risk_blocked", errorMessage)
 		return
 	}
 	if controlCfg.Enable {
 		logControlRoutingSignals(assessment)
 	}
-	applyControlToolGate(&req, controlCfg, assessment)
-	applyControlGenerationHints(&req, controlCfg, assessment)
+	if !cacheThenProxy {
+		applyControlToolGate(&req, controlCfg, assessment)
+		applyControlGenerationHints(&req, controlCfg, assessment)
+	}
 
 	if ttl, ok := cache.GetRuleStore().Match(string(assessment.TaskType), req.Model); ok {
 		recommendedTTL = ttl
 	}
 	recommendedTTL = applyControlTTLBand(recommendedTTL, controlCfg, assessment.ControlSignals)
-	cacheWriteAllowed := shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
+	cacheWriteAllowed := true
+	if !cacheThenProxy {
+		cacheWriteAllowed = shouldAllowCacheWrite(controlCfg, assessment.ControlSignals)
+	}
 
 	cacheSettings := cache.DefaultCacheSettings()
 	if h.cache != nil {
@@ -297,8 +307,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	allowSemantic := cacheEnabled &&
 		cacheSettings.Strategy == cache.CacheStrategySemantic &&
 		shouldAllowSemanticCache(assessment.TaskType)
-	cacheKeyPayload := buildResponseCacheKeyPayload(&req, assessment.TaskType, prompt)
+	var cacheKeyPayload interface{}
 	cacheModelDimension := responseCacheModelDimension(assessment.TaskType, req.Model)
+	if !cacheThenProxy {
+		cacheKeyPayload = buildResponseCacheKeyPayload(&req, assessment.TaskType, prompt)
+	}
 
 	logrus.WithFields(logrus.Fields{
 		"task_type":       assessment.TaskType,
@@ -369,7 +382,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		resolvedProvider, ok := h.resolveProviderFromModelRegistry(requestedModel)
 		if !ok {
 			errorMessage := "模型未在模型管理中注册，请先在 /model-management 绑定服务商"
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, requestedProvider, prompt, errorMessage, http.StatusBadRequest)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, requestedProvider, prompt, rawPrompt, errorMessage, http.StatusBadRequest)
 			Error(c, http.StatusBadRequest, ErrCodeModelNotReg, errorMessage)
 			return
 		}
@@ -386,6 +399,98 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	usageMeta := buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
+	if cacheThenProxy {
+		cacheModelDimension = req.Model
+	}
+
+	rawCacheModelDimension := ""
+	var rawCacheKeyPayload interface{}
+	var promptCacheKeyPayload interface{}
+	if cacheThenProxy {
+		rawCacheModelDimension = req.Model
+		rawCacheKeyPayload = buildRawResponseCacheKeyPayload(&req, rawMessages)
+		promptCacheKeyPayload = buildPromptExactResponseCacheKeyPayload(&req, prompt, contextStr)
+		if cacheEnabled && h.cache != nil && h.cache.ResponseCache != nil {
+			exactLookups := []responseCacheWriteSpec{
+				{Layer: "exact_raw", ModelDimension: rawCacheModelDimension, KeyPayload: rawCacheKeyPayload},
+				{Layer: "exact_prompt", ModelDimension: cacheModelDimension, KeyPayload: promptCacheKeyPayload},
+			}
+			for _, lookup := range exactLookups {
+				if lookup.ModelDimension == "" || lookup.KeyPayload == nil {
+					continue
+				}
+				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(req.Provider, lookup.ModelDimension, lookup.KeyPayload)
+				if keyErr != nil {
+					logrus.WithError(keyErr).WithField("cache_layer", lookup.Layer).Warn("failed to generate exact cache key")
+					continue
+				}
+				cacheExactStart := time.Now()
+				cached, err := h.cache.ResponseCache.Get(c.Request.Context(), cacheKey)
+				if h.traceRecorder != nil {
+					result := "miss"
+					if err == nil && cached != nil {
+						result = "hit"
+					}
+					preview, full, truncated := tracing.ExtractResponseTextPreview(func() []byte {
+						if cached == nil {
+							return nil
+						}
+						return cached.Body
+					}(), 200, 4000)
+					h.traceRecorder.RecordSpanWithResult(ctx, "cache.read-exact", result, map[string]interface{}{
+						"duration_ms":      time.Since(cacheExactStart).Milliseconds(),
+						"hit":              err == nil && cached != nil,
+						"cache_key":        cacheKey,
+						"cache_layer":      lookup.Layer,
+						"answer_preview":   preview,
+						"answer_full":      full,
+						"answer_truncated": truncated,
+					})
+				}
+				if err != nil || cached == nil {
+					continue
+				}
+				if !hasMeaningfulCachedResponse(cached.Body) {
+					logrus.WithFields(logrus.Fields{
+						"model":       req.Model,
+						"cache_key":   cacheKey,
+						"cache_layer": lookup.Layer,
+					}).Warn("Skip invalid cached response without meaningful content")
+					if delErr := h.cache.Cache().Delete(c.Request.Context(), cacheKey); delErr != nil {
+						logrus.WithError(delErr).WithField("cache_key", cacheKey).Debug("failed to delete invalid cache entry")
+					}
+					continue
+				}
+				tokenUsage := extractUsageTokensFromBody(cached.Body)
+				resolvedUsage, usageSource := resolveUsageWithFallback(prompt, extractAssistantTextFromBody(cached.Body), tokenUsage)
+				h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, req.Provider, time.Since(startTime), resolvedUsage.Total, true, true, 0, resolvedUsage.Prompt, resolvedUsage.CachedRead, usageSource, string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
+				admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
+				h.persistResponseCacheHit(c.Request.Context(), cacheKey, cached, req.Model)
+				if h.traceRecorder != nil {
+					attrs := map[string]interface{}{
+						"duration_ms": time.Since(startTime).Milliseconds(),
+						"model":       req.Model,
+						"provider":    req.Provider,
+						"cache_hit":   true,
+						"cache_layer": lookup.Layer,
+						"status_code": cached.StatusCode,
+					}
+					for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, cached.Body) {
+						attrs[key] = value
+					}
+					h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
+				}
+				c.Header("X-Local-Cache-Hit", "1")
+				c.Header("X-Cache-Layer", lookup.Layer)
+				if req.Stream {
+					h.writeCachedResponseAsStream(c, req.Model, cached.Body)
+				} else {
+					c.Data(cached.StatusCode, "application/json", cached.Body)
+				}
+				return
+			}
+		}
+	}
 
 	semanticCandidates := buildSemanticQueryCandidates(controlCfg.Enable && controlCfg.NormalizedQueryReadEnable, normalizedQuery, semanticQuery, prompt)
 
@@ -421,20 +526,21 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, true, time.Since(startTime).Milliseconds(), resolvedUsage.Total)
 		if h.traceRecorder != nil {
 			attrs := map[string]interface{}{
-				"duration_ms": time.Since(startTime).Milliseconds(),
-				"model":       req.Model,
-				"provider":    req.Provider,
-				"cache_hit":   true,
-				"cache_layer": v2HitLayer,
-				"status_code": http.StatusOK,
+				"duration_ms":        time.Since(startTime).Milliseconds(),
+				"model":              req.Model,
+				"provider":           req.Provider,
+				"cache_hit":          true,
+				"cache_layer":        "v2",
+				"cache_detail_layer": v2HitLayer,
+				"status_code":        http.StatusOK,
 			}
-			for key, value := range buildTraceMessageAttributes(prompt, v2CachedBody) {
+			for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, v2CachedBody) {
 				attrs[key] = value
 			}
 			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
 		}
 		c.Header("X-Local-Cache-Hit", "1")
-		c.Header("X-Cache-Layer", v2HitLayer)
+		c.Header("X-Cache-Layer", "v2")
 		if req.Stream {
 			h.writeCachedResponseAsStream(c, req.Model, v2CachedBody)
 		} else {
@@ -504,7 +610,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 					"cache_layer": "semantic",
 					"status_code": http.StatusOK,
 				}
-				for key, value := range buildTraceMessageAttributes(prompt, semanticEntry.Response) {
+				for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, semanticEntry.Response) {
 					attrs[key] = value
 				}
 				h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -521,7 +627,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Try exact cache
-	if cacheEnabled && h.cache.ResponseCache != nil {
+	if !cacheThenProxy && cacheEnabled && h.cache.ResponseCache != nil {
 		cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
 		if keyErr != nil {
 			logrus.WithError(keyErr).Warn("failed to generate exact cache key")
@@ -578,7 +684,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 							"cache_layer": "exact",
 							"status_code": cached.StatusCode,
 						}
-						for key, value := range buildTraceMessageAttributes(prompt, cached.Body) {
+						for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, cached.Body) {
 							attrs[key] = value
 						}
 						h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -621,7 +727,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if providerSelectErr != nil {
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerType, prompt, providerSelectErr.Error(), http.StatusServiceUnavailable)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerType, prompt, rawPrompt, providerSelectErr.Error(), http.StatusServiceUnavailable)
 		Error(c, http.StatusServiceUnavailable, ErrCodeProviderError, providerSelectErr.Error())
 		return
 	}
@@ -655,7 +761,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// Convert messages
-	for _, msg := range req.Messages {
+	providerMessages := req.Messages
+	if cacheThenProxy {
+		providerMessages = rawMessages
+	}
+	for _, msg := range providerMessages {
 		pm := provider.ChatMessage{
 			Role:       msg.Role,
 			Content:    msg.Content,
@@ -723,18 +833,30 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	providerReq.Model = effectiveModel
 	req.Model = effectiveModel
 
+	if cacheThenProxy {
+		rawCacheModelDimension = req.Model
+		rawCacheKeyPayload = buildRawResponseCacheKeyPayload(&req, rawMessages)
+		promptCacheKeyPayload = buildPromptExactResponseCacheKeyPayload(&req, prompt, contextStr)
+	}
+
 	// Handle streaming request
 	if req.Stream {
-		h.handleStreamResponse(c, targetProvider, providerReq, explicitReasoningEffort, usageMeta, userID, apiKey, prompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, originalModelID, experimentTag, domainTag)
+		h.handleStreamResponse(c, targetProvider, providerReq, explicitReasoningEffort, usageMeta, userID, apiKey, prompt, rawPrompt, semanticQuery, allowSemantic, cacheEnabled, cacheWriteAllowed, recommendedTTL, string(assessment.TaskType), string(assessment.Source), assessment.Difficulty, req.Provider, cacheModelDimension, cacheKeyPayload, cacheThenProxy, rawCacheModelDimension, rawCacheKeyPayload, promptCacheKeyPayload, originalModelID, experimentTag, domainTag)
 		return
 	}
 
 	// Use deduplicator for non-streaming requests
 	// 改动点: 使用请求去重避免重复计算
-	dedupKey := h.deduplicator.GenerateKey(prompt, req.Model, map[string]interface{}{
+	dedupPrompt := prompt
+	dedupParams := map[string]interface{}{
 		"temperature": providerReq.Temperature,
 		"max_tokens":  providerReq.MaxTokens,
-	})
+	}
+	if cacheThenProxy {
+		dedupPrompt = rawPrompt
+		dedupParams["request_payload"] = rawCacheKeyPayload
+	}
+	dedupKey := h.deduplicator.GenerateKey(dedupPrompt, req.Model, dedupParams)
 
 	// 记录 Span 7: 上游调用
 	upstreamStart := time.Now()
@@ -794,11 +916,11 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			if statusCode < http.StatusBadRequest || statusCode >= 600 {
 				statusCode = http.StatusBadGateway
 			}
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, providerErr.Message, statusCode)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerName, prompt, rawPrompt, providerErr.Message, statusCode)
 			Error(c, statusCode, ErrCodeProviderError, providerErr.Message)
 			return
 		}
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, err.Error(), http.StatusBadGateway)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerName, prompt, rawPrompt, err.Error(), http.StatusBadGateway)
 		ProviderError(c, err.Error(), "")
 		return
 	}
@@ -809,7 +931,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 
 	resp, ok := result.(*provider.ChatResponse)
 	if !ok {
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, resolvedProviderName, prompt, "Provider returned invalid response type", http.StatusBadGateway)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, resolvedProviderName, prompt, rawPrompt, "Provider returned invalid response type", http.StatusBadGateway)
 		ProviderError(c, "Provider returned invalid response type", "invalid_provider_response")
 		return
 	}
@@ -840,7 +962,7 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerName, prompt, resp.Error.Message, http.StatusBadGateway)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerName, prompt, rawPrompt, resp.Error.Message, http.StatusBadGateway)
 		ProviderError(c, resp.Error.Message, resp.Error.Type)
 		return
 	}
@@ -901,92 +1023,26 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		"recommended_ttl":     recommendedTTL,
 	}).Info("Cache check")
 
-	if cacheEnabled && cacheWriteAllowed && h.cache.ResponseCache != nil && hasMeaningfulAssistantResponse(&response) {
-		responseBody, marshalErr := json.Marshal(response)
-		if marshalErr != nil {
-			logrus.WithError(marshalErr).Warn("failed to marshal chat completion response for cache")
-		} else {
-			cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(req.Provider, cacheModelDimension, cacheKeyPayload)
-			if keyErr != nil {
-				logrus.WithError(keyErr).Warn("failed to generate response cache key")
-			} else {
-				cachedResp := &cache.CachedResponse{
-					StatusCode:     http.StatusOK,
-					Headers:        map[string]string{"Content-Type": "application/json"},
-					Body:           responseBody,
-					CreatedAt:      time.Now(),
-					HitCount:       0,
-					HitModels:      map[string]int64{req.Model: 1},
-					Provider:       req.Provider,
-					Model:          req.Model,
-					Prompt:         prompt,
-					TaskType:       string(assessment.TaskType),
-					TaskTypeSource: string(assessment.Source),
-				}
-
-				// Use SetWithTaskType to record task type for filtering
-				if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, req.Provider, string(assessment.TaskType), string(assessment.Source)); err != nil {
-					logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write response cache entry")
-				}
-
-				if shouldUsePromptOnlyCache(assessment.TaskType) {
-					h.pruneDuplicateResponseEntries(c.Request.Context(), req.Provider, req.Model, string(assessment.TaskType), prompt, cacheKey)
-				}
-
-				logrus.WithFields(logrus.Fields{
-					"model":     req.Model,
-					"ttl":       recommendedTTL,
-					"task_type": assessment.TaskType,
-					"cache_key": cacheKey,
-				}).Info("Response cached")
-			}
-		}
-	} else if !cacheWriteAllowed {
-		logrus.WithFields(logrus.Fields{
-			"model":     req.Model,
-			"task_type": assessment.TaskType,
-			"cache_reason": func() string {
-				if assessment.ControlSignals == nil {
-					return ""
-				}
-				return assessment.ControlSignals.CacheReason
-			}(),
-		}).Info("Response cache write skipped by control signal")
-	} else if recommendedTTL == 0 {
-		logrus.WithFields(logrus.Fields{
-			"model":     req.Model,
-			"task_type": assessment.TaskType,
-		}).Debug("Response not cached (TTL=0)")
-	} else {
-		logrus.WithFields(logrus.Fields{
-			"model": req.Model,
-		}).Warn("Cache not available")
-	}
-
-	// Store in semantic cache for similar query matching
-	// 改动点: 存储到语义缓存供相似请求复用
-	if allowSemantic && cacheWriteAllowed && h.semanticCache != nil && assessment.TaskType != routing.TaskTypeCreative && hasMeaningfulAssistantResponse(&response) {
-		responseBody, marshalErr := json.Marshal(response)
-		if marshalErr != nil {
-			logrus.WithError(marshalErr).Warn("failed to marshal semantic cache response")
-		} else {
-			queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-			h.semanticCache.Set(
-				c.Request.Context(),
-				semanticQuery,
-				queryVector,
-				responseBody,
-				req.Model,
-				req.Provider,
-				string(assessment.TaskType),
-				recommendedTTL,
-			)
-			logrus.WithFields(logrus.Fields{
-				"model":     req.Model,
-				"task_type": assessment.TaskType,
-			}).Debug("Semantic cache entry stored")
-		}
-	}
+	h.writeChatResponseCaches(
+		c.Request.Context(),
+		&req,
+		req.Provider,
+		assessment.TaskType,
+		string(assessment.Source),
+		prompt,
+		semanticQuery,
+		allowSemantic,
+		cacheEnabled,
+		cacheWriteAllowed,
+		recommendedTTL,
+		cacheModelDimension,
+		cacheKeyPayload,
+		cacheThenProxy,
+		rawCacheModelDimension,
+		rawCacheKeyPayload,
+		promptCacheKeyPayload,
+		response,
+	)
 
 	// 记录 Span 8: 缓存写入
 	if h.traceRecorder != nil {
@@ -1024,8 +1080,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 			"provider_type": resolvedProviderProtocol,
 			"provider_name": providerType,
 			"success":       true,
+			"cache_hit":     false,
+			"cache_layer":   "provider_chat",
 		}
-		for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+		for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, responseBody) {
 			attrs[key] = value
 		}
 		h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -1773,6 +1831,7 @@ func (h *ProxyHandler) handleStreamResponse(
 	userID string,
 	apiKey string,
 	prompt string,
+	rawPrompt string,
 	semanticQuery string,
 	allowSemantic bool,
 	cacheEnabled bool,
@@ -1784,6 +1843,10 @@ func (h *ProxyHandler) handleStreamResponse(
 	providerName string,
 	cacheModelDimension string,
 	cacheKeyPayload interface{},
+	cacheThenProxy bool,
+	rawCacheModelDimension string,
+	rawCacheKeyPayload interface{},
+	promptCacheKeyPayload interface{},
 	originalModelID string,
 	experimentTag string,
 	domainTag string,
@@ -1805,6 +1868,65 @@ func (h *ProxyHandler) handleStreamResponse(
 		providerLabel = providerProtocol
 	}
 
+	writeStreamResponseCaches := func(model string, body []byte) {
+		if !cacheEnabled || !cacheWriteAllowed || h.cache == nil || h.cache.ResponseCache == nil || recommendedTTL <= 0 {
+			return
+		}
+		if !hasMeaningfulCachedResponse(body) {
+			return
+		}
+		writeSpecs := []responseCacheWriteSpec{{
+			Layer:          "exact",
+			ModelDimension: cacheModelDimension,
+			KeyPayload:     cacheKeyPayload,
+		}}
+		if cacheThenProxy {
+			writeSpecs = []responseCacheWriteSpec{
+				{Layer: "exact_raw", ModelDimension: rawCacheModelDimension, KeyPayload: rawCacheKeyPayload},
+				{Layer: "exact_prompt", ModelDimension: cacheModelDimension, KeyPayload: promptCacheKeyPayload},
+			}
+		}
+		for _, spec := range writeSpecs {
+			if spec.ModelDimension == "" || spec.KeyPayload == nil {
+				continue
+			}
+			cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, spec.ModelDimension, spec.KeyPayload)
+			if keyErr != nil {
+				logrus.WithError(keyErr).WithField("cache_layer", spec.Layer).Warn("failed to generate streamed response cache key")
+				continue
+			}
+			cachedResp := &cache.CachedResponse{
+				StatusCode:     http.StatusOK,
+				Headers:        map[string]string{"Content-Type": "application/json"},
+				Body:           body,
+				CreatedAt:      time.Now(),
+				HitCount:       0,
+				HitModels:      map[string]int64{model: 1},
+				Provider:       providerName,
+				Model:          model,
+				Prompt:         prompt,
+				TaskType:       taskType,
+				TaskTypeSource: taskTypeSource,
+			}
+			if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{"cache_key": cacheKey, "cache_layer": spec.Layer}).Warn("failed to write streamed response cache entry")
+			}
+		}
+		if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
+			queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+			h.semanticCache.Set(
+				c.Request.Context(),
+				semanticQuery,
+				queryVector,
+				body,
+				model,
+				providerName,
+				taskType,
+				recommendedTTL,
+			)
+		}
+	}
+
 	// Get stream channel from provider
 	streamReq := req
 	stream, err := p.StreamChat(ctx, streamReq)
@@ -1819,7 +1941,7 @@ func (h *ProxyHandler) handleStreamResponse(
 		// CHANGED: include provider/user/api info in usage logs for stream start failures.
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-		h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
+		h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, err.Error(), http.StatusBadGateway)
 		c.SSEvent("error", gin.H{"error": err.Error()})
 		return
 	}
@@ -1845,7 +1967,7 @@ streamLoop:
 			}
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, ttftMs, promptTokens, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, cancelMessage, 499)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, cancelMessage, 499)
 			return
 		case chunk, ok := <-stream:
 			if !ok {
@@ -1861,7 +1983,7 @@ streamLoop:
 				if errorStatusCode < http.StatusBadRequest || errorStatusCode >= 600 {
 					errorStatusCode = http.StatusBadGateway
 				}
-				h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, chunk.Error.Message, errorStatusCode)
+				h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, chunk.Error.Message, errorStatusCode)
 				c.SSEvent("error", gin.H{
 					"error": gin.H{
 						"code":    chunk.Error.Code,
@@ -1989,7 +2111,7 @@ streamLoop:
 						"status_code": http.StatusOK,
 						"cache_hit":   false,
 					}
-					for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+					for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, responseBody) {
 						attrs[key] = value
 					}
 					h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -2030,42 +2152,7 @@ streamLoop:
 					}
 
 					if body, err := json.Marshal(responsePayload); err == nil {
-						cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
-						if keyErr == nil {
-							cachedResp := &cache.CachedResponse{
-								StatusCode:     http.StatusOK,
-								Headers:        map[string]string{"Content-Type": "application/json"},
-								Body:           body,
-								CreatedAt:      time.Now(),
-								HitCount:       0,
-								HitModels:      map[string]int64{req.Model: 1},
-								Provider:       providerName,
-								Model:          req.Model,
-								Prompt:         prompt,
-								TaskType:       taskType,
-								TaskTypeSource: taskTypeSource,
-							}
-							if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
-								logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-							}
-							if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
-								h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
-							}
-						}
-
-						if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
-							queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-							h.semanticCache.Set(
-								c.Request.Context(),
-								semanticQuery,
-								queryVector,
-								body,
-								req.Model,
-								providerName,
-								taskType,
-								recommendedTTL,
-							)
-						}
+						writeStreamResponseCaches(req.Model, body)
 					}
 				}
 				streamCompletedByDone = true
@@ -2186,8 +2273,9 @@ streamLoop:
 				"provider":    providerName,
 				"status_code": http.StatusOK,
 				"cache_hit":   false,
+				"cache_layer": "provider_chat",
 			}
-			for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+			for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, responseBody) {
 				attrs[key] = value
 			}
 			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -2223,42 +2311,7 @@ streamLoop:
 			}
 
 			if body, err := json.Marshal(responsePayload); err == nil {
-				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
-				if keyErr == nil {
-					cachedResp := &cache.CachedResponse{
-						StatusCode:     http.StatusOK,
-						Headers:        map[string]string{"Content-Type": "application/json"},
-						Body:           body,
-						CreatedAt:      time.Now(),
-						HitCount:       0,
-						HitModels:      map[string]int64{req.Model: 1},
-						Provider:       providerName,
-						Model:          req.Model,
-						Prompt:         prompt,
-						TaskType:       taskType,
-						TaskTypeSource: taskTypeSource,
-					}
-					if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, req.Model, providerName, taskType, taskTypeSource); err != nil {
-						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write streamed response cache entry")
-					}
-					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
-						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, req.Model, taskType, prompt, cacheKey)
-					}
-				}
-
-				if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
-					queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-					h.semanticCache.Set(
-						c.Request.Context(),
-						semanticQuery,
-						queryVector,
-						body,
-						req.Model,
-						providerName,
-						taskType,
-						recommendedTTL,
-					)
-				}
+				writeStreamResponseCaches(req.Model, body)
 			}
 		}
 	}
@@ -2290,7 +2343,7 @@ streamLoop:
 			// CHANGED: include provider/user/api info in usage logs for stream fallback failures.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, err.Error(), http.StatusBadGateway)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, err.Error(), http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": err.Error()})
 			c.Writer.Flush()
 			return
@@ -2300,7 +2353,7 @@ streamLoop:
 			// CHANGED: include provider/user/api info in usage logs for empty fallback responses.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty response", http.StatusBadGateway)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, "Provider returned empty response", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty response"})
 			c.Writer.Flush()
 			return
@@ -2311,7 +2364,7 @@ streamLoop:
 			// CHANGED: include provider/user/api info in usage logs for empty fallback content.
 			h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerName, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", taskType, string(difficulty), "", experimentTag, domainTag)
 			admin.RecordRequestResult(req.Model, providerName, routing.TaskType(taskType), difficulty, false, time.Since(startTime).Milliseconds(), 0)
-			h.recordHTTPResponseErrorSpan(ctx, startTime, req.Model, providerLabel, prompt, "Provider returned empty content", http.StatusBadGateway)
+			h.recordHTTPResponseErrorSpanWithRaw(ctx, startTime, req.Model, providerLabel, prompt, rawPrompt, "Provider returned empty content", http.StatusBadGateway)
 			c.SSEvent("error", gin.H{"error": "Provider returned empty content"})
 			c.Writer.Flush()
 			return
@@ -2417,42 +2470,7 @@ streamLoop:
 			}
 
 			if body, marshalErr := json.Marshal(responsePayload); marshalErr == nil {
-				cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, cacheModelDimension, cacheKeyPayload)
-				if keyErr == nil {
-					cachedResp := &cache.CachedResponse{
-						StatusCode:     http.StatusOK,
-						Headers:        map[string]string{"Content-Type": "application/json"},
-						Body:           body,
-						CreatedAt:      time.Now(),
-						HitCount:       0,
-						HitModels:      map[string]int64{model: 1},
-						Provider:       providerName,
-						Model:          model,
-						Prompt:         prompt,
-						TaskType:       taskType,
-						TaskTypeSource: taskTypeSource,
-					}
-					if err := h.writeResponseCacheEntry(c.Request.Context(), cacheKey, cachedResp, recommendedTTL, model, providerName, taskType, taskTypeSource); err != nil {
-						logrus.WithError(err).WithField("cache_key", cacheKey).Warn("failed to write fallback cache entry")
-					}
-					if shouldUsePromptOnlyCache(routing.TaskType(taskType)) {
-						h.pruneDuplicateResponseEntries(c.Request.Context(), providerName, model, taskType, prompt, cacheKey)
-					}
-				}
-
-				if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
-					queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
-					h.semanticCache.Set(
-						c.Request.Context(),
-						semanticQuery,
-						queryVector,
-						body,
-						model,
-						providerName,
-						taskType,
-						recommendedTTL,
-					)
-				}
+				writeStreamResponseCaches(model, body)
 			}
 		}
 
@@ -2483,8 +2501,9 @@ streamLoop:
 				"provider":    providerName,
 				"status_code": http.StatusOK,
 				"cache_hit":   false,
+				"cache_layer": "provider_chat",
 			}
-			for key, value := range buildTraceMessageAttributes(prompt, responseBody) {
+			for key, value := range buildTraceMessageAttributesWithRaw(prompt, rawPrompt, responseBody) {
 				attrs[key] = value
 			}
 			h.traceRecorder.RecordSimpleSpan(ctx, "http.response", attrs)
@@ -3198,17 +3217,16 @@ const (
 )
 
 func buildTraceMessageAttributes(prompt string, responseBody []byte) map[string]interface{} {
-	aiResponsePreview, aiResponseFull, aiResponseTruncated := tracing.ExtractResponseTextPreview(responseBody, traceMessagePreviewLimit, traceMessageFullLimit)
-	userMessagePreview, userMessageFull, userMessageTruncated := buildPromptPreview(prompt)
+	return buildTraceMessageAttributesWithRaw(prompt, "", responseBody)
+}
 
-	return map[string]interface{}{
-		"user_message_preview":   userMessagePreview,
-		"user_message_full":      userMessageFull,
-		"user_message_truncated": userMessageTruncated,
-		"ai_response_preview":    aiResponsePreview,
-		"ai_response_full":       aiResponseFull,
-		"ai_response_truncated":  aiResponseTruncated,
-	}
+func buildTraceMessageAttributesWithRaw(prompt, rawPrompt string, responseBody []byte) map[string]interface{} {
+	aiResponsePreview, aiResponseFull, aiResponseTruncated := tracing.ExtractResponseTextPreview(responseBody, traceMessagePreviewLimit, traceMessageFullLimit)
+	attrs := buildPromptPreviewAttributesWithRaw(prompt, rawPrompt)
+	attrs["ai_response_preview"] = aiResponsePreview
+	attrs["ai_response_full"] = aiResponseFull
+	attrs["ai_response_truncated"] = aiResponseTruncated
+	return attrs
 }
 
 func buildTraceErrorMessageAttributes(errorMessage string) map[string]interface{} {
@@ -3224,6 +3242,10 @@ func buildTraceErrorMessageAttributes(errorMessage string) map[string]interface{
 }
 
 func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedAt time.Time, model, providerName, prompt, errorMessage string, statusCode int) {
+	h.recordHTTPResponseErrorSpanWithRaw(ctx, startedAt, model, providerName, prompt, "", errorMessage, statusCode)
+}
+
+func (h *ProxyHandler) recordHTTPResponseErrorSpanWithRaw(ctx context.Context, startedAt time.Time, model, providerName, prompt, rawPrompt, errorMessage string, statusCode int) {
 	if h.traceRecorder == nil {
 		return
 	}
@@ -3244,7 +3266,7 @@ func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedA
 		attrs["provider_name"] = trimmedProvider
 	}
 
-	for key, value := range buildPromptPreviewAttributes(prompt) {
+	for key, value := range buildPromptPreviewAttributesWithRaw(prompt, rawPrompt) {
 		attrs[key] = value
 	}
 	errorPreviewAttrs := buildTraceErrorMessageAttributes(errorMessage)
@@ -3259,12 +3281,23 @@ func (h *ProxyHandler) recordHTTPResponseErrorSpan(ctx context.Context, startedA
 }
 
 func buildPromptPreviewAttributes(prompt string) map[string]interface{} {
+	return buildPromptPreviewAttributesWithRaw(prompt, "")
+}
+
+func buildPromptPreviewAttributesWithRaw(prompt, rawPrompt string) map[string]interface{} {
 	userMessagePreview, userMessageFull, userMessageTruncated := buildPromptPreview(prompt)
-	return map[string]interface{}{
+	attrs := map[string]interface{}{
 		"user_message_preview":   userMessagePreview,
 		"user_message_full":      userMessageFull,
 		"user_message_truncated": userMessageTruncated,
 	}
+	if strings.TrimSpace(rawPrompt) != "" {
+		userMessageRawPreview, userMessageRawFull, userMessageRawTruncated := buildPromptPreview(rawPrompt)
+		attrs["user_message_raw_preview"] = userMessageRawPreview
+		attrs["user_message_raw_full"] = userMessageRawFull
+		attrs["user_message_raw_truncated"] = userMessageRawTruncated
+	}
+	return attrs
 }
 
 func buildPromptPreview(prompt string) (preview, full string, truncated bool) {
@@ -3353,6 +3386,48 @@ func buildResponseCacheKeyPayload(req *ChatCompletionRequest, taskType routing.T
 		}
 	}
 	return req
+}
+
+func buildRawResponseCacheKeyPayload(req *ChatCompletionRequest, rawMessages []ChatMessage) interface{} {
+	if req == nil {
+		return nil
+	}
+	cloned := *req
+	cloned.Messages = cloneChatMessages(rawMessages)
+	return &cloned
+}
+
+func buildPromptExactResponseCacheKeyPayload(req *ChatCompletionRequest, prompt, context string) interface{} {
+	if req == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"prompt":            strings.TrimSpace(prompt),
+		"context":           strings.TrimSpace(context),
+		"temperature":       getFloat64(req.Temperature, getDefaultTemperature(req.Model)),
+		"top_p":             req.TopP,
+		"n":                 req.N,
+		"stop":              req.Stop,
+		"max_tokens":        getInt(req.MaxTokens, 0),
+		"presence_penalty":  req.PresencePenalty,
+		"frequency_penalty": req.FrequencyPenalty,
+		"logit_bias":        req.LogitBias,
+		"deep_think":        req.DeepThink,
+		"reasoning_effort":  strings.TrimSpace(req.ReasoningEffort),
+		"tools":             req.Tools,
+		"tool_choice":       req.ToolChoice,
+	}
+}
+
+func (h *ProxyHandler) chatProxyMode() string {
+	if h == nil || h.config == nil {
+		return config.ChatProxyModeSmart
+	}
+	mode := strings.ToLower(strings.TrimSpace(h.config.ChatProxy.Mode))
+	if mode == config.ChatProxyModeCacheThenProxy {
+		return mode
+	}
+	return config.ChatProxyModeSmart
 }
 
 func semanticThresholdForDifficulty(base float64, difficulty routing.DifficultyLevel) float64 {
@@ -4030,6 +4105,123 @@ func (h *ProxyHandler) writeResponseCacheEntry(
 	return nil
 }
 
+type responseCacheWriteSpec struct {
+	Layer          string
+	ModelDimension string
+	KeyPayload     interface{}
+}
+
+func (h *ProxyHandler) writeChatResponseCaches(
+	ctx context.Context,
+	req *ChatCompletionRequest,
+	providerName string,
+	taskType routing.TaskType,
+	taskTypeSource string,
+	prompt string,
+	semanticQuery string,
+	allowSemantic bool,
+	cacheEnabled bool,
+	cacheWriteAllowed bool,
+	recommendedTTL time.Duration,
+	cacheModelDimension string,
+	cacheKeyPayload interface{},
+	cacheThenProxy bool,
+	rawCacheModelDimension string,
+	rawCacheKeyPayload interface{},
+	promptCacheKeyPayload interface{},
+	response ChatCompletionResponse,
+) {
+	if !hasMeaningfulAssistantResponse(&response) {
+		return
+	}
+
+	responseBody, marshalErr := json.Marshal(response)
+	if marshalErr != nil {
+		logrus.WithError(marshalErr).Warn("failed to marshal chat completion response for cache")
+		return
+	}
+
+	if cacheEnabled && cacheWriteAllowed && h.cache != nil && h.cache.ResponseCache != nil && recommendedTTL > 0 {
+		writeSpecs := []responseCacheWriteSpec{{
+			Layer:          "exact",
+			ModelDimension: cacheModelDimension,
+			KeyPayload:     cacheKeyPayload,
+		}}
+		if cacheThenProxy {
+			writeSpecs = []responseCacheWriteSpec{
+				{Layer: "exact_raw", ModelDimension: rawCacheModelDimension, KeyPayload: rawCacheKeyPayload},
+				{Layer: "exact_prompt", ModelDimension: cacheModelDimension, KeyPayload: promptCacheKeyPayload},
+			}
+		}
+
+		for _, spec := range writeSpecs {
+			if spec.ModelDimension == "" || spec.KeyPayload == nil {
+				continue
+			}
+			cacheKey, keyErr := h.cache.ResponseCache.GenerateKey(providerName, spec.ModelDimension, spec.KeyPayload)
+			if keyErr != nil {
+				logrus.WithError(keyErr).WithField("cache_layer", spec.Layer).Warn("failed to generate response cache key")
+				continue
+			}
+			cachedResp := &cache.CachedResponse{
+				StatusCode:     http.StatusOK,
+				Headers:        map[string]string{"Content-Type": "application/json"},
+				Body:           responseBody,
+				CreatedAt:      time.Now(),
+				HitCount:       0,
+				HitModels:      map[string]int64{req.Model: 1},
+				Provider:       providerName,
+				Model:          req.Model,
+				Prompt:         prompt,
+				TaskType:       string(taskType),
+				TaskTypeSource: taskTypeSource,
+			}
+			if err := h.writeResponseCacheEntry(ctx, cacheKey, cachedResp, recommendedTTL, req.Model, providerName, string(taskType), taskTypeSource); err != nil {
+				logrus.WithError(err).WithFields(logrus.Fields{"cache_key": cacheKey, "cache_layer": spec.Layer}).Warn("failed to write response cache entry")
+				continue
+			}
+			logrus.WithFields(logrus.Fields{
+				"model":       req.Model,
+				"ttl":         recommendedTTL,
+				"task_type":   taskType,
+				"cache_key":   cacheKey,
+				"cache_layer": spec.Layer,
+			}).Info("Response cached")
+		}
+
+	} else if !cacheWriteAllowed {
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": taskType,
+		}).Info("Response cache write skipped by control signal")
+	} else if recommendedTTL == 0 {
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": taskType,
+		}).Debug("Response not cached (TTL=0)")
+	} else {
+		logrus.WithFields(logrus.Fields{"model": req.Model}).Warn("Cache not available")
+	}
+
+	if allowSemantic && cacheWriteAllowed && h.semanticCache != nil && taskType != routing.TaskTypeCreative {
+		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+		h.semanticCache.Set(
+			ctx,
+			semanticQuery,
+			queryVector,
+			responseBody,
+			req.Model,
+			providerName,
+			string(taskType),
+			recommendedTTL,
+		)
+		logrus.WithFields(logrus.Fields{
+			"model":     req.Model,
+			"task_type": taskType,
+		}).Debug("Semantic cache entry stored")
+	}
+}
+
 func (h *ProxyHandler) processCacheV2Read(
 	ctx context.Context,
 	prompt string,
@@ -4175,17 +4367,53 @@ func getTextContent(content interface{}) string {
 	case string:
 		return v
 	case []interface{}:
+		var builder strings.Builder
 		for _, item := range v {
 			if m, ok := item.(map[string]interface{}); ok {
 				if m["type"] == "text" {
 					if text, ok := m["text"].(string); ok {
-						return text
+						builder.WriteString(text)
 					}
 				}
 			}
 		}
+		return builder.String()
 	}
 	return ""
+}
+
+func collectTextContentByRole(messages []ChatMessage, role string) string {
+	parts := make([]string, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Role != role {
+			continue
+		}
+		text := strings.TrimSpace(getTextContent(msg.Content))
+		if text == "" {
+			continue
+		}
+		parts = append(parts, text)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func extractLatestPromptAndContext(messages []ChatMessage) (prompt string, context string) {
+	for _, msg := range messages {
+		switch msg.Role {
+		case "user":
+			prompt = getTextContent(msg.Content)
+		case "system":
+			context = getTextContent(msg.Content)
+		}
+	}
+	return strings.TrimSpace(prompt), strings.TrimSpace(context)
+}
+
+func cloneChatMessages(messages []ChatMessage) []ChatMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+	return append([]ChatMessage(nil), messages...)
 }
 
 func sanitizeChatMessagesForIntentAndUpstream(messages []ChatMessage) []ChatMessage {

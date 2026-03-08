@@ -82,10 +82,10 @@ describe('cache domain vector apis', () => {
     await getCacheRequestStats({
       start: 's',
       end: 'e',
-      source: 'cache_exact'
+      source: 'exact_prompt'
     })
 
-    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-stats?start_time=s&end_time=e&source=cache_exact')
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-stats?start_time=s&end_time=e&source=exact_prompt')
   })
 
   it('should request cache request hits with source and paging', async () => {
@@ -95,11 +95,11 @@ describe('cache domain vector apis', () => {
     })
 
     await getCacheRequestHits({
-      source: 'cache_v2',
+      source: 'v2',
       page: 2,
       page_size: 50
     })
 
-    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-hits?window=24h&source=cache_v2&page=2&page_size=50')
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/cache/request-hits?window=24h&source=v2&page=2&page_size=50')
   })
 })

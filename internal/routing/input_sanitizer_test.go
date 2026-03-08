@@ -37,3 +37,13 @@ func TestIsShortGreetingIntent_NonGreetingQuery(t *testing.T) {
 		t.Fatal("expected non-greeting query to be false")
 	}
 }
+
+func TestSanitizeIntentInput_RemovesGatewayClientMetadataHeader(t *testing.T) {
+	raw := "Sender (untrusted metadata):\n```json\n{\n  \"label\": \"openclaw-tui (gateway-client)\",\n  \"id\": \"gateway-client\",\n  \"name\": \"openclaw-tui\",\n  \"username\": \"openclaw-tui\"\n}\n```\n\n[Sun 2026-03-08 07:12 GMT+8] 1+1等于几？"
+
+	sanitized := SanitizeIntentInput(raw)
+
+	if sanitized != "1+1等于几？" {
+		t.Fatalf("expected gateway client metadata removed, got %q", sanitized)
+	}
+}

@@ -27,8 +27,30 @@ func TestDefaultConfig(t *testing.T) {
 	assert.False(t, cfg.IntentEngine.Enabled)
 	assert.True(t, cfg.VectorCache.Enabled)
 	assert.Equal(t, 1024, cfg.VectorCache.Dimension)
+	assert.Equal(t, "smart", cfg.ChatProxy.Mode)
 }
 
+
+func TestValidate_ChatProxyMode(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Mode = "debug"
+	cfg.Providers = []ProviderConfig{{
+		Name:    "openai",
+		APIKey:  "sk-test",
+		BaseURL: "https://api.openai.com",
+		Enabled: true,
+	}}
+
+	cfg.ChatProxy.Mode = "cache_then_proxy"
+	require.NoError(t, cfg.Validate())
+
+	cfg.ChatProxy.Mode = "invalid"
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chat_proxy.mode")
+}
+
+ 
 func TestConfig_Fields(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{
