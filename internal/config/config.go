@@ -20,6 +20,7 @@ type Config struct {
 	Accounts     []AccountConfig    `json:"accounts"`
 	IntentEngine IntentEngineConfig `json:"intent_engine"`
 	VectorCache  VectorCacheConfig  `json:"vector_cache"`
+	ChatProxy    ChatProxyConfig    `json:"chat_proxy"`
 	Edition      EditionConfig      `json:"edition"`
 }
 
@@ -122,6 +123,16 @@ type VectorCacheConfig struct {
 	ColdVectorQdrantTimeoutMs      int                `json:"cold_vector_qdrant_timeout_ms"`
 }
 
+const (
+	ChatProxyModeSmart          = "smart"
+	ChatProxyModeCacheThenProxy = "cache_then_proxy"
+)
+
+// ChatProxyConfig controls chat proxy request handling behavior.
+type ChatProxyConfig struct {
+	Mode string `json:"mode"`
+}
+
 // LimitConfig holds a single limit configuration.
 type LimitConfig struct {
 	Type    string  `json:"type"`    // token, rpm, concurrent
@@ -210,6 +221,9 @@ func DefaultConfig() *Config {
 			ColdVectorQdrantCollection:     "ai_gateway_cold_vectors",
 			ColdVectorQdrantTimeoutMs:      1500,
 		},
+		ChatProxy: ChatProxyConfig{
+			Mode: ChatProxyModeSmart,
+		},
 		Edition: EditionConfig{
 			Type:               string(EditionStandard),
 			Runtime:            string(EditionRuntimeDocker),
@@ -282,6 +296,9 @@ func Load() (*Config, error) {
 		if v, err := strconv.Atoi(timeout); err == nil {
 			cfg.IntentEngine.TimeoutMs = v
 		}
+	}
+	if mode := os.Getenv("CHAT_PROXY_MODE"); mode != "" {
+		cfg.ChatProxy.Mode = strings.TrimSpace(mode)
 	}
 	if language := os.Getenv("INTENT_ENGINE_LANGUAGE"); language != "" {
 		cfg.IntentEngine.Language = language
@@ -721,6 +738,17 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(version) == "" {
 			return &ValidationError{Field: "edition.dependency_versions." + dep, Message: "dependency version must not be empty"}
 		}
+	}
+
+	chatProxyMode := strings.TrimSpace(strings.ToLower(c.ChatProxy.Mode))
+	if chatProxyMode == "" {
+		chatProxyMode = ChatProxyModeSmart
+	}
+	switch chatProxyMode {
+	case ChatProxyModeSmart, ChatProxyModeCacheThenProxy:
+		c.ChatProxy.Mode = chatProxyMode
+	default:
+		return &ValidationError{Field: "chat_proxy.mode", Message: "chat_proxy.mode must be smart/cache_then_proxy"}
 	}
 
 	return nil

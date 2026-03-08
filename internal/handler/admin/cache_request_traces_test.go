@@ -27,14 +27,29 @@ func TestCacheHandler_GetRequestStats_ShouldUseDefault24hWindowAndSupportSourceF
 	inside := now.Add(-2 * time.Hour)
 	outside := now.Add(-30 * time.Hour)
 
-	insertTraceSpan(t, db, "req-v2", "cache.read-v2", "success", "GET", 12, inside, map[string]any{"result": "hit"})
-	insertTraceSpan(t, db, "req-v2", "http.response", "success", "GET", 120, inside.Add(time.Second), map[string]any{
+	insertTraceSpan(t, db, "req-exact-raw", "cache.read-exact", "success", "GET", 12, inside, map[string]any{"result": "hit", "cache_layer": "exact_raw"})
+	insertTraceSpan(t, db, "req-exact-raw", "http.response", "success", "GET", 120, inside.Add(time.Second), map[string]any{
+		"cache_layer":          "exact_raw",
+		"user_message_preview": "question-raw",
+		"ai_response_preview":  "answer-raw",
+	})
+
+	insertTraceSpan(t, db, "req-exact-prompt", "cache.read-exact", "success", "GET", 13, inside.Add(2*time.Second), map[string]any{"result": "hit"})
+	insertTraceSpan(t, db, "req-exact-prompt", "http.response", "success", "GET", 121, inside.Add(3*time.Second), map[string]any{
+		"cache_layer":          "exact",
+		"user_message_preview": "question-prompt",
+		"ai_response_preview":  "answer-prompt",
+	})
+
+	insertTraceSpan(t, db, "req-v2", "cache.read-v2", "success", "GET", 14, inside.Add(4*time.Second), map[string]any{"result": "hit", "layer": "vector-exact"})
+	insertTraceSpan(t, db, "req-v2", "http.response", "success", "GET", 122, inside.Add(5*time.Second), map[string]any{
+		"cache_layer":          "vector-exact",
 		"user_message_preview": "question-v2",
 		"ai_response_preview":  "answer-v2",
 	})
 
-	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "POST", 220, inside.Add(2*time.Second), nil)
-	insertTraceSpan(t, db, "req-provider", "http.response", "success", "POST", 260, inside.Add(3*time.Second), map[string]any{
+	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "POST", 220, inside.Add(6*time.Second), nil)
+	insertTraceSpan(t, db, "req-provider", "http.response", "success", "POST", 260, inside.Add(7*time.Second), map[string]any{
 		"user_message_preview": "question-provider",
 		"ai_response_preview":  "answer-provider",
 	})
@@ -68,17 +83,23 @@ func TestCacheHandler_GetRequestStats_ShouldUseDefault24hWindowAndSupportSourceF
 	if !resp.Success {
 		t.Fatalf("success=false")
 	}
-	if resp.Data.TotalRequests != 2 {
-		t.Fatalf("total_requests=%d want=2", resp.Data.TotalRequests)
+	if resp.Data.TotalRequests != 4 {
+		t.Fatalf("total_requests=%d want=4", resp.Data.TotalRequests)
 	}
-	if resp.Data.CacheHitRequests != 1 {
-		t.Fatalf("cache_hit_requests=%d want=1", resp.Data.CacheHitRequests)
+	if resp.Data.CacheHitRequests != 3 {
+		t.Fatalf("cache_hit_requests=%d want=3", resp.Data.CacheHitRequests)
 	}
-	if resp.Data.CacheHitRate != 0.5 {
-		t.Fatalf("cache_hit_rate=%v want=0.5", resp.Data.CacheHitRate)
+	if resp.Data.CacheHitRate != 0.75 {
+		t.Fatalf("cache_hit_rate=%v want=0.75", resp.Data.CacheHitRate)
 	}
-	if resp.Data.SourceBreakdown["cache_v2"] != 1 {
-		t.Fatalf("source_breakdown[cache_v2]=%d want=1", resp.Data.SourceBreakdown["cache_v2"])
+	if resp.Data.SourceBreakdown["exact_raw"] != 1 {
+		t.Fatalf("source_breakdown[exact_raw]=%d want=1", resp.Data.SourceBreakdown["exact_raw"])
+	}
+	if resp.Data.SourceBreakdown["exact_prompt"] != 1 {
+		t.Fatalf("source_breakdown[exact_prompt]=%d want=1", resp.Data.SourceBreakdown["exact_prompt"])
+	}
+	if resp.Data.SourceBreakdown["v2"] != 1 {
+		t.Fatalf("source_breakdown[v2]=%d want=1", resp.Data.SourceBreakdown["v2"])
 	}
 	if resp.Data.SourceBreakdown["provider_chat"] != 1 {
 		t.Fatalf("source_breakdown[provider_chat]=%d want=1", resp.Data.SourceBreakdown["provider_chat"])
@@ -97,35 +118,41 @@ func TestCacheHandler_GetRequestStats_ShouldUseDefault24hWindowAndSupportSourceF
 		t.Fatalf("window duration=%s want around 24h", windowDuration)
 	}
 
-	filterReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/request-stats?source=cache_v2", http.NoBody)
-	filterRec := httptest.NewRecorder()
-	router.ServeHTTP(filterRec, filterReq)
+	assertStatsFilter := func(source string, wantTotal int, wantHitCount int, wantKey string) {
+		t.Helper()
+		filterReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/request-stats?source="+source, http.NoBody)
+		filterRec := httptest.NewRecorder()
+		router.ServeHTTP(filterRec, filterReq)
 
-	if filterRec.Code != http.StatusOK {
-		t.Fatalf("filtered status=%d body=%s", filterRec.Code, filterRec.Body.String())
+		if filterRec.Code != http.StatusOK {
+			t.Fatalf("source=%s status=%d body=%s", source, filterRec.Code, filterRec.Body.String())
+		}
+
+		var filteredResp struct {
+			Success bool `json:"success"`
+			Data    struct {
+				TotalRequests    int            `json:"total_requests"`
+				CacheHitRequests int            `json:"cache_hit_requests"`
+				SourceBreakdown  map[string]int `json:"source_breakdown"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(filterRec.Body.Bytes(), &filteredResp); err != nil {
+			t.Fatalf("source=%s decode filtered response failed: %v", source, err)
+		}
+		if filteredResp.Data.TotalRequests != wantTotal {
+			t.Fatalf("source=%s total_requests=%d want=%d", source, filteredResp.Data.TotalRequests, wantTotal)
+		}
+		if filteredResp.Data.CacheHitRequests != wantHitCount {
+			t.Fatalf("source=%s cache_hit_requests=%d want=%d", source, filteredResp.Data.CacheHitRequests, wantHitCount)
+		}
+		if len(filteredResp.Data.SourceBreakdown) != 1 || filteredResp.Data.SourceBreakdown[wantKey] != wantTotal {
+			t.Fatalf("source=%s source_breakdown=%v want only %s=%d", source, filteredResp.Data.SourceBreakdown, wantKey, wantTotal)
+		}
 	}
 
-	var filteredResp struct {
-		Success bool `json:"success"`
-		Data    struct {
-			TotalRequests    int            `json:"total_requests"`
-			CacheHitRequests int            `json:"cache_hit_requests"`
-			SourceBreakdown  map[string]int `json:"source_breakdown"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(filterRec.Body.Bytes(), &filteredResp); err != nil {
-		t.Fatalf("decode filtered response failed: %v", err)
-	}
-
-	if filteredResp.Data.TotalRequests != 1 {
-		t.Fatalf("filtered total_requests=%d want=1", filteredResp.Data.TotalRequests)
-	}
-	if filteredResp.Data.CacheHitRequests != 1 {
-		t.Fatalf("filtered cache_hit_requests=%d want=1", filteredResp.Data.CacheHitRequests)
-	}
-	if len(filteredResp.Data.SourceBreakdown) != 1 || filteredResp.Data.SourceBreakdown["cache_v2"] != 1 {
-		t.Fatalf("filtered source_breakdown=%v want only cache_v2=1", filteredResp.Data.SourceBreakdown)
-	}
+	assertStatsFilter("exact_raw", 1, 1, "exact_raw")
+	assertStatsFilter("cache_exact", 1, 1, "exact_prompt")
+	assertStatsFilter("cache_v2", 1, 1, "v2")
 
 	windowReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/request-stats?window=1h", http.NoBody)
 	windowRec := httptest.NewRecorder()
@@ -161,24 +188,34 @@ func TestCacheHandler_GetRequestHits_ShouldSupportSourceFilterAndPaginationNorma
 
 	insertTraceSpan(t, db, "req-v2", "cache.read-v2", "success", "GET", 11, base, map[string]any{"result": "hit"})
 	insertTraceSpan(t, db, "req-v2", "http.response", "success", "GET", 111, base.Add(time.Second), map[string]any{
+		"cache_layer":          "v2",
 		"user_message_preview": "u-v2",
 		"ai_response_preview":  "a-v2",
 	})
 
 	insertTraceSpan(t, db, "req-sem", "cache.read-semantic", "success", "GET", 12, base.Add(2*time.Second), map[string]any{"result": "hit"})
 	insertTraceSpan(t, db, "req-sem", "http.response", "success", "GET", 112, base.Add(3*time.Second), map[string]any{
+		"cache_layer":          "semantic",
 		"user_message_preview": "u-sem",
 		"ai_response_preview":  "a-sem",
 	})
 
-	insertTraceSpan(t, db, "req-exact", "cache.read-exact", "success", "GET", 13, base.Add(4*time.Second), map[string]any{"result": "hit"})
-	insertTraceSpan(t, db, "req-exact", "http.response", "success", "GET", 113, base.Add(5*time.Second), map[string]any{
-		"user_message_preview": "u-exact",
-		"ai_response_preview":  "a-exact",
+	insertTraceSpan(t, db, "req-exact-raw", "cache.read-exact", "success", "GET", 13, base.Add(4*time.Second), map[string]any{"result": "hit", "cache_layer": "exact_raw"})
+	insertTraceSpan(t, db, "req-exact-raw", "http.response", "success", "GET", 113, base.Add(5*time.Second), map[string]any{
+		"cache_layer":          "exact_raw",
+		"user_message_preview": "u-exact-raw",
+		"ai_response_preview":  "a-exact-raw",
 	})
 
-	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "POST", 210, base.Add(6*time.Second), nil)
-	insertTraceSpan(t, db, "req-provider", "http.response", "success", "POST", 310, base.Add(7*time.Second), map[string]any{
+	insertTraceSpan(t, db, "req-exact-prompt", "cache.read-exact", "success", "GET", 14, base.Add(6*time.Second), map[string]any{"result": "hit", "cache_layer": "exact_prompt"})
+	insertTraceSpan(t, db, "req-exact-prompt", "http.response", "success", "GET", 114, base.Add(7*time.Second), map[string]any{
+		"cache_layer":          "exact_prompt",
+		"user_message_preview": "u-exact-prompt",
+		"ai_response_preview":  "a-exact-prompt",
+	})
+
+	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "POST", 210, base.Add(8*time.Second), nil)
+	insertTraceSpan(t, db, "req-provider", "http.response", "success", "POST", 310, base.Add(9*time.Second), map[string]any{
 		"user_message_preview": "u-provider",
 		"ai_response_preview":  "a-provider",
 	})
@@ -226,10 +263,14 @@ func TestCacheHandler_GetRequestHits_ShouldSupportSourceFilterAndPaginationNorma
 		}
 	}
 
-	assertFilter("all", 4, "")
-	assertFilter("cache_v2", 1, "cache_v2")
-	assertFilter("cache_semantic", 1, "cache_semantic")
-	assertFilter("cache_exact", 1, "cache_exact")
+	assertFilter("all", 5, "")
+	assertFilter("v2", 1, "v2")
+	assertFilter("semantic", 1, "semantic")
+	assertFilter("exact_raw", 1, "exact_raw")
+	assertFilter("exact_prompt", 1, "exact_prompt")
+	assertFilter("cache_v2", 1, "v2")
+	assertFilter("cache_semantic", 1, "semantic")
+	assertFilter("cache_exact", 1, "exact_prompt")
 	assertFilter("provider_chat", 1, "provider_chat")
 
 	normalizedReq := httptest.NewRequest(http.MethodGet, "/api/admin/cache/request-hits?page=0&page_size=0", http.NoBody)

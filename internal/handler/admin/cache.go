@@ -1332,10 +1332,11 @@ func (h *CacheHandler) GetCacheSummary(c *gin.Context) {
 
 const (
 	cacheRequestSourceAll          = "all"
-	cacheRequestSourceV2           = "cache_v2"
-	cacheRequestSourceSemantic     = "cache_semantic"
-	cacheRequestSourceExact        = "cache_exact"
-	cacheRequestSourceProviderChat = "provider_chat"
+	cacheRequestSourceV2           = traceAnswerSourceV2
+	cacheRequestSourceSemantic     = traceAnswerSourceSemantic
+	cacheRequestSourceExactRaw     = traceAnswerSourceExactRaw
+	cacheRequestSourceExactPrompt  = traceAnswerSourceExactPrompt
+	cacheRequestSourceProviderChat = traceAnswerSourceProviderChat
 	cacheRequestDefaultPage        = 1
 	cacheRequestDefaultPageSize    = 20
 	cacheRequestMaxPageSize        = 200
@@ -1383,16 +1384,14 @@ func normalizeCacheRequestSource(source string) (string, bool) {
 	if normalized == "" {
 		return cacheRequestSourceAll, true
 	}
-	switch normalized {
-	case cacheRequestSourceAll,
-		cacheRequestSourceV2,
-		cacheRequestSourceSemantic,
-		cacheRequestSourceExact,
-		cacheRequestSourceProviderChat:
-		return normalized, true
-	default:
+	if normalized == cacheRequestSourceAll {
+		return cacheRequestSourceAll, true
+	}
+	canonical := canonicalTraceAnswerSource(normalized)
+	if canonical == "" {
 		return "", false
 	}
+	return canonical, true
 }
 
 func parseCacheRequestTime(value string) (time.Time, error) {
@@ -1454,7 +1453,7 @@ func resolveCacheRequestWindow(c *gin.Context) (cacheRequestWindow, error) {
 
 func isCacheHitSource(source string) bool {
 	switch source {
-	case cacheRequestSourceV2, cacheRequestSourceSemantic, cacheRequestSourceExact:
+	case cacheRequestSourceV2, cacheRequestSourceSemantic, cacheRequestSourceExactRaw, cacheRequestSourceExactPrompt:
 		return true
 	default:
 		return false
@@ -1477,13 +1476,7 @@ func cacheRequestAggCTE() string {
 				CASE WHEN SUM(CASE WHEN rt.status = 'error' THEN 1 ELSE 0 END) > 0 THEN 'error' ELSE 'success' END AS request_status,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.duration_ms END), MAX(rt.duration_ms), 0) AS duration_ms,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.entry' THEN rt.created_at END), MAX(rt.created_at), '') AS created_at,
-				CASE
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-v2' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_v2'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-semantic' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_semantic'
-					WHEN MAX(CASE WHEN rt.operation = 'cache.read-exact' AND json_valid(rt.attributes) = 1 AND json_extract(rt.attributes, '$.result') = 'hit' THEN 1 ELSE 0 END) = 1 THEN 'cache_exact'
-					WHEN MAX(CASE WHEN rt.operation = 'provider.chat' AND rt.status = 'success' THEN 1 ELSE 0 END) = 1 THEN 'provider_chat'
-					ELSE 'provider_chat'
-				END AS answer_source,
+				` + requestAggAnswerSourceSQL() + `,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.model END), MAX(rt.model), '') AS model,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN rt.provider END), MAX(rt.provider), '') AS provider,
 				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' AND json_valid(rt.attributes) = 1 THEN NULLIF(json_extract(rt.attributes, '$.user_message_preview'), '') END), '') AS user_message_preview,
@@ -1494,7 +1487,6 @@ func cacheRequestAggCTE() string {
 		)
 	`
 }
-
 func (h *CacheHandler) GetCacheRequestStats(c *gin.Context) {
 	db := h.getTraceDB()
 	if db == nil {
@@ -1514,7 +1506,7 @@ func (h *CacheHandler) GetCacheRequestStats(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_source",
-				"message": "source must be one of all|cache_v2|cache_semantic|cache_exact|provider_chat",
+				"message": "source must be one of all|v2|semantic|exact_raw|exact_prompt|provider_chat",
 			},
 		})
 		return
@@ -1646,7 +1638,7 @@ func (h *CacheHandler) GetCacheRequestHits(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_source",
-				"message": "source must be one of all|cache_v2|cache_semantic|cache_exact|provider_chat",
+				"message": "source must be one of all|v2|semantic|exact_raw|exact_prompt|provider_chat",
 			},
 		})
 		return

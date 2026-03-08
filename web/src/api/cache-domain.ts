@@ -15,7 +15,7 @@ export interface CacheModelOptionGroup {
   models: string[]
 }
 
-export type CacheRequestSource = 'all' | 'cache_v2' | 'cache_semantic' | 'cache_exact' | 'provider_chat'
+export type CacheRequestSource = 'all' | 'exact_raw' | 'exact_prompt' | 'semantic' | 'v2' | 'provider_chat'
 
 export interface CacheRequestQuery {
   window?: string

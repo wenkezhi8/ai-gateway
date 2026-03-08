@@ -10,11 +10,15 @@ function getIndexOrThrow(content: string, fragment: string) {
 }
 
 describe('trace detail view', () => {
-  it('shows user and ai message preview blocks with full-text actions', () => {
+  it('shows raw request, derived prompt and ai preview blocks with full-text actions', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
 
+    expect(viewFile).toContain('trace.attributes?.user_message_raw_preview')
     expect(viewFile).toContain('trace.attributes?.user_message_preview')
     expect(viewFile).toContain('trace.attributes?.ai_response_preview')
+    expect(viewFile).toContain('原始请求预览')
+    expect(viewFile).toContain('清洗后问题')
+    expect(viewFile).toContain("@click=\"showFullMessage(trace, 'user_raw')\"")
     expect(viewFile).toContain("@click=\"showFullMessage(trace, 'user')\"")
     expect(viewFile).toContain("@click=\"showFullMessage(trace, 'ai')\"")
     expect(viewFile).toContain('messageVisible')
@@ -30,6 +34,11 @@ describe('trace detail view', () => {
     expect(viewFile).toContain('清理链路记录')
     expect(viewFile).toContain('clearTraces')
     expect(viewFile).toContain('const clearing = ref(false)')
+    expect(viewFile).toContain("exact_raw: 'exact_raw'")
+    expect(viewFile).toContain("exact_prompt: 'exact_prompt'")
+    expect(viewFile).toContain("semantic: 'semantic'")
+    expect(viewFile).toContain("v2: 'v2'")
+    expect(viewFile).toContain("provider_chat: 'provider_chat'")
     expect(viewFile).not.toContain("unknown: '未知'")
     expect(viewFile).not.toContain("|| '未知'")
   })
@@ -73,11 +82,8 @@ describe('trace detail view', () => {
   it('should display model column with correct prop and empty value handling', () => {
     const viewFile = readFileSync(join(process.cwd(), 'src/views/trace/index.vue'), 'utf-8')
 
-    // 验证模型列的 prop 属性
     expect(viewFile).toContain('prop="model"')
     expect(viewFile).toContain('label="模型"')
-
-    // 验证模型列显示 "-" 当值为空时
     expect(viewFile).toContain('row.model || \'-\'')
   })
 })

@@ -80,21 +80,32 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 	base := time.Now().UTC().Add(-20 * time.Minute)
 
 	insertTraceSpan(t, db, "req-v2", "cache.read-v2", "success", "GET", 10, base, map[string]any{"result": "hit"})
-	insertTraceSpan(t, db, "req-v2", "provider.chat", "success", "GET", 120, base.Add(1*time.Second), nil)
+	insertTraceSpan(t, db, "req-v2", "http.response", "success", "GET", 120, base.Add(1*time.Second), map[string]any{"cache_layer": "v2"})
 
 	insertTraceSpan(t, db, "req-sem", "cache.read-semantic", "success", "GET", 10, base.Add(2*time.Second), map[string]any{"result": "hit"})
 	insertTraceSpan(t, db, "req-sem", "cache.read-exact", "success", "GET", 8, base.Add(3*time.Second), map[string]any{"result": "hit"})
+	insertTraceSpan(t, db, "req-sem", "http.response", "success", "GET", 118, base.Add(4*time.Second), map[string]any{"cache_layer": "semantic"})
 
-	insertTraceSpan(t, db, "req-exact", "cache.read-exact", "success", "GET", 8, base.Add(4*time.Second), map[string]any{"result": "hit"})
+	insertTraceSpan(t, db, "req-exact-raw", "cache.read-exact", "success", "GET", 8, base.Add(5*time.Second), map[string]any{"result": "hit", "cache_layer": "exact_raw"})
+	insertTraceSpan(t, db, "req-exact-raw", "http.response", "success", "GET", 108, base.Add(6*time.Second), map[string]any{"cache_layer": "exact_raw"})
 
-	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "GET", 210, base.Add(5*time.Second), nil)
+	insertTraceSpan(t, db, "req-exact-prompt", "cache.read-exact", "success", "GET", 8, base.Add(7*time.Second), map[string]any{"result": "hit", "cache_layer": "exact_prompt"})
+	insertTraceSpan(t, db, "req-exact-prompt", "http.response", "success", "GET", 109, base.Add(8*time.Second), map[string]any{"cache_layer": "exact_prompt"})
 
-	insertTraceSpan(t, db, "req-task-classifier", "classifier.assess", "success", "GET", 12, base.Add(5*time.Second), map[string]any{"task_type": "analysis"})
-	insertTraceSpan(t, db, "req-task-classifier", "provider.chat", "success", "GET", 220, base.Add(5*time.Second), nil)
+	insertTraceSpan(t, db, "req-legacy-exact", "cache.read-exact", "success", "GET", 8, base.Add(9*time.Second), map[string]any{"result": "hit"})
+	insertTraceSpan(t, db, "req-legacy-exact", "http.response", "success", "GET", 110, base.Add(10*time.Second), map[string]any{"cache_layer": "exact"})
 
-	insertTraceSpan(t, db, "req-task-v2", "cache.read-v2", "success", "GET", 18, base.Add(6*time.Second), map[string]any{"result": "hit", "task_type": "chat"})
+	insertTraceSpan(t, db, "req-legacy-vector", "cache.read-v2", "success", "GET", 11, base.Add(11*time.Second), map[string]any{"result": "hit", "layer": "vector-semantic"})
+	insertTraceSpan(t, db, "req-legacy-vector", "http.response", "success", "GET", 111, base.Add(12*time.Second), map[string]any{"cache_layer": "vector-semantic"})
 
-	insertTraceSpan(t, db, "req-unknown", "provider.chat", "error", "GET", 90, base.Add(6*time.Second), nil)
+	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "GET", 210, base.Add(13*time.Second), nil)
+
+	insertTraceSpan(t, db, "req-task-classifier", "classifier.assess", "success", "GET", 12, base.Add(14*time.Second), map[string]any{"task_type": "analysis"})
+	insertTraceSpan(t, db, "req-task-classifier", "provider.chat", "success", "GET", 220, base.Add(15*time.Second), nil)
+
+	insertTraceSpan(t, db, "req-task-v2", "cache.read-v2", "success", "GET", 18, base.Add(16*time.Second), map[string]any{"result": "hit", "task_type": "chat"})
+
+	insertTraceSpan(t, db, "req-unknown", "provider.chat", "error", "GET", 90, base.Add(17*time.Second), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/traces?limit=20&offset=0", http.NoBody)
 	w := httptest.NewRecorder()
@@ -128,16 +139,18 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 		taskTypeByRequest[row.RequestID] = row.TaskType
 	}
 
-	assertTraceSource(t, sourceByRequest, "req-v2", "cache_v2")
-	assertTraceSource(t, sourceByRequest, "req-sem", "cache_semantic")
-	assertTraceSource(t, sourceByRequest, "req-exact", "cache_exact")
+	assertTraceSource(t, sourceByRequest, "req-v2", "v2")
+	assertTraceSource(t, sourceByRequest, "req-sem", "semantic")
+	assertTraceSource(t, sourceByRequest, "req-exact-raw", "exact_raw")
+	assertTraceSource(t, sourceByRequest, "req-exact-prompt", "exact_prompt")
+	assertTraceSource(t, sourceByRequest, "req-legacy-exact", "exact_prompt")
+	assertTraceSource(t, sourceByRequest, "req-legacy-vector", "v2")
 	assertTraceSource(t, sourceByRequest, "req-provider", "provider_chat")
 	assertTraceSource(t, sourceByRequest, "req-unknown", "provider_chat")
 
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-classifier", "analysis")
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-v2", "chat")
 
-	// Verify model field is returned
 	for _, row := range resp.Data {
 		if row.Model != "gpt-4o-mini" {
 			t.Fatalf("request %s model=%s want=gpt-4o-mini", row.RequestID, row.Model)

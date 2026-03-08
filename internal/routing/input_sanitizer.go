@@ -10,7 +10,9 @@ import (
 
 var (
 	metadataBracketTokenPattern = regexp.MustCompile(`^\[([^\]]+)\]`)
+	senderMetadataBlockPattern  = regexp.MustCompile("(?is)^sender\\s*\\([^)]*metadata[^)]*\\):\\s*```[a-z0-9_-]*\\s*.*?```\\s*")
 	metadataKeyValuePattern     = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*\s*=\s*\S+$`)
+	humanTimestampPattern       = regexp.MustCompile(`(?i)^(mon|tue|wed|thu|fri|sat|sun)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(:\d{2})?\s+(gmt|utc)[+-]\d{1,2}(:\d{2})?$`)
 	metadataKeyWhitelist        = map[string]struct{}{
 		"request_id":      {},
 		"message_id":      {},
@@ -49,6 +51,12 @@ func SanitizeIntentInput(raw string) string {
 	}
 
 	for {
+		strippedSender := strings.TrimSpace(senderMetadataBlockPattern.ReplaceAllString(remaining, ""))
+		if strippedSender != remaining {
+			remaining = strippedSender
+			continue
+		}
+
 		remaining = strings.TrimLeftFunc(remaining, unicode.IsSpace)
 		match := metadataBracketTokenPattern.FindStringSubmatchIndex(remaining)
 		if match == nil || match[0] != 0 {
@@ -116,6 +124,10 @@ func isMetadataBracketToken(token string) bool {
 	}
 
 	if _, err := time.Parse(time.RFC3339, token); err == nil {
+		return true
+	}
+
+	if humanTimestampPattern.MatchString(token) {
 		return true
 	}
 
