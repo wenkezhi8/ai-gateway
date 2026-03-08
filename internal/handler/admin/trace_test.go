@@ -98,14 +98,14 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 	insertTraceSpan(t, db, "req-legacy-vector", "cache.read-v2", "success", "GET", 11, base.Add(11*time.Second), map[string]any{"result": "hit", "layer": "vector-semantic"})
 	insertTraceSpan(t, db, "req-legacy-vector", "http.response", "success", "GET", 111, base.Add(12*time.Second), map[string]any{"cache_layer": "vector-semantic"})
 
-	insertTraceSpan(t, db, "req-provider", "provider.chat", "success", "GET", 210, base.Add(13*time.Second), nil)
+	insertTraceSpanWithProvider(t, db, "req-provider", "provider.chat", "success", "GET", 210, base.Add(13*time.Second), nil, "zhipu")
 
 	insertTraceSpan(t, db, "req-task-classifier", "classifier.assess", "success", "GET", 12, base.Add(14*time.Second), map[string]any{"task_type": "analysis"})
 	insertTraceSpan(t, db, "req-task-classifier", "provider.chat", "success", "GET", 220, base.Add(15*time.Second), nil)
 
 	insertTraceSpan(t, db, "req-task-v2", "cache.read-v2", "success", "GET", 18, base.Add(16*time.Second), map[string]any{"result": "hit", "task_type": "chat"})
 
-	insertTraceSpan(t, db, "req-unknown", "provider.chat", "error", "GET", 90, base.Add(17*time.Second), nil)
+	insertTraceSpanWithProvider(t, db, "req-unknown", "provider.chat", "error", "GET", 90, base.Add(17*time.Second), nil, "")
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/traces?limit=20&offset=0", http.NoBody)
 	w := httptest.NewRecorder()
@@ -122,6 +122,7 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 			AnswerSource string `json:"answer_source"`
 			TaskType     string `json:"task_type"`
 			Model        string `json:"model"`
+			Provider     string `json:"provider"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -134,9 +135,11 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 
 	sourceByRequest := map[string]string{}
 	taskTypeByRequest := map[string]string{}
+	providerByRequest := map[string]string{}
 	for _, row := range resp.Data {
 		sourceByRequest[row.RequestID] = row.AnswerSource
 		taskTypeByRequest[row.RequestID] = row.TaskType
+		providerByRequest[row.RequestID] = row.Provider
 	}
 
 	assertTraceSource(t, sourceByRequest, "req-v2", "v2")
@@ -150,8 +153,13 @@ func TestTraceHandler_GetTraces_AnswerSource_ShouldFollowPriority(t *testing.T) 
 
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-classifier", "analysis")
 	assertTraceTaskType(t, taskTypeByRequest, "req-task-v2", "chat")
+	assertTraceProvider(t, providerByRequest, "req-provider", "zhipu")
+	assertTraceProvider(t, providerByRequest, "req-unknown", "")
 
 	for _, row := range resp.Data {
+		if row.RequestID == "req-unknown" {
+			continue
+		}
 		if row.Model != "gpt-4o-mini" {
 			t.Fatalf("request %s model=%s want=gpt-4o-mini", row.RequestID, row.Model)
 		}
@@ -243,6 +251,19 @@ func insertTraceSpan(
 	attrs map[string]any,
 ) {
 	t.Helper()
+	insertTraceSpanWithProvider(t, db, requestID, operation, status, method, durationMs, createdAt, attrs, "openai")
+}
+
+func insertTraceSpanWithProvider(
+	t *testing.T,
+	db *sql.DB,
+	requestID, operation, status, method string,
+	durationMs int64,
+	createdAt time.Time,
+	attrs map[string]any,
+	provider string,
+) {
+	t.Helper()
 
 	attrBytes := []byte("{}")
 	if attrs != nil {
@@ -277,7 +298,7 @@ func insertTraceSpan(
 		method,
 		"/v1/chat",
 		"gpt-4o-mini",
-		"openai",
+		provider,
 		"",
 		ts,
 	)
@@ -305,5 +326,16 @@ func assertTraceTaskType(t *testing.T, taskTypeByRequest map[string]string, requ
 	}
 	if got != want {
 		t.Fatalf("request %s task_type=%s want=%s", requestID, got, want)
+	}
+}
+
+func assertTraceProvider(t *testing.T, providerByRequest map[string]string, requestID, want string) {
+	t.Helper()
+	got, ok := providerByRequest[requestID]
+	if !ok {
+		t.Fatalf("request %s missing in response", requestID)
+	}
+	if got != want {
+		t.Fatalf("request %s provider=%s want=%s", requestID, got, want)
 	}
 }
