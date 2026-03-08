@@ -314,6 +314,10 @@ import {
   CHAT_PROVIDER_VISUAL_FALLBACK,
   type ChatProviderVisualMeta
 } from '@/constants/store/chat'
+import {
+  TRACE_ANSWER_SOURCE_FALLBACK,
+  TRACE_ANSWER_SOURCE_LABELS
+} from '@/constants/trace-answer-source'
 import { handleApiError } from '@/utils/errorHandler'
 
 const traces = ref<TraceSummary[]>([])
@@ -361,14 +365,6 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   low: '低',
   medium: '中',
   high: '高'
-}
-
-const ANSWER_SOURCE_LABELS: Record<TraceSummary['answer_source'], string> = {
-  exact_raw: '原始缓存',
-  exact_prompt: '精确缓存',
-  semantic: '语义缓存',
-  v2: '向量缓存',
-  provider_chat: '上游回源'
 }
 
 onMounted(() => {
@@ -463,7 +459,7 @@ async function viewDetail(row: TraceSummary) {
 }
 
 function getAnswerSourceLabel(source: TraceSummary['answer_source']) {
-  return ANSWER_SOURCE_LABELS[source] || source || 'provider_chat'
+  return TRACE_ANSWER_SOURCE_LABELS[source] || source || TRACE_ANSWER_SOURCE_FALLBACK
 }
 
 function getMethodType(method: string) {

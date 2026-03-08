@@ -1506,7 +1506,7 @@ func (h *CacheHandler) GetCacheRequestStats(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_source",
-				"message": "source must be one of all|v2|semantic|exact_raw|exact_prompt|provider_chat",
+				"message": "source must be one of " + traceAnswerSourceAllowedValues(),
 			},
 		})
 		return
@@ -1638,7 +1638,7 @@ func (h *CacheHandler) GetCacheRequestHits(c *gin.Context) {
 			"success": false,
 			"error": gin.H{
 				"code":    "invalid_source",
-				"message": "source must be one of all|v2|semantic|exact_raw|exact_prompt|provider_chat",
+				"message": "source must be one of " + traceAnswerSourceAllowedValues(),
 			},
 		})
 		return

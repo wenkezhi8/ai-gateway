@@ -11,6 +11,25 @@ env:
   GO_VERSION: '1.21'
   NODE_VERSION: '20'
 jobs:
+  pr-guardrails:
+    name: PR Guardrails
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch base branch
+        run: git fetch origin "${{ github.base_ref }}":"refs/remotes/origin/${{ github.base_ref }}"
+      - name: Build PR labels
+        run: |
+          LABELS=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH" | paste -sd, -)
+          echo "PR_LABELS=$LABELS" >> "$GITHUB_ENV"
+      - name: Check PR scope
+        run: python3 scripts/check_pr_scope.py --rules .github/pr-scope-rules.json --labels "$PR_LABELS" --base-ref "${{ github.base_ref }}"
+      - name: Check workflow changes allowlist
+        run: bash scripts/check_workflow_changes.sh --base-ref "${{ github.base_ref }}" --allowlist .github/workflow-change-allowlist.txt
+
   lint-backend:
     name: Backend Lint
     runs-on: ubuntu-latest

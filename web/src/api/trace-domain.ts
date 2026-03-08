@@ -1,5 +1,6 @@
 import { request } from './request'
 import { API } from '@/constants/api'
+import type { TraceAnswerSource } from '@/constants/trace-answer-source'
 
 export interface RequestTrace {
   id: string
@@ -36,8 +37,6 @@ export interface TraceAttributes extends Record<string, any> {
   user_message_truncated?: boolean
   ai_response_truncated?: boolean
 }
-
-export type TraceAnswerSource = 'exact_raw' | 'exact_prompt' | 'semantic' | 'v2' | 'provider_chat'
 
 export interface TraceSummary {
   request_id: string

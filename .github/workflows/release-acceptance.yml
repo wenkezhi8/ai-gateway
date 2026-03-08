@@ -1,0 +1,59 @@
+name: Release Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Optional PR number to validate merged state'
+        required: false
+        type: string
+      allow_missing_pr:
+        description: 'Allow missing PR auto detection'
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.21'
+  NODE_VERSION: '20'
+
+jobs:
+  release-acceptance:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: npm ci
+
+      - name: Run release acceptance checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ARGS=()
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            ARGS+=(--pr "${{ inputs.pr_number }}")
+          fi
+          if [ "${{ inputs.allow_missing_pr }}" = "true" ]; then
+            ARGS+=(--allow-missing-pr)
+          fi
+          bash scripts/release-acceptance.sh "${ARGS[@]}"
