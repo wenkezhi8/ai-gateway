@@ -20,29 +20,36 @@ describe('trace-domain', () => {
   it('should unwrap list and total from traces response', async () => {
     requestMock.get.mockResolvedValue({
       success: true,
-      data: [{ request_id: 'req-1', answer_source: 'v2', task_type: 'analysis' }],
+      data: [
+        { request_id: 'req-1', answer_source: 'v2', task_type: 'analysis', provider: 'zhipu' }
+      ],
       total: 101
     })
 
     const result = await getTraces({ limit: 20, offset: 0 })
-    expect(requestMock.get).toHaveBeenCalledWith('/admin/traces', { params: { limit: 20, offset: 0 } })
+    expect(requestMock.get).toHaveBeenCalledWith('/admin/traces', {
+      params: { limit: 20, offset: 0 }
+    })
     expect(result.total).toBe(101)
     expect(result.data).toHaveLength(1)
     expect(result.data[0]?.answer_source).toBe('v2')
     expect(result.data[0]?.task_type).toBe('analysis')
+    expect(result.data[0]?.provider).toBe('zhipu')
   })
 
   it('should keep detail endpoint unchanged and expose raw preview fields', async () => {
     requestMock.get.mockResolvedValue({
       success: true,
-      data: [{
-        request_id: 'req-2',
-        operation: 'http.response',
-        attributes: {
-          user_message_raw_preview: 'Sender (untrusted metadata)',
-          user_message_preview: '1+1等于几？'
+      data: [
+        {
+          request_id: 'req-2',
+          operation: 'http.response',
+          attributes: {
+            user_message_raw_preview: 'Sender (untrusted metadata)',
+            user_message_preview: '1+1等于几？'
+          }
         }
-      }]
+      ]
     })
 
     const result = await getTraceDetail('req-2')

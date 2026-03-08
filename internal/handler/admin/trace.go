@@ -27,6 +27,7 @@ type traceSummary struct {
 	AnswerSource string `json:"answer_source"`
 	TaskType     string `json:"task_type"`
 	Model        string `json:"model"`
+	Provider     string `json:"provider"`
 }
 
 func NewTraceHandler(db *sql.DB) *TraceHandler {
@@ -71,7 +72,8 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 					''
 				) AS task_type,
 				` + requestAggAnswerSourceSQL() + `,
-				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model
+				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN NULLIF(rt.provider, '') END), MAX(NULLIF(rt.provider, '')), '') AS provider
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
 			GROUP BY rt.request_id
@@ -111,12 +113,13 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 					''
 				) AS task_type,
 				` + requestAggAnswerSourceSQL() + `,
-				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model
+				COALESCE(MAX(CASE WHEN rt.operation='http.response' THEN rt.model END), MAX(rt.model), '') AS model,
+				COALESCE(MAX(CASE WHEN rt.operation = 'http.response' THEN NULLIF(rt.provider, '') END), MAX(NULLIF(rt.provider, '')), '') AS provider
 			FROM request_traces rt
 			INNER JOIN request_candidates rc ON rc.request_id = rt.request_id
 			GROUP BY rt.request_id
 		)
-		SELECT request_id, method, path, request_status, duration_ms, created_at, step_count, answer_source, task_type, model
+		SELECT request_id, method, path, request_status, duration_ms, created_at, step_count, answer_source, task_type, model, provider
 		FROM request_agg
 		WHERE (? = '' OR request_status = ?)
 		ORDER BY created_at DESC
@@ -147,6 +150,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 			&row.AnswerSource,
 			&row.TaskType,
 			&row.Model,
+			&row.Provider,
 		); scanErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"success": false,

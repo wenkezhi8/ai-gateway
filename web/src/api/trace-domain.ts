@@ -50,6 +50,7 @@ export interface TraceSummary {
   answer_source: TraceAnswerSource
   task_type?: string
   model?: string
+  provider?: string
 }
 
 export interface TraceListResult {
