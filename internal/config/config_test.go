@@ -26,10 +26,9 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, string(EditionStandard), cfg.Edition.Type)
 	assert.False(t, cfg.IntentEngine.Enabled)
 	assert.True(t, cfg.VectorCache.Enabled)
-	assert.Equal(t, 1024, cfg.VectorCache.Dimension)
+	assert.Equal(t, 768, cfg.VectorCache.Dimension)
 	assert.Equal(t, "smart", cfg.ChatProxy.Mode)
 }
-
 
 func TestValidate_ChatProxyMode(t *testing.T) {
 	cfg := DefaultConfig()
@@ -50,7 +49,6 @@ func TestValidate_ChatProxyMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "chat_proxy.mode")
 }
 
- 
 func TestConfig_Fields(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{

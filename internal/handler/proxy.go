@@ -558,8 +558,9 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	if allowSemantic && h.semanticCache != nil {
 		similarityThreshold := semanticThresholdForDifficulty(cacheSettings.SimilarityThreshold, assessment.Difficulty)
 
+		semanticDim := h.semanticEmbeddingDimension()
 		for _, candidateQuery := range semanticCandidates {
-			queryVector := cache.SimpleEmbedding(candidateQuery, 1536)
+			queryVector := cache.SimpleEmbedding(candidateQuery, semanticDim)
 			cacheSemStart := time.Now()
 			semanticEntry, similarity := h.semanticCache.Get(c.Request.Context(), candidateQuery, queryVector)
 			if h.traceRecorder != nil {
@@ -1913,7 +1914,7 @@ func (h *ProxyHandler) handleStreamResponse(
 			}
 		}
 		if allowSemantic && h.semanticCache != nil && routing.TaskType(taskType) != routing.TaskTypeCreative {
-			queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+			queryVector := cache.SimpleEmbedding(semanticQuery, h.semanticEmbeddingDimension())
 			h.semanticCache.Set(
 				c.Request.Context(),
 				semanticQuery,
@@ -3430,6 +3431,21 @@ func (h *ProxyHandler) chatProxyMode() string {
 	return config.ChatProxyModeSmart
 }
 
+func (h *ProxyHandler) semanticEmbeddingDimension() int {
+	dimension := 1536
+	if h == nil || h.cache == nil {
+		return dimension
+	}
+	settings := h.cache.GetSettings()
+	if settings.VectorOllamaEmbeddingDimension > 0 {
+		return settings.VectorOllamaEmbeddingDimension
+	}
+	if settings.VectorDimension > 0 {
+		return settings.VectorDimension
+	}
+	return dimension
+}
+
 func semanticThresholdForDifficulty(base float64, difficulty routing.DifficultyLevel) float64 {
 	if base <= 0 {
 		base = 0.92
@@ -4204,7 +4220,7 @@ func (h *ProxyHandler) writeChatResponseCaches(
 	}
 
 	if allowSemantic && cacheWriteAllowed && h.semanticCache != nil && taskType != routing.TaskTypeCreative {
-		queryVector := cache.SimpleEmbedding(semanticQuery, 1536)
+		queryVector := cache.SimpleEmbedding(semanticQuery, h.semanticEmbeddingDimension())
 		h.semanticCache.Set(
 			ctx,
 			semanticQuery,
