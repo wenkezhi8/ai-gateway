@@ -3695,7 +3695,12 @@ func buildSemanticCacheWriteQuery(prompt, normalizedQuery, semanticSignature str
 
 func shouldAllowSemanticCache(taskType routing.TaskType) bool {
 	switch taskType {
-	case routing.TaskTypeChat, routing.TaskTypeCreative, routing.TaskTypeUnknown:
+	case routing.TaskTypeChat,
+		routing.TaskTypeCreative,
+		routing.TaskTypeUnknown,
+		routing.TaskTypeMath,
+		routing.TaskTypeCode,
+		routing.TaskTypeReasoning:
 		return false
 	default:
 		return true
