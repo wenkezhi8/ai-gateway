@@ -58,6 +58,23 @@ func TestCORS_PostRequest(t *testing.T) {
 	assert.Equal(t, "*", w.Header().Get("Access-Control-Allow-Origin"))
 }
 
+func TestCORS_DefaultAllowAllReflectsOriginWhenProvided(t *testing.T) {
+	r := gin.New()
+	r.Use(CORS())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Origin", "https://console.example.com")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "https://console.example.com", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", w.Header().Get("Vary"))
+}
+
 func TestCORS_AllowedHeaders(t *testing.T) {
 	r := gin.New()
 	r.Use(CORS())
@@ -110,4 +127,58 @@ func TestCORS_AllowedMethods(t *testing.T) {
 	for _, method := range expectedMethods {
 		assert.Contains(t, allowedMethods, method, "Expected method %s to be allowed", method)
 	}
+}
+
+func TestCORS_WhitelistAllowsConfiguredOrigin(t *testing.T) {
+	t.Setenv("CORS_ALLOW_ORIGINS", "https://console.example.com,https://ops.example.com")
+
+	r := gin.New()
+	r.Use(CORS())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Origin", "https://ops.example.com")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "https://ops.example.com", w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", w.Header().Get("Vary"))
+}
+
+func TestCORS_WhitelistRejectsUnknownOrigin(t *testing.T) {
+	t.Setenv("CORS_ALLOW_ORIGINS", "https://console.example.com")
+
+	r := gin.New()
+	r.Use(CORS())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Origin", "https://evil.example.com")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+}
+
+func TestCORS_WhitelistAllowsEmptyOriginForServerToServerCalls(t *testing.T) {
+	t.Setenv("CORS_ALLOW_ORIGINS", "https://console.example.com")
+
+	r := gin.New()
+	r.Use(CORS())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
 }

@@ -98,6 +98,7 @@ nano .env
 ### Redis配置
 
 > 说明：当启用向量缓存（`vector_cache.enabled=true`）时要求 **Redis Stack**（必须支持 RediSearch `FT.*` 与 RedisJSON `JSON.*`）；向量缓存关闭时可不依赖 Redis。
+> 说明：metrics 服务建议通过 `METRICS_HOST=127.0.0.1` 保持仅监听本机；若必须暴露到内网，请显式配置内网地址，不建议直接绑定公网。
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
@@ -130,6 +131,7 @@ nano .env
 | `METRICS_ENABLED` | true | 启用Prometheus指标 |
 | `REQUEST_TIMEOUT` | 60 | 请求超时时间（秒） |
 | `MAX_REQUEST_SIZE` | 10 | 最大请求体大小（MB） |
+| `CORS_ALLOW_ORIGINS` | * | CORS 白名单，逗号分隔；生产建议显式列出允许域名 |
 
 ---
 
@@ -140,6 +142,7 @@ nano .env
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
 | `PROMETHEUS_PORT` | 9090 | Prometheus端口 |
+| `METRICS_HOST` | 127.0.0.1 | Prometheus 监听地址，生产默认仅监听本机 |
 
 ### Grafana
 

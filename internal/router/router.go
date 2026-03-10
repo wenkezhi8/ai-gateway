@@ -117,11 +117,6 @@ func NewFullWithConfig(
 		pprofGroup.GET("/threadcreate", gin.WrapH(pprof.Handler("threadcreate")))
 	}
 
-	// Docs alias for Swagger UI
-	r.GET("/docs", func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/swagger/index.html")
-	})
-
 	// API v1 routes (统一入口)
 	r.GET(constants.ApiV1Prefix, proxyHandler.APIv1Root)
 	r.POST(constants.ApiV1Prefix, proxyHandler.ChatCompletions)
@@ -229,11 +224,10 @@ func NewFullWithConfig(
 		r.Static("/logos", filepath.Join(staticDir, "logos"))
 		r.StaticFile("/vite.svg", filepath.Join(staticDir, "vite.svg"))
 
-		// SPA fallback - serve index.html for unmatched routes
+		// SPA fallback - only serve index.html for frontend routes, never for debug/metrics/api paths.
 		r.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
-			// Skip API routes - be more specific to avoid catching frontend routes like /api-management
-			if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/swagger") {
+			if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/swagger") || strings.HasPrefix(path, "/debug/") || path == "/debug" || path == "/metrics" || strings.HasPrefix(path, "/metrics/") {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
 			}

@@ -153,8 +153,8 @@ echo "【9. Swagger文档】"
 test_page "Swagger UI" "$GATEWAY_URL/swagger/index.html"
 echo ""
 
-echo "【10. Prometheus指标】"
-test_page "Metrics" "http://localhost:9090/metrics"
+echo "【10. Prometheus指标（仅本机）】"
+test_page "Metrics (localhost only)" "http://127.0.0.1:9090/metrics"
 echo ""
 
 echo "=========================================="

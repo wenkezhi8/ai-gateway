@@ -349,6 +349,12 @@ func SwaggerJSON(c *gin.Context) {
 
 func SetupSwaggerRoutes(r *gin.Engine) {
 	r.GET("/swagger/doc.json", SwaggerJSON)
+	r.GET("/swagger", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/swagger/index.html")
+	})
+	r.GET("/swagger/", func(c *gin.Context) {
+		c.Redirect(http.StatusFound, "/swagger/index.html")
+	})
 
 	r.GET("/swagger/index.html", func(c *gin.Context) {
 		c.Header("Content-Type", "text/html; charset=utf-8")

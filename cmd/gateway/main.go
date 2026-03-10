@@ -38,6 +38,7 @@ func main() {
 	if err := cfg.Validate(); err != nil {
 		logger.WithError(err).Fatal("Invalid configuration")
 	}
+	bootstrap.ApplyCORSAllowOriginsFromConfig(cfg)
 
 	configWatcher := bootstrap.SetupConfigWatcher(cfg, logger)
 	if configWatcher != nil {
