@@ -101,6 +101,29 @@ func TestNewFullWithConfig_ReleaseMode_DocsShouldServeSPACenter(t *testing.T) {
 	}
 }
 
+func TestNewFullWithConfig_ReleaseMode_DocsTrailingSlashShouldServeSPACenter(t *testing.T) {
+	staticDir := prepareStaticDirForRouterTest(t)
+	withRouterTestEnv(t, staticDir)
+
+	r := NewFullWithConfig(&config.Config{
+		Server: config.ServerConfig{Mode: "release", Port: "8566"},
+	}, &RouterConfig{EnableSwagger: true}, nil, nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/docs/", http.NoBody)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if rec.Header().Get("Location") != "" {
+		t.Fatalf("docs trailing slash should not redirect, location=%q", rec.Header().Get("Location"))
+	}
+	if rec.Body.String() != "<!doctype html><title>spa</title>" {
+		t.Fatalf("docs trailing slash should serve SPA index, body=%s", rec.Body.String())
+	}
+}
+
 func TestNewFullWithConfig_ReleaseMode_SwaggerRootRedirectsToIndex(t *testing.T) {
 	staticDir := prepareStaticDirForRouterTest(t)
 	withRouterTestEnv(t, staticDir)

@@ -62,7 +62,7 @@ func loadAllowedOrigins() (map[string]struct{}, bool) {
 	}
 
 	if len(allowedOrigins) == 0 {
-		return nil, true
+		return map[string]struct{}{}, false
 	}
 	return allowedOrigins, false
 }

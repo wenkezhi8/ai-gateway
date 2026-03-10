@@ -182,3 +182,21 @@ func TestCORS_WhitelistAllowsEmptyOriginForServerToServerCalls(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
 }
+
+func TestCORS_WhitelistInvalidValueShouldRejectCrossOriginRequest(t *testing.T) {
+	t.Setenv("CORS_ALLOW_ORIGINS", " ,   ,")
+
+	r := gin.New()
+	r.Use(CORS())
+	r.GET("/test", func(c *gin.Context) {
+		c.String(http.StatusOK, "OK")
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req.Header.Set("Origin", "https://evil.example.com")
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+}

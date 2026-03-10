@@ -112,13 +112,13 @@ echo "[release-smoke] metrics_url=$METRICS_URL"
 echo "[release-smoke] allowed_origin=${ALLOWED_ORIGIN:-<skip>}"
 echo "[release-smoke] blocked_origin=${BLOCKED_ORIGIN:-<skip>}"
 
-echo "[release-smoke] check 1/10: health"
+echo "[release-smoke] check 1/11: health"
 expect_health_status "health" "$BASE_URL/health"
 
-echo "[release-smoke] check 2/10: ready"
+echo "[release-smoke] check 2/11: ready"
 expect_health_status "ready" "$BASE_URL/ready"
 
-echo "[release-smoke] check 3/10: docs center"
+echo "[release-smoke] check 3/11: docs center"
 expect_http_200 "docs center" "$BASE_URL/docs"
 if ! grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
   echo "[release-smoke] FAIL: docs center did not return SPA shell" >&2
@@ -129,7 +129,18 @@ if grep -q '/swagger/index.html' /tmp/ai-gateway-smoke-body.txt; then
   exit 1
 fi
 
-echo "[release-smoke] check 4/10: swagger root redirect"
+echo "[release-smoke] check 4/11: docs center trailing slash"
+expect_http_200 "docs center trailing slash" "$BASE_URL/docs/"
+if ! grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
+  echo "[release-smoke] FAIL: docs center trailing slash did not return SPA shell" >&2
+  exit 1
+fi
+if grep -q '/swagger/index.html' /tmp/ai-gateway-smoke-body.txt; then
+  echo "[release-smoke] FAIL: docs center trailing slash should not redirect to swagger" >&2
+  exit 1
+fi
+
+echo "[release-smoke] check 5/11: swagger root redirect"
 swaggerCode="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -D /tmp/ai-gateway-smoke-headers.txt -w "%{http_code}" "$BASE_URL/swagger")"
 swaggerLocationLine="$(grep -i '^Location:' /tmp/ai-gateway-smoke-headers.txt | tr -d '\r' || true)"
 if [ "$swaggerCode" != "302" ] || [ "$swaggerLocationLine" != "Location: /swagger/index.html" ]; then
@@ -146,7 +157,7 @@ if [ "$swaggerSlashCode" != "302" ] || [ "$swaggerSlashLocationLine" != "Locatio
 fi
 echo "[release-smoke] PASS: swagger trailing slash redirect => $swaggerSlashLocationLine"
 
-echo "[release-smoke] check 5/10: trace page asset"
+echo "[release-smoke] check 6/11: trace page asset"
 expect_http_200 "trace page" "$BASE_URL$TRACE_PATH"
 TRACE_ASSET="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/ai-gateway-smoke-body.txt | head -1 || true)"
 if [ -z "$TRACE_ASSET" ]; then
@@ -159,16 +170,16 @@ if grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
   exit 1
 fi
 
-echo "[release-smoke] check 6/10: debug endpoints closed"
+echo "[release-smoke] check 7/11: debug endpoints closed"
 expect_not_http_200 "debug pprof" "$BASE_URL/debug/pprof/"
 
-echo "[release-smoke] check 7/10: metrics on gateway port closed"
+echo "[release-smoke] check 8/11: metrics on gateway port closed"
 expect_not_http_200 "metrics on gateway port" "$BASE_URL/metrics"
 
-echo "[release-smoke] check 8/10: metrics localhost only"
+echo "[release-smoke] check 9/11: metrics localhost only"
 expect_http_200 "Metrics (localhost only)" "$METRICS_URL"
 
-echo "[release-smoke] check 9/10: cache backend hint"
+echo "[release-smoke] check 10/11: cache backend hint"
 if [ ! -f "$LOG_PATH" ]; then
   echo "[release-smoke] FAIL: missing log path $LOG_PATH" >&2
   exit 1
@@ -180,7 +191,7 @@ fi
 CACHE_BACKEND_LINE="$(grep -E 'Cache backend is memory|Connected to Redis' "$LOG_PATH" | tail -1)"
 echo "[release-smoke] PASS: cache backend => $CACHE_BACKEND_LINE"
 
-echo "[release-smoke] check 10/10: cors whitelist (optional)"
+echo "[release-smoke] check 11/11: cors whitelist (optional)"
 if [ -n "$ALLOWED_ORIGIN" ]; then
   code="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -D /tmp/ai-gateway-smoke-headers.txt -w "%{http_code}" -H "Origin: $ALLOWED_ORIGIN" "$BASE_URL/health")"
   allowedHeader="$(grep -i '^Access-Control-Allow-Origin:' /tmp/ai-gateway-smoke-headers.txt | awk '{print $2}' | tr -d '\r' || true)"
