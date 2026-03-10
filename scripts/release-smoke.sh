@@ -8,6 +8,13 @@ LOG_PATH="/tmp/ai-gateway.log"
 TRACE_PATH="/trace"
 ALLOWED_ORIGIN=""
 BLOCKED_ORIGIN=""
+SMOKE_BODY_FILE="/tmp/ai-gateway-smoke-body.txt"
+SMOKE_HEADER_FILE="/tmp/ai-gateway-smoke-headers.txt"
+CURL_ARGS=(
+  -s
+  --connect-timeout 2
+  --max-time 5
+)
 
 usage() {
   cat <<'USAGE'
@@ -20,6 +27,17 @@ Options:
   --allowed-origin <o>  Verify CORS allows this origin (optional; requires whitelist env in gateway).
   --blocked-origin <o>  Verify CORS rejects this origin (optional; requires whitelist env in gateway).
 USAGE
+}
+
+cleanup_smoke_files() {
+  rm -f "$SMOKE_BODY_FILE" "$SMOKE_HEADER_FILE"
+}
+
+trap cleanup_smoke_files EXIT
+
+reset_smoke_response_files() {
+  : > "$SMOKE_BODY_FILE"
+  : > "$SMOKE_HEADER_FILE"
 }
 
 while [ $# -gt 0 ]; do
@@ -58,8 +76,16 @@ done
 
 curl_status() {
   local url="$1"
-  : > /tmp/ai-gateway-smoke-body.txt
-  curl -s -o /tmp/ai-gateway-smoke-body.txt -w "%{http_code}" "$url" || true
+  shift || true
+  reset_smoke_response_files
+  curl "${CURL_ARGS[@]}" -o "$SMOKE_BODY_FILE" -w "%{http_code}" "$@" "$url" || true
+}
+
+curl_status_with_headers() {
+  local url="$1"
+  shift
+  reset_smoke_response_files
+  curl "${CURL_ARGS[@]}" -o "$SMOKE_BODY_FILE" -D "$SMOKE_HEADER_FILE" -w "%{http_code}" "$@" "$url" || true
 }
 
 expect_http_200() {
@@ -73,19 +99,34 @@ expect_http_200() {
   fi
   if [ "$code" != "200" ]; then
     echo "[release-smoke] FAIL: $name http_code=$code url=$url" >&2
-    cat /tmp/ai-gateway-smoke-body.txt >&2 || true
+    cat "$SMOKE_BODY_FILE" >&2 || true
     exit 1
   fi
   echo "[release-smoke] PASS: $name"
+}
+
+assert_spa_shell() {
+  local name="$1"
+  local body_file="$2"
+  local forbid_swagger_redirect="${3:-true}"
+
+  if ! grep -qi '<!doctype html' "$body_file"; then
+    echo "[release-smoke] FAIL: $name did not return SPA shell" >&2
+    exit 1
+  fi
+  if [ "$forbid_swagger_redirect" = "true" ] && grep -q '/swagger/index.html' "$body_file"; then
+    echo "[release-smoke] FAIL: $name should not redirect to swagger" >&2
+    exit 1
+  fi
 }
 
 expect_health_status() {
   local name="$1"
   local url="$2"
   expect_http_200 "$name" "$url"
-  if ! grep -Eq 'healthy|ready' /tmp/ai-gateway-smoke-body.txt; then
+  if ! grep -Eq 'healthy|ready' "$SMOKE_BODY_FILE"; then
     echo "[release-smoke] FAIL: $name body missing healthy/ready marker" >&2
-    cat /tmp/ai-gateway-smoke-body.txt >&2 || true
+    cat "$SMOKE_BODY_FILE" >&2 || true
     exit 1
   fi
 }
@@ -101,7 +142,7 @@ expect_not_http_200() {
   fi
   if [ "$code" = "200" ]; then
     echo "[release-smoke] FAIL: $name unexpectedly returned 200 url=$url" >&2
-    cat /tmp/ai-gateway-smoke-body.txt >&2 || true
+    cat "$SMOKE_BODY_FILE" >&2 || true
     exit 1
   fi
   echo "[release-smoke] PASS: $name closed with http_code=$code"
@@ -120,37 +161,23 @@ expect_health_status "ready" "$BASE_URL/ready"
 
 echo "[release-smoke] check 3/11: docs center"
 expect_http_200 "docs center" "$BASE_URL/docs"
-if ! grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
-  echo "[release-smoke] FAIL: docs center did not return SPA shell" >&2
-  exit 1
-fi
-if grep -q '/swagger/index.html' /tmp/ai-gateway-smoke-body.txt; then
-  echo "[release-smoke] FAIL: docs center should not redirect to swagger" >&2
-  exit 1
-fi
+assert_spa_shell "docs center" "$SMOKE_BODY_FILE" true
 
 echo "[release-smoke] check 4/11: docs center trailing slash"
 expect_http_200 "docs center trailing slash" "$BASE_URL/docs/"
-if ! grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
-  echo "[release-smoke] FAIL: docs center trailing slash did not return SPA shell" >&2
-  exit 1
-fi
-if grep -q '/swagger/index.html' /tmp/ai-gateway-smoke-body.txt; then
-  echo "[release-smoke] FAIL: docs center trailing slash should not redirect to swagger" >&2
-  exit 1
-fi
+assert_spa_shell "docs center trailing slash" "$SMOKE_BODY_FILE" true
 
 echo "[release-smoke] check 5/11: swagger root redirect"
-swaggerCode="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -D /tmp/ai-gateway-smoke-headers.txt -w "%{http_code}" "$BASE_URL/swagger")"
-swaggerLocationLine="$(grep -i '^Location:' /tmp/ai-gateway-smoke-headers.txt | tr -d '\r' || true)"
+swaggerCode="$(curl_status_with_headers "$BASE_URL/swagger")"
+swaggerLocationLine="$(grep -i '^Location:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
 if [ "$swaggerCode" != "302" ] || [ "$swaggerLocationLine" != "Location: /swagger/index.html" ]; then
   echo "[release-smoke] FAIL: swagger root redirect check failed code=$swaggerCode location=$swaggerLocationLine expected='Location: /swagger/index.html'" >&2
   exit 1
 fi
 echo "[release-smoke] PASS: swagger root redirect => $swaggerLocationLine"
 
-swaggerSlashCode="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -D /tmp/ai-gateway-smoke-headers.txt -w "%{http_code}" "$BASE_URL/swagger/")"
-swaggerSlashLocationLine="$(grep -i '^Location:' /tmp/ai-gateway-smoke-headers.txt | tr -d '\r' || true)"
+swaggerSlashCode="$(curl_status_with_headers "$BASE_URL/swagger/")"
+swaggerSlashLocationLine="$(grep -i '^Location:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
 if [ "$swaggerSlashCode" != "302" ] || [ "$swaggerSlashLocationLine" != "Location: /swagger/index.html" ]; then
   echo "[release-smoke] FAIL: swagger trailing slash redirect check failed code=$swaggerSlashCode location=$swaggerSlashLocationLine expected='Location: /swagger/index.html'" >&2
   exit 1
@@ -159,13 +186,13 @@ echo "[release-smoke] PASS: swagger trailing slash redirect => $swaggerSlashLoca
 
 echo "[release-smoke] check 6/11: trace page asset"
 expect_http_200 "trace page" "$BASE_URL$TRACE_PATH"
-TRACE_ASSET="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/ai-gateway-smoke-body.txt | head -1 || true)"
+TRACE_ASSET="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' "$SMOKE_BODY_FILE" | head -1 || true)"
 if [ -z "$TRACE_ASSET" ]; then
   echo "[release-smoke] FAIL: trace page missing asset reference" >&2
   exit 1
 fi
 expect_http_200 "trace asset" "$BASE_URL$TRACE_ASSET"
-if grep -qi '<!doctype html' /tmp/ai-gateway-smoke-body.txt; then
+if grep -qi '<!doctype html' "$SMOKE_BODY_FILE"; then
   echo "[release-smoke] FAIL: trace asset returned html" >&2
   exit 1
 fi
@@ -193,8 +220,8 @@ echo "[release-smoke] PASS: cache backend => $CACHE_BACKEND_LINE"
 
 echo "[release-smoke] check 11/11: cors whitelist (optional)"
 if [ -n "$ALLOWED_ORIGIN" ]; then
-  code="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -D /tmp/ai-gateway-smoke-headers.txt -w "%{http_code}" -H "Origin: $ALLOWED_ORIGIN" "$BASE_URL/health")"
-  allowedHeader="$(grep -i '^Access-Control-Allow-Origin:' /tmp/ai-gateway-smoke-headers.txt | awk '{print $2}' | tr -d '\r' || true)"
+  code="$(curl_status_with_headers "$BASE_URL/health" -H "Origin: $ALLOWED_ORIGIN")"
+  allowedHeader="$(grep -i '^Access-Control-Allow-Origin:' "$SMOKE_HEADER_FILE" | awk '{print $2}' | tr -d '\r' || true)"
   if [ "$code" != "200" ] || [ "$allowedHeader" != "$ALLOWED_ORIGIN" ]; then
     echo "[release-smoke] FAIL: cors allowed origin check failed code=$code allow_origin=$allowedHeader expected=$ALLOWED_ORIGIN" >&2
     exit 1
@@ -205,7 +232,7 @@ else
 fi
 
 if [ -n "$BLOCKED_ORIGIN" ]; then
-  code="$(curl -s -o /tmp/ai-gateway-smoke-body.txt -w "%{http_code}" -H "Origin: $BLOCKED_ORIGIN" "$BASE_URL/health" || true)"
+  code="$(curl_status "$BASE_URL/health" -H "Origin: $BLOCKED_ORIGIN")"
   if [ "$code" != "403" ]; then
     echo "[release-smoke] FAIL: cors blocked origin should be 403 code=$code origin=$BLOCKED_ORIGIN" >&2
     exit 1

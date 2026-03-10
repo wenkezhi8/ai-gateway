@@ -133,6 +133,12 @@ nano .env
 | `MAX_REQUEST_SIZE` | 10 | 最大请求体大小（MB） |
 | `CORS_ALLOW_ORIGINS` | * | CORS 白名单，逗号分隔；生产建议显式列出允许域名 |
 
+`CORS_ALLOW_ORIGINS` 规则说明：
+- 空字符串或 `*` 表示允许全部。
+- 仅包含空白或逗号的无效白名单会拒绝跨域请求，而不是回退到允许全部。
+- 正确示例：`CORS_ALLOW_ORIGINS=https://console.example.com,https://ops.example.com`
+- 错误示例：`CORS_ALLOW_ORIGINS= ,   ,`
+
 ---
 
 ## 监控配置（可选）
