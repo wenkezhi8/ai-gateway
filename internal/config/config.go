@@ -26,8 +26,9 @@ type Config struct {
 
 // ServerConfig holds HTTP server configuration.
 type ServerConfig struct {
-	Port string `json:"port"`
-	Mode string `json:"mode"`
+	Port             string `json:"port"`
+	Mode             string `json:"mode"`
+	CORSAllowOrigins string `json:"cors_allow_origins"`
 }
 
 // RedisConfig holds Redis connection configuration.

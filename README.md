@@ -64,7 +64,10 @@ Configuration is managed via `configs/config.json`. Environment variables can ov
 The dashboard supports 3 editions: `basic`, `standard`, and `enterprise`.
 
 - Switch path: `Settings -> 版本管理`
-- Default: `standard`
+- Local example config default: `standard`
+- Production template default: `basic`
+- Basic edition does not require Redis by default
+- Redis Stack is required when `vector_cache.enabled=true`
 - Guide: `docs/EDITION-GUIDE.md`
 - `Ollama 管理` 页面：标准版与企业版可见（侧边栏菜单）
 - `向量管理` / `知识库` 入口：仅企业版可见（Header 入口）
@@ -83,6 +86,7 @@ Related admin APIs:
 | `CONFIG_PATH` | Path to config file (default: `./configs/config.json`) |
 | `SERVER_PORT` | Server port (default: `8566`) |
 | `GIN_MODE` | Gin mode: `debug` or `release` |
+| `CORS_ALLOW_ORIGINS` | CORS allowlist, comma-separated origins (default: `*`) |
 | `REDIS_HOST` | Redis host |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |

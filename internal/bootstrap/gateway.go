@@ -366,11 +366,20 @@ func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Confi
 	cacheManager.UpdateSettings(settings)
 }
 
-func StartMetricsServer(logger *logrus.Logger) *http.Server {
+func metricsListenAddr() string {
 	metricsPort := os.Getenv("METRICS_PORT")
 	if metricsPort == "" {
 		metricsPort = "9090"
 	}
+	metricsHost := os.Getenv("METRICS_HOST")
+	if metricsHost == "" {
+		metricsHost = "127.0.0.1"
+	}
+	return metricsHost + ":" + metricsPort
+}
+
+func StartMetricsServer(logger *logrus.Logger) *http.Server {
+	listenAddr := metricsListenAddr()
 
 	metrics.Init()
 	metricsRouter := gin.New()
@@ -384,7 +393,7 @@ func StartMetricsServer(logger *logrus.Logger) *http.Server {
 	})
 
 	metricsSrv := &http.Server{
-		Addr:         ":" + metricsPort,
+		Addr:         listenAddr,
 		Handler:      metricsRouter,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -392,7 +401,7 @@ func StartMetricsServer(logger *logrus.Logger) *http.Server {
 	}
 
 	go func() {
-		logger.Infof("Starting metrics server on port %s", metricsPort)
+		logger.Infof("Starting metrics server on %s", listenAddr)
 		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.WithError(err).Warn("Failed to start metrics server")
 		}
