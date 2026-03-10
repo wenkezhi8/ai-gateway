@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"ai-gateway/internal/audit"
@@ -367,11 +368,11 @@ func applyCacheSettingsFromConfig(cacheManager *cache.Manager, cfg *config.Confi
 }
 
 func metricsListenAddr() string {
-	metricsPort := os.Getenv("METRICS_PORT")
+	metricsPort := strings.TrimSpace(os.Getenv("METRICS_PORT"))
 	if metricsPort == "" {
 		metricsPort = "9090"
 	}
-	metricsHost := os.Getenv("METRICS_HOST")
+	metricsHost := strings.TrimSpace(os.Getenv("METRICS_HOST"))
 	if metricsHost == "" {
 		metricsHost = "127.0.0.1"
 	}
