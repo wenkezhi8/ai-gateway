@@ -107,7 +107,10 @@ func TestReleaseSmokeScript_HealthCurlShouldNotAbortOnConnectionError(t *testing
 	checks := []string{
 		"curl_status() {",
 		"local url=\"$1\"",
-		"curl -s -o /tmp/ai-gateway-smoke-body.txt -w \"%{http_code}\" \"$url\" || true",
+		"CURL_ARGS=(",
+		"-o \"$SMOKE_BODY_FILE\"",
+		"-w \"%{http_code}\"",
+		"\"$url\" || true",
 	}
 	for _, needle := range checks {
 		if !strings.Contains(text, needle) {
@@ -125,7 +128,7 @@ func TestReleaseSmokeScript_ConnectionFailureMessageShouldBeDeterministic(t *tes
 	text := string(content)
 
 	checks := []string{
-		": > /tmp/ai-gateway-smoke-body.txt",
+		": > \"$SMOKE_BODY_FILE\"",
 		"if [ \"$code\" = \"000\" ]; then",
 		"connection failed url=$url",
 	}
@@ -166,6 +169,57 @@ func TestReleaseSmokeScript_ClosedEndpointCheckShouldFailOnConnectionError(t *te
 	}
 }
 
+func TestReleaseSmokeScript_UsesSharedSPAShellAssertionAndTempFiles(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"SMOKE_BODY_FILE=",
+		"SMOKE_HEADER_FILE=",
+		"cleanup_smoke_files() {",
+		"trap cleanup_smoke_files EXIT",
+		"assert_spa_shell() {",
+		"assert_spa_shell \"docs center\"",
+		"assert_spa_shell \"docs center trailing slash\"",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+	if strings.Contains(text, ": > /tmp/ai-gateway-smoke-body.txt") {
+		t.Fatal("release-smoke.sh should no longer hardcode /tmp body temp file directly")
+	}
+}
+
+func TestReleaseAcceptanceScript_PrefightsRuntimeSmokeConnectivity(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
+	if err != nil {
+		t.Fatalf("read release-acceptance.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"preflight_runtime_smoke_connectivity() {",
+		"SKIP: runtime smoke connectivity preflight detected limited network environment",
+		"curl command is unavailable",
+		"Could not resolve host",
+		"Network is unreachable",
+		"Connection timed out",
+		"gate 5/5: runtime smoke skipped by connectivity preflight",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-acceptance.sh must contain %q", needle)
+		}
+	}
+}
+
 func TestOpsDocsAndVerifyScript_DescribeLocalOnlyMetricsPolicy(t *testing.T) {
 	root := projectRoot(t)
 
@@ -195,6 +249,10 @@ func TestOpsDocsAndVerifyScript_DescribeLocalOnlyMetricsPolicy(t *testing.T) {
 		"仅监听本机",
 		"`CORS_ALLOW_ORIGINS`",
 		"CORS 白名单",
+		"空字符串或 `*` 表示允许全部",
+		"仅包含空白或逗号的无效白名单会拒绝跨域请求",
+		"CORS_ALLOW_ORIGINS=https://console.example.com,https://ops.example.com",
+		"CORS_ALLOW_ORIGINS= ,   ,",
 	}
 	for _, needle := range envChecks {
 		if !strings.Contains(envText, needle) {

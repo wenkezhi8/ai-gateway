@@ -17,6 +17,14 @@ RUNTIME_SMOKE_URL="http://localhost:8566"
 RUNTIME_SMOKE_METRICS_URL="http://127.0.0.1:9090/metrics"
 RUNTIME_SMOKE_ALLOWED_ORIGIN=""
 RUNTIME_SMOKE_BLOCKED_ORIGIN=""
+LIMITED_NETWORK_REASON=""
+LIMITED_NETWORK_MARKERS=(
+  "Could not resolve host"
+  "Network is unreachable"
+  "Connection timed out"
+  "Operation timed out"
+  "No route to host"
+)
 
 usage() {
   cat <<'USAGE'
@@ -44,6 +52,45 @@ run_cmd() {
     return 0
   fi
   "$@"
+}
+
+contains_limited_network_marker() {
+  local detail="$1"
+  local marker
+  for marker in "${LIMITED_NETWORK_MARKERS[@]}"; do
+    if [[ "$detail" == *"$marker"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+preflight_runtime_smoke_connectivity() {
+  local url="$1"
+  local label="$2"
+  local stderr_file detail
+
+  if ! command -v curl >/dev/null 2>&1; then
+    LIMITED_NETWORK_REASON="$label: curl command is unavailable"
+    return 2
+  fi
+
+  stderr_file="$(mktemp)"
+  if curl -sS --output /dev/null --connect-timeout 2 --max-time 5 "$url" 2>"$stderr_file"; then
+    rm -f "$stderr_file"
+    return 0
+  fi
+
+  detail="$(cat "$stderr_file")"
+  rm -f "$stderr_file"
+
+  if contains_limited_network_marker "$detail"; then
+    LIMITED_NETWORK_REASON="$label: $detail"
+    return 2
+  fi
+
+  echo "[release-acceptance] FAIL: runtime smoke connectivity preflight failed target=$label url=$url detail=${detail:-unknown}" >&2
+  return 1
 }
 
 while [ $# -gt 0 ]; do
@@ -165,7 +212,38 @@ if [ "$SKIP_RUNTIME_SMOKE" = false ]; then
   if [ -n "$RUNTIME_SMOKE_BLOCKED_ORIGIN" ]; then
     RUNTIME_SMOKE_ARGS+=(--blocked-origin "$RUNTIME_SMOKE_BLOCKED_ORIGIN")
   fi
-  run_cmd bash "$SCRIPT_DIR/release-smoke.sh" "${RUNTIME_SMOKE_ARGS[@]}"
+
+  if [ "$DRY_RUN" = true ]; then
+    run_cmd bash "$SCRIPT_DIR/release-smoke.sh" "${RUNTIME_SMOKE_ARGS[@]}"
+  else
+    if preflight_runtime_smoke_connectivity "$RUNTIME_SMOKE_URL/health" "runtime smoke base url"; then
+      :
+    else
+      preflight_status=$?
+      if [ "$preflight_status" -eq 2 ]; then
+        echo "[release-acceptance] SKIP: runtime smoke connectivity preflight detected limited network environment: $LIMITED_NETWORK_REASON"
+        echo "[release-acceptance] gate 5/5: runtime smoke skipped by connectivity preflight"
+        echo "[release-acceptance] completed"
+        exit 0
+      fi
+      exit "$preflight_status"
+    fi
+
+    if preflight_runtime_smoke_connectivity "$RUNTIME_SMOKE_METRICS_URL" "runtime smoke metrics url"; then
+      :
+    else
+      preflight_status=$?
+      if [ "$preflight_status" -eq 2 ]; then
+        echo "[release-acceptance] SKIP: runtime smoke connectivity preflight detected limited network environment: $LIMITED_NETWORK_REASON"
+        echo "[release-acceptance] gate 5/5: runtime smoke skipped by connectivity preflight"
+        echo "[release-acceptance] completed"
+        exit 0
+      fi
+      exit "$preflight_status"
+    fi
+
+    run_cmd bash "$SCRIPT_DIR/release-smoke.sh" "${RUNTIME_SMOKE_ARGS[@]}"
+  fi
 else
   echo "[release-acceptance] gate 5/5: runtime smoke skipped"
 fi

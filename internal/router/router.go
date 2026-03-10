@@ -227,7 +227,7 @@ func NewFullWithConfig(
 		// SPA fallback - only serve index.html for frontend routes, never for debug/metrics/api paths.
 		r.NoRoute(func(c *gin.Context) {
 			path := c.Request.URL.Path
-			if strings.HasPrefix(path, "/api/") || strings.HasPrefix(path, "/v1/") || strings.HasPrefix(path, "/swagger") || strings.HasPrefix(path, "/debug/") || path == "/debug" || path == "/metrics" || strings.HasPrefix(path, "/metrics/") {
+			if docs.IsSPAFallbackExcludedPath(path) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
 			}
