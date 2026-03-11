@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -373,10 +374,19 @@ func metricsListenAddr() string {
 		metricsPort = "9090"
 	}
 	metricsHost := strings.TrimSpace(os.Getenv("METRICS_HOST"))
-	if metricsHost == "" {
+	if metricsHost == "" || !isLocalMetricsHost(metricsHost) {
 		metricsHost = "127.0.0.1"
 	}
-	return metricsHost + ":" + metricsPort
+	return net.JoinHostPort(metricsHost, metricsPort)
+}
+
+func isLocalMetricsHost(host string) bool {
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func StartMetricsServer(logger *logrus.Logger) *http.Server {

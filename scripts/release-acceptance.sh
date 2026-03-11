@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "$SCRIPT_DIR/lib/cors.sh"
 
 DRY_RUN=false
 SKIP_BACKEND=false
@@ -15,14 +16,21 @@ BASE_BRANCH="main"
 PR_NUMBER=""
 RUNTIME_SMOKE_URL="http://localhost:8566"
 RUNTIME_SMOKE_METRICS_URL="http://127.0.0.1:9090/metrics"
+RUNTIME_SMOKE_SWAGGER_JSON_URL=""
 RUNTIME_SMOKE_ALLOWED_ORIGIN=""
 RUNTIME_SMOKE_BLOCKED_ORIGIN=""
+RUNTIME_SMOKE_CORS_FROM_ENV=false
+RUNTIME_SMOKE_CORS_BLOCKED_ORIGIN="https://blocked.invalid"
+SPAWN_GATEWAY=false
+SPAWN_GATEWAY_SKIP_WEB_BUILD=false
 LIMITED_NETWORK_REASON=""
 LIMITED_NETWORK_MARKERS=(
   "Could not resolve host"
   "Network is unreachable"
   "Connection timed out"
   "Operation timed out"
+  "Operation not permitted"
+  "Failed to connect to"
   "No route to host"
 )
 
@@ -38,8 +46,13 @@ Options:
   --skip-runtime-smoke     Skip release-smoke.sh runtime verification.
   --runtime-smoke-url <u>  Base URL for runtime smoke (default: http://localhost:8566).
   --runtime-smoke-metrics-url <u>  Metrics URL for runtime smoke (default: http://127.0.0.1:9090/metrics).
+  --runtime-smoke-swagger-json-url <u>  Swagger JSON URL for runtime smoke (default: <base-url>/swagger/doc.json).
   --runtime-smoke-allowed-origin <o>  Allowed Origin passed to release smoke CORS check.
   --runtime-smoke-blocked-origin <o>  Blocked Origin passed to release smoke CORS check.
+  --runtime-smoke-cors-from-env   Auto map CORS_ALLOW_ORIGINS to runtime smoke allow/block origins.
+  --runtime-smoke-cors-blocked-origin <o>  Override blocked origin used with --runtime-smoke-cors-from-env.
+  --spawn-gateway          Start gateway in same session via dev-restart.sh before runtime smoke.
+  --spawn-gateway-skip-web-build  Use with --spawn-gateway to skip web build during restart.
   --allow-missing-pr       Allow delivery status without PR detection.
   --base-branch <branch>   Base branch for delivery status (default: main).
   --pr <number>            Pull request number for merged-state validation.
@@ -93,6 +106,16 @@ preflight_runtime_smoke_connectivity() {
   return 1
 }
 
+validate_feature_branch_name() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+  if [[ ! "$branch" =~ ^codex/feature/ ]]; then
+    echo "[release-acceptance] FAIL: release-acceptance should run on feature branch (expected prefix: codex/feature/, current=$branch)" >&2
+    return 1
+  fi
+  return 0
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)
@@ -123,6 +146,10 @@ while [ $# -gt 0 ]; do
       RUNTIME_SMOKE_METRICS_URL="${2:-}"
       shift 2
       ;;
+    --runtime-smoke-swagger-json-url)
+      RUNTIME_SMOKE_SWAGGER_JSON_URL="${2:-}"
+      shift 2
+      ;;
     --runtime-smoke-allowed-origin)
       RUNTIME_SMOKE_ALLOWED_ORIGIN="${2:-}"
       shift 2
@@ -130,6 +157,22 @@ while [ $# -gt 0 ]; do
     --runtime-smoke-blocked-origin)
       RUNTIME_SMOKE_BLOCKED_ORIGIN="${2:-}"
       shift 2
+      ;;
+    --runtime-smoke-cors-from-env)
+      RUNTIME_SMOKE_CORS_FROM_ENV=true
+      shift
+      ;;
+    --runtime-smoke-cors-blocked-origin)
+      RUNTIME_SMOKE_CORS_BLOCKED_ORIGIN="${2:-}"
+      shift 2
+      ;;
+    --spawn-gateway)
+      SPAWN_GATEWAY=true
+      shift
+      ;;
+    --spawn-gateway-skip-web-build)
+      SPAWN_GATEWAY_SKIP_WEB_BUILD=true
+      shift
       ;;
     --allow-missing-pr)
       ALLOW_MISSING_PR=true
@@ -160,6 +203,10 @@ echo "  project_root: $PROJECT_ROOT"
 echo "  dry_run: $DRY_RUN"
 
 cd "$PROJECT_ROOT"
+
+if [ "$DRY_RUN" = false ]; then
+  validate_feature_branch_name
+fi
 
 echo "[release-acceptance] gate 1/5: git 提交证据三连"
 run_cmd git rev-parse --short HEAD
@@ -205,7 +252,39 @@ fi
 
 if [ "$SKIP_RUNTIME_SMOKE" = false ]; then
   echo "[release-acceptance] gate 5/5: runtime smoke"
+
+  cors_allow_origins="${CORS_ALLOW_ORIGINS:-}"
+  cors_allow_origins_trimmed="$(cors_normalize_csv "$cors_allow_origins")"
+
+  if [ "$RUNTIME_SMOKE_CORS_FROM_ENV" = true ] && [ -n "$cors_allow_origins_trimmed" ] && ! cors_allows_all_origins "$cors_allow_origins"; then
+    mapped_origin="$(cors_first_specific_origin "$cors_allow_origins" || true)"
+    if [ -n "$mapped_origin" ]; then
+      RUNTIME_SMOKE_ALLOWED_ORIGIN="$mapped_origin"
+      if [ -z "$RUNTIME_SMOKE_BLOCKED_ORIGIN" ]; then
+        RUNTIME_SMOKE_BLOCKED_ORIGIN="$RUNTIME_SMOKE_CORS_BLOCKED_ORIGIN"
+      fi
+    fi
+  fi
+
+  if [ -n "$cors_allow_origins_trimmed" ] && ! cors_allows_all_origins "$cors_allow_origins"; then
+    if [ -z "$RUNTIME_SMOKE_ALLOWED_ORIGIN" ] || [ -z "$RUNTIME_SMOKE_BLOCKED_ORIGIN" ]; then
+      echo "[release-acceptance] FAIL: runtime smoke CORS whitelist is enabled (CORS_ALLOW_ORIGINS=$cors_allow_origins); --runtime-smoke-allowed-origin and --runtime-smoke-blocked-origin are required together" >&2
+      exit 1
+    fi
+  fi
+
+  if [ "$SPAWN_GATEWAY" = true ]; then
+    if [ "$SPAWN_GATEWAY_SKIP_WEB_BUILD" = true ]; then
+      run_cmd bash "$SCRIPT_DIR/dev-restart.sh" --skip-web-build
+    else
+      run_cmd bash "$SCRIPT_DIR/dev-restart.sh"
+    fi
+  fi
+
   RUNTIME_SMOKE_ARGS=(--base-url "$RUNTIME_SMOKE_URL" --metrics-url "$RUNTIME_SMOKE_METRICS_URL")
+  if [ -n "$RUNTIME_SMOKE_SWAGGER_JSON_URL" ]; then
+    RUNTIME_SMOKE_ARGS+=(--swagger-json-url "$RUNTIME_SMOKE_SWAGGER_JSON_URL")
+  fi
   if [ -n "$RUNTIME_SMOKE_ALLOWED_ORIGIN" ]; then
     RUNTIME_SMOKE_ARGS+=(--allowed-origin "$RUNTIME_SMOKE_ALLOWED_ORIGIN")
   fi

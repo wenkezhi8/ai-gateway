@@ -1,6 +1,6 @@
 #!/bin/bash
 # 开发完成后重启脚本（严格模式）
-# 使用方法: ./scripts/dev-restart.sh
+# 使用方法: ./scripts/dev-restart.sh [--skip-web-build]
 
 set -euo pipefail
 
@@ -11,6 +11,37 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 source "$SCRIPT_DIR/lib/container-names.sh"
 source "$SCRIPT_DIR/lib/edition-runtime.sh"
 source "$SCRIPT_DIR/lib/dependency-manager.sh"
+
+SKIP_WEB_BUILD=false
+POST_START_PROBE_DELAY_SECONDS=5
+
+usage() {
+  cat <<'USAGE'
+Usage: ./scripts/dev-restart.sh [options]
+
+Options:
+  --skip-web-build    Skip frontend build step for faster backend-only restart.
+  -h, --help          Show this help message.
+USAGE
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --skip-web-build)
+      SKIP_WEB_BUILD=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
 
 cd "$PROJECT_DIR"
 
@@ -42,6 +73,11 @@ if [ -z "$SERVER_PORT" ]; then
     SERVER_PORT="8566"
 fi
 
+HEALTH_URL="http://localhost:$SERVER_PORT/health"
+READY_URL="http://localhost:$SERVER_PORT/ready"
+TRACE_URL="http://localhost:$SERVER_PORT/trace"
+
+
 echo "🧭 当前版本策略: edition=$EDITION_TYPE runtime=$EDITION_RUNTIME redis=$REDIS_VERSION ollama=$OLLAMA_VERSION qdrant=$QDRANT_VERSION"
 echo ""
 echo "🔌 按版本策略准备依赖..."
@@ -49,9 +85,13 @@ ensure_required_running
 stop_non_required
 validate_required_health
 
-echo "🔨 构建前端..."
-cd web
-npm run build
+if [ "$SKIP_WEB_BUILD" = false ]; then
+    echo "🔨 构建前端..."
+    cd web
+    npm run build
+else
+    echo "⏭️  跳过前端构建（--skip-web-build）"
+fi
 
 echo ""
 echo "🔨 构建后端二进制..."
@@ -95,7 +135,7 @@ echo "⏳ 等待服务启动 (PID: $GATEWAY_PID)..."
 HEALTH=""
 MAX_WAIT_SECONDS=30
 for ((i=1; i<=MAX_WAIT_SECONDS; i++)); do
-    HEALTH=$(curl -s --max-time 2 "http://localhost:$SERVER_PORT/health" || true)
+    HEALTH=$(curl -s --max-time 2 "$HEALTH_URL" || true)
     if echo "$HEALTH" | grep -q "healthy"; then
         break
     fi
@@ -112,7 +152,7 @@ if echo "$HEALTH" | grep -q "healthy"; then
         exit 1
     fi
 
-    TRACE_HTML=$(curl -s "http://localhost:$SERVER_PORT/trace")
+    TRACE_HTML=$(curl -s "$TRACE_URL")
     TRACE_ASSET=$(echo "$TRACE_HTML" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1 || true)
     if [ -z "$TRACE_ASSET" ]; then
         echo "❌ /trace 未找到前端资产引用"
@@ -133,20 +173,52 @@ if echo "$HEALTH" | grep -q "healthy"; then
         echo "🧠 缓存后端:"
         echo "   $CACHE_BACKEND_LINE"
     fi
-    
+
     # 显示内存使用
     MEM=$(ps -p $GATEWAY_PID -o rss= 2>/dev/null | awk '{print int($1/1024) "MB"}')
     echo ""
     echo "📊 进程信息:"
     echo "   PID:  $GATEWAY_PID"
     echo "   内存: $MEM (物理内存)"
-    
+
+    echo ""
+    echo "🧪 二次探测: ${POST_START_PROBE_DELAY_SECONDS}s 后验证进程仍存活"
+    sleep "$POST_START_PROBE_DELAY_SECONDS"
+    if ! ps -p "$GATEWAY_PID" >/dev/null 2>&1; then
+        echo "❌ 进程在启动后 ${POST_START_PROBE_DELAY_SECONDS}s 内退出（启动即退出）"
+        tail -n 120 /tmp/ai-gateway.log || true
+        exit 1
+    fi
+    SECOND_HEALTH=$(curl -s --max-time 2 "$HEALTH_URL" || true)
+    if ! echo "$SECOND_HEALTH" | grep -q "healthy"; then
+        echo "❌ 二次探测失败：$HEALTH_URL 未返回 healthy"
+        tail -n 120 /tmp/ai-gateway.log || true
+        exit 1
+    fi
+    if ! lsof -iTCP:"$SERVER_PORT" -sTCP:LISTEN -ti >/dev/null 2>&1; then
+        echo "❌ 二次探测失败：端口 $SERVER_PORT 未持续监听"
+        exit 1
+    fi
+    echo "✅ 二次探测通过"
+
     echo ""
     echo "📌 访问地址:"
     echo "   - 首页:     http://localhost:$SERVER_PORT/"
     echo "   - 路由策略: http://localhost:$SERVER_PORT/routing"
     echo "   - 缓存管理: http://localhost:$SERVER_PORT/cache"
-    echo "   - 请求链路: http://localhost:$SERVER_PORT/trace"
+    echo "   - 请求链路: $TRACE_URL"
+
+    echo ""
+    echo "🔁 可复用健康检查 URL（供外部 shell 使用）:"
+    echo "   HEALTH_URL=$HEALTH_URL"
+    echo "   READY_URL=$READY_URL"
+
+    echo ""
+    echo "✅ 建议验收命令:"
+    echo "   curl -fsS $HEALTH_URL"
+    echo "   curl -fsS $READY_URL"
+    echo "   ./scripts/release-smoke.sh --base-url http://localhost:$SERVER_PORT"
+
     echo ""
     echo "⚠️  如果页面显示异常，请强制刷新浏览器:"
     echo "   Mac:     Cmd + Shift + R"
