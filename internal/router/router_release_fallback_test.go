@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"ai-gateway/internal/config"
-
-	"github.com/gin-gonic/gin"
 )
 
 func prepareStaticDirForRouterTest(t *testing.T) string {
@@ -49,13 +47,6 @@ func withRouterTestEnv(t *testing.T, staticDir string) {
 		}
 	}
 	t.Cleanup(deferFn)
-}
-
-func newReleaseRouterForTest(t *testing.T) *gin.Engine {
-	t.Helper()
-	return NewFullWithConfig(&config.Config{
-		Server: config.ServerConfig{Mode: "release", Port: "8566"},
-	}, &RouterConfig{EnableSwagger: false}, nil, nil, nil)
 }
 
 func TestNewFullWithConfig_ReleaseMode_DebugRoutesShouldNotFallBackToSPA(t *testing.T) {
