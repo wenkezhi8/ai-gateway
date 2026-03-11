@@ -391,7 +391,7 @@ func isInternalMetricsHost(host string) bool {
 		return false
 	}
 
-	return parsedIP.IsLoopback() || parsedIP.IsPrivate()
+	return parsedIP.IsLoopback()
 }
 
 func StartMetricsServer(logger *logrus.Logger) *http.Server {

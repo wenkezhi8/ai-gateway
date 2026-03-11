@@ -88,7 +88,7 @@ func TestMetricsListenAddr_AllowsExplicitLocalhostHosts(t *testing.T) {
 	}
 }
 
-func TestMetricsListenAddr_AllowsPrivateNetworkHosts(t *testing.T) {
+func TestMetricsListenAddr_RejectsPrivateNetworkHostsAndFallsBackLoopback(t *testing.T) {
 	prevPort, hadPort := os.LookupEnv("METRICS_PORT")
 	prevHost, hadHost := os.LookupEnv("METRICS_HOST")
 	defer func() {
@@ -109,10 +109,10 @@ func TestMetricsListenAddr_AllowsPrivateNetworkHosts(t *testing.T) {
 		host string
 		want string
 	}{
-		{name: "rfc1918 10", host: "10.10.8.12", want: "10.10.8.12:9090"},
-		{name: "rfc1918 172", host: "172.16.0.9", want: "172.16.0.9:9090"},
-		{name: "rfc1918 192", host: "192.168.31.7", want: "192.168.31.7:9090"},
-		{name: "ipv6 ula", host: "fd00::12", want: "[fd00::12]:9090"},
+		{name: "rfc1918 10", host: "10.10.8.12", want: "127.0.0.1:9090"},
+		{name: "rfc1918 172", host: "172.16.0.9", want: "127.0.0.1:9090"},
+		{name: "rfc1918 192", host: "192.168.31.7", want: "127.0.0.1:9090"},
+		{name: "ipv6 ula", host: "fd00::12", want: "127.0.0.1:9090"},
 	}
 
 	for _, tc := range cases {
