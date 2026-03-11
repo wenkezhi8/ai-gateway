@@ -19,6 +19,7 @@ RUNTIME_SMOKE_METRICS_URL="http://127.0.0.1:9090/metrics"
 RUNTIME_SMOKE_SWAGGER_JSON_URL=""
 RUNTIME_SMOKE_ALLOWED_ORIGIN=""
 RUNTIME_SMOKE_BLOCKED_ORIGIN=""
+RUNTIME_SMOKE_ALLOW_LIMITED_NETWORK_SKIP=false
 RUNTIME_SMOKE_CORS_FROM_ENV=false
 RUNTIME_SMOKE_CORS_BLOCKED_ORIGIN="https://blocked.invalid"
 SPAWN_GATEWAY=false
@@ -49,6 +50,7 @@ Options:
   --runtime-smoke-swagger-json-url <u>  Swagger JSON URL for runtime smoke (default: <base-url>/swagger/doc.json).
   --runtime-smoke-allowed-origin <o>  Allowed Origin passed to release smoke CORS check.
   --runtime-smoke-blocked-origin <o>  Blocked Origin passed to release smoke CORS check.
+  --runtime-smoke-allow-limited-network-skip  Pass --allow-limited-network-skip to release-smoke.sh.
   --runtime-smoke-cors-from-env   Auto map CORS_ALLOW_ORIGINS to runtime smoke allow/block origins.
   --runtime-smoke-cors-blocked-origin <o>  Override blocked origin used with --runtime-smoke-cors-from-env.
   --spawn-gateway          Start gateway in same session via dev-restart.sh before runtime smoke.
@@ -157,6 +159,10 @@ while [ $# -gt 0 ]; do
     --runtime-smoke-blocked-origin)
       RUNTIME_SMOKE_BLOCKED_ORIGIN="${2:-}"
       shift 2
+      ;;
+    --runtime-smoke-allow-limited-network-skip)
+      RUNTIME_SMOKE_ALLOW_LIMITED_NETWORK_SKIP=true
+      shift
       ;;
     --runtime-smoke-cors-from-env)
       RUNTIME_SMOKE_CORS_FROM_ENV=true
@@ -290,6 +296,9 @@ if [ "$SKIP_RUNTIME_SMOKE" = false ]; then
   fi
   if [ -n "$RUNTIME_SMOKE_BLOCKED_ORIGIN" ]; then
     RUNTIME_SMOKE_ARGS+=(--blocked-origin "$RUNTIME_SMOKE_BLOCKED_ORIGIN")
+  fi
+  if [ "$RUNTIME_SMOKE_ALLOW_LIMITED_NETWORK_SKIP" = true ]; then
+    RUNTIME_SMOKE_ARGS+=(--allow-limited-network-skip)
   fi
 
   if [ "$DRY_RUN" = true ]; then

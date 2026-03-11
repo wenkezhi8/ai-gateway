@@ -394,6 +394,26 @@ func TestReleaseAcceptanceScript_PrefightsRuntimeSmokeConnectivity(t *testing.T)
 	}
 }
 
+func TestReleaseAcceptanceScript_ExposesLimitedNetworkSkipToggleForRuntimeSmoke(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
+	if err != nil {
+		t.Fatalf("read release-acceptance.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--runtime-smoke-allow-limited-network-skip",
+		"RUNTIME_SMOKE_ALLOW_LIMITED_NETWORK_SKIP=false",
+		"RUNTIME_SMOKE_ARGS+=(--allow-limited-network-skip)",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-acceptance.sh must contain %q", needle)
+		}
+	}
+}
+
 func TestReleaseAcceptanceScript_RequiresCorsRuntimeSmokeArgsWhenWhitelistEnabled(t *testing.T) {
 	root := projectRoot(t)
 	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
