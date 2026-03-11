@@ -306,6 +306,17 @@ assert_spa_shell() {
   fi
 }
 
+assert_swagger_ui_shell() {
+  local name="$1"
+  local body_file="$2"
+
+  if ! grep -q 'SwaggerUIBundle' "$body_file"; then
+    echo "[release-smoke] FAIL: swagger index should expose swagger ui marker" >&2
+    exit 1
+  fi
+  echo "[release-smoke] PASS: swagger index should expose swagger ui marker"
+}
+
 assert_docs_not_swagger_semantics() {
   local name="$1"
   local body_file="$2"
@@ -419,6 +430,7 @@ echo "[release-smoke] PASS: swagger trailing slash redirect => $swaggerSlashLoca
 
 log_check 6 "swagger index page"
 expect_http_200 "swagger index page" "$BASE_URL/swagger/index.html"
+assert_swagger_ui_shell "swagger index page" "$SMOKE_BODY_FILE"
 
 log_check 7 "swagger doc json"
 expect_json_200 "swagger doc json" "$SWAGGER_DOC_JSON_URL"

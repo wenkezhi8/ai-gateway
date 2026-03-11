@@ -320,6 +320,26 @@ func TestReleaseSmokeScript_DocsCenterShouldNotExposeRedirectHeaders(t *testing.
 	}
 }
 
+func TestReleaseSmokeScript_SwaggerIndexShouldExposeSwaggerUIMarker(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"swagger index should expose swagger ui marker",
+		"assert_swagger_ui_shell",
+		"SwaggerUIBundle",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
 func TestReleaseAcceptanceScript_PrefightsRuntimeSmokeConnectivity(t *testing.T) {
 	root := projectRoot(t)
 	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
