@@ -291,6 +291,12 @@ func TestReleaseSmokeScript_CorsWhitelistChecksPreflightSemantics(t *testing.T) 
 		"-H \"Access-Control-Request-Method: POST\"",
 		"cors allowed preflight check failed",
 		"cors blocked preflight should be 403",
+		"cors allowed origin vary check failed",
+		"cors allowed preflight vary check failed",
+		"cors blocked origin vary check failed",
+		"cors blocked preflight vary check failed",
+		"Vary:",
+		"Origin",
 	}
 	for _, needle := range checks {
 		if !strings.Contains(text, needle) {

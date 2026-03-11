@@ -536,16 +536,26 @@ log_check 13 "cors whitelist (optional)"
 if [ -n "$ALLOWED_ORIGIN" ]; then
   code="$(curl_status_with_headers "$BASE_URL/health" -H "Origin: $ALLOWED_ORIGIN")"
   allowedHeader="$(grep -i '^Access-Control-Allow-Origin:' "$SMOKE_HEADER_FILE" | awk '{print $2}' | tr -d '\r' || true)"
+  allowedVaryLine="$(grep -i '^Vary:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
   if [ "$code" != "200" ] || [ "$allowedHeader" != "$ALLOWED_ORIGIN" ]; then
     echo "[release-smoke] FAIL: cors allowed origin check failed code=$code allow_origin=$allowedHeader expected=$ALLOWED_ORIGIN" >&2
+    exit 1
+  fi
+  if [[ "$allowedVaryLine" != *"Origin"* ]]; then
+    echo "[release-smoke] FAIL: cors allowed origin vary check failed vary=$allowedVaryLine expected_contains=Origin" >&2
     exit 1
   fi
   echo "[release-smoke] PASS: cors allowed origin => $ALLOWED_ORIGIN"
 
   preflightAllowedCode="$(curl_status_with_headers "$BASE_URL/health" -X OPTIONS -H "Origin: $ALLOWED_ORIGIN" -H "Access-Control-Request-Method: POST")"
   preflightAllowedHeader="$(grep -i '^Access-Control-Allow-Origin:' "$SMOKE_HEADER_FILE" | awk '{print $2}' | tr -d '\r' || true)"
+  preflightAllowedVaryLine="$(grep -i '^Vary:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
   if [ "$preflightAllowedCode" != "204" ] || [ "$preflightAllowedHeader" != "$ALLOWED_ORIGIN" ]; then
     echo "[release-smoke] FAIL: cors allowed preflight check failed code=$preflightAllowedCode allow_origin=$preflightAllowedHeader expected=$ALLOWED_ORIGIN" >&2
+    exit 1
+  fi
+  if [[ "$preflightAllowedVaryLine" != *"Origin"* ]]; then
+    echo "[release-smoke] FAIL: cors allowed preflight vary check failed vary=$preflightAllowedVaryLine expected_contains=Origin" >&2
     exit 1
   fi
   echo "[release-smoke] PASS: cors allowed preflight => $ALLOWED_ORIGIN"
@@ -555,16 +565,26 @@ else
 fi
 
 if [ -n "$BLOCKED_ORIGIN" ]; then
-  code="$(curl_status "$BASE_URL/health" -H "Origin: $BLOCKED_ORIGIN")"
+  code="$(curl_status_with_headers "$BASE_URL/health" -H "Origin: $BLOCKED_ORIGIN")"
+  blockedVaryLine="$(grep -i '^Vary:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
   if [ "$code" != "403" ]; then
     echo "[release-smoke] FAIL: cors blocked origin should be 403 code=$code origin=$BLOCKED_ORIGIN" >&2
     exit 1
   fi
+  if [[ "$blockedVaryLine" != *"Origin"* ]]; then
+    echo "[release-smoke] FAIL: cors blocked origin vary check failed vary=$blockedVaryLine expected_contains=Origin" >&2
+    exit 1
+  fi
   echo "[release-smoke] PASS: cors blocked origin => $BLOCKED_ORIGIN"
 
-  preflightBlockedCode="$(curl_status "$BASE_URL/health" -X OPTIONS -H "Origin: $BLOCKED_ORIGIN" -H "Access-Control-Request-Method: POST")"
+  preflightBlockedCode="$(curl_status_with_headers "$BASE_URL/health" -X OPTIONS -H "Origin: $BLOCKED_ORIGIN" -H "Access-Control-Request-Method: POST")"
+  preflightBlockedVaryLine="$(grep -i '^Vary:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
   if [ "$preflightBlockedCode" != "403" ]; then
     echo "[release-smoke] FAIL: cors blocked preflight should be 403 code=$preflightBlockedCode origin=$BLOCKED_ORIGIN" >&2
+    exit 1
+  fi
+  if [[ "$preflightBlockedVaryLine" != *"Origin"* ]]; then
+    echo "[release-smoke] FAIL: cors blocked preflight vary check failed vary=$preflightBlockedVaryLine expected_contains=Origin" >&2
     exit 1
   fi
   echo "[release-smoke] PASS: cors blocked preflight => $BLOCKED_ORIGIN"
