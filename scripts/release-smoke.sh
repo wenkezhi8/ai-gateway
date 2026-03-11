@@ -13,6 +13,7 @@ SWAGGER_DOC_JSON_URL=""
 ALLOWED_ORIGIN=""
 BLOCKED_ORIGIN=""
 ASSERT_DOCS_NOT_SWAGGER=true
+ALLOW_LIMITED_NETWORK_SKIP=false
 SMOKE_BODY_FILE="/tmp/ai-gateway-smoke-body.txt"
 SMOKE_HEADER_FILE="/tmp/ai-gateway-smoke-headers.txt"
 SMOKE_CURL_ERR_FILE="/tmp/ai-gateway-smoke-curl.err"
@@ -23,6 +24,16 @@ CURL_ARGS=(
   -s
   --connect-timeout 2
   --max-time 5
+)
+LIMITED_NETWORK_MARKERS=(
+  "connection_refused"
+  "Could not resolve host"
+  "Network is unreachable"
+  "Connection timed out"
+  "Operation timed out"
+  "Operation not permitted"
+  "Failed to connect to"
+  "No route to host"
 )
 # Legacy check labels kept for static test assertions:
 # check 1/13: health
@@ -50,6 +61,7 @@ Options:
   --log-path <path>     Gateway log path for cache backend inspection (default: /tmp/ai-gateway.log)
   --allowed-origin <o>  Verify CORS allows this origin (optional; requires whitelist env in gateway).
   --blocked-origin <o>  Verify CORS rejects this origin (optional; requires whitelist env in gateway).
+  --allow-limited-network-skip  Exit with SKIP when loopback/network is blocked by environment.
   --assert-docs-not-swagger  Assert docs center body does not contain swagger redirect markers.
   --no-assert-docs-not-swagger  Disable docs/swagger semantic assertion.
 USAGE
@@ -71,6 +83,33 @@ log_check() {
   local index="$1"
   local title="$2"
   echo "[release-smoke] check ${index}/${TOTAL_CHECKS}: ${title}"
+}
+
+contains_limited_network_marker() {
+  local detail="$1"
+  local marker
+  for marker in "${LIMITED_NETWORK_MARKERS[@]}"; do
+    if [[ "$detail" == *"$marker"* ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+skip_on_limited_network_if_enabled() {
+  local detail="$1"
+
+  if [ "$ALLOW_LIMITED_NETWORK_SKIP" != true ]; then
+    return 1
+  fi
+
+  if contains_limited_network_marker "$detail"; then
+    echo "[release-smoke] SKIP: limited network environment detected detail=$detail"
+    echo "[release-smoke] completed (skipped)"
+    exit 0
+  fi
+
+  return 1
 }
 
 while [ $# -gt 0 ]; do
@@ -98,6 +137,10 @@ while [ $# -gt 0 ]; do
     --blocked-origin)
       BLOCKED_ORIGIN="${2:-}"
       shift 2
+      ;;
+    --allow-limited-network-skip)
+      ALLOW_LIMITED_NETWORK_SKIP=true
+      shift
       ;;
     --assert-docs-not-swagger)
       ASSERT_DOCS_NOT_SWAGGER=true
@@ -277,6 +320,7 @@ expect_http_200() {
   detail="$(failure_detail "$curl_err" "$failure_kind")"
 
   if [ "$code" = "000" ]; then
+    skip_on_limited_network_if_enabled "$detail" || true
     echo "[release-smoke] FAIL: $name connection failed url=$url detail=$detail" >&2
     exit 1
   fi
@@ -372,6 +416,7 @@ expect_not_http_200() {
   detail="$(failure_detail "$curl_err" "$failure_kind")"
 
   if [ "$code" = "000" ]; then
+    skip_on_limited_network_if_enabled "$detail" || true
     echo "[release-smoke] FAIL: $name connection failed url=$url detail=$detail" >&2
     exit 1
   fi

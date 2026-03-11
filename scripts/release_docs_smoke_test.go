@@ -340,6 +340,28 @@ func TestReleaseSmokeScript_SwaggerIndexShouldExposeSwaggerUIMarker(t *testing.T
 	}
 }
 
+func TestReleaseSmokeScript_AllowsOptionalLimitedNetworkSkip(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--allow-limited-network-skip",
+		"ALLOW_LIMITED_NETWORK_SKIP=false",
+		"contains_limited_network_marker() {",
+		"Operation not permitted",
+		"SKIP: limited network environment detected",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
 func TestReleaseAcceptanceScript_PrefightsRuntimeSmokeConnectivity(t *testing.T) {
 	root := projectRoot(t)
 	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
