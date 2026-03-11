@@ -87,9 +87,12 @@ func TestReleaseSmokeScript_HasFailureClassificationAndRetry(t *testing.T) {
 
 	checks := []string{
 		"classify_curl_failure() {",
+		"Operation not permitted",
 		"connection_refused",
 		"policy_blocked",
 		"business_failure",
+		"failure_detail() {",
+		"detail=\"$(failure_detail \"$curl_err\" \"$failure_kind\")\"",
 		"curl_status_with_retry() {",
 		"retrying on connection failure",
 	}

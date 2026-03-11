@@ -124,7 +124,7 @@ classify_curl_failure() {
   local code="$2"
 
   if [ "$code" = "000" ]; then
-    if [[ "$curl_detail" == *"Connection refused"* ]] || [[ "$curl_detail" == *"Failed to connect"* ]] || [[ "$curl_detail" == *"Connection reset by peer"* ]] || [[ "$curl_detail" == *"timed out"* ]] || [[ "$curl_detail" == *"No route to host"* ]]; then
+    if [[ "$curl_detail" == *"Connection refused"* ]] || [[ "$curl_detail" == *"Failed to connect"* ]] || [[ "$curl_detail" == *"Connection reset by peer"* ]] || [[ "$curl_detail" == *"timed out"* ]] || [[ "$curl_detail" == *"No route to host"* ]] || [[ "$curl_detail" == *"Operation not permitted"* ]]; then
       echo "connection_refused"
       return 0
     fi
@@ -142,6 +142,22 @@ classify_curl_failure() {
     return 0
   fi
 
+  echo "unknown"
+}
+
+failure_detail() {
+  local curl_detail="$1"
+  local failure_kind="$2"
+
+  curl_detail="$(printf "%s" "$curl_detail" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/^ //;s/ $//')"
+  if [ -n "$curl_detail" ]; then
+    echo "$curl_detail"
+    return 0
+  fi
+  if [ -n "$failure_kind" ] && [ "$failure_kind" != "unknown" ]; then
+    echo "$failure_kind"
+    return 0
+  fi
   echo "unknown"
 }
 
@@ -253,14 +269,15 @@ curl_status_with_headers() {
 expect_http_200() {
   local name="$1"
   local url="$2"
-  local code curl_err failure_kind
+  local code curl_err failure_kind detail
 
   code="$(curl_status "$url")"
   curl_err="$(cat "$SMOKE_CURL_ERR_FILE" 2>/dev/null || true)"
   failure_kind="$(classify_curl_failure "$curl_err" "$code")"
+  detail="$(failure_detail "$curl_err" "$failure_kind")"
 
   if [ "$code" = "000" ]; then
-    echo "[release-smoke] FAIL: $name connection failed url=$url detail=${curl_err:-unknown}" >&2
+    echo "[release-smoke] FAIL: $name connection failed url=$url detail=$detail" >&2
     exit 1
   fi
   if [ "$code" != "200" ]; then
@@ -347,14 +364,15 @@ expect_health_status() {
 expect_not_http_200() {
   local name="$1"
   local url="$2"
-  local code curl_err failure_kind
+  local code curl_err failure_kind detail
 
   code="$(curl_status "$url")"
   curl_err="$(cat "$SMOKE_CURL_ERR_FILE" 2>/dev/null || true)"
   failure_kind="$(classify_curl_failure "$curl_err" "$code")"
+  detail="$(failure_detail "$curl_err" "$failure_kind")"
 
   if [ "$code" = "000" ]; then
-    echo "[release-smoke] FAIL: $name connection failed url=$url detail=${curl_err:-unknown}" >&2
+    echo "[release-smoke] FAIL: $name connection failed url=$url detail=$detail" >&2
     exit 1
   fi
   if [ "$code" = "200" ]; then
