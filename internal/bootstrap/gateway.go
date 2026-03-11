@@ -374,19 +374,24 @@ func metricsListenAddr() string {
 		metricsPort = "9090"
 	}
 	metricsHost := strings.TrimSpace(os.Getenv("METRICS_HOST"))
-	if metricsHost == "" || !isLocalMetricsHost(metricsHost) {
+	if metricsHost == "" || !isInternalMetricsHost(metricsHost) {
 		metricsHost = "127.0.0.1"
 	}
 	return net.JoinHostPort(metricsHost, metricsPort)
 }
 
-func isLocalMetricsHost(host string) bool {
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
+func isInternalMetricsHost(host string) bool {
+	normalizedHost := strings.TrimSpace(strings.ToLower(host))
+	if normalizedHost == "localhost" {
 		return true
-	default:
+	}
+
+	parsedIP := net.ParseIP(normalizedHost)
+	if parsedIP == nil {
 		return false
 	}
+
+	return parsedIP.IsLoopback() || parsedIP.IsPrivate()
 }
 
 func StartMetricsServer(logger *logrus.Logger) *http.Server {

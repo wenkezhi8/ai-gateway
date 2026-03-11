@@ -276,6 +276,50 @@ func TestReleaseSmokeScript_RequiresCorsOriginsProvidedInPairs(t *testing.T) {
 	}
 }
 
+func TestReleaseSmokeScript_CorsWhitelistChecksPreflightSemantics(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"cors allowed preflight",
+		"cors blocked preflight",
+		"-X OPTIONS",
+		"-H \"Access-Control-Request-Method: POST\"",
+		"cors allowed preflight check failed",
+		"cors blocked preflight should be 403",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseSmokeScript_DocsCenterShouldNotExposeRedirectHeaders(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"docs center should not include redirect location header",
+		"docs center trailing slash should not include redirect location header",
+		"docsLocationLine=",
+		"docsSlashLocationLine=",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
 func TestReleaseAcceptanceScript_PrefightsRuntimeSmokeConnectivity(t *testing.T) {
 	root := projectRoot(t)
 	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))

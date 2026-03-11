@@ -369,12 +369,34 @@ log_check 2 "ready"
 expect_health_status "ready" "$BASE_URL/ready"
 
 log_check 3 "docs center"
-expect_http_200 "docs center" "$BASE_URL/docs"
+docsCode="$(curl_status_with_headers "$BASE_URL/docs")"
+docsLocationLine="$(grep -i '^Location:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
+if [ "$docsCode" != "200" ]; then
+  echo "[release-smoke] FAIL: docs center http_code=$docsCode url=$BASE_URL/docs" >&2
+  cat "$SMOKE_BODY_FILE" >&2 || true
+  exit 1
+fi
+if [ -n "$docsLocationLine" ]; then
+  echo "[release-smoke] FAIL: docs center should not include redirect location header got=$docsLocationLine" >&2
+  exit 1
+fi
+echo "[release-smoke] PASS: docs center should not include redirect location header"
 assert_spa_shell "docs center" "$SMOKE_BODY_FILE"
 assert_docs_not_swagger_semantics "docs center" "$SMOKE_BODY_FILE"
 
 log_check 4 "docs center trailing slash"
-expect_http_200 "docs center trailing slash" "$BASE_URL/docs/"
+docsSlashCode="$(curl_status_with_headers "$BASE_URL/docs/")"
+docsSlashLocationLine="$(grep -i '^Location:' "$SMOKE_HEADER_FILE" | tr -d '\r' || true)"
+if [ "$docsSlashCode" != "200" ]; then
+  echo "[release-smoke] FAIL: docs center trailing slash http_code=$docsSlashCode url=$BASE_URL/docs/" >&2
+  cat "$SMOKE_BODY_FILE" >&2 || true
+  exit 1
+fi
+if [ -n "$docsSlashLocationLine" ]; then
+  echo "[release-smoke] FAIL: docs center trailing slash should not include redirect location header got=$docsSlashLocationLine" >&2
+  exit 1
+fi
+echo "[release-smoke] PASS: docs center trailing slash should not include redirect location header"
 assert_spa_shell "docs center trailing slash" "$SMOKE_BODY_FILE"
 assert_docs_not_swagger_semantics "docs center trailing slash" "$SMOKE_BODY_FILE"
 
@@ -444,8 +466,17 @@ if [ -n "$ALLOWED_ORIGIN" ]; then
     exit 1
   fi
   echo "[release-smoke] PASS: cors allowed origin => $ALLOWED_ORIGIN"
+
+  preflightAllowedCode="$(curl_status_with_headers "$BASE_URL/health" -X OPTIONS -H "Origin: $ALLOWED_ORIGIN" -H "Access-Control-Request-Method: POST")"
+  preflightAllowedHeader="$(grep -i '^Access-Control-Allow-Origin:' "$SMOKE_HEADER_FILE" | awk '{print $2}' | tr -d '\r' || true)"
+  if [ "$preflightAllowedCode" != "204" ] || [ "$preflightAllowedHeader" != "$ALLOWED_ORIGIN" ]; then
+    echo "[release-smoke] FAIL: cors allowed preflight check failed code=$preflightAllowedCode allow_origin=$preflightAllowedHeader expected=$ALLOWED_ORIGIN" >&2
+    exit 1
+  fi
+  echo "[release-smoke] PASS: cors allowed preflight => $ALLOWED_ORIGIN"
 else
   echo "[release-smoke] SKIP: cors allowed origin"
+  echo "[release-smoke] SKIP: cors allowed preflight"
 fi
 
 if [ -n "$BLOCKED_ORIGIN" ]; then
@@ -455,8 +486,16 @@ if [ -n "$BLOCKED_ORIGIN" ]; then
     exit 1
   fi
   echo "[release-smoke] PASS: cors blocked origin => $BLOCKED_ORIGIN"
+
+  preflightBlockedCode="$(curl_status "$BASE_URL/health" -X OPTIONS -H "Origin: $BLOCKED_ORIGIN" -H "Access-Control-Request-Method: POST")"
+  if [ "$preflightBlockedCode" != "403" ]; then
+    echo "[release-smoke] FAIL: cors blocked preflight should be 403 code=$preflightBlockedCode origin=$BLOCKED_ORIGIN" >&2
+    exit 1
+  fi
+  echo "[release-smoke] PASS: cors blocked preflight => $BLOCKED_ORIGIN"
 else
   echo "[release-smoke] SKIP: cors blocked origin"
+  echo "[release-smoke] SKIP: cors blocked preflight"
 fi
 
 echo "[release-smoke] completed"
