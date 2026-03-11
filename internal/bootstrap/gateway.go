@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -373,14 +374,53 @@ func metricsListenAddr() string {
 		metricsPort = "9090"
 	}
 	metricsHost := strings.TrimSpace(os.Getenv("METRICS_HOST"))
-	if metricsHost == "" {
-		metricsHost = "127.0.0.1"
+	addr, _ := metricsListenAddrDecision(metricsHost, metricsPort)
+	return addr
+}
+
+func metricsListenAddrDecision(metricsHost, metricsPort string) (string, string) {
+	normalizedHost := strings.TrimSpace(metricsHost)
+	normalizedPort := strings.TrimSpace(metricsPort)
+
+	if normalizedPort == "" {
+		normalizedPort = "9090"
 	}
-	return metricsHost + ":" + metricsPort
+	if normalizedHost == "" {
+		return net.JoinHostPort("127.0.0.1", normalizedPort), ""
+	}
+	if isInternalMetricsHost(normalizedHost) {
+		return net.JoinHostPort(normalizedHost, normalizedPort), ""
+	}
+
+	addr := net.JoinHostPort("127.0.0.1", normalizedPort)
+	warning := "METRICS_HOST is not loopback; forcing metrics listen host to 127.0.0.1"
+	return addr, warning
+}
+
+func isInternalMetricsHost(host string) bool {
+	normalizedHost := strings.TrimSpace(strings.ToLower(host))
+	if normalizedHost == "localhost" {
+		return true
+	}
+
+	parsedIP := net.ParseIP(normalizedHost)
+	if parsedIP == nil {
+		return false
+	}
+
+	return parsedIP.IsLoopback()
 }
 
 func StartMetricsServer(logger *logrus.Logger) *http.Server {
-	listenAddr := metricsListenAddr()
+	metricsPort := strings.TrimSpace(os.Getenv("METRICS_PORT"))
+	metricsHost := strings.TrimSpace(os.Getenv("METRICS_HOST"))
+	listenAddr, listenWarning := metricsListenAddrDecision(metricsHost, metricsPort)
+	if listenWarning != "" {
+		logger.WithFields(logrus.Fields{
+			"configured_host": metricsHost,
+			"listen_addr":     listenAddr,
+		}).Warn(listenWarning)
+	}
 
 	metrics.Init()
 	metricsRouter := gin.New()

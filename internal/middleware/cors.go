@@ -20,12 +20,11 @@ func CORS() gin.HandlerFunc {
 
 		origin := strings.TrimSpace(c.GetHeader("Origin"))
 		if origin != "" {
+			c.Writer.Header().Set("Vary", "Origin")
 			if allowAllOrigins {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-				c.Writer.Header().Set("Vary", "Origin")
 			} else if isAllowedOrigin(origin, allowedOrigins) {
 				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-				c.Writer.Header().Set("Vary", "Origin")
 			} else {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "origin not allowed"})
 				return

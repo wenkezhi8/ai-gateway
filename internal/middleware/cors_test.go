@@ -164,6 +164,7 @@ func TestCORS_WhitelistRejectsUnknownOrigin(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", w.Header().Get("Vary"))
 }
 
 func TestCORS_WhitelistAllowsEmptyOriginForServerToServerCalls(t *testing.T) {
@@ -199,4 +200,5 @@ func TestCORS_WhitelistInvalidValueShouldRejectCrossOriginRequest(t *testing.T) 
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Empty(t, w.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "Origin", w.Header().Get("Vary"))
 }

@@ -1,4 +1,4 @@
-.PHONY: build run test clean docker-build docker-up docker-down \
+.PHONY: build run test test-safe clean docker-build docker-up docker-down \
         deps tidy fmt lint lint-fix security-scan ci-local \
         frontend-install frontend-build frontend-lint frontend-test \
         help
@@ -65,6 +65,11 @@ dev: ## Run in development mode with hot reload (requires air)
 test: ## Run all tests
 	@echo "$(BLUE)Running tests...$(NC)"
 	$(GOTEST) -v -race ./...
+
+test-safe: ## Run tests safe for sandbox/limited-port environments
+	@echo "$(BLUE)Running sandbox-safe tests...$(NC)"
+	$(GOTEST) -v ./scripts -count=1
+	$(GOTEST) -v ./internal/docs ./internal/bootstrap -count=1
 
 test-coverage: ## Run tests with coverage
 	@echo "$(BLUE)Running tests with coverage...$(NC)"

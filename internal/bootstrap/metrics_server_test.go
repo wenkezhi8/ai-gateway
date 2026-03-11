@@ -28,7 +28,7 @@ func TestMetricsListenAddr_DefaultsToLocalhost(t *testing.T) {
 	}
 }
 
-func TestMetricsListenAddr_UsesConfiguredHostAndPort(t *testing.T) {
+func TestMetricsListenAddr_RejectsNonLocalHostAndKeepsConfiguredPort(t *testing.T) {
 	prevPort, hadPort := os.LookupEnv("METRICS_PORT")
 	prevHost, hadHost := os.LookupEnv("METRICS_HOST")
 	_ = os.Setenv("METRICS_PORT", "9191")
@@ -46,8 +46,83 @@ func TestMetricsListenAddr_UsesConfiguredHostAndPort(t *testing.T) {
 		}
 	}()
 
-	if got := metricsListenAddr(); got != "0.0.0.0:9191" {
-		t.Fatalf("metrics listen addr = %q, want %q", got, "0.0.0.0:9191")
+	if got := metricsListenAddr(); got != "127.0.0.1:9191" {
+		t.Fatalf("metrics listen addr = %q, want %q", got, "127.0.0.1:9191")
+	}
+}
+
+func TestMetricsListenAddr_AllowsExplicitLocalhostHosts(t *testing.T) {
+	prevPort, hadPort := os.LookupEnv("METRICS_PORT")
+	prevHost, hadHost := os.LookupEnv("METRICS_HOST")
+	defer func() {
+		if hadPort {
+			_ = os.Setenv("METRICS_PORT", prevPort)
+		} else {
+			_ = os.Unsetenv("METRICS_PORT")
+		}
+		if hadHost {
+			_ = os.Setenv("METRICS_HOST", prevHost)
+		} else {
+			_ = os.Unsetenv("METRICS_HOST")
+		}
+	}()
+
+	cases := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "localhost", host: "localhost", want: "localhost:9090"},
+		{name: "ipv4 loopback", host: "127.0.0.1", want: "127.0.0.1:9090"},
+		{name: "ipv6 loopback", host: "::1", want: "[::1]:9090"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = os.Setenv("METRICS_PORT", "9090")
+			_ = os.Setenv("METRICS_HOST", tc.host)
+			if got := metricsListenAddr(); got != tc.want {
+				t.Fatalf("metrics listen addr = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestMetricsListenAddr_RejectsPrivateNetworkHostsAndFallsBackLoopback(t *testing.T) {
+	prevPort, hadPort := os.LookupEnv("METRICS_PORT")
+	prevHost, hadHost := os.LookupEnv("METRICS_HOST")
+	defer func() {
+		if hadPort {
+			_ = os.Setenv("METRICS_PORT", prevPort)
+		} else {
+			_ = os.Unsetenv("METRICS_PORT")
+		}
+		if hadHost {
+			_ = os.Setenv("METRICS_HOST", prevHost)
+		} else {
+			_ = os.Unsetenv("METRICS_HOST")
+		}
+	}()
+
+	cases := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "rfc1918 10", host: "10.10.8.12", want: "127.0.0.1:9090"},
+		{name: "rfc1918 172", host: "172.16.0.9", want: "127.0.0.1:9090"},
+		{name: "rfc1918 192", host: "192.168.31.7", want: "127.0.0.1:9090"},
+		{name: "ipv6 ula", host: "fd00::12", want: "127.0.0.1:9090"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = os.Setenv("METRICS_PORT", "9090")
+			_ = os.Setenv("METRICS_HOST", tc.host)
+			if got := metricsListenAddr(); got != tc.want {
+				t.Fatalf("metrics listen addr = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -71,5 +146,16 @@ func TestMetricsListenAddr_TrimSpaceAndFallbackDefaults(t *testing.T) {
 
 	if got := metricsListenAddr(); got != "127.0.0.1:9090" {
 		t.Fatalf("metrics listen addr = %q, want %q", got, "127.0.0.1:9090")
+	}
+}
+
+func TestMetricsListenAddrDecision_ReturnsWarningWhenHostFallsBackToLoopback(t *testing.T) {
+	addr, warning := metricsListenAddrDecision("0.0.0.0", "9191")
+
+	if addr != "127.0.0.1:9191" {
+		t.Fatalf("addr=%q, want %q", addr, "127.0.0.1:9191")
+	}
+	if warning == "" {
+		t.Fatal("warning should not be empty when metrics host is forced back to loopback")
 	}
 }
