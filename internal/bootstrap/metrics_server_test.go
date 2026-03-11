@@ -148,3 +148,14 @@ func TestMetricsListenAddr_TrimSpaceAndFallbackDefaults(t *testing.T) {
 		t.Fatalf("metrics listen addr = %q, want %q", got, "127.0.0.1:9090")
 	}
 }
+
+func TestMetricsListenAddrDecision_ReturnsWarningWhenHostFallsBackToLoopback(t *testing.T) {
+	addr, warning := metricsListenAddrDecision("0.0.0.0", "9191")
+
+	if addr != "127.0.0.1:9191" {
+		t.Fatalf("addr=%q, want %q", addr, "127.0.0.1:9191")
+	}
+	if warning == "" {
+		t.Fatal("warning should not be empty when metrics host is forced back to loopback")
+	}
+}

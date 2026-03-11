@@ -1,6 +1,6 @@
 #!/bin/bash
 # 开发完成后重启脚本（严格模式）
-# 使用方法: ./scripts/dev-restart.sh [--skip-web-build]
+# 使用方法: ./scripts/dev-restart.sh [--skip-web-build] [--port <port>] [--config <path>]
 
 set -euo pipefail
 
@@ -14,6 +14,8 @@ source "$SCRIPT_DIR/lib/dependency-manager.sh"
 
 SKIP_WEB_BUILD=false
 POST_START_PROBE_DELAY_SECONDS=5
+SERVER_PORT_OVERRIDE=""
+CONFIG_PATH_OVERRIDE=""
 
 usage() {
   cat <<'USAGE'
@@ -21,6 +23,8 @@ Usage: ./scripts/dev-restart.sh [options]
 
 Options:
   --skip-web-build    Skip frontend build step for faster backend-only restart.
+  --port <port>       Override SERVER_PORT for this restart run.
+  --config <path>     Override CONFIG_PATH for this restart run.
   -h, --help          Show this help message.
 USAGE
 }
@@ -30,6 +34,14 @@ while [ $# -gt 0 ]; do
     --skip-web-build)
       SKIP_WEB_BUILD=true
       shift
+      ;;
+    --port)
+      SERVER_PORT_OVERRIDE="${2:-}"
+      shift 2
+      ;;
+    --config)
+      CONFIG_PATH_OVERRIDE="${2:-}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -46,6 +58,10 @@ done
 cd "$PROJECT_DIR"
 
 CONFIG_PATH="${CONFIG_PATH:-$PROJECT_DIR/configs/config.json}"
+if [ -n "$CONFIG_PATH_OVERRIDE" ]; then
+    CONFIG_PATH="$CONFIG_PATH_OVERRIDE"
+fi
+export CONFIG_PATH
 if [ ! -f "$CONFIG_PATH" ]; then
     mkdir -p "$(dirname "$CONFIG_PATH")"
     cp "$PROJECT_DIR/configs/config.example.json" "$CONFIG_PATH"
@@ -72,6 +88,10 @@ PY
 if [ -z "$SERVER_PORT" ]; then
     SERVER_PORT="8566"
 fi
+if [ -n "$SERVER_PORT_OVERRIDE" ]; then
+    SERVER_PORT="$SERVER_PORT_OVERRIDE"
+fi
+export SERVER_PORT
 
 HEALTH_URL="http://localhost:$SERVER_PORT/health"
 READY_URL="http://localhost:$SERVER_PORT/ready"

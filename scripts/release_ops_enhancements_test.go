@@ -41,9 +41,8 @@ func TestReleaseAcceptanceScript_ValidatesFeatureBranchName(t *testing.T) {
 	text := string(content)
 
 	checks := []string{
-		"validate_feature_branch_name() {",
-		"codex/feature/",
-		"release-acceptance should run on feature branch",
+		"source \"$SCRIPT_DIR/lib/git-branch.sh\"",
+		"git_require_feature_branch",
 	}
 	for _, needle := range checks {
 		if !strings.Contains(text, needle) {
@@ -181,7 +180,9 @@ func TestStartFeatureBranchScript_EnforcesCodexFeaturePrefix(t *testing.T) {
 	text := string(content)
 
 	checks := []string{
-		"codex/feature/auto/",
+		"source \"$SCRIPT_DIR/lib/git-branch.sh\"",
+		"git_make_feature_branch_name",
+		"codex/feature/",
 		"git checkout -b",
 		"origin/main",
 	}
@@ -201,12 +202,11 @@ func TestReleaseSmokeScript_CheckNumberingIsContinuous(t *testing.T) {
 	}
 	text := string(content)
 
-	start := strings.Index(text, "log_check 1 \"health\"")
-	if start == -1 {
-		t.Fatal("release-smoke.sh must start checks from log_check 1")
+	if !strings.Contains(text, "CHECK_TITLES=(") || !strings.Contains(text, "CHECK_HANDLERS=(") {
+		t.Fatal("release-smoke.sh must define array-driven check metadata")
 	}
 	for i := 1; i <= 13; i++ {
-		needle := fmt.Sprintf("log_check %d", i)
+		needle := fmt.Sprintf("check %d/13:", i)
 		if !strings.Contains(text, needle) {
 			t.Fatalf("release-smoke.sh must contain %q", needle)
 		}

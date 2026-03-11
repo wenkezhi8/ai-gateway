@@ -404,8 +404,53 @@ func TestReleaseAcceptanceScript_ExposesLimitedNetworkSkipToggleForRuntimeSmoke(
 
 	checks := []string{
 		"--runtime-smoke-allow-limited-network-skip",
+		"--allow-limited-network-skip",
 		"RUNTIME_SMOKE_ALLOW_LIMITED_NETWORK_SKIP=false",
 		"RUNTIME_SMOKE_ARGS+=(--allow-limited-network-skip)",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-acceptance.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseAcceptanceScript_ProvidesRuntimeSmokeVaryOriginGateToggle(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
+	if err != nil {
+		t.Fatalf("read release-acceptance.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--runtime-smoke-require-vary-origin",
+		"--runtime-smoke-no-require-vary-origin",
+		"RUNTIME_SMOKE_REQUIRE_VARY_ORIGIN=true",
+		"RUNTIME_SMOKE_ARGS+=(--require-vary-origin)",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-acceptance.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseAcceptanceScript_ProvidesSpawnGatewayPortAndConfigPassThrough(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
+	if err != nil {
+		t.Fatalf("read release-acceptance.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--spawn-gateway-port",
+		"--spawn-gateway-config",
+		"SPAWN_GATEWAY_PORT=",
+		"SPAWN_GATEWAY_CONFIG=",
+		"--port",
+		"--config",
 	}
 	for _, needle := range checks {
 		if !strings.Contains(text, needle) {
@@ -492,6 +537,143 @@ func TestOpsDocsAndVerifyScript_DescribeLocalOnlyMetricsPolicy(t *testing.T) {
 	for _, needle := range envChecks {
 		if !strings.Contains(envText, needle) {
 			t.Fatalf("ENV-CONFIGURATION.md must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseSmokeScript_UsesArrayDrivenCheckMetadataAndHelpers(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"CHECK_TITLES=(",
+		"CHECK_OPTIONAL_FLAGS=(",
+		"check_title() {",
+		"is_optional_check() {",
+		"log_check \"$check_index\"",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseSmokeScript_SupportsSwaggerDocJsonSampleLimit(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"MAX_JSON_SAMPLE_BYTES=",
+		"--swagger-json-max-bytes",
+		"head -c \"$MAX_JSON_SAMPLE_BYTES\"",
+		"swagger doc json sample exceeds limit",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseSmokeScript_SupportsRequireVaryOriginToggleAndCorsHelpers(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--require-vary-origin",
+		"--no-require-vary-origin",
+		"REQUIRE_VARY_ORIGIN=true",
+		"extract_header_value() {",
+		"assert_vary_origin_if_required() {",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseSmokeLocalScript_SupportsSkipRestartFlag(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "scripts", "release-smoke-local.sh"))
+	if err != nil {
+		t.Fatalf("read release-smoke-local.sh failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"--skip-restart",
+		"SKIP_RESTART=false",
+		"if [ \"$SKIP_RESTART\" = false ]; then",
+		"[release-smoke-local] skip restart",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("release-smoke-local.sh must contain %q", needle)
+		}
+	}
+}
+
+func TestReleaseScripts_UseSharedFeatureBranchRuleLibrary(t *testing.T) {
+	root := projectRoot(t)
+	libContent, err := os.ReadFile(filepath.Join(root, "scripts", "lib", "git-branch.sh"))
+	if err != nil {
+		t.Fatalf("read scripts/lib/git-branch.sh failed: %v", err)
+	}
+	libText := string(libContent)
+	if !strings.Contains(libText, "codex/feature/") || !strings.Contains(libText, "git_require_feature_branch()") {
+		t.Fatalf("git-branch.sh must define codex/feature/ rule and git_require_feature_branch helper")
+	}
+
+	acceptanceContent, err := os.ReadFile(filepath.Join(root, "scripts", "release-acceptance.sh"))
+	if err != nil {
+		t.Fatalf("read release-acceptance.sh failed: %v", err)
+	}
+	if !strings.Contains(string(acceptanceContent), "source \"$SCRIPT_DIR/lib/git-branch.sh\"") {
+		t.Fatal("release-acceptance.sh must source scripts/lib/git-branch.sh")
+	}
+
+	startBranchContent, err := os.ReadFile(filepath.Join(root, "scripts", "start-feature-branch.sh"))
+	if err != nil {
+		t.Fatalf("read start-feature-branch.sh failed: %v", err)
+	}
+	if !strings.Contains(string(startBranchContent), "source \"$SCRIPT_DIR/lib/git-branch.sh\"") {
+		t.Fatal("start-feature-branch.sh must source scripts/lib/git-branch.sh")
+	}
+}
+
+func TestReleaseChecklistDocument_CoversDocsSwaggerCorsMetricsRiskPoints(t *testing.T) {
+	root := projectRoot(t)
+	content, err := os.ReadFile(filepath.Join(root, "docs", "release", "RELEASE_CHECKLIST.md"))
+	if err != nil {
+		t.Fatalf("read docs/release/RELEASE_CHECKLIST.md failed: %v", err)
+	}
+	text := string(content)
+
+	checks := []string{
+		"/docs",
+		"/swagger",
+		"CORS_ALLOW_ORIGINS",
+		"metrics",
+		"release-smoke.sh",
+		"release-acceptance.sh",
+	}
+	for _, needle := range checks {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("RELEASE_CHECKLIST.md must contain %q", needle)
 		}
 	}
 }
