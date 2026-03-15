@@ -73,7 +73,7 @@ func TestResponseColdArchiveService_NotifyWrite_ShouldArchiveReusableResponse(t 
 
 	deadline := time.Now().Add(800 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if len(cold.upserts) > 0 {
+		if cold.UpsertCount() > 0 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -119,7 +119,7 @@ func TestResponseColdArchiveService_NotifyWrite_ShouldRetryFailedEmbedding(t *te
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if len(cold.upserts) > 0 {
+		if cold.UpsertCount() > 0 {
 			if atomic.LoadInt32(&embedder.calls) < 2 {
 				t.Fatalf("expected at least 2 embedding attempts, got %d", embedder.calls)
 			}
@@ -175,7 +175,7 @@ func TestResponseColdArchiveService_ScanExpiringResponses_ShouldArchiveDueEntrie
 
 	deadline := time.Now().Add(800 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if len(cold.upserts) > 0 {
+		if cold.UpsertCount() > 0 {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)

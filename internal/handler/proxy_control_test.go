@@ -301,7 +301,7 @@ func TestProcessCacheV2Write_SkipUnknownIntent(t *testing.T) {
 		EngineVersion: "v1",
 	}, "openai", "gpt-4o-mini", routing.TaskTypeUnknown, resp)
 
-	if store.upsertCalled {
+	if store.UpsertCalled() {
 		t.Fatal("expected unknown intent to skip vector cache write")
 	}
 }
@@ -350,7 +350,7 @@ func TestProcessCacheV2Write_MissingIntentResult_ShouldBuildAndWrite(t *testing.
 
 	deadline := time.Now().Add(500 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if store.upsertCalled {
+		if store.UpsertCalled() {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -525,6 +525,7 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 }
 
 type mockVectorStoreForProxy struct {
+	mu           sync.RWMutex
 	upsertCalled bool
 }
 
@@ -537,7 +538,9 @@ func (m *mockVectorStoreForProxy) VectorSearch(_ context.Context, _ string, _ []
 	return nil, nil
 }
 func (m *mockVectorStoreForProxy) Upsert(_ context.Context, _ *cache.VectorCacheDocument) error {
+	m.mu.Lock()
 	m.upsertCalled = true
+	m.mu.Unlock()
 	return nil
 }
 func (m *mockVectorStoreForProxy) Delete(_ context.Context, _ string) error { return nil }
@@ -546,6 +549,12 @@ func (m *mockVectorStoreForProxy) TouchTTL(_ context.Context, _ string, _ int64)
 }
 func (m *mockVectorStoreForProxy) Stats(_ context.Context) (cache.VectorStoreStats, error) {
 	return cache.VectorStoreStats{}, nil
+}
+
+func (m *mockVectorStoreForProxy) UpsertCalled() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.upsertCalled
 }
 
 func boolPtr(v bool) *bool {

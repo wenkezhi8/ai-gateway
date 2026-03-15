@@ -85,6 +85,7 @@ func (f *fakeHotTierStore) UpsertCount() int {
 }
 
 type fakeColdStore struct {
+	mu           sync.RWMutex
 	backend      string
 	exactDocs    map[string]*VectorCacheDocument
 	searchHits   []VectorSearchHit
@@ -102,11 +103,13 @@ func (f *fakeColdStore) Upsert(ctx context.Context, doc *VectorCacheDocument) er
 	}
 	if doc != nil {
 		cp := *doc
+		f.mu.Lock()
 		f.upserts = append(f.upserts, &cp)
 		if f.exactDocs == nil {
 			f.exactDocs = map[string]*VectorCacheDocument{}
 		}
 		f.exactDocs[doc.CacheKey] = &cp
+		f.mu.Unlock()
 	}
 	return nil
 }
@@ -114,9 +117,13 @@ func (f *fakeColdStore) VectorSearch(ctx context.Context, intent string, vector 
 	if f.vectorErr != nil {
 		return nil, f.vectorErr
 	}
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	return f.searchHits, nil
 }
 func (f *fakeColdStore) GetExact(ctx context.Context, cacheKey string) (*VectorCacheDocument, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	if f.exactDocs == nil {
 		return nil, nil
 	}
@@ -129,6 +136,12 @@ func (f *fakeColdStore) Stats(ctx context.Context) (ColdVectorStoreStats, error)
 		Available: true,
 		Entries:   f.statsEntries,
 	}, nil
+}
+
+func (f *fakeColdStore) UpsertCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.upserts)
 }
 
 func TestTieredVectorStore_VectorSearch_HotHit_ShouldSkipCold(t *testing.T) {
@@ -153,8 +166,8 @@ func TestTieredVectorStore_VectorSearch_HotHit_ShouldSkipCold(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("expected 1 hot hit, got %d", len(hits))
 	}
-	if len(cold.upserts) != 0 {
-		t.Fatalf("expected cold upsert not called, got %d", len(cold.upserts))
+	if cold.UpsertCount() != 0 {
+		t.Fatalf("expected cold upsert not called, got %d", cold.UpsertCount())
 	}
 }
 
@@ -292,7 +305,7 @@ func TestTieredVectorStore_TriggerMigrate_ShouldRelieveMemoryWatermark(t *testin
 	if result.MigratedCount == 0 {
 		t.Fatalf("expected migrated docs, got %+v", result)
 	}
-	if len(cold.upserts) == 0 {
+	if cold.UpsertCount() == 0 {
 		t.Fatalf("expected docs moved to cold store")
 	}
 	if len(hot.deleted) == 0 {
