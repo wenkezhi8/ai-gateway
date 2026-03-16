@@ -20,6 +20,7 @@ type Config struct {
 	Accounts     []AccountConfig    `json:"accounts"`
 	IntentEngine IntentEngineConfig `json:"intent_engine"`
 	VectorCache  VectorCacheConfig  `json:"vector_cache"`
+	Compression  CompressionConfig  `json:"compression"`
 	ChatProxy    ChatProxyConfig    `json:"chat_proxy"`
 	Edition      EditionConfig      `json:"edition"`
 }
@@ -124,6 +125,18 @@ type VectorCacheConfig struct {
 	ColdVectorQdrantTimeoutMs      int                `json:"cold_vector_qdrant_timeout_ms"`
 }
 
+// CompressionConfig controls token budget and history compression behavior.
+type CompressionConfig struct {
+	Enabled             bool `json:"enabled"`
+	MaxPromptTokens     int  `json:"max_prompt_tokens"`
+	TargetPromptTokens  int  `json:"target_prompt_tokens"`
+	PreserveRecentTurns int  `json:"preserve_recent_turns"`
+	SummaryInjectEnable bool `json:"summary_inject_enable"`
+	SummaryMaxChars     int  `json:"summary_max_chars"`
+	RAGDependencyEnable bool `json:"rag_dependency_enable"`
+	RAGTopK             int  `json:"rag_top_k"`
+}
+
 const (
 	ChatProxyModeSmart          = "smart"
 	ChatProxyModeCacheThenProxy = "cache_then_proxy"
@@ -221,6 +234,16 @@ func DefaultConfig() *Config {
 			ColdVectorSQLitePath:           "data/ai-gateway-cold-vectors.db",
 			ColdVectorQdrantCollection:     "ai_gateway_cold_vectors",
 			ColdVectorQdrantTimeoutMs:      1500,
+		},
+		Compression: CompressionConfig{
+			Enabled:             constants.CompressionEnabledDefault,
+			MaxPromptTokens:     constants.CompressionMaxPromptTokensDefault,
+			TargetPromptTokens:  constants.CompressionTargetPromptTokensDefault,
+			PreserveRecentTurns: constants.CompressionPreserveRecentTurns,
+			SummaryInjectEnable: constants.CompressionSummaryInjectEnable,
+			SummaryMaxChars:     constants.CompressionSummaryMaxCharsDefault,
+			RAGDependencyEnable: constants.CompressionRAGDependencyEnable,
+			RAGTopK:             constants.CompressionRAGTopKDefault,
 		},
 		ChatProxy: ChatProxyConfig{
 			Mode: ChatProxyModeSmart,
@@ -434,6 +457,41 @@ func Load() (*Config, error) {
 	if qdrantTimeout := os.Getenv("VECTOR_COLD_QDRANT_TIMEOUT_MS"); qdrantTimeout != "" {
 		if v, err := strconv.Atoi(qdrantTimeout); err == nil {
 			cfg.VectorCache.ColdVectorQdrantTimeoutMs = v
+		}
+	}
+
+	if enabled := os.Getenv("COMPRESSION_ENABLED"); enabled != "" {
+		cfg.Compression.Enabled = parseBool(enabled)
+	}
+	if maxPromptTokens := os.Getenv("COMPRESSION_MAX_PROMPT_TOKENS"); maxPromptTokens != "" {
+		if v, err := strconv.Atoi(maxPromptTokens); err == nil {
+			cfg.Compression.MaxPromptTokens = v
+		}
+	}
+	if targetPromptTokens := os.Getenv("COMPRESSION_TARGET_PROMPT_TOKENS"); targetPromptTokens != "" {
+		if v, err := strconv.Atoi(targetPromptTokens); err == nil {
+			cfg.Compression.TargetPromptTokens = v
+		}
+	}
+	if preserveRecentTurns := os.Getenv("COMPRESSION_PRESERVE_RECENT_TURNS"); preserveRecentTurns != "" {
+		if v, err := strconv.Atoi(preserveRecentTurns); err == nil {
+			cfg.Compression.PreserveRecentTurns = v
+		}
+	}
+	if summaryInjectEnable := os.Getenv("COMPRESSION_SUMMARY_INJECT_ENABLE"); summaryInjectEnable != "" {
+		cfg.Compression.SummaryInjectEnable = parseBool(summaryInjectEnable)
+	}
+	if summaryMaxChars := os.Getenv("COMPRESSION_SUMMARY_MAX_CHARS"); summaryMaxChars != "" {
+		if v, err := strconv.Atoi(summaryMaxChars); err == nil {
+			cfg.Compression.SummaryMaxChars = v
+		}
+	}
+	if ragDependencyEnable := os.Getenv("COMPRESSION_RAG_DEPENDENCY_ENABLE"); ragDependencyEnable != "" {
+		cfg.Compression.RAGDependencyEnable = parseBool(ragDependencyEnable)
+	}
+	if ragTopK := os.Getenv("COMPRESSION_RAG_TOP_K"); ragTopK != "" {
+		if v, err := strconv.Atoi(ragTopK); err == nil {
+			cfg.Compression.RAGTopK = v
 		}
 	}
 
@@ -725,6 +783,27 @@ func (c *Config) Validate() error {
 		mode := strings.ToLower(strings.TrimSpace(c.VectorCache.OllamaEndpointMode))
 		if mode != "auto" && mode != "embed" && mode != "embeddings" {
 			return &ValidationError{Field: "vector_cache.ollama_endpoint_mode", Message: "ollama_endpoint_mode must be auto/embed/embeddings"}
+		}
+	}
+
+	if c.Compression.Enabled {
+		if c.Compression.MaxPromptTokens <= 0 {
+			return &ValidationError{Field: "compression.max_prompt_tokens", Message: "compression.max_prompt_tokens must be positive"}
+		}
+		if c.Compression.TargetPromptTokens <= 0 {
+			return &ValidationError{Field: "compression.target_prompt_tokens", Message: "compression.target_prompt_tokens must be positive"}
+		}
+		if c.Compression.TargetPromptTokens >= c.Compression.MaxPromptTokens {
+			return &ValidationError{Field: "compression.target_prompt_tokens", Message: "compression.target_prompt_tokens must be less than max_prompt_tokens"}
+		}
+		if c.Compression.PreserveRecentTurns <= 0 {
+			return &ValidationError{Field: "compression.preserve_recent_turns", Message: "compression.preserve_recent_turns must be positive"}
+		}
+		if c.Compression.SummaryMaxChars <= 0 {
+			return &ValidationError{Field: "compression.summary_max_chars", Message: "compression.summary_max_chars must be positive"}
+		}
+		if c.Compression.RAGTopK <= 0 {
+			return &ValidationError{Field: "compression.rag_top_k", Message: "compression.rag_top_k must be positive"}
 		}
 	}
 

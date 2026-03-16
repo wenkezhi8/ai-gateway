@@ -205,6 +205,14 @@ func (s *SQLiteStorage) migrate() error {
 			experiment_tag TEXT,
 			domain_tag TEXT,
 			usage_source TEXT DEFAULT 'actual',
+			compression_applied INTEGER DEFAULT 0,
+			compression_ratio REAL DEFAULT 0,
+			guard_failed INTEGER DEFAULT 0,
+			fallback_invoked INTEGER DEFAULT 0,
+			fallback_saved INTEGER DEFAULT 0,
+			rag_requested INTEGER DEFAULT 0,
+			rag_used INTEGER DEFAULT 0,
+			rag_failed INTEGER DEFAULT 0,
 			created_at TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_logs_created_at ON usage_logs(created_at)`,
@@ -1009,8 +1017,10 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 	_, err := s.db.Exec(`INSERT INTO usage_logs (
 		request_id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
 		tokens, input_tokens, output_tokens, cached_read_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type,
-		difficulty, experiment_tag, domain_tag, usage_source, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		difficulty, experiment_tag, domain_tag, usage_source,
+		compression_applied, compression_ratio, guard_failed, fallback_invoked, fallback_saved,
+		rag_requested, rag_used, rag_failed, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		usageStringValue(log, "request_id"),
 		timestamp,
 		usageStringValue(log, "model"),
@@ -1035,6 +1045,14 @@ func (s *SQLiteStorage) LogUsage(log map[string]interface{}) error {
 		usageStringValue(log, "experiment_tag"),
 		usageStringValue(log, "domain_tag"),
 		usageSourceValue(log),
+		boolToInt(usageBoolValue(log, "compression_applied")),
+		usageFloat64Value(log, "compression_ratio"),
+		boolToInt(usageBoolValue(log, "guard_failed")),
+		boolToInt(usageBoolValue(log, "fallback_invoked")),
+		boolToInt(usageBoolValue(log, "fallback_saved")),
+		boolToInt(usageBoolValue(log, "rag_requested")),
+		boolToInt(usageBoolValue(log, "rag_used")),
+		boolToInt(usageBoolValue(log, "rag_failed")),
 		now,
 	)
 	return err
@@ -1049,7 +1067,9 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 	//nolint:gosec // whereClause is built from fixed whitelisted fragments.
 	query := `SELECT id, timestamp, model, provider, account, user_id, api_key, user_agent, request_type, inference_intensity,
 		tokens, input_tokens, output_tokens, cached_read_tokens, latency_ms, ttft_ms, cache_hit, success, error_type, task_type, difficulty,
-		experiment_tag, domain_tag, usage_source, created_at
+		experiment_tag, domain_tag, usage_source,
+		compression_applied, compression_ratio, guard_failed, fallback_invoked, fallback_saved,
+		rag_requested, rag_used, rag_failed, created_at
 		FROM usage_logs WHERE ` + whereClause
 
 	query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
@@ -1067,12 +1087,17 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 		var timestamp, tokens, inputTokens, outputTokens, cachedReadTokens, latencyMs, ttftMs int64
 		var model, createdAt string
 		var cacheHitInt, successInt int
+		var compressionAppliedInt, guardFailedInt, fallbackInvokedInt, fallbackSavedInt int
+		var ragRequestedInt, ragUsedInt, ragFailedInt int
+		var compressionRatio float64
 		var provider, account, userID, apiKey, userAgent, requestType, inferenceIntensity sql.NullString
 		var errorType, taskType, difficulty, experimentTag, domainTag, usageSource sql.NullString
 		if err := rows.Scan(
 			&id, &timestamp, &model, &provider, &account, &userID, &apiKey, &userAgent, &requestType, &inferenceIntensity,
 			&tokens, &inputTokens, &outputTokens, &cachedReadTokens, &latencyMs, &ttftMs, &cacheHitInt, &successInt, &errorType, &taskType,
-			&difficulty, &experimentTag, &domainTag, &usageSource, &createdAt,
+			&difficulty, &experimentTag, &domainTag, &usageSource,
+			&compressionAppliedInt, &compressionRatio, &guardFailedInt, &fallbackInvokedInt, &fallbackSavedInt,
+			&ragRequestedInt, &ragUsedInt, &ragFailedInt, &createdAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1101,6 +1126,14 @@ func (s *SQLiteStorage) GetUsageLogsWithFilter(filter UsageFilter, limit, offset
 			"experiment_tag":      experimentTag.String,
 			"domain_tag":          domainTag.String,
 			"usage_source":        usageSource.String,
+			"compression_applied": compressionAppliedInt == 1,
+			"compression_ratio":   compressionRatio,
+			"guard_failed":        guardFailedInt == 1,
+			"fallback_invoked":    fallbackInvokedInt == 1,
+			"fallback_saved":      fallbackSavedInt == 1,
+			"rag_requested":       ragRequestedInt == 1,
+			"rag_used":            ragUsedInt == 1,
+			"rag_failed":          ragFailedInt == 1,
 			"created_at":          createdAt,
 		})
 	}
@@ -1136,6 +1169,14 @@ func (s *SQLiteStorage) ensureUsageLogsColumns() error {
 		"request_type":        "TEXT DEFAULT 'non_stream'",
 		"inference_intensity": "TEXT DEFAULT ''",
 		"cached_read_tokens":  "INTEGER DEFAULT 0",
+		"compression_applied": "INTEGER DEFAULT 0",
+		"compression_ratio":   "REAL DEFAULT 0",
+		"guard_failed":        "INTEGER DEFAULT 0",
+		"fallback_invoked":    "INTEGER DEFAULT 0",
+		"fallback_saved":      "INTEGER DEFAULT 0",
+		"rag_requested":       "INTEGER DEFAULT 0",
+		"rag_used":            "INTEGER DEFAULT 0",
+		"rag_failed":          "INTEGER DEFAULT 0",
 	}
 
 	rows, err := s.db.Query(`PRAGMA table_info(usage_logs)`)
@@ -1277,6 +1318,25 @@ func usageInt64Value(log map[string]interface{}, key string) int64 {
 	}
 }
 
+func usageFloat64Value(log map[string]interface{}, key string) float64 {
+	v, ok := log[key]
+	if !ok || v == nil {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	default:
+		return 0
+	}
+}
+
 func usageBoolValue(log map[string]interface{}, key string) bool {
 	v, ok := log[key]
 	if !ok || v == nil {
@@ -1308,6 +1368,11 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 	var totalRequests, totalTokens, cacheHits, cacheMisses int64
 	var totalLatency int64
 	var savedTokens, savedRequests int64
+	var compressionTriggered, guardFailedCount int64
+	var fallbackInvokedCount, fallbackSavedCount int64
+	var ragRequestedCount, ragUsedCount, ragFailedCount int64
+	var compressionSavedTokens int64
+	var compressionRatioAvg float64
 
 	statsQuery := `SELECT
 		COUNT(*),
@@ -1316,7 +1381,16 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 		COALESCE(SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN cache_hit = 0 THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN tokens ELSE 0 END), 0),
-		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN 1 ELSE 0 END), 0)
+		COALESCE(SUM(CASE WHEN cache_hit = 1 AND success = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN compression_applied = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(AVG(CASE WHEN compression_applied = 1 THEN compression_ratio END), 0),
+		COALESCE(SUM(CASE WHEN guard_failed = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN fallback_invoked = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN fallback_saved = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN rag_requested = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN rag_used = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN rag_failed = 1 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN compression_applied = 1 THEN CAST(input_tokens * compression_ratio AS INTEGER) ELSE 0 END), 0)
 	FROM usage_logs WHERE ` + whereClause
 	if err := s.db.QueryRow(statsQuery, args...).Scan(
 		&totalRequests,
@@ -1326,18 +1400,39 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 		&cacheMisses,
 		&savedTokens,
 		&savedRequests,
+		&compressionTriggered,
+		&compressionRatioAvg,
+		&guardFailedCount,
+		&fallbackInvokedCount,
+		&fallbackSavedCount,
+		&ragRequestedCount,
+		&ragUsedCount,
+		&ragFailedCount,
+		&compressionSavedTokens,
 	); err != nil {
 		sqliteLogger.WithError(err).Warn("query usage stats failed")
 		return map[string]interface{}{
-			"total_requests": int64(0),
-			"total_tokens":   int64(0),
-			"cache_hits":     int64(0),
-			"cache_misses":   int64(0),
-			"saved_tokens":   int64(0),
-			"saved_requests": int64(0),
-			"cache_hit_rate": float64(0),
-			"avg_latency_ms": int64(0),
-			"model_stats":    map[string]map[string]int64{},
+			"total_requests":           int64(0),
+			"total_tokens":             int64(0),
+			"cache_hits":               int64(0),
+			"cache_misses":             int64(0),
+			"saved_tokens":             int64(0),
+			"saved_requests":           int64(0),
+			"cache_hit_rate":           float64(0),
+			"avg_latency_ms":           int64(0),
+			"model_stats":              map[string]map[string]int64{},
+			"compression_triggered":    int64(0),
+			"compression_trigger_rate": float64(0),
+			"compression_ratio_avg":    float64(0),
+			"guard_failed":             int64(0),
+			"guard_failed_rate":        float64(0),
+			"fallback_invoked":         int64(0),
+			"fallback_rate":            float64(0),
+			"fallback_saved":           int64(0),
+			"rag_requested":            int64(0),
+			"rag_used":                 int64(0),
+			"rag_failed":               int64(0),
+			"net_saved_tokens":         int64(0),
 		}
 	}
 
@@ -1350,6 +1445,14 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 	totalCache := cacheHits + cacheMisses
 	if totalCache > 0 {
 		cacheHitRate = float64(cacheHits) / float64(totalCache) * 100
+	}
+	compressionTriggerRate := 0.0
+	guardFailedRate := 0.0
+	fallbackRate := 0.0
+	if totalRequests > 0 {
+		compressionTriggerRate = float64(compressionTriggered) / float64(totalRequests) * 100
+		guardFailedRate = float64(guardFailedCount) / float64(totalRequests) * 100
+		fallbackRate = float64(fallbackInvokedCount) / float64(totalRequests) * 100
 	}
 
 	modelStatsArgs := append([]interface{}{}, args...)
@@ -1376,15 +1479,27 @@ func (s *SQLiteStorage) GetUsageStatsWithFilter(filter UsageFilter) map[string]i
 	}
 
 	return map[string]interface{}{
-		"total_requests": totalRequests,
-		"total_tokens":   totalTokens,
-		"cache_hits":     cacheHits,
-		"cache_misses":   cacheMisses,
-		"saved_tokens":   savedTokens,
-		"saved_requests": savedRequests,
-		"cache_hit_rate": cacheHitRate,
-		"avg_latency_ms": avgLatency,
-		"model_stats":    modelStats,
+		"total_requests":           totalRequests,
+		"total_tokens":             totalTokens,
+		"cache_hits":               cacheHits,
+		"cache_misses":             cacheMisses,
+		"saved_tokens":             savedTokens,
+		"saved_requests":           savedRequests,
+		"cache_hit_rate":           cacheHitRate,
+		"avg_latency_ms":           avgLatency,
+		"model_stats":              modelStats,
+		"compression_triggered":    compressionTriggered,
+		"compression_trigger_rate": compressionTriggerRate,
+		"compression_ratio_avg":    compressionRatioAvg,
+		"guard_failed":             guardFailedCount,
+		"guard_failed_rate":        guardFailedRate,
+		"fallback_invoked":         fallbackInvokedCount,
+		"fallback_rate":            fallbackRate,
+		"fallback_saved":           fallbackSavedCount,
+		"rag_requested":            ragRequestedCount,
+		"rag_used":                 ragUsedCount,
+		"rag_failed":               ragFailedCount,
+		"net_saved_tokens":         compressionSavedTokens,
 	}
 }
 

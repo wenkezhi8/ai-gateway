@@ -311,6 +311,8 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	cacheModelDimension := responseCacheModelDimension(assessment.TaskType, req.Model)
 	if !cacheThenProxy {
 		cacheKeyPayload = buildResponseCacheKeyPayload(&req, assessment.TaskType, prompt)
+		previewDecision := evaluateCompressionDecision(h.config.Compression, req.Messages, false)
+		cacheKeyPayload = withCompressionCacheVariant(cacheKeyPayload, previewDecision.Apply)
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -703,6 +705,71 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		}
 	}
 
+	compressionMeta := compressionResult{
+		Applied:            false,
+		Reason:             "skipped_cache_hit",
+		PromptTokensBefore: estimatePromptTokens(req.Messages),
+		PromptTokensAfter:  estimatePromptTokens(req.Messages),
+	}
+	if !cacheThenProxy {
+		var retriever compressionRAGRetriever
+		if h.config.Compression.RAGDependencyEnable {
+			retriever = newSQLiteKnowledgeRetriever(storage.GetSQLiteStorage().GetDB())
+		}
+		compressedMessages, result := reduceMessagesForBudget(
+			c.Request.Context(),
+			h.config.Compression,
+			req.Messages,
+			prompt,
+			false,
+			nil,
+			retriever,
+		)
+		compressionMeta = result
+		if result.Applied {
+			req.Messages = compressedMessages
+		}
+	}
+	if h.traceRecorder != nil {
+		h.traceRecorder.RecordSimpleSpan(ctx, "context.compress", map[string]interface{}{
+			"enabled":               h.config.Compression.Enabled,
+			"applied":               compressionMeta.Applied,
+			"reason":                compressionMeta.Reason,
+			"estimated_before":      compressionMeta.PromptTokensBefore,
+			"estimated_after":       compressionMeta.PromptTokensAfter,
+			"max_prompt_tokens":     h.config.Compression.MaxPromptTokens,
+			"target_prompt_tokens":  h.config.Compression.TargetPromptTokens,
+			"preserve_recent_turns": h.config.Compression.PreserveRecentTurns,
+			"compression_ratio":     compressionMeta.CompressionRatio,
+			"rag_requested":         compressionMeta.RAGRequested,
+			"rag_used":              compressionMeta.RAGUsed,
+			"rag_failed":            compressionMeta.RAGFailed,
+			"fallback_invoked":      compressionMeta.FallbackInvoked,
+			"fallback_saved":        compressionMeta.FallbackSaved,
+		})
+		if compressionMeta.RAGRequested {
+			ragResult := "disabled"
+			switch {
+			case compressionMeta.RAGUsed:
+				ragResult = "hit"
+			case compressionMeta.RAGFailed:
+				ragResult = "failed"
+			default:
+				ragResult = "miss"
+			}
+			h.traceRecorder.RecordSpanWithResult(ctx, "context.compress.rag.retrieve", ragResult, map[string]interface{}{
+				"top_k":   h.config.Compression.RAGTopK,
+				"enabled": h.config.Compression.RAGDependencyEnable,
+			})
+		}
+		if compressionMeta.FallbackInvoked {
+			h.traceRecorder.RecordSpanWithResult(ctx, "context.compress.fallback", "invoked", map[string]interface{}{
+				"saved":  compressionMeta.FallbackSaved,
+				"reason": compressionMeta.Reason,
+			})
+		}
+	}
+
 	providerType := req.Provider
 	if providerType == "" {
 		providerType = inferProviderFromModel(requestedModel)
@@ -725,6 +792,14 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 		})
 	}
 	usageMeta = buildUsageRuntimeMeta(c, &req, nil, h.accountManager)
+	usageMeta.CompressionApplied = compressionMeta.Applied
+	usageMeta.CompressionRatio = compressionMeta.CompressionRatio
+	usageMeta.GuardFailed = false
+	usageMeta.FallbackInvoked = compressionMeta.FallbackInvoked
+	usageMeta.FallbackSaved = compressionMeta.FallbackSaved
+	usageMeta.RAGRequested = compressionMeta.RAGRequested
+	usageMeta.RAGUsed = compressionMeta.RAGUsed
+	usageMeta.RAGFailed = compressionMeta.RAGFailed
 	if providerSelectErr != nil {
 		h.recordMetricsExtendedWithMetaAndUsageSource(usageMeta, userID, apiKey, req.Model, providerType, time.Since(startTime), 0, false, false, 0, 0, 0, "actual", string(assessment.TaskType), string(assessment.Difficulty), "", experimentTag, domainTag)
 		admin.RecordRequestResult(req.Model, req.Provider, assessment.TaskType, assessment.Difficulty, false, time.Since(startTime).Milliseconds(), 0)
@@ -852,6 +927,10 @@ func (h *ProxyHandler) ChatCompletions(c *gin.Context) {
 	dedupParams := map[string]interface{}{
 		"temperature": providerReq.Temperature,
 		"max_tokens":  providerReq.MaxTokens,
+		"compression": map[string]interface{}{
+			"applied": compressionMeta.Applied,
+			"reason":  compressionMeta.Reason,
+		},
 	}
 	if cacheThenProxy {
 		dedupPrompt = rawPrompt
@@ -2991,6 +3070,14 @@ type usageRuntimeMeta struct {
 	UserAgent          string
 	RequestType        string
 	InferenceIntensity string
+	CompressionApplied bool
+	CompressionRatio   float64
+	GuardFailed        bool
+	FallbackInvoked    bool
+	FallbackSaved      bool
+	RAGRequested       bool
+	RAGUsed            bool
+	RAGFailed          bool
 }
 
 func buildUsageRuntimeMeta(c *gin.Context, req *ChatCompletionRequest, scheduleResult *ScheduleResult, accountManager *limiter.AccountManager) usageRuntimeMeta {
@@ -3143,6 +3230,14 @@ func (h *ProxyHandler) recordMetricsExtendedWithMetaAndUsageSource(meta usageRun
 			"experiment_tag":      experimentTag,
 			"domain_tag":          domainTag,
 			"usage_source":        strings.ToLower(strings.TrimSpace(usageSource)),
+			"compression_applied": meta.CompressionApplied,
+			"compression_ratio":   meta.CompressionRatio,
+			"guard_failed":        meta.GuardFailed,
+			"fallback_invoked":    meta.FallbackInvoked,
+			"fallback_saved":      meta.FallbackSaved,
+			"rag_requested":       meta.RAGRequested,
+			"rag_used":            meta.RAGUsed,
+			"rag_failed":          meta.RAGFailed,
 		}); err != nil {
 			logrus.WithError(err).Debug("failed to persist usage metrics")
 		}
@@ -3387,6 +3482,20 @@ func buildResponseCacheKeyPayload(req *ChatCompletionRequest, taskType routing.T
 		}
 	}
 	return req
+}
+
+func withCompressionCacheVariant(payload interface{}, applied bool) interface{} {
+	variant := "raw"
+	if applied {
+		variant = "compressed"
+	}
+	if payload == nil {
+		return map[string]interface{}{"compression_variant": variant}
+	}
+	return map[string]interface{}{
+		"compression_variant": variant,
+		"payload":             payload,
+	}
 }
 
 func buildRawResponseCacheKeyPayload(req *ChatCompletionRequest, rawMessages []ChatMessage) interface{} {

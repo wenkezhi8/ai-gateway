@@ -242,6 +242,13 @@ func TestUsageHandler_GetUsageLogs_ShouldReturnExpandedFieldsAndAliases(t *testi
 		"success":             true,
 		"task_type":           "code",
 		"usage_source":        "actual",
+		"compression_applied": true,
+		"compression_ratio":   0.35,
+		"fallback_invoked":    false,
+		"fallback_saved":      false,
+		"rag_requested":       true,
+		"rag_used":            true,
+		"rag_failed":          false,
 	}))
 
 	handler := NewUsageHandler(store)
@@ -274,6 +281,11 @@ func TestUsageHandler_GetUsageLogs_ShouldReturnExpandedFieldsAndAliases(t *testi
 	assert.Equal(t, float64(160), item["total_tokens"])
 	assert.Equal(t, float64(24), item["cached_read_tokens"])
 	assert.Equal(t, float64(160), item["saved_tokens"])
+	assert.Equal(t, true, item["compression_applied"])
+	assert.Equal(t, 0.35, item["compression_ratio"])
+	assert.Equal(t, true, item["rag_requested"])
+	assert.Equal(t, true, item["rag_used"])
+	assert.Equal(t, false, item["rag_failed"])
 }
 
 func TestUsageHandler_GetUsageLogs_ShouldDefaultCachedReadTokensToZero(t *testing.T) {
@@ -313,4 +325,73 @@ func TestUsageHandler_GetUsageLogs_ShouldDefaultCachedReadTokensToZero(t *testin
 	require.Len(t, resp.Data, 1)
 
 	assert.Equal(t, float64(0), resp.Data[0]["cached_read_tokens"])
+}
+
+func TestUsageHandler_GetUsageStats_ShouldExposeCompressionAndFallbackMetrics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	dbPath := filepath.Join(t.TempDir(), "usage-handler-compression-stats.db")
+	store, err := storage.NewSQLiteStorage(dbPath)
+	require.NoError(t, err)
+	defer store.Close()
+
+	now := time.Now().UnixMilli()
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id":          "req-compress-stats-1",
+		"timestamp":           now,
+		"model":               "gpt-4o-mini",
+		"provider":            "openai",
+		"tokens":              int64(200),
+		"input_tokens":        int64(160),
+		"output_tokens":       int64(40),
+		"latency_ms":          int64(450),
+		"cache_hit":           false,
+		"success":             true,
+		"compression_applied": true,
+		"compression_ratio":   0.5,
+		"fallback_invoked":    true,
+		"fallback_saved":      true,
+		"rag_requested":       true,
+		"rag_used":            false,
+		"rag_failed":          true,
+	}))
+	require.NoError(t, store.LogUsage(map[string]interface{}{
+		"request_id":          "req-compress-stats-2",
+		"timestamp":           now - 1000,
+		"model":               "gpt-4o-mini",
+		"provider":            "openai",
+		"tokens":              int64(120),
+		"input_tokens":        int64(100),
+		"output_tokens":       int64(20),
+		"latency_ms":          int64(300),
+		"cache_hit":           false,
+		"success":             true,
+		"compression_applied": false,
+		"compression_ratio":   0,
+	}))
+
+	handler := NewUsageHandler(store)
+	r := gin.New()
+	r.GET("/admin/usage/stats", handler.GetUsageStats)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/stats?range=24h", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool               `json:"success"`
+		Data    UsageStatsResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.True(t, resp.Success)
+	assert.Equal(t, int64(2), resp.Data.TotalRequests)
+	assert.Equal(t, int64(1), resp.Data.CompressionTriggered)
+	assert.Equal(t, 50.0, resp.Data.CompressionTriggerRate)
+	assert.Equal(t, 0.5, resp.Data.CompressionRatioAvg)
+	assert.Equal(t, int64(1), resp.Data.FallbackInvoked)
+	assert.Equal(t, int64(1), resp.Data.FallbackSaved)
+	assert.Equal(t, int64(1), resp.Data.RAGRequested)
+	assert.Equal(t, int64(1), resp.Data.RAGFailed)
+	assert.Equal(t, int64(80), resp.Data.NetSavedTokens)
 }
