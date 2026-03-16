@@ -774,6 +774,14 @@ func TestSQLiteStorage_UsageLogs_ShouldPersistNewMetaFields(t *testing.T) {
 		"usage_source":        "actual",
 		"experiment_tag":      "exp-meta",
 		"domain_tag":          "devtools",
+		"compression_applied": true,
+		"compression_ratio":   0.42,
+		"guard_failed":        false,
+		"fallback_invoked":    true,
+		"fallback_saved":      true,
+		"rag_requested":       true,
+		"rag_used":            false,
+		"rag_failed":          true,
 	}))
 
 	logs, err := store.GetUsageLogsWithFilter(storageUsageFilterForTests("exp-meta", "devtools"), 10, 0)
@@ -785,6 +793,13 @@ func TestSQLiteStorage_UsageLogs_ShouldPersistNewMetaFields(t *testing.T) {
 	assert.Equal(t, "stream", logs[0]["request_type"])
 	assert.Equal(t, "medium", logs[0]["inference_intensity"])
 	assert.Equal(t, int64(18), logs[0]["cached_read_tokens"])
+	assert.Equal(t, true, logs[0]["compression_applied"])
+	assert.Equal(t, 0.42, logs[0]["compression_ratio"])
+	assert.Equal(t, true, logs[0]["fallback_invoked"])
+	assert.Equal(t, true, logs[0]["fallback_saved"])
+	assert.Equal(t, true, logs[0]["rag_requested"])
+	assert.Equal(t, false, logs[0]["rag_used"])
+	assert.Equal(t, true, logs[0]["rag_failed"])
 }
 
 func TestSQLiteStorage_EnsureUsageLogsColumns_ShouldAddAccountUserAgentRequestTypeInferenceIntensityAndCachedReadTokens(t *testing.T) {
@@ -824,6 +839,30 @@ func TestSQLiteStorage_EnsureUsageLogsColumns_ShouldAddAccountUserAgentRequestTy
 	}
 	if _, ok := columns["cached_read_tokens"]; !ok {
 		t.Fatalf("expected usage_logs.cached_read_tokens column")
+	}
+	if _, ok := columns["compression_applied"]; !ok {
+		t.Fatalf("expected usage_logs.compression_applied column")
+	}
+	if _, ok := columns["compression_ratio"]; !ok {
+		t.Fatalf("expected usage_logs.compression_ratio column")
+	}
+	if _, ok := columns["guard_failed"]; !ok {
+		t.Fatalf("expected usage_logs.guard_failed column")
+	}
+	if _, ok := columns["fallback_invoked"]; !ok {
+		t.Fatalf("expected usage_logs.fallback_invoked column")
+	}
+	if _, ok := columns["fallback_saved"]; !ok {
+		t.Fatalf("expected usage_logs.fallback_saved column")
+	}
+	if _, ok := columns["rag_requested"]; !ok {
+		t.Fatalf("expected usage_logs.rag_requested column")
+	}
+	if _, ok := columns["rag_used"]; !ok {
+		t.Fatalf("expected usage_logs.rag_used column")
+	}
+	if _, ok := columns["rag_failed"]; !ok {
+		t.Fatalf("expected usage_logs.rag_failed column")
 	}
 }
 

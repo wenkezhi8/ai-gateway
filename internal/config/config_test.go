@@ -187,6 +187,77 @@ func TestLoad_EnvOverride(t *testing.T) {
 	assert.Equal(t, 768, cfg.VectorCache.Dimension)
 }
 
+func TestDefaultConfig_CompressionDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	assert.True(t, cfg.Compression.Enabled)
+	assert.Equal(t, 12000, cfg.Compression.MaxPromptTokens)
+	assert.Equal(t, 8000, cfg.Compression.TargetPromptTokens)
+	assert.Equal(t, 4, cfg.Compression.PreserveRecentTurns)
+	assert.True(t, cfg.Compression.SummaryInjectEnable)
+	assert.Equal(t, 1600, cfg.Compression.SummaryMaxChars)
+	assert.False(t, cfg.Compression.RAGDependencyEnable)
+	assert.Equal(t, 3, cfg.Compression.RAGTopK)
+}
+
+func TestLoad_CompressionEnvOverride(t *testing.T) {
+	originalEnabled := os.Getenv("COMPRESSION_ENABLED")
+	originalMax := os.Getenv("COMPRESSION_MAX_PROMPT_TOKENS")
+	originalTarget := os.Getenv("COMPRESSION_TARGET_PROMPT_TOKENS")
+	originalPreserve := os.Getenv("COMPRESSION_PRESERVE_RECENT_TURNS")
+	originalSummaryInject := os.Getenv("COMPRESSION_SUMMARY_INJECT_ENABLE")
+	originalSummaryMaxChars := os.Getenv("COMPRESSION_SUMMARY_MAX_CHARS")
+	originalRAGDependencyEnable := os.Getenv("COMPRESSION_RAG_DEPENDENCY_ENABLE")
+	originalRAGTopK := os.Getenv("COMPRESSION_RAG_TOP_K")
+	defer func() {
+		os.Setenv("COMPRESSION_ENABLED", originalEnabled)
+		os.Setenv("COMPRESSION_MAX_PROMPT_TOKENS", originalMax)
+		os.Setenv("COMPRESSION_TARGET_PROMPT_TOKENS", originalTarget)
+		os.Setenv("COMPRESSION_PRESERVE_RECENT_TURNS", originalPreserve)
+		os.Setenv("COMPRESSION_SUMMARY_INJECT_ENABLE", originalSummaryInject)
+		os.Setenv("COMPRESSION_SUMMARY_MAX_CHARS", originalSummaryMaxChars)
+		os.Setenv("COMPRESSION_RAG_DEPENDENCY_ENABLE", originalRAGDependencyEnable)
+		os.Setenv("COMPRESSION_RAG_TOP_K", originalRAGTopK)
+	}()
+
+	os.Setenv("COMPRESSION_ENABLED", "true")
+	os.Setenv("COMPRESSION_MAX_PROMPT_TOKENS", "600")
+	os.Setenv("COMPRESSION_TARGET_PROMPT_TOKENS", "320")
+	os.Setenv("COMPRESSION_PRESERVE_RECENT_TURNS", "3")
+	os.Setenv("COMPRESSION_SUMMARY_INJECT_ENABLE", "false")
+	os.Setenv("COMPRESSION_SUMMARY_MAX_CHARS", "900")
+	os.Setenv("COMPRESSION_RAG_DEPENDENCY_ENABLE", "true")
+	os.Setenv("COMPRESSION_RAG_TOP_K", "6")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.Compression.Enabled)
+	assert.Equal(t, 600, cfg.Compression.MaxPromptTokens)
+	assert.Equal(t, 320, cfg.Compression.TargetPromptTokens)
+	assert.Equal(t, 3, cfg.Compression.PreserveRecentTurns)
+	assert.False(t, cfg.Compression.SummaryInjectEnable)
+	assert.Equal(t, 900, cfg.Compression.SummaryMaxChars)
+	assert.True(t, cfg.Compression.RAGDependencyEnable)
+	assert.Equal(t, 6, cfg.Compression.RAGTopK)
+}
+
+func TestValidate_CompressionInvalidTarget(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Server.Mode = "debug"
+	cfg.Providers = []ProviderConfig{{
+		Name:    "openai",
+		APIKey:  "sk-test",
+		BaseURL: "https://api.openai.com",
+		Enabled: true,
+	}}
+	cfg.Compression.MaxPromptTokens = 1000
+	cfg.Compression.TargetPromptTokens = 1000
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "compression.target_prompt_tokens")
+}
+
 func TestServerConfig_Fields(t *testing.T) {
 	cfg := ServerConfig{
 		Port: "8081",

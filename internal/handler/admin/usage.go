@@ -22,49 +22,69 @@ func NewUsageHandler(storage *storage.SQLiteStorage) *UsageHandler {
 }
 
 type UsageLogResponse struct {
-	ID                 int64  `json:"id"`
-	Timestamp          int64  `json:"timestamp"`
-	Model              string `json:"model"`
-	Provider           string `json:"provider"`
-	ServiceProvider    string `json:"service_provider"`
-	Account            string `json:"account"`
-	UserID             string `json:"user_id,omitempty"`
-	APIKey             string `json:"api_key,omitempty"`
-	UserAgent          string `json:"user_agent,omitempty"`
-	Type               string `json:"type,omitempty"`
-	RequestType        string `json:"request_type,omitempty"`
-	InferenceIntensity string `json:"inference_intensity,omitempty"`
-	Tokens             int64  `json:"tokens"`
-	InputTokens        int64  `json:"input_tokens"`
-	OutputTokens       int64  `json:"output_tokens"`
-	CachedReadTokens   int64  `json:"cached_read_tokens"`
-	TotalTokens        int64  `json:"total_tokens"`
-	SavedTokens        int64  `json:"saved_tokens"`
-	LatencyMs          int64  `json:"latency_ms"`
-	TotalDuration      int64  `json:"total_duration"`
-	TTFTMs             int64  `json:"ttft_ms"`
-	TimeToFirstToken   int64  `json:"time_to_first_token"`
-	CacheHit           bool   `json:"cache_hit"`
-	Success            bool   `json:"success"`
-	ErrorType          string `json:"error_type,omitempty"`
-	TaskType           string `json:"task_type,omitempty"`
-	Difficulty         string `json:"difficulty,omitempty"`
-	ExperimentTag      string `json:"experiment_tag,omitempty"`
-	DomainTag          string `json:"domain_tag,omitempty"`
-	UsageSource        string `json:"usage_source,omitempty"`
-	CreatedAt          string `json:"created_at"`
+	ID                 int64   `json:"id"`
+	Timestamp          int64   `json:"timestamp"`
+	Model              string  `json:"model"`
+	Provider           string  `json:"provider"`
+	ServiceProvider    string  `json:"service_provider"`
+	Account            string  `json:"account"`
+	UserID             string  `json:"user_id,omitempty"`
+	APIKey             string  `json:"api_key,omitempty"`
+	UserAgent          string  `json:"user_agent,omitempty"`
+	Type               string  `json:"type,omitempty"`
+	RequestType        string  `json:"request_type,omitempty"`
+	InferenceIntensity string  `json:"inference_intensity,omitempty"`
+	Tokens             int64   `json:"tokens"`
+	InputTokens        int64   `json:"input_tokens"`
+	OutputTokens       int64   `json:"output_tokens"`
+	CachedReadTokens   int64   `json:"cached_read_tokens"`
+	TotalTokens        int64   `json:"total_tokens"`
+	SavedTokens        int64   `json:"saved_tokens"`
+	LatencyMs          int64   `json:"latency_ms"`
+	TotalDuration      int64   `json:"total_duration"`
+	TTFTMs             int64   `json:"ttft_ms"`
+	TimeToFirstToken   int64   `json:"time_to_first_token"`
+	CacheHit           bool    `json:"cache_hit"`
+	Success            bool    `json:"success"`
+	ErrorType          string  `json:"error_type,omitempty"`
+	TaskType           string  `json:"task_type,omitempty"`
+	Difficulty         string  `json:"difficulty,omitempty"`
+	ExperimentTag      string  `json:"experiment_tag,omitempty"`
+	DomainTag          string  `json:"domain_tag,omitempty"`
+	UsageSource        string  `json:"usage_source,omitempty"`
+	CompressionApplied bool    `json:"compression_applied"`
+	CompressionRatio   float64 `json:"compression_ratio"`
+	GuardFailed        bool    `json:"guard_failed"`
+	FallbackInvoked    bool    `json:"fallback_invoked"`
+	FallbackSaved      bool    `json:"fallback_saved"`
+	RAGRequested       bool    `json:"rag_requested"`
+	RAGUsed            bool    `json:"rag_used"`
+	RAGFailed          bool    `json:"rag_failed"`
+	CreatedAt          string  `json:"created_at"`
 }
 
 type UsageStatsResponse struct {
-	TotalRequests int64                 `json:"total_requests"`
-	TotalTokens   int64                 `json:"total_tokens"`
-	CacheHits     int64                 `json:"cache_hits"`
-	CacheMisses   int64                 `json:"cache_misses"`
-	SavedTokens   int64                 `json:"saved_tokens"`
-	SavedRequests int64                 `json:"saved_requests"`
-	CacheHitRate  float64               `json:"cache_hit_rate"`
-	AvgLatencyMs  int64                 `json:"avg_latency_ms"`
-	ModelStats    map[string]ModelUsage `json:"model_stats"`
+	TotalRequests          int64                 `json:"total_requests"`
+	TotalTokens            int64                 `json:"total_tokens"`
+	CacheHits              int64                 `json:"cache_hits"`
+	CacheMisses            int64                 `json:"cache_misses"`
+	SavedTokens            int64                 `json:"saved_tokens"`
+	SavedRequests          int64                 `json:"saved_requests"`
+	CacheHitRate           float64               `json:"cache_hit_rate"`
+	AvgLatencyMs           int64                 `json:"avg_latency_ms"`
+	CompressionTriggered   int64                 `json:"compression_triggered"`
+	CompressionTriggerRate float64               `json:"compression_trigger_rate"`
+	CompressionRatioAvg    float64               `json:"compression_ratio_avg"`
+	GuardFailed            int64                 `json:"guard_failed"`
+	GuardFailedRate        float64               `json:"guard_failed_rate"`
+	FallbackInvoked        int64                 `json:"fallback_invoked"`
+	FallbackRate           float64               `json:"fallback_rate"`
+	FallbackSaved          int64                 `json:"fallback_saved"`
+	RAGRequested           int64                 `json:"rag_requested"`
+	RAGUsed                int64                 `json:"rag_used"`
+	RAGFailed              int64                 `json:"rag_failed"`
+	NetSavedTokens         int64                 `json:"net_saved_tokens"`
+	ModelStats             map[string]ModelUsage `json:"model_stats"`
 }
 
 type ModelUsage struct {
@@ -181,6 +201,14 @@ func (h *UsageHandler) GetUsageLogs(c *gin.Context) {
 			ExperimentTag:      getString(log, "experiment_tag"),
 			DomainTag:          getString(log, "domain_tag"),
 			UsageSource:        getString(log, "usage_source"),
+			CompressionApplied: getBool(log, "compression_applied"),
+			CompressionRatio:   getFloat64(log, "compression_ratio"),
+			GuardFailed:        getBool(log, "guard_failed"),
+			FallbackInvoked:    getBool(log, "fallback_invoked"),
+			FallbackSaved:      getBool(log, "fallback_saved"),
+			RAGRequested:       getBool(log, "rag_requested"),
+			RAGUsed:            getBool(log, "rag_used"),
+			RAGFailed:          getBool(log, "rag_failed"),
 			CreatedAt:          getString(log, "created_at"),
 		}
 		response = append(response, item)
@@ -239,15 +267,27 @@ func (h *UsageHandler) GetUsageStats(c *gin.Context) {
 	}
 
 	response := UsageStatsResponse{
-		TotalRequests: getInt64FromMap(stats, "total_requests"),
-		TotalTokens:   getInt64FromMap(stats, "total_tokens"),
-		CacheHits:     getInt64FromMap(stats, "cache_hits"),
-		CacheMisses:   getInt64FromMap(stats, "cache_misses"),
-		SavedTokens:   getInt64FromMap(stats, "saved_tokens"),
-		SavedRequests: getInt64FromMap(stats, "saved_requests"),
-		CacheHitRate:  getFloat64FromMap(stats, "cache_hit_rate"),
-		AvgLatencyMs:  getInt64FromMap(stats, "avg_latency_ms"),
-		ModelStats:    modelStats,
+		TotalRequests:          getInt64FromMap(stats, "total_requests"),
+		TotalTokens:            getInt64FromMap(stats, "total_tokens"),
+		CacheHits:              getInt64FromMap(stats, "cache_hits"),
+		CacheMisses:            getInt64FromMap(stats, "cache_misses"),
+		SavedTokens:            getInt64FromMap(stats, "saved_tokens"),
+		SavedRequests:          getInt64FromMap(stats, "saved_requests"),
+		CacheHitRate:           getFloat64FromMap(stats, "cache_hit_rate"),
+		AvgLatencyMs:           getInt64FromMap(stats, "avg_latency_ms"),
+		CompressionTriggered:   getInt64FromMap(stats, "compression_triggered"),
+		CompressionTriggerRate: getFloat64FromMap(stats, "compression_trigger_rate"),
+		CompressionRatioAvg:    getFloat64FromMap(stats, "compression_ratio_avg"),
+		GuardFailed:            getInt64FromMap(stats, "guard_failed"),
+		GuardFailedRate:        getFloat64FromMap(stats, "guard_failed_rate"),
+		FallbackInvoked:        getInt64FromMap(stats, "fallback_invoked"),
+		FallbackRate:           getFloat64FromMap(stats, "fallback_rate"),
+		FallbackSaved:          getInt64FromMap(stats, "fallback_saved"),
+		RAGRequested:           getInt64FromMap(stats, "rag_requested"),
+		RAGUsed:                getInt64FromMap(stats, "rag_used"),
+		RAGFailed:              getInt64FromMap(stats, "rag_failed"),
+		NetSavedTokens:         getInt64FromMap(stats, "net_saved_tokens"),
+		ModelStats:             modelStats,
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -304,6 +344,22 @@ func getBool(m map[string]interface{}, key string) bool {
 		}
 	}
 	return false
+}
+
+func getFloat64(m map[string]interface{}, key string) float64 {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return val
+		case float32:
+			return float64(val)
+		case int:
+			return float64(val)
+		case int64:
+			return float64(val)
+		}
+	}
+	return 0
 }
 
 func getInt64FromMap(m map[string]interface{}, key string) int64 {

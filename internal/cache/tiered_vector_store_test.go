@@ -268,8 +268,8 @@ func TestTieredVectorStore_Upsert_DualWrite_ShouldWriteToTwoBackends(t *testing.
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if len(sqliteStore.upserts) != 1 || len(qdrantStore.upserts) != 1 {
-		t.Fatalf("expected dual-write to both cold stores, got sqlite=%d qdrant=%d", len(sqliteStore.upserts), len(qdrantStore.upserts))
+	if sqliteStore.UpsertCount() != 1 || qdrantStore.UpsertCount() != 1 {
+		t.Fatalf("expected dual-write to both cold stores, got sqlite=%d qdrant=%d", sqliteStore.UpsertCount(), qdrantStore.UpsertCount())
 	}
 }
 
