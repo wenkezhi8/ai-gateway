@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -526,7 +525,8 @@ func TestProcessCacheV2Read_HotMissColdHit_ShouldPromoteHot(t *testing.T) {
 }
 
 type mockVectorStoreForProxy struct {
-	upsertCalled atomic.Bool
+	mu           sync.RWMutex
+	upsertCalled bool
 }
 
 func (m *mockVectorStoreForProxy) EnsureIndex(_ context.Context) error  { return nil }
@@ -538,7 +538,9 @@ func (m *mockVectorStoreForProxy) VectorSearch(_ context.Context, _ string, _ []
 	return nil, nil
 }
 func (m *mockVectorStoreForProxy) Upsert(_ context.Context, _ *cache.VectorCacheDocument) error {
-	m.upsertCalled.Store(true)
+	m.mu.Lock()
+	m.upsertCalled = true
+	m.mu.Unlock()
 	return nil
 }
 func (m *mockVectorStoreForProxy) Delete(_ context.Context, _ string) error { return nil }
@@ -550,7 +552,9 @@ func (m *mockVectorStoreForProxy) Stats(_ context.Context) (cache.VectorStoreSta
 }
 
 func (m *mockVectorStoreForProxy) UpsertCalled() bool {
-	return m.upsertCalled.Load()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.upsertCalled
 }
 
 func boolPtr(v bool) *bool {
